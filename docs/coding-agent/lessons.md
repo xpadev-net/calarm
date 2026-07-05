@@ -21,6 +21,14 @@ Purpose:
 
 ## Entries
 
+### 2026-07-06 - Push Orchestrator Ledger Commits Promptly
+- tags: workflow/process, delegation
+- symptom: Orchestrator ledger updates were committed locally, but the operating default did not explicitly require prompt push after local commits.
+- root cause: The task-pr orchestration loop records ledger evidence, but local commit/push hygiene for parent-thread ledger-only changes was not encoded as a durable habit.
+- fix: Treat orchestrator-owned ledger diffs as commit-and-push work whenever the user asks for persistent parent-thread bookkeeping.
+- prevention: Before ending an orchestrator turn with committed ledger changes, check `git status --short --branch`; if the branch is ahead and there is no active reason to hold the commit locally, push it and report the commit/push state.
+- promotion: Repo-local lesson only for now; no rule suite exists in this repository.
+
 ### 2026-07-06 - Add Baseline CI Before Specialized CI
 - tags: ci, validation, planning
 - symptom: Near-device simulator/emulator CI planning existed before ordinary PR CI was explicitly planned.
