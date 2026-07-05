@@ -389,7 +389,7 @@ void main() {
   });
 
   group('malformed persisted rows', () {
-    test('reports one-time plans missing their date', () async {
+    test('isolates one-time plans missing their date', () async {
       await database
           .into(database.wakePlanRows)
           .insert(
@@ -399,21 +399,10 @@ void main() {
             ),
           );
 
-      expect(
-        () => repository.fetchWakePlan('bad-one-time'),
-        throwsA(
-          isA<StateError>().having(
-            (error) => error.message,
-            'message',
-            contains(
-              'Malformed WakePlan bad-one-time: missing oneTimeDateDays',
-            ),
-          ),
-        ),
-      );
+      expect(await repository.fetchWakePlan('bad-one-time'), isNull);
     });
 
-    test('reports weekly plans missing their weekday mask', () async {
+    test('isolates weekly plans missing their weekday mask', () async {
       await database
           .into(database.wakePlanRows)
           .insert(
@@ -423,16 +412,7 @@ void main() {
             ),
           );
 
-      expect(
-        () => repository.fetchWakePlan('bad-weekly'),
-        throwsA(
-          isA<StateError>().having(
-            (error) => error.message,
-            'message',
-            contains('Malformed WakePlan bad-weekly: missing weekdaysMask'),
-          ),
-        ),
-      );
+      expect(await repository.fetchWakePlan('bad-weekly'), isNull);
     });
   });
 }

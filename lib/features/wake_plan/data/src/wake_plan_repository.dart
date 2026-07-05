@@ -29,7 +29,10 @@ class WakePlanRepository {
       return null;
     }
 
-    final plan = _wakePlanFromRow(row);
+    final plan = _tryWakePlanFromRow(row);
+    if (plan == null) {
+      return null;
+    }
     if (!includeDeleted && plan.isDeleted) {
       return null;
     }
