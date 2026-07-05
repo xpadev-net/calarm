@@ -195,44 +195,27 @@ class ScheduleResult {
     required List<NativeAlarmScheduleRequest> requests,
     required List<ScheduleOccurrenceResult> results,
   }) {
-    final resultsByScheduleKey = _correlateResults<ScheduleOccurrenceResult>(
-      requestIds: requests.map(
-        (request) => _scheduleKey(
-          occurrenceId: request.occurrenceId,
-          wakePlanId: request.wakePlanId,
-        ),
+    final correlatedResults = _correlateRequestResults(
+      requests: requests,
+      results: results,
+      requestKey: (request) => _scheduleKey(
+        occurrenceId: request.occurrenceId,
+        wakePlanId: request.wakePlanId,
       ),
-      resultIds: results.map(
-        (result) => _scheduleKey(
-          occurrenceId: result.occurrenceId,
-          wakePlanId: result.wakePlanId,
-        ),
+      resultKey: (result) => _scheduleKey(
+        occurrenceId: result.occurrenceId,
+        wakePlanId: result.wakePlanId,
+      ),
+      missingResult: (request) => ScheduleOccurrenceResult.failure(
+        occurrenceId: request.occurrenceId,
+        wakePlanId: request.wakePlanId,
+        reason: ScheduleFailureReason.nativeError,
+        message: 'Missing native schedule result.',
       ),
       resultName: 'schedule result',
     );
 
-    for (final result in results) {
-      resultsByScheduleKey[_scheduleKey(
-            occurrenceId: result.occurrenceId,
-            wakePlanId: result.wakePlanId,
-          )] =
-          result;
-    }
-
-    return ScheduleResult.fromOccurrences(
-      requests.map((request) {
-        return resultsByScheduleKey[_scheduleKey(
-              occurrenceId: request.occurrenceId,
-              wakePlanId: request.wakePlanId,
-            )] ??
-            ScheduleOccurrenceResult.failure(
-              occurrenceId: request.occurrenceId,
-              wakePlanId: request.wakePlanId,
-              reason: ScheduleFailureReason.nativeError,
-              message: 'Missing native schedule result.',
-            );
-      }).toList(),
-    );
+    return ScheduleResult.fromOccurrences(correlatedResults);
   }
 
   factory ScheduleResult.fromOccurrences(
@@ -254,14 +237,10 @@ class ScheduleResult {
       );
     }
 
-    final firstFailureReason = occurrences
-        .where((result) => !result.isSuccess)
-        .map((result) => result.failureReason)
-        .whereType<ScheduleFailureReason>()
-        .firstOrNull;
-
     return ScheduleResult(
-      status: _statusForFailureReason(firstFailureReason),
+      status: _statusForFailureReason(
+        _selectDominantFailureReason(occurrences),
+      ),
       occurrences: occurrences,
     );
   }
@@ -361,44 +340,27 @@ class CancelResult {
     required List<NativeAlarmCancelRequest> requests,
     required List<CancelAlarmResult> results,
   }) {
-    final resultsByAlarmKey = _correlateResults<CancelAlarmResult>(
-      requestIds: requests.map(
-        (request) => _alarmKey(
-          occurrenceId: request.occurrenceId,
-          platformAlarmId: request.platformAlarmId,
-        ),
+    final correlatedResults = _correlateRequestResults(
+      requests: requests,
+      results: results,
+      requestKey: (request) => _alarmKey(
+        occurrenceId: request.occurrenceId,
+        platformAlarmId: request.platformAlarmId,
       ),
-      resultIds: results.map(
-        (result) => _alarmKey(
-          occurrenceId: result.occurrenceId,
-          platformAlarmId: result.platformAlarmId,
-        ),
+      resultKey: (result) => _alarmKey(
+        occurrenceId: result.occurrenceId,
+        platformAlarmId: result.platformAlarmId,
+      ),
+      missingResult: (request) => CancelAlarmResult.failure(
+        occurrenceId: request.occurrenceId,
+        platformAlarmId: request.platformAlarmId,
+        reason: CancelFailureReason.nativeError,
+        message: 'Missing native cancel result.',
       ),
       resultName: 'cancel result',
     );
 
-    for (final result in results) {
-      resultsByAlarmKey[_alarmKey(
-            occurrenceId: result.occurrenceId,
-            platformAlarmId: result.platformAlarmId,
-          )] =
-          result;
-    }
-
-    return CancelResult.fromAlarms(
-      requests.map((request) {
-        return resultsByAlarmKey[_alarmKey(
-              occurrenceId: request.occurrenceId,
-              platformAlarmId: request.platformAlarmId,
-            )] ??
-            CancelAlarmResult.failure(
-              occurrenceId: request.occurrenceId,
-              platformAlarmId: request.platformAlarmId,
-              reason: CancelFailureReason.nativeError,
-              message: 'Missing native cancel result.',
-            );
-      }).toList(),
-    );
+    return CancelResult.fromAlarms(correlatedResults);
   }
 
   factory CancelResult.fromAlarms(List<CancelAlarmResult> alarms) {
@@ -541,41 +503,71 @@ void _validatePlatformAlarmId(String platformAlarmId) {
   }
 }
 
-Map<String, T?> _correlateResults<T>({
-  required Iterable<String> requestIds,
-  required Iterable<String> resultIds,
+List<TResult> _correlateRequestResults<TRequest, TResult, TKey>({
+  required List<TRequest> requests,
+  required List<TResult> results,
+  required TKey Function(TRequest request) requestKey,
+  required TKey Function(TResult result) resultKey,
+  required TResult Function(TRequest request) missingResult,
   required String resultName,
 }) {
-  final requestIdSet = <String>{};
-  for (final requestId in requestIds) {
-    if (!requestIdSet.add(requestId)) {
+  final requestKeys = <TKey>{};
+  for (final request in requests) {
+    final key = requestKey(request);
+    if (!requestKeys.add(key)) {
       throw ArgumentError.value(
-        requestId,
-        'requestIds',
-        'contains a duplicate occurrence id',
+        key,
+        'requests',
+        'contains a duplicate request key',
       );
     }
   }
 
-  final resultIdSet = <String>{};
-  for (final resultId in resultIds) {
-    if (!resultIdSet.add(resultId)) {
+  final resultKeys = <TKey>{};
+  final resultsByKey = <TKey, TResult>{};
+  for (final result in results) {
+    final key = resultKey(result);
+    if (!resultKeys.add(key)) {
       throw ArgumentError.value(
-        resultId,
+        key,
         resultName,
-        'contains a duplicate occurrence id',
+        'contains a duplicate result key',
       );
     }
-    if (!requestIdSet.contains(resultId)) {
+    if (!requestKeys.contains(key)) {
       throw ArgumentError.value(
-        resultId,
+        key,
         resultName,
-        'does not match any requested occurrence id',
+        'does not match any request key',
       );
     }
+    resultsByKey[key] = result;
   }
 
-  return {for (final requestId in requestIdSet) requestId: null};
+  return requests.map((request) {
+    return resultsByKey[requestKey(request)] ?? missingResult(request);
+  }).toList();
+}
+
+ScheduleFailureReason? _selectDominantFailureReason(
+  List<ScheduleOccurrenceResult> occurrences,
+) {
+  final reasons = occurrences
+      .where((result) => !result.isSuccess)
+      .map((result) => result.failureReason)
+      .whereType<ScheduleFailureReason>()
+      .toSet();
+
+  if (reasons.contains(ScheduleFailureReason.permissionMissing)) {
+    return ScheduleFailureReason.permissionMissing;
+  }
+  if (reasons.contains(ScheduleFailureReason.osConstraint)) {
+    return ScheduleFailureReason.osConstraint;
+  }
+  if (reasons.isNotEmpty) {
+    return reasons.first;
+  }
+  return null;
 }
 
 String _alarmKey({

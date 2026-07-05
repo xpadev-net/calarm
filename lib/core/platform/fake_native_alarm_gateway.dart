@@ -33,7 +33,8 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
   ScheduleFailureReason? scheduleFailureReason;
   ScheduleFailureReason? testAlarmFailureReason;
   final Set<String> scheduleFailureOccurrenceIds = <String>{};
-  final Set<String> scheduleFailurePlatformAlarmIds = <String>{};
+  final Set<String> scheduleFailureOccurrenceIdsWithPlatformAlarmIds =
+      <String>{};
   final Set<String> cancelFailurePlatformAlarmIds = <String>{};
   final List<NativeAlarmScheduleRequest> scheduledRequests =
       <NativeAlarmScheduleRequest>[];
@@ -72,7 +73,9 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
           : globalFailureReason;
       if (occurrenceFailureReason != null) {
         final failedPlatformAlarmId =
-            scheduleFailurePlatformAlarmIds.contains(request.occurrenceId)
+            scheduleFailureOccurrenceIdsWithPlatformAlarmIds.contains(
+              request.occurrenceId,
+            )
             ? platformAlarmIdFactory(request)
             : null;
         return ScheduleOccurrenceResult.failure(
@@ -121,6 +124,8 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
         !capability.canScheduleAlarms;
     final failureReason = permissionMissing
         ? ScheduleFailureReason.permissionMissing
+        : !capability.supportsTestAlarm
+        ? ScheduleFailureReason.unavailable
         : testAlarmFailureReason;
     if (failureReason != null) {
       return TestAlarmScheduleResult.failure(reason: failureReason);

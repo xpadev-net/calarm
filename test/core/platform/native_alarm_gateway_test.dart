@@ -105,6 +105,46 @@ void main() {
       expect(result.status, ScheduleResultStatus.permissionMissing);
     });
 
+    test('prioritizes permission failures over generic failures', () {
+      final result = ScheduleResult.fromRequestResults(
+        requests: _requests(),
+        results: [
+          ScheduleOccurrenceResult.failure(
+            occurrenceId: 'occ-1',
+            wakePlanId: 'plan-1',
+            reason: ScheduleFailureReason.nativeError,
+          ),
+          ScheduleOccurrenceResult.failure(
+            occurrenceId: 'occ-2',
+            wakePlanId: 'plan-1',
+            reason: ScheduleFailureReason.permissionMissing,
+          ),
+        ],
+      );
+
+      expect(result.status, ScheduleResultStatus.permissionMissing);
+    });
+
+    test('prioritizes OS constraints over generic failures', () {
+      final result = ScheduleResult.fromRequestResults(
+        requests: _requests(),
+        results: [
+          ScheduleOccurrenceResult.failure(
+            occurrenceId: 'occ-1',
+            wakePlanId: 'plan-1',
+            reason: ScheduleFailureReason.nativeError,
+          ),
+          ScheduleOccurrenceResult.failure(
+            occurrenceId: 'occ-2',
+            wakePlanId: 'plan-1',
+            reason: ScheduleFailureReason.osConstraint,
+          ),
+        ],
+      );
+
+      expect(result.status, ScheduleResultStatus.osConstraint);
+    });
+
     test('marks missing native schedule rows as per-occurrence failures', () {
       final result = ScheduleResult.fromRequestResults(
         requests: _requests(),
@@ -241,7 +281,7 @@ void main() {
       () async {
         final gateway = FakeNativeAlarmGateway();
         gateway.scheduleFailureOccurrenceIds.add('occ-2');
-        gateway.scheduleFailurePlatformAlarmIds.add('occ-2');
+        gateway.scheduleFailureOccurrenceIdsWithPlatformAlarmIds.add('occ-2');
 
         final result = await gateway.scheduleOccurrences(_requests());
 
@@ -252,6 +292,20 @@ void main() {
         expect(failed.platformAlarmId, 'platform-occ-2');
       },
     );
+
+    test('chooses the dominant status when all fake schedules fail', () async {
+      final gateway = FakeNativeAlarmGateway()
+        ..scheduleFailureReason = ScheduleFailureReason.permissionMissing
+        ..scheduleFailureOccurrenceIds.add('occ-2');
+
+      final result = await gateway.scheduleOccurrences(_requests());
+
+      expect(result.status, ScheduleResultStatus.permissionMissing);
+      expect(result.occurrences.map((occurrence) => occurrence.failureReason), [
+        ScheduleFailureReason.permissionMissing,
+        ScheduleFailureReason.nativeError,
+      ]);
+    });
 
     test('cancels plans by resolved occurrence and platform ids', () async {
       final gateway = FakeNativeAlarmGateway();
@@ -389,6 +443,25 @@ void main() {
 
       expect(result.status, ScheduleResultStatus.permissionMissing);
       expect(result.failureReason, ScheduleFailureReason.permissionMissing);
+      expect(result.platformAlarmId, isNull);
+    });
+
+    test('reports unsupported test alarms as unavailable', () async {
+      final gateway = FakeNativeAlarmGateway(
+        capability: const NativeAlarmCapability(
+          permissionStatus: NativeAlarmPermissionStatus.authorized,
+          canScheduleAlarms: true,
+          canRequestPermission: true,
+          supportsTestAlarm: false,
+        ),
+      );
+
+      final result = await gateway.scheduleTestAlarm(
+        NativeTestAlarmScheduleRequest(fireAfter: const Duration(minutes: 1)),
+      );
+
+      expect(result.status, ScheduleResultStatus.failure);
+      expect(result.failureReason, ScheduleFailureReason.unavailable);
       expect(result.platformAlarmId, isNull);
     });
   });
