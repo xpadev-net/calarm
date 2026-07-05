@@ -121,7 +121,7 @@
   - kind: review
     required: true
     owner: reviewer
-    detail: "鳴動画面に禁止導線が存在しないことをレビューする"
+    detail: "鳴動画面に禁止導線が存在しないことと、stop/future-occurrence runtime evidenceにPASSまたはBLOCKEDのQA rowが記録されていることをレビューする"
 
 ### Task_3: Test Alarm and Health Checks
 - type: impl
@@ -158,7 +158,7 @@
   - kind: review
     required: true
     owner: reviewer
-    detail: "権限不足時に鳴らない状態を放置しないUIになっているかレビューする"
+    detail: "権限不足時に鳴らない状態を放置しないUIになっていることと、permission/test-alarm runtime evidenceにPASSまたはBLOCKEDのQA rowが記録されていることをレビューする"
 
 ## Task Waves (explicit parallel dispatch sets)
 
