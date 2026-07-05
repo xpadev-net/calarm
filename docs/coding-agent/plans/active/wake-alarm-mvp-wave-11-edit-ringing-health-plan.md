@@ -58,6 +58,7 @@
 - A5: エラー表示はinline warningを基本とし、操作結果の短い通知はsnackbar、破壊的確認だけdialogを使う。
 - A6: Wave 3 keeps iOS/Android runtime behavior unapproved; ringing and health checks must record missing runtime evidence as BLOCKED, not as success.
 - A7: Android stop behavior must have a native minimal UI path; Flutter-only stop handling is insufficient for MVP reliability.
+- A8: Optional runtime checks are optional only for device execution; missing runtime evidence still requires explicit PASS or BLOCKED QA evidence rows.
 
 ## Tasks
 
@@ -103,6 +104,7 @@
   - 停止すると当該Occurrenceのみdismissedになり、未来Occurrenceはscheduledのまま残る。
   - AndroidでFlutter起動が遅い場合も最低限停止できるfallbackがある。
   - iOS/Android runtime stop evidence is recorded when available; missing runtime evidence remains a release-blocking checklist item.
+  - Runtime stop cases have explicit PASS or BLOCKED QA evidence rows even when device execution is unavailable.
 - validation:
   - kind: command
     required: true
@@ -112,6 +114,10 @@
     required: false
     owner: worker
     detail: "iOS/Android実機が利用可能な場合は鳴動画面と停止後の未来Occurrence維持を確認する。実行できない場合はBLOCKEDとして残し、Wave 11 completionやrelease approvalとは扱わない"
+  - kind: review
+    required: true
+    owner: worker
+    detail: "鳴動画面・停止・未来Occurrence維持のruntime evidenceについて、利用可能ならPASS、 unavailableならBLOCKEDのQA evidence rowがあることを確認する。device実行可否とは独立した必須evidence step"
   - kind: review
     required: true
     owner: reviewer
@@ -135,6 +141,7 @@
   - 権限不足や予約失敗がホーム画面または設定画面のinline warningで確認できる。
   - アプリがスケジュール成功を偽らず、失敗理由を保持する。
   - 権限拒否やOS設定問題が未検証の場合はruntime validation pending/BLOCKEDとしてQA evidenceに残る。
+  - 権限・テストアラームruntime cases have explicit PASS or BLOCKED QA evidence rows even when device execution is unavailable.
 - validation:
   - kind: command
     required: true
@@ -144,6 +151,10 @@
     required: false
     owner: worker
     detail: "iOS/Android実機が利用可能な場合は権限拒否、権限許可、テストアラームを確認する。実行できない場合はBLOCKEDとして残し、Wave 11 completionやrelease approvalとは扱わない"
+  - kind: review
+    required: true
+    owner: worker
+    detail: "権限拒否・権限許可・テストアラームのruntime evidenceについて、利用可能ならPASS、unavailableならBLOCKEDのQA evidence rowがあることを確認する。device実行可否とは独立した必須evidence step"
   - kind: review
     required: true
     owner: reviewer
@@ -185,6 +196,7 @@
 - 2026-07-06 Wave 3 decision integrated.
   - Ringing, stop, permission, and test-alarm flows may be implemented before runtime approval, but missing iOS 26+ and Android API 36 evidence remains release-blocking.
   - Android fallback policy is native minimal stop UI, not Flutter-only recovery.
+  - PASS/BLOCKED QA evidence rows are required even when device execution is unavailable.
 
 - 2026-07-05 Draft created.
 

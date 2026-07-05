@@ -57,7 +57,7 @@
 - A4: MethodChannel payload schemaは`docs/platform/native-alarm-channel.md`とcontract testsの両方で固定する。
 - A5: Drift migrationはMVP中もschemaVersionを上げて同一PR/taskでmigrationを書く。破壊的resetはdev/debug限定にする。
 - A6: MethodChannel payloadには`schemaVersion: 1`を含める。
-- A7: Repository schema must persist a nullable platform alarm identity per `AlarmOccurrence`, populated after successful native scheduling and used for occurrence/plan cancel. Native plan cancel receives the resolved stored platform identity list; it does not look up Drift rows from a logical WakePlan id.
+- A7: Repository schema must persist a nullable platform alarm identity per `AlarmOccurrence`, populated after successful native scheduling and used for occurrence/plan cancel. The Dart gateway/repository API for plan cancel requires the resolved stored occurrence/platform identity list before crossing the native boundary; native plan cancel does not receive only a logical WakePlan id and does not look up Drift rows.
 
 ## Tasks
 
@@ -124,6 +124,7 @@
   Original Task_12. Flutter MethodChannelのチャンネル名、メソッド名、引数/戻り値形式を確定し、Dart側の変換を実装する。
 - acceptance:
   - `getCapability`、`requestPermissionIfNeeded`、`scheduleOccurrences`、`cancelOccurrences`、`cancelPlan`、`scheduleTestAlarm` のchannel呼び出しがある。
+  - Dart caller-facing `cancelPlan` API requires the Repository-resolved stored occurrence/platform identity list; a `cancelPlan(wakePlanId)`-only API is not allowed at the native gateway boundary.
   - すべてのMethodChannel payloadに`schemaVersion: 1`が含まれる。
   - 引数と戻り値のJSON/Map構造が`docs/platform/native-alarm-channel.md`とcontract testsで固定されている。
   - schedule result payloadは各platform alarm idを元のOccurrence idへ相関でき、部分失敗もOccurrence単位で表現できる。
@@ -156,13 +157,13 @@
 
 - Wave 8のWakePlanSchedulingServiceはTask_1/2/3を統合する。
 - Wave 8のiOS/Android bridgeはTask_3のschemaをsource of truthにする。
-- Wave 8はRepositoryのpersisted platform alarm identityを使って予約成功反映、individual cancel、plan cancel、reconciliationを実装する。Plan cancelではRepositoryが対象Occurrenceのstored `platformAlarmId` listを解決してnative gatewayへ渡す。
+- Wave 8はRepositoryのpersisted platform alarm identityを使って予約成功反映、individual cancel、plan cancel、reconciliationを実装する。Plan cancelではRepositoryが対象Occurrenceのstored `platformAlarmId` listを解決してからnative gateway APIを呼び、native境界へlogical WakePlan idだけを渡さない。
 
 ## Progress Log (append-only)
 
 - 2026-07-06 Wave 3 decision integrated.
   - Repository and MethodChannel schema must preserve one nullable platform alarm identity per `AlarmOccurrence` before Wave 8 scheduling integration.
-  - Plan cancel channel contract must pass resolved stored platform alarm identities, not only a logical WakePlan id.
+  - Plan cancel gateway and channel contracts must pass resolved stored platform alarm identities, not only a logical WakePlan id.
 
 - 2026-07-05 Draft created.
 

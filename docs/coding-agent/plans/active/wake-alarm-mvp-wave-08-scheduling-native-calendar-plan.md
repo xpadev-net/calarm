@@ -114,6 +114,10 @@
     detail: "iOS 26以上環境が利用可能な場合はテストアラーム、複数Occurrence、個別cancel、plan cancelを確認する。実行できない場合もQA checklistへ該当caseごとのBLOCKED rowを必ず記録し、Wave 8 completionやrelease approvalとは扱わない"
   - kind: review
     required: true
+    owner: worker
+    detail: "docs/qa/ios-alarmkit-checklist.mdにiOS runtime casesごとのPASSまたはBLOCKED rowがあることを確認する。device実行可否とは独立した必須evidence step"
+  - kind: review
+    required: true
     owner: reviewer
     detail: "iOSコードとQA checklistをレビューする"
 
@@ -141,6 +145,10 @@
     required: false
     owner: worker
     detail: "Android API 36環境が利用可能な場合はテストアラーム、複数Occurrence、個別cancel、plan cancel、再起動後再予約を確認する。実行できない場合もQA checklistへ該当caseごとのBLOCKED rowを必ず記録し、Wave 8 completionやrelease approvalとは扱わない"
+  - kind: review
+    required: true
+    owner: worker
+    detail: "docs/qa/android-alarm-checklist.mdにAndroid runtime casesごとのPASSまたはBLOCKED rowがあることを確認する。device実行可否とは独立した必須evidence step"
   - kind: review
     required: true
     owner: reviewer

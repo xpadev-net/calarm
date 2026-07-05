@@ -90,6 +90,7 @@
   - ScheduleResultで成功、権限不足、OS制約、部分失敗、platformAlarmIdを表現できる。
   - ScheduleResultは各native platform alarm idを入力した正確な`AlarmOccurrence`へ相関できる。部分失敗時もOccurrenceごとにsuccess/failure、failure reason、platformAlarmIdの有無を表現できる。
   - ScheduleResultとcancel APIがOccurrence単位のplatform alarm identity保存・参照に必要な情報を表現できる。
+  - Plan cancel APIはlogical WakePlan idだけをnativeへ渡さず、Repository側で解決済みのOccurrence id / platformAlarmId listを入力にする。
   - Fake実装で成功、失敗、部分失敗、権限不足をテストできる。
   - ネイティブ側の具体方式に依存しないDart APIになっている。
 - validation:
