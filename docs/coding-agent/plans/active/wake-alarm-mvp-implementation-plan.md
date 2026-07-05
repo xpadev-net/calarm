@@ -168,10 +168,10 @@ Interpretation:
 ## Progress Log (append-only)
 
 - 2026-07-06 Wave 7 planner, repository, MethodChannel, and baseline CI delegated.
-  - Task_1 Worker pending worktree: `local:4503e9d0-f2d6-4bf8-98de-c839dbad3111`; branch `codex/wave-07-occurrence-planner`.
-  - Task_2 Worker pending worktree: `local:8fe1664a-241c-44a9-b5af-6da9c8d272bf`; branch `codex/wave-07-wake-plan-repository`.
-  - Task_3 Worker pending worktree: `local:140e55b3-2943-487f-9b05-06f15194ac54`; branch `codex/wave-07-method-channel-gateway`.
-  - Task_4 Worker pending worktree: `local:6966b4b3-034f-49e2-a2df-4113c90f2439`; branch `codex/wave-07-baseline-ci`.
+  - Task_1 Worker thread: `019f33d4-a600-7462-96ef-26c49e67a936`; pending worktree `local:4503e9d0-f2d6-4bf8-98de-c839dbad3111`; branch `codex/wave-07-occurrence-planner`.
+  - Task_2 Worker thread: `019f33d4-a5fc-7ba0-8f14-f974af181e28`; pending worktree `local:8fe1664a-241c-44a9-b5af-6da9c8d272bf`; branch `codex/wave-07-wake-plan-repository`.
+  - Task_3 Worker thread: `019f33d4-a978-7b32-8aa5-c9c67e531f6a`; pending worktree `local:140e55b3-2943-487f-9b05-06f15194ac54`; branch `codex/wave-07-method-channel-gateway`.
+  - Task_4 Worker thread: `019f33d4-aeca-7053-89b3-8041f60a3f64`; pending worktree `local:6966b4b3-034f-49e2-a2df-4113c90f2439`; branch `codex/wave-07-baseline-ci`.
   - Scope: Execute Wave 7 child plan tasks in parallel with disjoint owns, preserving Wave 8 native runtime validation as deferred and unapproved.
   - Validation ownership: workers must provide task-specific tests/checks, analyzer/diff checks, independent review, PR hook evidence, and merge-ready or blocked reports; orchestrator owns final PR review, merge, ledger completion, and thread archival.
 
