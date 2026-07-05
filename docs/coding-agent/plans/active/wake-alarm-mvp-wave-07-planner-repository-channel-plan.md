@@ -203,6 +203,16 @@
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 7 Task_1 Occurrence Planner merged.
+  - Summary: PR #11 `Add wake occurrence planner` was squash-merged after worker validation, independent review, gh-review-hook, base-branch updates, hosted Baseline CI, and orchestrator merge gate.
+  - Merge commit: `3878b794d1f83ddd58f84b5fa1488417c161ca7b`.
+  - Branch/head: `codex/wave-07-occurrence-planner` at `dea80f19bbc7407f618c894ee438410bf7bc410d`.
+  - Changed files: `lib/features/wake_plan/application/occurrence_planner.dart` and `test/features/wake_plan/application/occurrence_planner_test.dart`.
+  - Validation evidence: Worker `rtk flutter test test/features/wake_plan/application/occurrence_planner_test.dart`, `rtk flutter analyze`, and `rtk git diff --check` passed; orchestrator reran the same checks from a clean PR-head worktree after updating the branch to current master, and all passed.
+  - Review evidence: Worker deep-review self-review and independent reviewer approved; orchestrator inspected preview vs scheduling candidate semantics, repeat/skip usage through `WakePlan.occursOn`, day-crossing handling, and interval target inclusion.
+  - Hook/check evidence: Worker final `rtk gh-review-hook 11` exited 0; orchestrator reran `rtk gh-review-hook 11`, waited for refreshed hosted Baseline CI, CodeRabbit, Greptile, and Socket checks, and all passed.
+  - Remaining Wave 7 work: Task_2 Wake Plan Repository remains active or pending orchestrator merge; Task_3 and Task_4 are already merged.
+
 - 2026-07-06 Wave 7 Task_4 Baseline GitHub Actions CI merged.
   - Summary: PR #9 `Add baseline Flutter CI` was squash-merged after worker validation, hosted CI, independent review, hook fixes, base-branch merge, and orchestrator merge gate.
   - Merge commit: `962dbc5da24ae6447efc436be2464d9c8a922b42`.
