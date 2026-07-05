@@ -23,7 +23,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -f .fvmrc ]]; then
-            version="$(jq -r '.flutter // empty' .fvmrc)"
+            version="$(jq -r '.flutter // .flutterSdkVersion // empty' .fvmrc)"
             if [[ -z "${version}" ]]; then
               echo "::error::.fvmrc exists but does not define a non-empty flutter version"
               exit 1
