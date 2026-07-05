@@ -167,6 +167,15 @@ Interpretation:
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 7 Task_4 Baseline GitHub Actions CI merged.
+  - Summary: PR #9 `Add baseline Flutter CI` was squash-merged, adding pull_request/workflow_dispatch baseline CI for Flutter dependency resolution, Dart format, Flutter analyze, Flutter test, log artifacts, and QA documentation.
+  - Merge commit: `962dbc5da24ae6447efc436be2464d9c8a922b42`.
+  - Validation evidence: Worker `rtk flutter pub get`, `rtk dart format --set-exit-if-changed .`, `rtk flutter analyze`, `rtk flutter test`, and `rtk git diff --check` passed; hosted GitHub Actions Baseline CI passed; orchestrator reran the same local checks plus workflow YAML parse from a clean PR-head worktree after updating the branch to current master, and all passed.
+  - Review evidence: Worker deep-review self-review and independent reviewer approved; hook-requested `.fvmrc` alternate key support was fixed; orchestrator inspected workflow triggers, Flutter setup, commands, artifact upload, and scope separation from native smoke/runtime validation.
+  - Hook/check evidence: Worker final `rtk gh-review-hook 9` exited 0; orchestrator reran `rtk gh-review-hook 9`, waited for refreshed hosted checks, and verified Baseline CI, CodeRabbit, Greptile, and Socket checks passed.
+  - PR state: #9 merged; branch head `c9f75b0fccad1edb979163a827beb3425f1bd64d`; merge commit `962dbc5da24ae6447efc436be2464d9c8a922b42`.
+  - Decision impact: Baseline CI is now active for later PRs; it remains ordinary CI evidence and does not approve iOS/Android runtime alarm behavior.
+
 - 2026-07-06 Wave 7 Task_3 MethodChannel Gateway Wiring merged.
   - Summary: PR #10 `Wave 7: Wire native alarm MethodChannel gateway` was squash-merged, adding the MethodChannelNativeAlarmGateway adapter, schema documentation, and contract tests for all native alarm gateway methods.
   - Merge commit: `3167325907868816a04482e358d44b4b707daf9c`.
