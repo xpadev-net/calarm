@@ -53,6 +53,7 @@
 - A6: iOS/Androidの片方のみAPPROVEDの場合は通常MVPへ進めず、platform限定MVPとして別途明示判断する。
 - A7: Wave 3 allowed implementation to continue without runtime approval; Wave 14 is the later gate that must resolve or explicitly block deferred runtime validation.
 - A8: A platform cannot be marked release APPROVED while wake delivery, lock/terminated behavior, permission handling, stop UI, cancel semantics, 13-equivalent reservations, or Android reboot restore remain pending/BLOCKED.
+- A9: Waiver or platform-limited release decisions are separate product/release decisions; they do not convert unresolved deferred runtime validation into APPROVED.
 
 ## Tasks
 
@@ -71,7 +72,8 @@
   - iOS/Androidそれぞれでロック中、アプリ終了中、再起動後の重要挙動が記録されている。
   - MVPで残す制約と次リリース候補がdocsに整理されている。
   - 親プランと子プランのProgress LogとDecision Logが最新化されている。
-  - Wave 3でdeferされたiOS 26+ and Android API 36 runtime validationがpass/BLOCKED/explicit release decisionとして整理され、未検証のままAPPROVEDになっていない。
+  - Wave 3でdeferされたiOS 26+ and Android API 36 runtime validationがpassまたはBLOCKEDとして整理され、未検証・BLOCKEDのplatformはAPPROVEDになっていない。
+  - waiverやplatform-limited scopeが必要な場合は、APPROVED条件ではなく別のproduct/release decision pathとして記録されている。
 - validation:
   - kind: command
     required: true
@@ -88,7 +90,7 @@
   - kind: review
     required: true
     owner: reviewer
-    detail: "MVP Definition of Doneに対する最終レビューを行い、deferred runtime validationが残るplatformをAPPROVEDにしない"
+    detail: "MVP Definition of Doneに対する最終レビューを行い、deferred runtime validationがpassで解決していないplatformをAPPROVEDにしない。waiver/platform-limited判断は別decisionとして扱う"
 
 ## Task Waves (explicit parallel dispatch sets)
 
@@ -137,7 +139,8 @@
 
 - Final QA must include cleanup/cancel of known test alarms.
 - Release readiness cannot be APPROVED if native alarms remain scheduled unintentionally after tests.
-- Release readiness cannot be APPROVED for a platform while Wave 3 deferred runtime validation is pending or BLOCKED, unless a later explicit product/release decision records the waiver or platform-limited scope.
+- Release readiness cannot be APPROVED for a platform while Wave 3 deferred runtime validation is pending or BLOCKED.
+- A later explicit product/release decision may choose a waiver or platform-limited path, but that path must be recorded separately from APPROVED release readiness and must not relabel unresolved runtime validation as pass.
 - Do not delete MVP QA artifacts before final release readiness is recorded.
 
 ## Progress Log (append-only)
@@ -152,7 +155,7 @@
 
 - 2026-07-06 Decision: Keep Wave 3 deferred runtime validation as final release gate.
   - Trigger / new insight: Wave 3 permits implementation from API-surface feasibility only.
-  - Plan delta (what changed): Wave 14 final review must explicitly resolve all deferred runtime cases before marking a platform APPROVED.
+  - Plan delta (what changed): Wave 14 final review must explicitly resolve all deferred runtime cases as pass before marking a platform APPROVED; waiver/platform-limited decisions are separate release paths and do not convert unresolved validation into approval.
   - Tradeoffs considered: Implementation momentum is preserved, but release confidence still depends on platform runtime evidence.
   - User approval: yes, from Wave 3 deferment.
 

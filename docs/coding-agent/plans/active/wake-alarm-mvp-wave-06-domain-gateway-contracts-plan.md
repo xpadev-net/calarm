@@ -41,7 +41,7 @@
 ## Open Questions (max 3)
 
 - Q1: `failed`状態はOccurrenceだけに持つか、WakePlanにもsummaryとして持つか。
-- Q2: ScheduleResultの部分失敗をどの粒度で表すか。
+- Q2: ScheduleResultの部分失敗をどの粒度で表すか。Wave 3 decisionにより、少なくともOccurrence単位でsuccess/failure/platformAlarmIdを相関できる必要がある。
 - Q3: Gateway contractをMethodChannel Mapで固定するか、将来Pigeon化前提の型へ寄せるか。
 
 ## Assumptions
@@ -88,6 +88,7 @@
 - acceptance:
   - capability取得、権限要求、Occurrence予約、Occurrence cancel、Plan cancel、テストアラーム予約のAPIがある。
   - ScheduleResultで成功、権限不足、OS制約、部分失敗、platformAlarmIdを表現できる。
+  - ScheduleResultは各native platform alarm idを入力した正確な`AlarmOccurrence`へ相関できる。部分失敗時もOccurrenceごとにsuccess/failure、failure reason、platformAlarmIdの有無を表現できる。
   - ScheduleResultとcancel APIがOccurrence単位のplatform alarm identity保存・参照に必要な情報を表現できる。
   - Fake実装で成功、失敗、部分失敗、権限不足をテストできる。
   - ネイティブ側の具体方式に依存しないDart APIになっている。
@@ -125,7 +126,7 @@
 
 - 2026-07-06 Decision: Add platform alarm identity to domain/gateway contract.
   - Trigger / new insight: Wave 3 adopted rolling concrete native occurrence reservations with one native identity per occurrence.
-  - Plan delta (what changed): Wave 6 domain and gateway acceptance now require nullable `platformAlarmId`-equivalent storage on `AlarmOccurrence` and result/cancel contracts that preserve it.
+  - Plan delta (what changed): Wave 6 domain and gateway acceptance now require nullable `platformAlarmId`-equivalent storage on `AlarmOccurrence`, per-occurrence ScheduleResult correlation including partial failures, and result/cancel contracts that preserve it.
   - Tradeoffs considered: Keeping the field nullable supports pre-schedule planner output while making post-schedule persistence explicit.
   - User approval: yes, from Wave 3 rolling reservation decision.
 

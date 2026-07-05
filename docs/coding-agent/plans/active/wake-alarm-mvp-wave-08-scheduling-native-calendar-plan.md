@@ -59,6 +59,7 @@
 - A7: 編集時のDB更新順序は`pendingChange`保存 → old cancel → new schedule → committed/failedとする。
 - A8: Wave 3 approves implementation from API-surface evidence only; native bridge work must keep iOS 26+ and Android API 36 runtime reliability unapproved until manual evidence passes.
 - A9: OS recurrence is not the MVP source of truth; bridge tasks schedule concrete occurrences and persist one platform alarm identity per occurrence.
+- A10: Optional runtime checks are optional only for device execution; each unavailable runtime case still requires an explicit QA checklist row with PASS or BLOCKED status.
 
 ## Tasks
 
@@ -101,6 +102,7 @@
   - Occurrence単位cancelとPlan単位cancelが動作する。
   - テストアラームを予約できる。
   - iOS 26+ runtime validation status is recorded in the QA checklist; missing device/runtime evidence remains release-blocking and is not treated as platform approval.
+  - QA checklist includes explicit PASS or BLOCKED rows for iOS runtime cases even when the iOS 26+ runtime is unavailable.
 - validation:
   - kind: command
     required: true
@@ -109,7 +111,7 @@
   - kind: manual
     required: false
     owner: worker
-    detail: "iOS 26以上環境が利用可能な場合はテストアラーム、複数Occurrence、個別cancel、plan cancelを確認する。実行できない場合はQA checklistへBLOCKEDとして記録し、Wave 8 completionやrelease approvalとは扱わない"
+    detail: "iOS 26以上環境が利用可能な場合はテストアラーム、複数Occurrence、個別cancel、plan cancelを確認する。実行できない場合もQA checklistへ該当caseごとのBLOCKED rowを必ず記録し、Wave 8 completionやrelease approvalとは扱わない"
   - kind: review
     required: true
     owner: reviewer
@@ -129,6 +131,7 @@
   - Occurrence単位cancelとPlan単位cancelが動作する。
   - 再起動後の再予約が実装され、制限がある場合はQA checklistに記録されている。
   - Android API 36 runtime validation status is recorded in the QA checklist; missing device/runtime evidence remains release-blocking and is not treated as platform approval.
+  - QA checklist includes explicit PASS or BLOCKED rows for Android runtime cases even when the Android API 36 runtime is unavailable.
 - validation:
   - kind: command
     required: true
@@ -137,7 +140,7 @@
   - kind: manual
     required: false
     owner: worker
-    detail: "Android API 36環境が利用可能な場合はテストアラーム、複数Occurrence、個別cancel、plan cancel、再起動後再予約を確認する。実行できない場合はQA checklistへBLOCKEDとして記録し、Wave 8 completionやrelease approvalとは扱わない"
+    detail: "Android API 36環境が利用可能な場合はテストアラーム、複数Occurrence、個別cancel、plan cancel、再起動後再予約を確認する。実行できない場合もQA checklistへ該当caseごとのBLOCKED rowを必ず記録し、Wave 8 completionやrelease approvalとは扱わない"
   - kind: review
     required: true
     owner: reviewer
@@ -186,13 +189,15 @@
   - Mobile large: 430x932.
 - evidence_requirements:
   - Screenshots for calendar empty state.
-  - Native logs/checklist rows for schedule/cancel.
+  - Native logs/checklist rows for schedule/cancel when runtime evidence is available.
+  - Explicit PASS or BLOCKED checklist rows for every unavailable iOS 26+ / Android API 36 runtime case.
 
 ## Rollback / Safety
 
 - Native alarm changes must include cleanup/cancel procedure in QA checklist.
 - Calendar code must not assume external calendar permissions.
 - Native bridge implementation may proceed without runtime approval, but any unavailable manual runtime cases must remain visible as release blockers.
+- Optional runtime checks must never disappear silently; missing devices/runtimes are recorded as BLOCKED checklist rows.
 
 ## Handoff To Next Wave
 
@@ -203,7 +208,7 @@
 
 - 2026-07-06 Wave 3 decision integrated.
   - Native bridges must use rolling concrete occurrence reservations and one platform alarm identity per occurrence.
-  - iOS/Android manual validation in this wave is optional implementation evidence when a matching runtime is available; if unavailable, the checklist records BLOCKED and later release gates remain blocked.
+  - iOS/Android manual validation in this wave is optional implementation evidence when a matching runtime is available; if unavailable, the checklist records explicit BLOCKED rows and later release gates remain blocked.
 
 - 2026-07-05 Draft created.
 

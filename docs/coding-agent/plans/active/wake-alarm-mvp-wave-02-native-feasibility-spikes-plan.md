@@ -99,7 +99,8 @@
 
 ## Task Waves (explicit parallel dispatch sets)
 
-- Wave 1 (parallel): [Task_1, Task_2]
+- Wave 1 (serial): [Task_1]
+- Wave 2 (serial): [Task_2 after Task_1 PR is merged, blocked, or otherwise integrated]
 
 ## Rollback / Safety
 
@@ -112,27 +113,11 @@
 
 ## Progress Log (append-only)
 
-- 2026-07-06 Runtime validation deferred by user decision.
-  - User decision: runtime validation is acceptable to defer.
-  - Scope of deferment: iOS 26+ real-device/compatible-runtime validation and Android API 36 device/emulator/runtime validation remain unexecuted.
-  - Completion basis: Wave 2 now closes as merged blocker/API-surface evidence with user-approved runtime-validation deferment, not as platform runtime approval.
-  - Handoff: Wave 3 must treat both platforms as runtime-unapproved and decide whether MVP continues with explicit risk, scope limits, and later validation gates.
-
-- 2026-07-06 Task_2 blocked evidence merged.
-  - PR: #3 https://github.com/xpadev-net/calarm/pull/3
-  - Branch head: `a1af0266505850bf99c55ab68e570914a9320bb5`.
-  - Merge commit: `d07086e6951aa0f2b2eae787e56d152d45fac7f4`.
-  - Changed files: `docs/spikes/native-alarm-feasibility.md`.
-  - Worker validation evidence: `rtk git diff --check` passed; Android build/compile was not run because the repository has no `android/**` app target and no Android API 36 SDK/runtime is installed.
-  - Review evidence: independent Worker reviewer approved; `gh-review-hook 3` exited 0 after the Worker clarified runtime-readiness wording; GitHub checks passed.
-  - Blocker: required Android runtime validation could not run because `adb devices -l` found no attached devices or running emulators, `emulator -list-avds` found no configured AVDs, installed Android SDK platforms were android-30, android-33, and android-34 only, and no android-36 platform/system image or installable app target was available.
-  - Orchestrator validation evidence: PR diff and merge gates were inspected; Android runtime cases remain explicitly pending/blocked and the document does not approve Android MVP alarm reliability.
-
-- 2026-07-06 Task_2 delegated to Worker.
-  - Worker branch: `codex/wave-02-android-alarm-spike`.
-  - Worker state: pendingWorktreeId `local:19d896f0-cf7c-4471-8110-403527fcfc38`.
-  - Scope: `android/**`, Android-related sections of `docs/spikes/native-alarm-feasibility.md`.
-  - Validation evidence: pending Android API 36 real-device/emulator validation, or concrete blocked report if the environment is unavailable.
+- 2026-07-06 Task_1 delegated to Worker.
+  - Worker branch: `codex/wave-02-ios-alarmkit-spike`.
+  - Worker state: pendingWorktreeId `local:e1f9aad7-06a0-4aed-b5be-fedd6a1cc42a`.
+  - Scope: `ios/**`, iOS-related sections of `docs/spikes/native-alarm-feasibility.md`.
+  - Validation evidence: pending iOS 26+ real-device or compatible-environment validation, or concrete blocked report if the environment is unavailable.
 
 - 2026-07-06 Task_1 blocked evidence merged.
   - PR: #2 https://github.com/xpadev-net/calarm/pull/2
@@ -144,11 +129,27 @@
   - Blocker: required iOS manual/runtime validation could not run because no iOS 26+ real device or compatible runtime was available, `xcrun devicectl list devices` found no devices, available simulator runtime was iOS 18.0 only, and the repository has no `ios/` app target for install/terminated-app validation.
   - Orchestrator validation evidence: PR diff and final evidence document were inspected; all iOS runtime cases remain explicitly pending/blocked and the local API evidence favors rolling concrete occurrence reservation but does not approve iOS MVP alarm reliability.
 
-- 2026-07-06 Task_1 delegated to Worker.
-  - Worker branch: `codex/wave-02-ios-alarmkit-spike`.
-  - Worker state: pendingWorktreeId `local:e1f9aad7-06a0-4aed-b5be-fedd6a1cc42a`.
-  - Scope: `ios/**`, iOS-related sections of `docs/spikes/native-alarm-feasibility.md`.
-  - Validation evidence: pending iOS 26+ real-device or compatible-environment validation, or concrete blocked report if the environment is unavailable.
+- 2026-07-06 Task_2 delegated to Worker.
+  - Worker branch: `codex/wave-02-android-alarm-spike`.
+  - Worker state: pendingWorktreeId `local:19d896f0-cf7c-4471-8110-403527fcfc38`.
+  - Scope: `android/**`, Android-related sections of `docs/spikes/native-alarm-feasibility.md`.
+  - Validation evidence: pending Android API 36 real-device/emulator validation, or concrete blocked report if the environment is unavailable.
+
+- 2026-07-06 Task_2 blocked evidence merged.
+  - PR: #3 https://github.com/xpadev-net/calarm/pull/3
+  - Branch head: `a1af0266505850bf99c55ab68e570914a9320bb5`.
+  - Merge commit: `d07086e6951aa0f2b2eae787e56d152d45fac7f4`.
+  - Changed files: `docs/spikes/native-alarm-feasibility.md`.
+  - Worker validation evidence: `rtk git diff --check` passed; Android build/compile was not run because the repository has no `android/**` app target and no Android API 36 SDK/runtime is installed.
+  - Review evidence: independent Worker reviewer approved; `gh-review-hook 3` exited 0 after the Worker clarified runtime-readiness wording; GitHub checks passed.
+  - Blocker: required Android runtime validation could not run because `adb devices -l` found no attached devices or running emulators, `emulator -list-avds` found no configured AVDs, installed Android SDK platforms were android-30, android-33, and android-34 only, and no android-36 platform/system image or installable app target was available.
+  - Orchestrator validation evidence: PR diff and merge gates were inspected; Android runtime cases remain explicitly pending/blocked and the document does not approve Android MVP alarm reliability.
+
+- 2026-07-06 Runtime validation deferred by user decision.
+  - User decision: runtime validation is acceptable to defer.
+  - Scope of deferment: iOS 26+ real-device/compatible-runtime validation and Android API 36 device/emulator/runtime validation remain unexecuted.
+  - Completion basis: Wave 2 now closes as merged blocker/API-surface evidence with user-approved runtime-validation deferment, not as platform runtime approval.
+  - Handoff: Wave 3 must treat both platforms as runtime-unapproved and decide whether MVP continues with explicit risk, scope limits, and later validation gates.
 
 - 2026-07-05 Draft created.
 

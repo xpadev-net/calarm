@@ -17,7 +17,7 @@
 - Wake Planを一回限り、曜日繰り返し、次回だけスキップ付きで作成・編集・削除できる。
 - Wake Planから生成されるAlarm Occurrenceは開始時刻と起床目標時刻を含み、過去分、日跨ぎ、割り切れない間隔を正しく扱う。
 - 鳴動中の主操作は「今のアラームを止める」のみで、「起きた」「残り全部停止」「スヌーズ」は表示しない。
-- iOS 26以上ではAlarmKit、Android API 36ではAlarmManager系APIとfull-screen notificationで、実機上の予約・発火・停止・cancel・再予約が検証済み。
+- iOS 26以上ではAlarmKit、Android API 36ではAlarmManager系APIとfull-screen notificationで実装する。Wave 3でdeferされた実機上の予約・発火・停止・cancel・再予約 validation はrelease approval前に解決されている。
 - 編集・削除・スキップ時に古いネイティブ予約や重複Occurrenceが残らない。
 - 権限不足、予約失敗、OS設定上の問題をユーザーに明示でき、テストアラームを実行できる。
 
@@ -96,6 +96,7 @@
 - A38: Android release approval still requires runtime evidence for `setAlarmClock` delivery, lock/terminated behavior, exact alarm and notification denial, full-screen stop UI, stop/dismiss, individual cancel, plan cancel, 13-equivalent reservations, and reboot restore.
 - A39: Android implementation must include a native minimal stop UI and BootReceiver restore path; Flutter startup from a terminated state is not the sole stop mechanism.
 - A40: Any platform-limited MVP requires a later explicit product/release decision; Wave 3 does not approve one.
+- A41: Parent Definition of Done permits implementation progress under Wave 3 deferment, but normal release approval remains BLOCKED until deferred iOS/Android runtime validation is resolved as pass evidence.
 
 ## Child Plans
 
