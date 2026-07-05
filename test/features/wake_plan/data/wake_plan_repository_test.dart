@@ -314,6 +314,16 @@ void main() {
           day: tuesday,
           platformAlarmId: 'native-2',
         ),
+        AlarmOccurrence(
+          id: 'ringing',
+          wakePlanId: 'plan-1',
+          scheduledAt: DateMinute(day: tuesday, time: targetTime),
+          status: AlarmOccurrenceStatus.ringing,
+          platformAlarmId: 'native-ringing',
+          firedAt: DateTime(2026, 7, 7, 7),
+          createdAt: now,
+          updatedAt: now,
+        ),
         buildOccurrence(
           id: 'stale-cancelled',
           day: tuesday,
@@ -329,6 +339,7 @@ void main() {
       expect(reserved.map((occurrence) => occurrence.platformAlarmId), [
         'native-1',
         'native-2',
+        'native-ringing',
       ]);
     });
 

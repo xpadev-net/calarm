@@ -167,7 +167,10 @@ class WakePlanRepository {
                 (row) =>
                     row.wakePlanId.equals(wakePlanId) &
                     row.platformAlarmId.isNotNull() &
-                    row.status.equals(AlarmOccurrenceStatus.scheduled.name),
+                    row.status.isIn([
+                      AlarmOccurrenceStatus.scheduled.name,
+                      AlarmOccurrenceStatus.ringing.name,
+                    ]),
               )
               ..orderBy([
                 (row) => OrderingTerm.asc(row.scheduledAtDays),
