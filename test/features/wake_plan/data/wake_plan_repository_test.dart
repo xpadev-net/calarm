@@ -199,6 +199,45 @@ void main() {
         expect(debug.map((plan) => plan.id), ['plan-1']);
       },
     );
+
+    test('skips malformed rows when fetching normal plan lists', () async {
+      await repository.saveWakePlan(
+        buildPlan(id: 'valid', repeatRule: RepeatRule.weekly({Weekday.monday})),
+      );
+      await database
+          .into(database.wakePlanRows)
+          .insert(
+            _malformedPlanCompanion(
+              id: 'bad-one-time',
+              repeatType: RepeatType.oneTime,
+            ),
+          );
+
+      final plans = await repository.fetchWakePlans(now: now);
+
+      expect(plans.map((plan) => plan.id), ['valid']);
+    });
+
+    test('skips malformed rows when fetching calendar range plans', () async {
+      await repository.saveWakePlan(
+        buildPlan(id: 'valid', repeatRule: RepeatRule.weekly({Weekday.monday})),
+      );
+      await database
+          .into(database.wakePlanRows)
+          .insert(
+            _malformedPlanCompanion(
+              id: 'bad-weekly',
+              repeatType: RepeatType.weekly,
+            ),
+          );
+
+      final plans = await repository.fetchWakePlansForCalendarRange(
+        start: monday,
+        end: tuesday,
+      );
+
+      expect(plans.map((plan) => plan.id), ['valid']);
+    });
   });
 
   group('occurrences', () {

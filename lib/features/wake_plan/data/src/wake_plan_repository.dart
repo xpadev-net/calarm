@@ -47,7 +47,8 @@ class WakePlanRepository {
     )..orderBy([(row) => OrderingTerm.asc(row.targetTimeMinutes)])).get();
 
     return rows
-        .map(_wakePlanFromRow)
+        .map(_tryWakePlanFromRow)
+        .whereType<WakePlan>()
         .where((plan) => includeDeleted || !plan.isDeleted)
         .where(
           (plan) =>
@@ -69,7 +70,8 @@ class WakePlanRepository {
 
     final rows = await _database.select(_database.wakePlanRows).get();
     return rows
-        .map(_wakePlanFromRow)
+        .map(_tryWakePlanFromRow)
+        .whereType<WakePlan>()
         .where((plan) => includeDeleted || !plan.isDeleted)
         .where((plan) => includeDisabled || plan.isEnabled)
         .where((plan) => _planIntersectsRange(plan, start, end))
@@ -285,6 +287,18 @@ class WakePlanRepository {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     );
+  }
+
+  WakePlan? _tryWakePlanFromRow(WakePlanRow row) {
+    try {
+      return _wakePlanFromRow(row);
+    } on StateError {
+      return null;
+    } on RangeError {
+      return null;
+    } on ArgumentError {
+      return null;
+    }
   }
 
   RepeatRule _repeatRuleFromRow(WakePlanRow row) {
