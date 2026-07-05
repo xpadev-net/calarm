@@ -1,8 +1,8 @@
 # Plan: Wake Alarm MVP Wave 2 - Native Alarm Feasibility Spikes
 
-- status: draft
+- status: complete
 - generated: 2026-07-05
-- last_updated: 2026-07-05
+- last_updated: 2026-07-06
 - work_type: research
 
 ## Goal
@@ -99,7 +99,8 @@
 
 ## Task Waves (explicit parallel dispatch sets)
 
-- Wave 1 (parallel): [Task_1, Task_2]
+- Wave 1 (serial): [Task_1]
+- Wave 2 (serial): [Task_2 after Task_1 PR is merged, blocked, or otherwise integrated]
 
 ## Rollback / Safety
 
@@ -112,9 +113,77 @@
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Task_1 delegated to Worker.
+  - Worker branch: `codex/wave-02-ios-alarmkit-spike`.
+  - Worker state: pendingWorktreeId `local:e1f9aad7-06a0-4aed-b5be-fedd6a1cc42a`.
+  - Scope: `ios/**`, iOS-related sections of `docs/spikes/native-alarm-feasibility.md`.
+  - Validation evidence: pending iOS 26+ real-device or compatible-environment validation, or concrete blocked report if the environment is unavailable.
+
+- 2026-07-06 Task_1 blocked evidence merged.
+  - PR: #2 https://github.com/xpadev-net/calarm/pull/2
+  - Branch head: `6e5da033c8e640acf648ac5139482d5ad5e7e041`.
+  - Merge commit: `1dd4b7ef91cff1f2db12a1d0a2875bfaf93d28d6`.
+  - Changed files: `docs/spikes/native-alarm-feasibility.md`.
+  - Worker validation evidence: `rtk git diff --check` passed; bounded AlarmKit SDK `swiftc -typecheck` probe passed for authorization APIs, fixed schedule, weekly relative recurrence, UUID IDs, cancel, stop, and alarms list.
+  - Review evidence: independent Worker reviewer approved; `gh-review-hook 2` exited 0; GitHub checks passed.
+  - Blocker: required iOS manual/runtime validation could not run because no iOS 26+ real device or compatible runtime was available, `xcrun devicectl list devices` found no devices, available simulator runtime was iOS 18.0 only, and the repository has no `ios/` app target for install/terminated-app validation.
+  - Orchestrator validation evidence: PR diff and final evidence document were inspected; all iOS runtime cases remain explicitly pending/blocked and the local API evidence favors rolling concrete occurrence reservation but does not approve iOS MVP alarm reliability.
+
+- 2026-07-06 Task_2 delegated to Worker.
+  - Worker branch: `codex/wave-02-android-alarm-spike`.
+  - Worker state: pendingWorktreeId `local:19d896f0-cf7c-4471-8110-403527fcfc38`.
+  - Scope: `android/**`, Android-related sections of `docs/spikes/native-alarm-feasibility.md`.
+  - Validation evidence: pending Android API 36 real-device/emulator validation, or concrete blocked report if the environment is unavailable.
+
+- 2026-07-06 Task_2 blocked evidence merged.
+  - PR: #3 https://github.com/xpadev-net/calarm/pull/3
+  - Branch head: `a1af0266505850bf99c55ab68e570914a9320bb5`.
+  - Merge commit: `d07086e6951aa0f2b2eae787e56d152d45fac7f4`.
+  - Changed files: `docs/spikes/native-alarm-feasibility.md`.
+  - Worker validation evidence: `rtk git diff --check` passed; Android build/compile was not run because the repository has no `android/**` app target and no Android API 36 SDK/runtime is installed.
+  - Review evidence: independent Worker reviewer approved; `gh-review-hook 3` exited 0 after the Worker clarified runtime-readiness wording; GitHub checks passed.
+  - Blocker: required Android runtime validation could not run because `adb devices -l` found no attached devices or running emulators, `emulator -list-avds` found no configured AVDs, installed Android SDK platforms were android-30, android-33, and android-34 only, and no android-36 platform/system image or installable app target was available.
+  - Orchestrator validation evidence: PR diff and merge gates were inspected; Android runtime cases remain explicitly pending/blocked and the document does not approve Android MVP alarm reliability.
+
+- 2026-07-06 Runtime validation deferred by user decision.
+  - User decision: runtime validation is acceptable to defer.
+  - Scope of deferment: iOS 26+ real-device/compatible-runtime validation and Android API 36 device/emulator/runtime validation remain unexecuted.
+  - Completion basis: Wave 2 now closes as merged blocker/API-surface evidence with user-approved runtime-validation deferment, not as platform runtime approval.
+  - Handoff: Wave 3 must treat both platforms as runtime-unapproved and decide whether MVP continues with explicit risk, scope limits, and later validation gates.
+
 - 2026-07-05 Draft created.
 
 ## Decision Log (append-only; re-plans and major discoveries)
+
+- 2026-07-06 Decision: Defer required platform runtime validation to a later gate.
+  - Trigger / new insight: User confirmed runtime validation may be deferred instead of blocking current orchestration.
+  - Plan delta (what changed): Wave 2 is complete with explicit validation deferment; Wave 3 may proceed, but it must not treat either iOS or Android as runtime-approved.
+  - Tradeoffs considered: Deferring runtime validation allows planning and implementation scaffolding to continue from API-surface evidence, while preserving the release risk that wake reliability, lock/terminated behavior, permissions, full-screen stop UI, and reboot restore are still unverified.
+  - User approval: yes.
+
+- 2026-07-06 Decision: Treat Wave 2 as blocked until external platform runtime evidence exists.
+  - Trigger / new insight: Both platform spike PRs merged blocker evidence, but neither platform has required runtime proof: iOS lacks an iOS 26+ real device/compatible runtime and Android lacks an API 36 device/emulator/SDK plus installable target.
+  - Plan delta (what changed): Wave 2 was marked blocked until the external validation decision was resolved; superseded on 2026-07-06 by the user-approved runtime-validation deferment.
+  - Tradeoffs considered: Preserving the merged API-surface notes helps later implementation planning, while marking the wave blocked prevents documentation-only evidence from being mistaken for production feasibility.
+  - User approval: superseded by deferment approval.
+
+- 2026-07-06 Decision: Treat Android spike as blocked until API 36 runtime evidence exists.
+  - Trigger / new insight: Worker recorded Android API 36 runtime validation as unavailable because no device/emulator, no AVD, no android-36 platform/system image, and no repository Android app target were present.
+  - Plan delta (what changed): Task_2 evidence is integrated as blocked; Android MVP approval remains dependent on API 36 runtime validation of alarm delivery, permissions, lock/terminated behavior, full-screen stop UI, cancel semantics, and reboot restore.
+  - Tradeoffs considered: Merging blocker evidence captures the likely design direction (`setAlarmClock`, full-screen notification/native stop Activity, PendingIntent-per-occurrence, permission checks, BootReceiver restore) without converting API/documentation evidence into runtime approval.
+  - User approval: orchestrator-approved as blocked evidence integration.
+
+- 2026-07-06 Decision: Treat iOS spike as blocked until real-device/runtime evidence exists.
+  - Trigger / new insight: Worker could typecheck the AlarmKit API surface against iPhoneOS 26.5 SDK but had no iOS 26+ real device or compatible simulator/runtime, and the repository has no installable `ios/` target.
+  - Plan delta (what changed): Task_1 evidence is integrated as blocked; Wave 2 continues with Android Task_2 while iOS runtime validation remains a prerequisite for iOS MVP approval and Wave 3 platform decision.
+  - Tradeoffs considered: Merging the blocker evidence preserves decision-quality API notes and missing validation details, while avoiding a false completion signal.
+  - User approval: orchestrator-approved as blocked evidence integration.
+
+- 2026-07-06 Decision: Execute Wave 2 platform spikes serially by PR.
+  - Trigger / new insight: Task_1 and Task_2 both need to update `docs/spikes/native-alarm-feasibility.md`, so parallel workers would have overlapping ownership despite separate platform code directories.
+  - Plan delta (what changed): Start iOS Task_1 first; start Android Task_2 after the iOS spike PR is merged, blocked, or otherwise integrated.
+  - Tradeoffs considered: Serial execution reduces merge conflicts and evidence overwrites; it delays Android start but preserves a single authoritative evidence template.
+  - User approval: orchestrator-approved to preserve ownership isolation.
 
 - 2026-07-05 Decision: Run iOS and Android spikes in parallel.
   - Trigger / new insight: ownsは`ios/**`と`android/**`で分離でき、同じテンプレートへ結果を記録するだけで競合リスクが低い。

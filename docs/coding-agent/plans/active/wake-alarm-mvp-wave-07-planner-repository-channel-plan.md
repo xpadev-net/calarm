@@ -2,7 +2,7 @@
 
 - status: draft
 - generated: 2026-07-05
-- last_updated: 2026-07-05
+- last_updated: 2026-07-06
 - work_type: code
 
 ## Goal
@@ -57,6 +57,7 @@
 - A4: MethodChannel payload schemaは`docs/platform/native-alarm-channel.md`とcontract testsの両方で固定する。
 - A5: Drift migrationはMVP中もschemaVersionを上げて同一PR/taskでmigrationを書く。破壊的resetはdev/debug限定にする。
 - A6: MethodChannel payloadには`schemaVersion: 1`を含める。
+- A7: Repository schema must persist a nullable platform alarm identity per `AlarmOccurrence`, populated after successful native scheduling and used for occurrence/plan cancel. The Dart gateway/repository API for plan cancel requires the resolved stored occurrence/platform identity list before crossing the native boundary; native plan cancel does not receive only a logical WakePlan id and does not look up Drift rows.
 
 ## Tasks
 
@@ -96,6 +97,7 @@
   - Driftを使ってWakePlan、AlarmOccurrence、AppSettingsを保存できる。
   - Drift schema変更時はschemaVersionを上げ、migration方針またはmigration codeを同じtaskで更新できる。
   - WakePlanとOccurrenceをplan単位で取得できる。
+  - AlarmOccurrenceごとのnullable `platformAlarmId`相当を保存・更新・取得でき、native予約成功後のID反映とcancel時の参照に使える。
   - 期間指定で週カレンダー表示に必要なWakePlanを取得できる。
   - 一回限りWakePlanを最終アラーム+30分後に通常一覧から除外できる。
   - deleted/disabledを扱い、デバッグやQAに必要な履歴を短期間残せる設計になっている。
@@ -122,8 +124,12 @@
   Original Task_12. Flutter MethodChannelのチャンネル名、メソッド名、引数/戻り値形式を確定し、Dart側の変換を実装する。
 - acceptance:
   - `getCapability`、`requestPermissionIfNeeded`、`scheduleOccurrences`、`cancelOccurrences`、`cancelPlan`、`scheduleTestAlarm` のchannel呼び出しがある。
+  - Dart caller-facing `cancelPlan` API requires the Repository-resolved stored occurrence/platform identity list; a `cancelPlan(wakePlanId)`-only API is not allowed at the native gateway boundary.
   - すべてのMethodChannel payloadに`schemaVersion: 1`が含まれる。
   - 引数と戻り値のJSON/Map構造が`docs/platform/native-alarm-channel.md`とcontract testsで固定されている。
+  - schedule result payloadは各platform alarm idを元のOccurrence idへ相関でき、部分失敗もOccurrence単位で表現できる。
+  - cancel payloadにOccurrence単位のplatform alarm identity対応が含まれている。
+  - `cancelPlan` channel payloadはDart/Repository側で解決済みのstored `platformAlarmId` listを含み、native側がlogical WakePlan idだけで永続化を探索しない契約になっている。
   - ネイティブからのエラーをScheduleResultに変換できる。
   - FakeとMethodChannelの差し替えが容易になっている。
 - validation:
@@ -151,12 +157,23 @@
 
 - Wave 8のWakePlanSchedulingServiceはTask_1/2/3を統合する。
 - Wave 8のiOS/Android bridgeはTask_3のschemaをsource of truthにする。
+- Wave 8はRepositoryのpersisted platform alarm identityを使って予約成功反映、individual cancel、plan cancel、reconciliationを実装する。Plan cancelではRepositoryが対象Occurrenceのstored `platformAlarmId` listを解決してからnative gateway APIを呼び、native境界へlogical WakePlan idだけを渡さない。
 
 ## Progress Log (append-only)
+
+- 2026-07-06 Wave 3 decision integrated.
+  - Repository and MethodChannel schema must preserve one nullable platform alarm identity per `AlarmOccurrence` before Wave 8 scheduling integration.
+  - Plan cancel gateway and channel contracts must pass resolved stored platform alarm identities, not only a logical WakePlan id.
 
 - 2026-07-05 Draft created.
 
 ## Decision Log (append-only; re-plans and major discoveries)
+
+- 2026-07-06 Decision: Persist platform alarm identity before native scheduling integration.
+  - Trigger / new insight: Wave 3 rolling reservations and Wave 8 scheduling service require stored native IDs for cancel/reconciliation.
+  - Plan delta (what changed): Wave 7 repository and MethodChannel acceptance now explicitly include nullable per-Occurrence platform alarm identity storage, per-occurrence schedule result correlation, and cancel/plan-cancel payload support using resolved stored platform IDs.
+  - Tradeoffs considered: Persisting IDs at the repository boundary avoids coupling later native bridge code to transient in-memory schedule results.
+  - User approval: yes, from Wave 3 rolling reservation decision.
 
 - 2026-07-05 Decision: Planner, repository, and channel wiring can be parallelized.
   - Trigger / new insight: 3 tasks share domain types but own distinct file areas.
