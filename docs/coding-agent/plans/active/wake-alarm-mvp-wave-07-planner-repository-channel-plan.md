@@ -1,6 +1,6 @@
 # Plan: Wake Alarm MVP Wave 7 - Planner, Repository, and MethodChannel Wiring
 
-- status: draft
+- status: done
 - generated: 2026-07-05
 - last_updated: 2026-07-06
 - work_type: code
@@ -202,6 +202,16 @@
 - Wave 8のCI simulator/emulator native smoke workflowは、Task_4のbaseline CI workflowを置き換えず、native smoke用job/workflowとして追加または拡張する。
 
 ## Progress Log (append-only)
+
+- 2026-07-06 Wave 7 Task_2 Wake Plan Repository merged; Wave 7 complete.
+  - Summary: PR #12 `Add wake plan Drift repository` was squash-merged after worker validation, independent review, multiple gh-review-hook hardening iterations, hosted Baseline CI, and orchestrator merge gate.
+  - Merge commit: `5910c90dcc97ca05be9d2522510a209ad5a26dbc`.
+  - Branch/head: `codex/wave-07-wake-plan-repository` at `01871fd654440338dd8cb4496202f3aa53315c40`.
+  - Changed files: `lib/features/wake_plan/data/src/wake_plan_database.dart`, `lib/features/wake_plan/data/src/wake_plan_database.g.dart`, `lib/features/wake_plan/data/src/wake_plan_repository.dart`, `lib/features/wake_plan/data/wake_plan_data.dart`, and `test/features/wake_plan/data/wake_plan_repository_test.dart`.
+  - Validation evidence: Worker `rtk flutter test test/features/wake_plan/data`, `rtk flutter analyze`, and `rtk git diff --check` passed after final fixes; orchestrator reran `rtk flutter test test/features/wake_plan/data`, `rtk flutter analyze`, `rtk git diff --check`, and `rtk gh-review-hook 12` from a clean PR-head worktree, and all passed.
+  - Review evidence: Worker deep-review self-review and independent reviewer approved; hook findings were addressed for malformed row isolation, reservation filtering, repository indexes, SQL-side filters, defensive occurrence/settings mapping, and regression coverage.
+  - Hook/check evidence: Worker final `rtk gh-review-hook 12` exited 0; orchestrator reran `rtk gh-review-hook 12`, verified hosted Baseline CI, CodeRabbit, Greptile, and Socket checks passed, and confirmed mergeState `CLEAN`.
+  - Wave completion: Task_1, Task_2, Task_3, and Task_4 are merged. Wave 8 may proceed while iOS 26+ and Android API 36 runtime alarm validation remains deferred and unapproved for release approval.
 
 - 2026-07-06 Wave 7 Task_1 Occurrence Planner merged.
   - Summary: PR #11 `Add wake occurrence planner` was squash-merged after worker validation, independent review, gh-review-hook, base-branch updates, hosted Baseline CI, and orchestrator merge gate.

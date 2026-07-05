@@ -167,6 +167,15 @@ Interpretation:
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 7 Task_2 Wake Plan Repository merged; Wave 7 complete.
+  - Summary: PR #12 `Add wake plan Drift repository` was squash-merged, adding Drift schema/version 1, WakePlanRepository persistence APIs, nullable per-occurrence `platformAlarmId` lifecycle support, calendar/list queries, soft delete, one-time retention, malformed-row isolation, and focused data tests.
+  - Merge commit: `5910c90dcc97ca05be9d2522510a209ad5a26dbc`.
+  - Validation evidence: Worker `rtk flutter test test/features/wake_plan/data`, `rtk flutter analyze`, and `rtk git diff --check` passed after hook-requested fixes; orchestrator reran `rtk flutter test test/features/wake_plan/data`, `rtk flutter analyze`, `rtk git diff --check`, and `rtk gh-review-hook 12` from a clean PR-head worktree, and all passed.
+  - Review evidence: Worker deep-review self-review and independent reviewer approved; hook iterations hardened malformed persisted row isolation, cancel reservation filtering, repository indexes, SQL-side filters, defensive occurrence/settings mapping, and regression coverage.
+  - Hook/check evidence: Worker final `rtk gh-review-hook 12` exited 0; orchestrator reran `rtk gh-review-hook 12`, verified hosted Baseline CI, CodeRabbit, Greptile, and Socket checks passed, and confirmed mergeState `CLEAN`.
+  - PR state: #12 merged; branch head `01871fd654440338dd8cb4496202f3aa53315c40`; merge commit `5910c90dcc97ca05be9d2522510a209ad5a26dbc`.
+  - Decision impact: Wave 7 is complete; Wave 8 scheduling/native/calendar integration may proceed. iOS 26+ and Android API 36 runtime alarm validation remains deferred and unapproved for release approval.
+
 - 2026-07-06 Wave 7 Task_1 Occurrence Planner merged.
   - Summary: PR #11 `Add wake occurrence planner` was squash-merged, adding pure OccurrencePlanner application logic, WakeInstance/AlarmOccurrence draft result values, and focused planner tests.
   - Merge commit: `3878b794d1f83ddd58f84b5fa1488417c161ca7b`.
