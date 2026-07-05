@@ -24,6 +24,10 @@
   - `android/**`
   - `docs/qa/ios-alarmkit-checklist.md`
   - `docs/qa/android-alarm-checklist.md`
+  - `.github/workflows/**`
+  - `integration_test/**`
+  - `test_driver/**`
+  - `docs/qa/ci-native-smoke.md`
   - `lib/features/week_calendar/**`
   - `test/features/week_calendar/**`
 - Non-goals:
@@ -60,6 +64,8 @@
 - A8: Wave 3 approves implementation from API-surface evidence only; native bridge work must keep iOS 26+ and Android API 36 runtime reliability unapproved until manual evidence passes.
 - A9: OS recurrence is not the MVP source of truth; bridge tasks schedule concrete occurrences and persist one platform alarm identity per occurrence.
 - A10: Optional runtime checks are optional only for device execution; each unavailable runtime case still requires an explicit QA checklist row with PASS or BLOCKED status.
+- A11: CI simulator/emulator smoke is useful immediately after native bridge implementation to catch build/install/platform-channel regressions, but hosted simulator/emulator evidence is NEAR_DEVICE or BLOCKED and does not approve deferred real-device runtime cases.
+- A12: Wave 7 owns ordinary baseline CI for format/analyzer/unit tests; Wave 8 native smoke CI must extend or coexist with it rather than replacing it.
 
 ## Tasks
 
@@ -178,9 +184,50 @@
     owner: reviewer
     detail: "E2E / Visual Validation Specの週カレンダー空状態・タップ変換を確認する"
 
+### Task_5: CI Simulator/Emulator Native Smoke Harness
+- type: chore
+- owns:
+  - `.github/workflows/**`
+  - `integration_test/**`
+  - `test_driver/**`
+  - `docs/qa/ci-native-smoke.md`
+  - `docs/qa/artifacts/**`
+- depends_on:
+  - Task_2
+  - Task_3
+- description: |
+  Implement CI-backed near-device smoke checks as soon as native bridge code exists, so Android Emulator / iOS Simulator build, install, platform-channel, schedule/cancel, permission/capability, and log collection regressions surface before final QA.
+- acceptance:
+  - GitHub Actions workflow exists for manual dispatch and PR/scheduled smoke where practical.
+  - Android job uses an emulator image closest to the MVP target available in CI, preferring API 36 when available and recording BLOCKED/unavailable evidence when not available.
+  - iOS job uses a macOS runner and simulator/runtime closest to the MVP target available in CI, preferring an iOS 26+ runtime when available and recording BLOCKED/unavailable evidence when not available.
+  - CI runs Flutter dependency resolution, build/install or integration-test smoke, and platform-channel/native alarm gateway smoke for schedule/cancel/test-alarm paths where simulator/emulator supports them.
+  - CI keeps the Wave 7 baseline validation path for format, analyzer/lint, and unit tests intact.
+  - CI uploads logs/artifacts such as Flutter test logs, Android `adb` logs, optional `dumpsys alarm`, iOS `simctl` logs, screenshots when available, and a summary under `docs/qa/ci-native-smoke.md`.
+  - CI evidence labels simulator/emulator results as NEAR_DEVICE or BLOCKED, never as real-device APPROVED for wake delivery, lock/terminated behavior, Silent/Focus behavior, full-screen stop UI, or Android reboot restore.
+  - If hosted runner SDK/runtime limitations prevent a meaningful iOS/Android smoke, the workflow still records the exact unavailable runner/runtime/toolchain fact and leaves the corresponding release gate BLOCKED.
+- validation:
+  - kind: command
+    required: true
+    owner: worker
+    detail: "flutter analyze"
+  - kind: command
+    required: true
+    owner: worker
+    detail: "flutter test"
+  - kind: ci
+    required: true
+    owner: worker
+    detail: "GitHub Actions workflow is syntax-checked and either runs the simulator/emulator smoke successfully or records precise BLOCKED evidence for unavailable hosted runtimes"
+  - kind: review
+    required: true
+    owner: reviewer
+    detail: "CI smoke evidence is clearly separated from real-device runtime approval and cannot mark deferred Wave 3 cases APPROVED"
+
 ## Task Waves (explicit parallel dispatch sets)
 
 - Wave 1 (parallel): [Task_1, Task_2, Task_3, Task_4]
+- Wave 2 (parallel): [Task_5]
 
 ## E2E / Visual Validation Spec
 
@@ -214,6 +261,14 @@
 
 ## Progress Log (append-only)
 
+- 2026-07-06 CI near-device smoke harness added to Wave 8.
+  - Summary: Add Task_5 after iOS/Android native bridge tasks so CI simulator/emulator smoke is implemented before final QA.
+  - Release impact: CI evidence can be NEAR_DEVICE or BLOCKED, but cannot approve deferred real-device runtime cases.
+
+- 2026-07-06 Baseline CI dependency clarified.
+  - Summary: Wave 8 native smoke CI must coexist with the earlier Wave 7 baseline CI for format, analyzer/lint, and unit tests.
+  - Impact: Native smoke workers should add smoke-specific jobs or workflows without removing ordinary PR validation.
+
 - 2026-07-06 Wave 3 decision integrated.
   - Native bridges must use rolling concrete occurrence reservations and one platform alarm identity per occurrence.
   - iOS/Android manual validation in this wave is optional implementation evidence when a matching runtime is available; if unavailable, the checklist records explicit BLOCKED rows and later release gates remain blocked.
@@ -227,6 +282,18 @@
   - Plan delta (what changed): iOS and Android bridge acceptance now requires QA checklist status rather than runtime execution; blocked runtime cases remain release blockers but do not block Wave 8 completion.
   - Tradeoffs considered: Workers can implement the bridge without unavailable devices, while final release gates still require real runtime evidence.
   - User approval: yes, from Wave 3 deferment.
+
+- 2026-07-06 Decision: Implement CI simulator/emulator smoke as early as native bridges exist.
+  - Trigger / new insight: User noted that near-device CI should be done as early as it can be inserted.
+  - Plan delta (what changed): Wave 8 now has Task_5 after iOS/Android bridge tasks, owning GitHub Actions workflow, integration smoke tests, and CI evidence docs.
+  - Tradeoffs considered: Earlier CI catches native bridge integration regressions before final QA, but Task_5 waits for Task_2/Task_3 because meaningful platform smoke needs native bridge code.
+  - User approval: yes.
+
+- 2026-07-06 Decision: Preserve baseline CI while adding native smoke CI.
+  - Trigger / new insight: User asked to add ordinary CI checks in addition to near-device CI.
+  - Plan delta (what changed): Wave 8 Task_5 now explicitly preserves the Wave 7 baseline validation path while adding simulator/emulator native smoke coverage.
+  - Tradeoffs considered: Keeping the workflows separate or clearly layered prevents native smoke runtime limitations from blocking or hiding ordinary PR checks.
+  - User approval: yes.
 
 - 2026-07-05 Decision: Run service, bridges, and calendar core in parallel.
   - Trigger / new insight: File ownership is disjoint enough and all depend on Wave 7 outputs.

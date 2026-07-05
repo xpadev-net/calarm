@@ -1,8 +1,8 @@
 # Plan: Wake Alarm MVP Wave 5 - Time Foundation
 
-- status: draft
+- status: done
 - generated: 2026-07-05
-- last_updated: 2026-07-05
+- last_updated: 2026-07-06
 - work_type: code
 
 ## Goal
@@ -90,6 +90,20 @@
 - Wave 8/9のcalendar interactionも同じ丸め・週範囲ロジックを利用する。
 
 ## Progress Log (append-only)
+
+- 2026-07-06 Wave 5 time foundation merged.
+  - Summary: PR #6 `Add time foundation value objects` was squash-merged after worker validation, independent review, hook iteration fixes, GitHub checks, and orchestrator merge gate.
+  - Merge commit: `3866a72fd798e677ab813e5cb80f2d44ee069e35`.
+  - Validation evidence: Worker `rtk flutter test test/core/time` passed with 17 tests, `rtk flutter analyze` passed, and `rtk git diff --check` passed; orchestrator reran `rtk flutter test test/core/time`, `rtk flutter analyze`, and `rtk git diff --check` from a clean PR-head worktree and all passed.
+  - Review evidence: Worker deep-review self-review fixed calendar-day elapsed-duration/DST drift; independent reviewer findings on invalid date normalization and hidden local `DateTime` math were fixed and re-reviewed as approved; orchestrator inspected time value objects, rounding helpers, week range code, and focused tests.
+  - Hook/check evidence: Worker `rtk gh-review-hook 6` initially found UTC rounding, release-safe `WeekRange` validation, and day-rollover rounding issues; worker fixed them, final worker hook exited 0, orchestrator reran `rtk gh-review-hook 6` from a clean PR-head worktree and it exited 0; GitHub CodeRabbit, Greptile, and Socket checks passed.
+  - PR state: #6 merged; branch head `ee2389a8e48f6e6d746e6794d00d4e7e47491ec8`; merge commit `3866a72fd798e677ab813e5cb80f2d44ee069e35`.
+
+- 2026-07-06 Wave 5 time foundation delegated.
+  - Worker pending worktree: `local:1a752aa1-4554-4f5f-97b3-e49a62e72e88`.
+  - Branch: `codex/wave-05-time-foundation`.
+  - Scope: Wave 5 Task_1 only; worker owns `lib/core/time/**` and `test/core/time/**`.
+  - Required gates: `rtk flutter test test/core/time`, `rtk flutter analyze`, `rtk git diff --check`, independent review, and `rtk gh-review-hook <PR_NUMBER>`.
 
 - 2026-07-05 Draft created.
 

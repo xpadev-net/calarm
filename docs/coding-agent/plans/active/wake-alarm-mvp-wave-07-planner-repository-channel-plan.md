@@ -18,6 +18,8 @@
 ## Scope / Non-goals
 
 - Scope:
+  - `.github/workflows/**`
+  - `docs/qa/ci-baseline.md`
   - `lib/features/wake_plan/application/occurrence_planner.dart`
   - `test/features/wake_plan/application/occurrence_planner_test.dart`
   - `lib/features/wake_plan/data/**`
@@ -58,6 +60,7 @@
 - A5: Drift migrationはMVP中もschemaVersionを上げて同一PR/taskでmigrationを書く。破壊的resetはdev/debug限定にする。
 - A6: MethodChannel payloadには`schemaVersion: 1`を含める。
 - A7: Repository schema must persist a nullable platform alarm identity per `AlarmOccurrence`, populated after successful native scheduling and used for occurrence/plan cancel. The Dart gateway/repository API for plan cancel requires the resolved stored occurrence/platform identity list before crossing the native boundary; native plan cancel does not receive only a logical WakePlan id and does not look up Drift rows.
+- A8: Baseline GitHub Actions CI can be implemented before native bridge runtime smoke because it only needs the Flutter scaffold and existing unit/analyzer tooling.
 
 ## Tasks
 
@@ -142,9 +145,47 @@
     owner: reviewer
     detail: "MethodChannel契約がネイティブ実装に必要十分かレビューする"
 
+### Task_4: Baseline GitHub Actions CI
+- type: chore
+- owns:
+  - `.github/workflows/**`
+  - `docs/qa/ci-baseline.md`
+- depends_on: []
+- description: |
+  Add ordinary PR CI as early as practical so formatting, lint/analyzer, and unit tests run automatically before later native smoke workflows are added.
+- acceptance:
+  - GitHub Actions workflow runs on pull_request and manual dispatch for ordinary validation.
+  - CI installs or selects the project Flutter SDK consistently with `.fvmrc` when available.
+  - CI runs dependency resolution before validation.
+  - CI runs Dart formatting check, Flutter analyzer/lints, and Flutter unit tests.
+  - CI uploads or prints enough logs to diagnose format/analyzer/test failures.
+  - CI is documented in `docs/qa/ci-baseline.md`, including commands, trigger policy, and what evidence it does and does not cover.
+  - Baseline CI is separate from Wave 8 simulator/emulator native smoke and does not claim runtime alarm validation.
+- validation:
+  - kind: command
+    required: true
+    owner: worker
+    detail: "dart format --set-exit-if-changed ."
+  - kind: command
+    required: true
+    owner: worker
+    detail: "flutter analyze"
+  - kind: command
+    required: true
+    owner: worker
+    detail: "flutter test"
+  - kind: ci
+    required: true
+    owner: worker
+    detail: "GitHub Actions baseline CI workflow is syntax-checked and observed on the PR, or any hosted-runner/toolchain blocker is recorded with exact evidence"
+  - kind: review
+    required: true
+    owner: reviewer
+    detail: "Verify baseline CI covers formatting, analyzer/lint, and unit tests without overlapping or weakening native smoke/release validation"
+
 ## Task Waves (explicit parallel dispatch sets)
 
-- Wave 1 (parallel): [Task_1, Task_2, Task_3]
+- Wave 1 (parallel): [Task_1, Task_2, Task_3, Task_4]
 
 ## Rollback / Safety
 
@@ -158,8 +199,13 @@
 - Wave 8のWakePlanSchedulingServiceはTask_1/2/3を統合する。
 - Wave 8のiOS/Android bridgeはTask_3のschemaをsource of truthにする。
 - Wave 8はRepositoryのpersisted platform alarm identityを使って予約成功反映、individual cancel、plan cancel、reconciliationを実装する。Plan cancelではRepositoryが対象Occurrenceのstored `platformAlarmId` listを解決してからnative gateway APIを呼び、native境界へlogical WakePlan idだけを渡さない。
+- Wave 8のCI simulator/emulator native smoke workflowは、Task_4のbaseline CI workflowを置き換えず、native smoke用job/workflowとして追加または拡張する。
 
 ## Progress Log (append-only)
+
+- 2026-07-06 Baseline CI task added.
+  - Summary: Add Task_4 for ordinary GitHub Actions PR CI covering format, analyzer/lint, and unit tests before later native smoke work.
+  - Timing: This is placed in Wave 7 because it can run as soon as the Flutter scaffold exists and does not require native bridge runtime smoke implementation.
 
 - 2026-07-06 Wave 3 decision integrated.
   - Repository and MethodChannel schema must preserve one nullable platform alarm identity per `AlarmOccurrence` before Wave 8 scheduling integration.
@@ -174,6 +220,12 @@
   - Plan delta (what changed): Wave 7 repository and MethodChannel acceptance now explicitly include nullable per-Occurrence platform alarm identity storage, per-occurrence schedule result correlation, and cancel/plan-cancel payload support using resolved stored platform IDs.
   - Tradeoffs considered: Persisting IDs at the repository boundary avoids coupling later native bridge code to transient in-memory schedule results.
   - User approval: yes, from Wave 3 rolling reservation decision.
+
+- 2026-07-06 Decision: Add ordinary baseline CI before native smoke CI.
+  - Trigger / new insight: User asked to add ordinary CI checks in addition to near-device CI, including formatting, lint, and unit tests.
+  - Plan delta (what changed): Wave 7 now includes Task_4 for GitHub Actions baseline PR CI and documentation, independent from Wave 8 simulator/emulator native smoke.
+  - Tradeoffs considered: Baseline CI can be added earlier and improves every following PR; native smoke remains later because it needs bridge code and runtime/toolchain evidence.
+  - User approval: yes.
 
 - 2026-07-05 Decision: Planner, repository, and channel wiring can be parallelized.
   - Trigger / new insight: 3 tasks share domain types but own distinct file areas.

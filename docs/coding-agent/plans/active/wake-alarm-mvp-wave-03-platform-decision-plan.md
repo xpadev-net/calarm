@@ -93,6 +93,15 @@
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Task_1 merged.
+  - PR: #4 https://github.com/xpadev-net/calarm/pull/4
+  - Branch head: `502eca4466b67068c74d85bd273e188a5d19b0db`.
+  - Merge commit: `86c9631ed0cd351beb513f218919b9d66f3e1932`.
+  - Changed files: `docs/spikes/native-alarm-feasibility.md`, parent implementation plan, and active Wave 1/2/3/6/7/8/11/12/14 plans.
+  - Worker validation evidence: `rtk git diff --check` passed; no markdown/docs lint config or script was discoverable.
+  - Review evidence: Worker deep-review self-review completed; independent focused reviews approved after fixes; `gh-review-hook 4` exited 0 after follow-up corrections; GitHub CodeRabbit, Greptile, and Socket checks passed.
+  - Orchestrator validation evidence: PR metadata, changed files, merge state, GitHub checks, `rtk git diff --check master..origin/codex/wave-03-platform-decision`, and `rtk gh-review-hook 4` from the clean worker worktree all passed before merge.
+
 - 2026-07-06 Task_1 completed.
   - Decision: continue MVP implementation planning under runtime-unapproved evidence.
   - Architecture: adopt rolling concrete native occurrence reservations; do not use OS recurrence as the MVP source of truth for repeating plans, next-skip, individual cancel, or plan cancel.

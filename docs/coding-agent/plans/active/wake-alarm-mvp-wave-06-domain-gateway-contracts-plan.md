@@ -1,6 +1,6 @@
 # Plan: Wake Alarm MVP Wave 6 - Domain and Gateway Contracts
 
-- status: draft
+- status: in progress
 - generated: 2026-07-05
 - last_updated: 2026-07-06
 - work_type: code
@@ -117,6 +117,24 @@
 - Wave 7はTask_2のGateway contractをMethodChannel wrapperで実装する。
 
 ## Progress Log (append-only)
+
+- 2026-07-06 Wave 6 Task_1 Wake Plan Domain Models merged.
+  - Summary: PR #7 `Add wake plan domain models` was squash-merged after worker validation, independent review, GitHub checks, and orchestrator merge gate.
+  - Merge commit: `573a5e2f22d73dca6e27bc9289fe70d165be74be`.
+  - Validation evidence: Worker `rtk flutter test test/features/wake_plan/domain` passed with 15 tests, `rtk flutter analyze` passed, and `rtk git diff --check` passed; orchestrator reran `rtk flutter test test/features/wake_plan/domain`, `rtk flutter analyze`, and `rtk git diff --check` from a clean PR-head worktree and all passed.
+  - Review evidence: Worker deep-review self-review fixed weekly set hash consistency and nullable settings copy behavior; independent reviewer findings on skip-state consistency, minimum interval, and occurrence timestamp/status consistency were fixed and re-reviewed as approved; orchestrator inspected model files and focused tests.
+  - Hook/check evidence: Worker `rtk gh-review-hook 7` exited 0 from a clean PR-head worktree; orchestrator reran `rtk gh-review-hook 7` from a clean PR-head worktree and it exited 0; GitHub CodeRabbit, Greptile, and Socket checks passed.
+  - PR state: #7 merged; branch head `3be2d61a5820d7311f08db85e795987928c9032d`; merge commit `573a5e2f22d73dca6e27bc9289fe70d165be74be`.
+  - Remaining Wave 6 work: Task_2 Native Alarm Gateway Contract remains in progress in PR #8 pending orchestrator-requested schedule result wakePlanId correlation hardening.
+
+- 2026-07-06 Wave 6 domain and gateway contracts delegated in parallel.
+  - Task_1 Worker pending worktree: `local:ba19222c-bbe3-4305-b41f-f8baa6b1c93a`.
+  - Task_1 Branch: `codex/wave-06-wake-plan-domain`.
+  - Task_1 Scope: `lib/features/wake_plan/domain/**` and `test/features/wake_plan/domain/**`.
+  - Task_2 Worker pending worktree: `local:dc234667-dde3-4405-b6b1-6ebbbad63e9e`.
+  - Task_2 Branch: `codex/wave-06-native-alarm-gateway-contract`.
+  - Task_2 Scope: `lib/core/platform/native_alarm_gateway.dart`, `lib/core/platform/fake_native_alarm_gateway.dart`, and `test/core/platform/**`.
+  - Required gates: each worker must provide focused Flutter tests, `rtk flutter analyze`, `rtk git diff --check`, independent review, and `rtk gh-review-hook <PR_NUMBER>`.
 
 - 2026-07-06 Wave 3 decision integrated.
   - Domain and gateway contracts must support one persisted platform alarm identity per `AlarmOccurrence` for rolling concrete native reservations.
