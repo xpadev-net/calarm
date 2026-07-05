@@ -167,6 +167,15 @@ Interpretation:
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 6 Task_2 Native Alarm Gateway Contract merged; Wave 6 complete.
+  - Summary: PR #8 `Wave 6 Task 2: Native alarm gateway contract` was squash-merged, adding pure Dart NativeAlarmGateway contract, fake gateway, request-aware schedule/cancel/test result models, per-occurrence platformAlarmId correlation, and focused platform tests.
+  - Merge commit: `10b48a5655b7ffddc7dee600df5b31449039021d`.
+  - Validation evidence: Worker `rtk flutter test test/core/platform`, `rtk flutter analyze`, and `rtk git diff --check` passed; orchestrator reran `rtk flutter test test/core/platform`, `rtk flutter analyze`, and `rtk git diff --check` from a clean PR-head worktree and all passed.
+  - Review evidence: Worker deep-review and independent review approved after fixes for schedule request/result composite correlation, fake unsupported test-alarm behavior, fake failure naming, shared request/result correlation helper, dominant all-failure status selection, and regression tests; orchestrator inspected the final scoped diff.
+  - Hook/check evidence: Worker final `rtk gh-review-hook 8` exited 0; orchestrator reran `rtk gh-review-hook 8` from a clean PR-head worktree and it exited 0; GitHub CodeRabbit, Greptile, and Socket checks passed.
+  - PR state: #8 merged; branch head `bd501231535de49edf3b3aaff224d689d35de0a5`; merge commit `10b48a5655b7ffddc7dee600df5b31449039021d`.
+  - Decision impact: Wave 7 can consume the domain model and native gateway contract; iOS 26+ and Android API 36 alarm runtime validation remains deferred and unapproved.
+
 - 2026-07-06 Wave 6 Task_1 Wake Plan Domain Models merged.
   - Summary: PR #7 `Add wake plan domain models` was squash-merged, adding pure Dart WakePlan, AlarmOccurrence, RepeatRule, AppSettings, status enums, nullable platformAlarmId support, and focused domain tests.
   - Merge commit: `573a5e2f22d73dca6e27bc9289fe70d165be74be`.
@@ -174,7 +183,7 @@ Interpretation:
   - Review evidence: Worker deep-review self-review and independent review found and fixed set hash consistency, nullable settings copy behavior, skip-state consistency, minimum interval, and occurrence timestamp/status issues before merge; orchestrator inspected implementation and tests.
   - Hook/check evidence: Worker `rtk gh-review-hook 7` exited 0 from a clean PR-head worktree; orchestrator reran `rtk gh-review-hook 7` from a clean PR-head worktree and it exited 0; GitHub CodeRabbit, Greptile, and Socket checks passed.
   - PR state: #7 merged; branch head `3be2d61a5820d7311f08db85e795987928c9032d`; merge commit `573a5e2f22d73dca6e27bc9289fe70d165be74be`.
-  - Remaining Wave 6 work: Task_2 Native Alarm Gateway Contract remains in progress in PR #8 pending orchestrator-requested schedule result wakePlanId correlation hardening.
+  - Remaining Wave 6 work: completed by PR #8 on 2026-07-06.
 
 - 2026-07-06 Baseline CI task inserted into Wave 7.
   - Summary: Add ordinary GitHub Actions PR CI for Dart format, Flutter analyzer/lints, and Flutter unit tests before the later Wave 8 simulator/emulator native smoke workflow.

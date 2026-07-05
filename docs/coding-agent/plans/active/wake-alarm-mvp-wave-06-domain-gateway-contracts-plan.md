@@ -1,6 +1,6 @@
 # Plan: Wake Alarm MVP Wave 6 - Domain and Gateway Contracts
 
-- status: in progress
+- status: done
 - generated: 2026-07-05
 - last_updated: 2026-07-06
 - work_type: code
@@ -118,6 +118,16 @@
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 6 Task_2 Native Alarm Gateway Contract merged; Wave 6 complete.
+  - Summary: PR #8 `Wave 6 Task 2: Native alarm gateway contract` was squash-merged after worker validation, independent review, hook fixes, base-branch merge, GitHub checks, and orchestrator merge gate.
+  - Merge commit: `10b48a5655b7ffddc7dee600df5b31449039021d`.
+  - Branch/head: `codex/wave-06-native-alarm-gateway-contract` at `bd501231535de49edf3b3aaff224d689d35de0a5`.
+  - Changed files: `lib/core/platform/native_alarm_gateway.dart`, `lib/core/platform/fake_native_alarm_gateway.dart`, and `test/core/platform/native_alarm_gateway_test.dart`.
+  - Validation evidence: Worker `rtk flutter test test/core/platform`, `rtk flutter analyze`, and `rtk git diff --check` passed; orchestrator reran `rtk flutter test test/core/platform`, `rtk flutter analyze`, and `rtk git diff --check` from a clean PR-head worktree and all passed.
+  - Review evidence: Worker deep-review and independent reviewer approved after fixing schedule correlation by `occurrenceId + wakePlanId`, fake unsupported test-alarm behavior, fake naming, shared request/result correlation, and dominant all-failure status selection; orchestrator inspected the scoped diff and focused tests.
+  - Hook/check evidence: Worker final `rtk gh-review-hook 8` exited 0; orchestrator reran `rtk gh-review-hook 8` from a clean PR-head worktree and it exited 0; GitHub CodeRabbit, Greptile, and Socket checks passed.
+  - Completion: Task_1 and Task_2 are both merged, so Wave 6 is complete. Runtime validation for iOS 26+ / Android API 36 alarms remains deferred and unapproved for later release gates.
+
 - 2026-07-06 Wave 6 Task_1 Wake Plan Domain Models merged.
   - Summary: PR #7 `Add wake plan domain models` was squash-merged after worker validation, independent review, GitHub checks, and orchestrator merge gate.
   - Merge commit: `573a5e2f22d73dca6e27bc9289fe70d165be74be`.
@@ -125,7 +135,7 @@
   - Review evidence: Worker deep-review self-review fixed weekly set hash consistency and nullable settings copy behavior; independent reviewer findings on skip-state consistency, minimum interval, and occurrence timestamp/status consistency were fixed and re-reviewed as approved; orchestrator inspected model files and focused tests.
   - Hook/check evidence: Worker `rtk gh-review-hook 7` exited 0 from a clean PR-head worktree; orchestrator reran `rtk gh-review-hook 7` from a clean PR-head worktree and it exited 0; GitHub CodeRabbit, Greptile, and Socket checks passed.
   - PR state: #7 merged; branch head `3be2d61a5820d7311f08db85e795987928c9032d`; merge commit `573a5e2f22d73dca6e27bc9289fe70d165be74be`.
-  - Remaining Wave 6 work: Task_2 Native Alarm Gateway Contract remains in progress in PR #8 pending orchestrator-requested schedule result wakePlanId correlation hardening.
+  - Remaining Wave 6 work: completed by PR #8 on 2026-07-06.
 
 - 2026-07-06 Wave 6 domain and gateway contracts delegated in parallel.
   - Task_1 Worker pending worktree: `local:ba19222c-bbe3-4305-b41f-f8baa6b1c93a`.
