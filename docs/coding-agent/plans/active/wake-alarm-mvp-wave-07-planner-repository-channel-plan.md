@@ -203,6 +203,31 @@
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 7 Task_3 MethodChannel Gateway Wiring merged.
+  - Summary: PR #10 `Wave 7: Wire native alarm MethodChannel gateway` was squash-merged after worker validation, independent review, gh-review-hook, and orchestrator merge gate.
+  - Merge commit: `3167325907868816a04482e358d44b4b707daf9c`.
+  - Branch/head: `codex/wave-07-method-channel-gateway` at `678fb2c9e8326058cca0ccf06ba2a63243d17f3a`.
+  - Changed files: `lib/core/platform/method_channel_native_alarm_gateway.dart`, `docs/platform/native-alarm-channel.md`, and `test/core/platform/method_channel_native_alarm_gateway_test.dart`.
+  - Validation evidence: Worker `rtk flutter test test/core/platform` passed with 34 tests, `rtk flutter analyze` passed, and `rtk git diff --check` passed; orchestrator reran `rtk flutter test test/core/platform`, `rtk flutter analyze`, and `rtk git diff --check` from a clean PR-head worktree and all passed.
+  - Review evidence: Worker deep-review self-review and independent reviewer approved after fixing omitted `supportsTestAlarm` compatibility/default behavior; orchestrator inspected schema versioning, cancel identity payloads, PlatformException mapping, and docs/test alignment.
+  - Hook/check evidence: Worker final `rtk gh-review-hook 10` exited 0 after a normal master merge; orchestrator marked PR ready and reran `rtk gh-review-hook 10`, which exited 0; GitHub CodeRabbit and Socket checks passed.
+  - Remaining Wave 7 work: Task_1 Occurrence Planner, Task_2 Wake Plan Repository, and Task_4 Baseline GitHub Actions CI remain active or pending orchestrator merge.
+
+- 2026-07-06 Wave 7 planner/repository/channel/CI tasks delegated in parallel.
+  - Task_1 Occurrence Planner thread: `019f33d4-a600-7462-96ef-26c49e67a936`; pending worktree: `local:4503e9d0-f2d6-4bf8-98de-c839dbad3111`.
+  - Task_1 Branch: `codex/wave-07-occurrence-planner`.
+  - Task_1 Scope: `lib/features/wake_plan/application/occurrence_planner.dart` and `test/features/wake_plan/application/occurrence_planner_test.dart`.
+  - Task_2 Wake Plan Repository thread: `019f33d4-a5fc-7ba0-8f14-f974af181e28`; pending worktree: `local:8fe1664a-241c-44a9-b5af-6da9c8d272bf`.
+  - Task_2 Branch: `codex/wave-07-wake-plan-repository`.
+  - Task_2 Scope: `lib/features/wake_plan/data/**` and `test/features/wake_plan/data/**`.
+  - Task_3 MethodChannel Gateway Wiring thread: `019f33d4-a978-7b32-8aa5-c9c67e531f6a`; pending worktree: `local:140e55b3-2943-487f-9b05-06f15194ac54`.
+  - Task_3 Branch: `codex/wave-07-method-channel-gateway`.
+  - Task_3 Scope: `lib/core/platform/method_channel_native_alarm_gateway.dart`, `docs/platform/native-alarm-channel.md`, `ios/**`, `android/**`, and `test/core/platform/**`.
+  - Task_4 Baseline GitHub Actions CI thread: `019f33d4-aeca-7053-89b3-8041f60a3f64`; pending worktree: `local:6966b4b3-034f-49e2-a2df-4113c90f2439`.
+  - Task_4 Branch: `codex/wave-07-baseline-ci`.
+  - Task_4 Scope: `.github/workflows/**` and `docs/qa/ci-baseline.md`.
+  - Validation ownership: each worker must provide focused required validation, independent review, PR hook evidence, and a merge-ready or blocked report without merging.
+
 - 2026-07-06 Baseline CI task added.
   - Summary: Add Task_4 for ordinary GitHub Actions PR CI covering format, analyzer/lint, and unit tests before later native smoke work.
   - Timing: This is placed in Wave 7 because it can run as soon as the Flutter scaffold exists and does not require native bridge runtime smoke implementation.
