@@ -195,19 +195,36 @@ class ScheduleResult {
     required List<NativeAlarmScheduleRequest> requests,
     required List<ScheduleOccurrenceResult> results,
   }) {
-    final resultsByOccurrenceId = _correlateResults<ScheduleOccurrenceResult>(
-      requestIds: requests.map((request) => request.occurrenceId),
-      resultIds: results.map((result) => result.occurrenceId),
+    final resultsByScheduleKey = _correlateResults<ScheduleOccurrenceResult>(
+      requestIds: requests.map(
+        (request) => _scheduleKey(
+          occurrenceId: request.occurrenceId,
+          wakePlanId: request.wakePlanId,
+        ),
+      ),
+      resultIds: results.map(
+        (result) => _scheduleKey(
+          occurrenceId: result.occurrenceId,
+          wakePlanId: result.wakePlanId,
+        ),
+      ),
       resultName: 'schedule result',
     );
 
     for (final result in results) {
-      resultsByOccurrenceId[result.occurrenceId] = result;
+      resultsByScheduleKey[_scheduleKey(
+            occurrenceId: result.occurrenceId,
+            wakePlanId: result.wakePlanId,
+          )] =
+          result;
     }
 
     return ScheduleResult.fromOccurrences(
       requests.map((request) {
-        return resultsByOccurrenceId[request.occurrenceId] ??
+        return resultsByScheduleKey[_scheduleKey(
+              occurrenceId: request.occurrenceId,
+              wakePlanId: request.wakePlanId,
+            )] ??
             ScheduleOccurrenceResult.failure(
               occurrenceId: request.occurrenceId,
               wakePlanId: request.wakePlanId,
@@ -566,4 +583,11 @@ String _alarmKey({
   required String platformAlarmId,
 }) {
   return '$occurrenceId\u0000$platformAlarmId';
+}
+
+String _scheduleKey({
+  required String occurrenceId,
+  required String wakePlanId,
+}) {
+  return '$occurrenceId\u0000$wakePlanId';
 }

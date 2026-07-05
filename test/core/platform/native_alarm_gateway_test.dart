@@ -141,6 +141,22 @@ void main() {
       );
     });
 
+    test('rejects schedule rows for the wrong wake plan id', () {
+      expect(
+        () => ScheduleResult.fromRequestResults(
+          requests: [_requests().first],
+          results: [
+            ScheduleOccurrenceResult.success(
+              occurrenceId: 'occ-1',
+              wakePlanId: 'plan-2',
+              platformAlarmId: 'platform-occ-1',
+            ),
+          ],
+        ),
+        throwsArgumentError,
+      );
+    });
+
     test('rejects result rows that cannot correlate to an occurrence', () {
       expect(
         () => ScheduleOccurrenceResult.success(
