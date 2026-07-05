@@ -203,6 +203,16 @@
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 7 Task_4 Baseline GitHub Actions CI merged.
+  - Summary: PR #9 `Add baseline Flutter CI` was squash-merged after worker validation, hosted CI, independent review, hook fixes, base-branch merge, and orchestrator merge gate.
+  - Merge commit: `962dbc5da24ae6447efc436be2464d9c8a922b42`.
+  - Branch/head: `codex/wave-07-baseline-ci` at `c9f75b0fccad1edb979163a827beb3425f1bd64d`.
+  - Changed files: `.github/workflows/baseline-ci.yml` and `docs/qa/ci-baseline.md`.
+  - Validation evidence: Worker `rtk flutter pub get`, `rtk dart format --set-exit-if-changed .`, `rtk flutter analyze`, `rtk flutter test`, and `rtk git diff --check` passed; orchestrator reran the same checks plus workflow YAML parse from a clean PR-head worktree after updating the branch to current master, and all passed.
+  - Review evidence: Worker deep-review self-review and independent reviewer approved; hook-requested `.fvmrc` `.flutterSdkVersion` compatibility was fixed; orchestrator inspected workflow triggers, Flutter setup, validation commands, artifact upload, and non-coverage of native runtime smoke.
+  - Hook/check evidence: Worker final `rtk gh-review-hook 9` exited 0; orchestrator reran `rtk gh-review-hook 9`, observed refreshed hosted Baseline CI success, and verified GitHub CodeRabbit, Greptile, Socket, and Baseline CI checks passed.
+  - Remaining Wave 7 work: Task_1 Occurrence Planner and Task_2 Wake Plan Repository remain active or pending orchestrator merge; Task_3 is already merged.
+
 - 2026-07-06 Wave 7 Task_3 MethodChannel Gateway Wiring merged.
   - Summary: PR #10 `Wave 7: Wire native alarm MethodChannel gateway` was squash-merged after worker validation, independent review, gh-review-hook, and orchestrator merge gate.
   - Merge commit: `3167325907868816a04482e358d44b4b707daf9c`.
