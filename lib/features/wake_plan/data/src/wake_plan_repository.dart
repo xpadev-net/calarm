@@ -164,7 +164,8 @@ class WakePlanRepository {
               ..where(
                 (row) =>
                     row.wakePlanId.equals(wakePlanId) &
-                    row.platformAlarmId.isNotNull(),
+                    row.platformAlarmId.isNotNull() &
+                    row.status.equals(AlarmOccurrenceStatus.scheduled.name),
               )
               ..orderBy([
                 (row) => OrderingTerm.asc(row.scheduledAtDays),
@@ -290,10 +291,14 @@ class WakePlanRepository {
     final repeatType = RepeatType.values.byName(row.repeatType);
     return switch (repeatType) {
       RepeatType.oneTime => RepeatRule.oneTime(
-        _calendarDayFromEpochDays(row.oneTimeDateDays)!,
+        _requiredCalendarDayFromEpochDays(
+          row.oneTimeDateDays,
+          row.id,
+          'oneTimeDateDays',
+        ),
       ),
       RepeatType.weekly => RepeatRule.weekly(
-        _decodeWeekdays(row.weekdaysMask ?? 0),
+        _requiredWeekdaysFromMask(row.weekdaysMask, row.id),
       ),
     };
   }
@@ -373,6 +378,19 @@ class WakePlanRepository {
     );
   }
 
+  CalendarDay _requiredCalendarDayFromEpochDays(
+    int? days,
+    String wakePlanId,
+    String fieldName,
+  ) {
+    final day = _calendarDayFromEpochDays(days);
+    if (day == null) {
+      throw StateError('Malformed WakePlan $wakePlanId: missing $fieldName');
+    }
+
+    return day;
+  }
+
   int? _encodeWeekdays(Set<Weekday> weekdays) {
     if (weekdays.isEmpty) {
       return null;
@@ -389,5 +407,18 @@ class WakePlanRepository {
     return Weekday.values
         .where((weekday) => mask & (1 << (weekday.dateTimeValue - 1)) != 0)
         .toSet();
+  }
+
+  Set<Weekday> _requiredWeekdaysFromMask(int? mask, String wakePlanId) {
+    if (mask == null) {
+      throw StateError('Malformed WakePlan $wakePlanId: missing weekdaysMask');
+    }
+
+    final weekdays = _decodeWeekdays(mask);
+    if (weekdays.isEmpty) {
+      throw StateError('Malformed WakePlan $wakePlanId: empty weekdaysMask');
+    }
+
+    return weekdays;
   }
 }

@@ -1,6 +1,7 @@
 import 'package:calarm/core/time/time.dart';
 import 'package:calarm/features/wake_plan/data/wake_plan_data.dart';
 import 'package:calarm/features/wake_plan/domain/wake_plan_domain.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -274,6 +275,12 @@ void main() {
           day: tuesday,
           platformAlarmId: 'native-2',
         ),
+        buildOccurrence(
+          id: 'stale-cancelled',
+          day: tuesday,
+          status: AlarmOccurrenceStatus.cancelled,
+          platformAlarmId: 'native-stale',
+        ),
       ]);
 
       final reserved = await repository.fetchReservedOccurrencesForPlan(
@@ -330,4 +337,75 @@ void main() {
       expect(fetched.defaultTargetTime, targetTime);
     });
   });
+
+  group('malformed persisted rows', () {
+    test('reports one-time plans missing their date', () async {
+      await database
+          .into(database.wakePlanRows)
+          .insert(
+            _malformedPlanCompanion(
+              id: 'bad-one-time',
+              repeatType: RepeatType.oneTime,
+            ),
+          );
+
+      expect(
+        () => repository.fetchWakePlan('bad-one-time'),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains(
+              'Malformed WakePlan bad-one-time: missing oneTimeDateDays',
+            ),
+          ),
+        ),
+      );
+    });
+
+    test('reports weekly plans missing their weekday mask', () async {
+      await database
+          .into(database.wakePlanRows)
+          .insert(
+            _malformedPlanCompanion(
+              id: 'bad-weekly',
+              repeatType: RepeatType.weekly,
+            ),
+          );
+
+      expect(
+        () => repository.fetchWakePlan('bad-weekly'),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('Malformed WakePlan bad-weekly: missing weekdaysMask'),
+          ),
+        ),
+      );
+    });
+  });
+}
+
+WakePlanRowsCompanion _malformedPlanCompanion({
+  required String id,
+  required RepeatType repeatType,
+}) {
+  final now = DateTime(2026, 7, 6, 8);
+  return WakePlanRowsCompanion.insert(
+    id: id,
+    title: 'Malformed',
+    targetTimeMinutes: 420,
+    startOffsetMinutes: 60,
+    intervalMinutes: 5,
+    repeatType: repeatType.name,
+    isEnabled: true,
+    status: WakePlanStatus.scheduled.name,
+    soundId: 'default',
+    vibrationEnabled: true,
+    createdAt: now,
+    updatedAt: now,
+    oneTimeDateDays: const Value.absent(),
+    weekdaysMask: const Value.absent(),
+  );
 }
