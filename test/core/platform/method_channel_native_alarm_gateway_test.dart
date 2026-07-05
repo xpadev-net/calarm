@@ -1,0 +1,356 @@
+import 'dart:async';
+
+import 'package:calarm/core/platform/method_channel_native_alarm_gateway.dart';
+import 'package:calarm/core/platform/native_alarm_gateway.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  const channel = MethodChannel('test.native_alarm');
+  late List<MethodCall> calls;
+  late MethodChannelNativeAlarmGateway gateway;
+
+  setUp(() {
+    calls = <MethodCall>[];
+    gateway = MethodChannelNativeAlarmGateway(channel: channel);
+  });
+
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null);
+  });
+
+  test('getCapability calls MethodChannel with schema version', () async {
+    _setHandler(channel, calls, (call) {
+      expect(call.method, 'getCapability');
+      expect(call.arguments, {'schemaVersion': 1});
+      return {
+        'schemaVersion': 1,
+        'permissionStatus': 'authorized',
+        'canScheduleAlarms': true,
+        'canRequestPermission': false,
+        'maxPendingAlarms': 64,
+        'requiresExactAlarmPermission': true,
+        'requiresNotificationPermission': true,
+        'requiresFullScreenIntentPermission': false,
+        'supportsTestAlarm': true,
+      };
+    });
+
+    final capability = await gateway.getCapability();
+
+    expect(capability.permissionStatus, NativeAlarmPermissionStatus.authorized);
+    expect(capability.canScheduleAlarms, isTrue);
+    expect(capability.canRequestPermission, isFalse);
+    expect(capability.maxPendingAlarms, 64);
+    expect(capability.requiresExactAlarmPermission, isTrue);
+    expect(capability.requiresNotificationPermission, isTrue);
+    expect(capability.requiresFullScreenIntentPermission, isFalse);
+    expect(calls.single.method, 'getCapability');
+  });
+
+  test(
+    'getCapability keeps domain default for omitted test alarm support',
+    () async {
+      _setHandler(channel, calls, (_) {
+        return {
+          'schemaVersion': 1,
+          'permissionStatus': 'authorized',
+          'canScheduleAlarms': true,
+          'canRequestPermission': true,
+        };
+      });
+
+      final capability = await gateway.getCapability();
+
+      expect(capability.supportsTestAlarm, isTrue);
+    },
+  );
+
+  test('requestPermission uses requestPermissionIfNeeded method', () async {
+    _setHandler(channel, calls, (call) {
+      expect(call.arguments, {'schemaVersion': 1});
+      return {
+        'schemaVersion': 1,
+        'status': 'granted',
+        'permissionStatus': 'authorized',
+      };
+    });
+
+    final result = await gateway.requestPermission();
+
+    expect(calls.single.method, 'requestPermissionIfNeeded');
+    expect(result.status, NativeAlarmPermissionRequestStatus.granted);
+    expect(result.permissionStatus, NativeAlarmPermissionStatus.authorized);
+  });
+
+  test(
+    'scheduleOccurrences sends fixed payload and correlates partial result',
+    () async {
+      _setHandler(channel, calls, (call) {
+        expect(call.method, 'scheduleOccurrences');
+        expect(call.arguments, {
+          'schemaVersion': 1,
+          'occurrences': [
+            {
+              'occurrenceId': 'occ-1',
+              'wakePlanId': 'plan-1',
+              'scheduledAt': '2026-07-06T21:00:00.000Z',
+              'targetAt': '2026-07-06T22:00:00.000Z',
+              'indexInPlan': 0,
+              'totalInPlan': 2,
+              'soundId': 'default',
+              'vibrationEnabled': true,
+            },
+            {
+              'occurrenceId': 'occ-2',
+              'wakePlanId': 'plan-1',
+              'scheduledAt': '2026-07-06T21:05:00.000Z',
+              'targetAt': '2026-07-06T22:00:00.000Z',
+              'indexInPlan': 1,
+              'totalInPlan': 2,
+              'soundId': 'default',
+              'vibrationEnabled': false,
+            },
+          ],
+        });
+        return {
+          'schemaVersion': 1,
+          'occurrences': [
+            {
+              'occurrenceId': 'occ-1',
+              'wakePlanId': 'plan-1',
+              'status': 'success',
+              'platformAlarmId': 'platform-occ-1',
+            },
+            {
+              'occurrenceId': 'occ-2',
+              'wakePlanId': 'plan-1',
+              'status': 'failure',
+              'failureReason': 'osConstraint',
+              'failureMessage': 'Quota exceeded.',
+            },
+          ],
+        };
+      });
+
+      final result = await gateway.scheduleOccurrences(_requests());
+
+      expect(result.status, ScheduleResultStatus.partialFailure);
+      expect(result.occurrences.first.platformAlarmId, 'platform-occ-1');
+      final failed = result.occurrences.last;
+      expect(failed.failureReason, ScheduleFailureReason.osConstraint);
+      expect(failed.failureMessage, 'Quota exceeded.');
+    },
+  );
+
+  test(
+    'scheduleOccurrences maps native method error to each occurrence',
+    () async {
+      _setHandler(channel, calls, (_) {
+        throw PlatformException(
+          code: 'PERMISSION_MISSING',
+          message: 'Exact alarm permission denied.',
+        );
+      });
+
+      final result = await gateway.scheduleOccurrences(_requests());
+
+      expect(result.status, ScheduleResultStatus.permissionMissing);
+      expect(result.occurrences, hasLength(2));
+      expect(result.occurrences.map((occurrence) => occurrence.failureReason), [
+        ScheduleFailureReason.permissionMissing,
+        ScheduleFailureReason.permissionMissing,
+      ]);
+      expect(result.occurrences.first.failureMessage, contains('Exact alarm'));
+    },
+  );
+
+  test(
+    'cancelOccurrences sends occurrence to platform id correspondence',
+    () async {
+      _setHandler(channel, calls, (call) {
+        expect(call.method, 'cancelOccurrences');
+        expect(call.arguments, {
+          'schemaVersion': 1,
+          'alarms': [
+            {'occurrenceId': 'occ-1', 'platformAlarmId': 'platform-occ-1'},
+            {'occurrenceId': 'occ-2', 'platformAlarmId': 'platform-occ-2'},
+          ],
+        });
+        return {
+          'schemaVersion': 1,
+          'alarms': [
+            {
+              'occurrenceId': 'occ-1',
+              'platformAlarmId': 'platform-occ-1',
+              'status': 'success',
+            },
+            {
+              'occurrenceId': 'occ-2',
+              'platformAlarmId': 'platform-occ-2',
+              'status': 'failure',
+              'failureReason': 'nativeError',
+              'failureMessage': 'Already gone.',
+            },
+          ],
+        };
+      });
+
+      final result = await gateway.cancelOccurrences(_cancelRequests());
+
+      expect(result.status, CancelResultStatus.partialFailure);
+      expect(result.alarms.last.failureReason, CancelFailureReason.nativeError);
+      expect(result.alarms.last.failureMessage, 'Already gone.');
+    },
+  );
+
+  test('cancelPlan requires resolved platform identities in payload', () async {
+    _setHandler(channel, calls, (call) {
+      expect(call.method, 'cancelPlan');
+      final arguments = call.arguments as Map<Object?, Object?>;
+      expect(arguments.containsKey('wakePlanId'), isFalse);
+      expect(arguments, {
+        'schemaVersion': 1,
+        'alarms': [
+          {'occurrenceId': 'occ-1', 'platformAlarmId': 'platform-occ-1'},
+          {'occurrenceId': 'occ-2', 'platformAlarmId': 'platform-occ-2'},
+        ],
+      });
+      return {
+        'schemaVersion': 1,
+        'alarms': [
+          {
+            'occurrenceId': 'occ-1',
+            'platformAlarmId': 'platform-occ-1',
+            'status': 'success',
+          },
+          {
+            'occurrenceId': 'occ-2',
+            'platformAlarmId': 'platform-occ-2',
+            'status': 'success',
+          },
+        ],
+      };
+    });
+
+    final result = await gateway.cancelPlan(_cancelRequests());
+
+    expect(result.status, CancelResultStatus.success);
+  });
+
+  test(
+    'cancelPlan maps native method error per requested platform id',
+    () async {
+      _setHandler(channel, calls, (_) {
+        throw PlatformException(
+          code: 'MISSING_PLATFORM_ALARM_ID',
+          message: 'Stored native id was empty.',
+        );
+      });
+
+      final result = await gateway.cancelPlan(_cancelRequests());
+
+      expect(result.status, CancelResultStatus.failure);
+      expect(result.alarms.map((alarm) => alarm.failureReason), [
+        CancelFailureReason.missingPlatformAlarmId,
+        CancelFailureReason.missingPlatformAlarmId,
+      ]);
+      expect(result.alarms.first.platformAlarmId, 'platform-occ-1');
+    },
+  );
+
+  test('scheduleTestAlarm sends schema version and parses success', () async {
+    _setHandler(channel, calls, (call) {
+      expect(call.method, 'scheduleTestAlarm');
+      expect(call.arguments, {
+        'schemaVersion': 1,
+        'fireAfterMillis': 60000,
+        'soundId': 'quiet',
+        'vibrationEnabled': false,
+      });
+      return {
+        'schemaVersion': 1,
+        'status': 'success',
+        'platformAlarmId': 'test-platform-id',
+      };
+    });
+
+    final result = await gateway.scheduleTestAlarm(
+      NativeTestAlarmScheduleRequest(
+        fireAfter: const Duration(minutes: 1),
+        soundId: 'quiet',
+        vibrationEnabled: false,
+      ),
+    );
+
+    expect(result.status, ScheduleResultStatus.success);
+    expect(result.platformAlarmId, 'test-platform-id');
+  });
+
+  test('scheduleTestAlarm maps native error to failed result', () async {
+    _setHandler(channel, calls, (_) {
+      throw PlatformException(code: 'UNAVAILABLE', message: 'Unsupported.');
+    });
+
+    final result = await gateway.scheduleTestAlarm(
+      NativeTestAlarmScheduleRequest(fireAfter: const Duration(seconds: 30)),
+    );
+
+    expect(result.status, ScheduleResultStatus.failure);
+    expect(result.failureReason, ScheduleFailureReason.unavailable);
+    expect(result.failureMessage, 'Unsupported.');
+  });
+}
+
+void _setHandler(
+  MethodChannel channel,
+  List<MethodCall> calls,
+  FutureOr<Object?> Function(MethodCall call) handler,
+) {
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(channel, (call) {
+        calls.add(call);
+        return Future<Object?>.value(handler(call));
+      });
+}
+
+List<NativeAlarmScheduleRequest> _requests() {
+  return [
+    NativeAlarmScheduleRequest(
+      occurrenceId: 'occ-1',
+      wakePlanId: 'plan-1',
+      scheduledAt: DateTime.utc(2026, 7, 6, 21),
+      targetAt: DateTime.utc(2026, 7, 6, 22),
+      indexInPlan: 0,
+      totalInPlan: 2,
+      soundId: 'default',
+      vibrationEnabled: true,
+    ),
+    NativeAlarmScheduleRequest(
+      occurrenceId: 'occ-2',
+      wakePlanId: 'plan-1',
+      scheduledAt: DateTime.utc(2026, 7, 6, 21, 5),
+      targetAt: DateTime.utc(2026, 7, 6, 22),
+      indexInPlan: 1,
+      totalInPlan: 2,
+      soundId: 'default',
+      vibrationEnabled: false,
+    ),
+  ];
+}
+
+List<NativeAlarmCancelRequest> _cancelRequests() {
+  return [
+    NativeAlarmCancelRequest(
+      occurrenceId: 'occ-1',
+      platformAlarmId: 'platform-occ-1',
+    ),
+    NativeAlarmCancelRequest(
+      occurrenceId: 'occ-2',
+      platformAlarmId: 'platform-occ-2',
+    ),
+  ];
+}
