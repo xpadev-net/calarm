@@ -37,6 +37,8 @@ the Wake Plan model:
 - Delivery while the device is locked.
 - Delivery while the app is terminated.
 - Behavior when alarm or notification permission is denied.
+- iOS Silent / Focus behavior.
+- Android reboot restore behavior.
 
 Simulator or emulator results may be recorded, but they do not approve MVP
 feasibility. Real-device verification is required for release-blocking cases.
@@ -75,6 +77,7 @@ feasibility. Real-device verification is required for release-blocking cases.
 | ios-06 | Locked device | Schedule an alarm, lock the device before the due time, and keep the device locked until delivery. | Alarm is visible/audible in the lock-state behavior expected for the API and can be dismissed. | pending | pending | pending | pending |
 | ios-07 | Terminated app | Schedule an alarm, fully terminate the app, then wait until the scheduled time. | Alarm fires without the app being foregrounded manually. | pending | pending | pending | pending |
 | ios-08 | Permission denied | Deny alarm and/or notification permission, then attempt scheduling and delivery. | App detects the denied state, scheduling does not silently succeed, and the user-facing state can explain the blocker. | pending | pending | pending | pending |
+| ios-09 | Silent / Focus mode | Enable Silent mode and the Focus / Do Not Disturb condition under test, schedule an alarm, then wait until delivery. | Alarm delivery behavior is recorded as acceptable or release-blocking for the stated mode; failures have a user-facing mitigation or block release. | pending | pending | pending | pending |
 
 ## Android Evidence
 
@@ -111,6 +114,7 @@ feasibility. Real-device verification is required for release-blocking cases.
 | android-06 | Locked device | Schedule an alarm, lock the device before the due time, and keep the device locked until delivery. | Alarm is visible/audible in the lock-state behavior expected for the API and can be dismissed. | pending | pending | pending | pending |
 | android-07 | Terminated app | Schedule an alarm, fully terminate the app, then wait until the scheduled time. | Alarm fires without the app being foregrounded manually; native fallback is available if Flutter startup fails. | pending | pending | pending | pending |
 | android-08 | Permission denied | Deny exact alarm and/or notification permission, then attempt scheduling and delivery. | App detects the denied state, scheduling does not silently succeed, and the user-facing state can explain the blocker. | pending | pending | pending | pending |
+| android-09 | Reboot restore | Schedule future alarms, reboot the device before delivery, unlock as required by the test setup, then wait through the scheduled time. | Required future alarms are restored after reboot or the restore limitation is recorded as release-blocking. | pending | pending | pending | pending |
 
 ## Cross-Platform Comparison
 
@@ -123,6 +127,8 @@ feasibility. Real-device verification is required for release-blocking cases.
 | Locked-device delivery | pending | pending | pending | pending |
 | Terminated-app delivery | pending | pending | pending | pending |
 | Permission-denied handling | pending | pending | pending | pending |
+| Silent / Focus behavior | pending | not applicable | pending | pending |
+| Reboot restore behavior | not applicable | pending | pending | pending |
 | Real-device coverage | pending | pending | pending | pending |
 
 ## Failure Decision Points
@@ -150,6 +156,8 @@ Mark each item `pass`, `fail`, `pending`, or `not applicable`.
 | Locked-device delivery verified. | pending | pending | Blocks alarm reliability claim if unverified. |
 | Terminated-app delivery verified. | pending | pending | Blocks alarm reliability claim if unverified. |
 | Permission-denied state detected and explainable. | pending | pending | Blocks release if denied permissions can fail silently. |
+| Silent / Focus behavior verified or documented with release-blocking mitigation. | pending | not applicable | Blocks iOS reliability claim if unverified. |
+| Reboot restore verified or documented with release-blocking mitigation. | not applicable | pending | Blocks Android alarm reliability claim if unverified. |
 | Simulator/emulator-only evidence is not used as approval. | pending | pending | Blocks approval until real-device evidence exists. |
 
 ## Evidence Log
