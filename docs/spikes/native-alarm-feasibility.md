@@ -172,7 +172,7 @@ Mark each item `pass`, `fail`, `pending`, or `not applicable`.
 | Permission-denied state detected and explainable. | pending: authorization states typecheck, denied behavior blocked | pending: blocked by no Android API 36 device/emulator and no Android app target | Blocks release if denied permissions can fail silently. |
 | Silent / Focus behavior verified or documented with release-blocking mitigation. | pending: blocked by no iOS 26+ real device | not applicable | Blocks iOS reliability claim if unverified. |
 | Reboot restore verified or documented with release-blocking mitigation. | not applicable | pending: blocked by no Android API 36 device/emulator and no Android app target; local docs require boot restore because alarms are canceled across shutdown | Blocks Android alarm reliability claim if unverified. |
-| Simulator/emulator-only evidence is not used as approval. | pass: no simulator evidence was used as iOS approval | pass: no emulator evidence was used as Android approval; no Android runtime evidence was available | Blocks approval until real-device evidence exists. |
+| Simulator/emulator-only evidence is not used as approval. | pass: no simulator evidence was used as iOS approval | pending: no Android runtime evidence was available; no emulator-only evidence was used as approval | Blocks approval until real-device evidence exists. |
 
 ## Evidence Log
 
