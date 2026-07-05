@@ -203,6 +203,16 @@
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 7 Task_3 MethodChannel Gateway Wiring merged.
+  - Summary: PR #10 `Wave 7: Wire native alarm MethodChannel gateway` was squash-merged after worker validation, independent review, gh-review-hook, and orchestrator merge gate.
+  - Merge commit: `3167325907868816a04482e358d44b4b707daf9c`.
+  - Branch/head: `codex/wave-07-method-channel-gateway` at `678fb2c9e8326058cca0ccf06ba2a63243d17f3a`.
+  - Changed files: `lib/core/platform/method_channel_native_alarm_gateway.dart`, `docs/platform/native-alarm-channel.md`, and `test/core/platform/method_channel_native_alarm_gateway_test.dart`.
+  - Validation evidence: Worker `rtk flutter test test/core/platform` passed with 34 tests, `rtk flutter analyze` passed, and `rtk git diff --check` passed; orchestrator reran `rtk flutter test test/core/platform`, `rtk flutter analyze`, and `rtk git diff --check` from a clean PR-head worktree and all passed.
+  - Review evidence: Worker deep-review self-review and independent reviewer approved after fixing omitted `supportsTestAlarm` compatibility/default behavior; orchestrator inspected schema versioning, cancel identity payloads, PlatformException mapping, and docs/test alignment.
+  - Hook/check evidence: Worker final `rtk gh-review-hook 10` exited 0 after a normal master merge; orchestrator marked PR ready and reran `rtk gh-review-hook 10`, which exited 0; GitHub CodeRabbit and Socket checks passed.
+  - Remaining Wave 7 work: Task_1 Occurrence Planner, Task_2 Wake Plan Repository, and Task_4 Baseline GitHub Actions CI remain active or pending orchestrator merge.
+
 - 2026-07-06 Wave 7 planner/repository/channel/CI tasks delegated in parallel.
   - Task_1 Occurrence Planner thread: `019f33d4-a600-7462-96ef-26c49e67a936`; pending worktree: `local:4503e9d0-f2d6-4bf8-98de-c839dbad3111`.
   - Task_1 Branch: `codex/wave-07-occurrence-planner`.
