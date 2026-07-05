@@ -45,9 +45,15 @@ class WakePlanRepository {
     bool includeDeleted = false,
     bool includeExpiredOneTimeHistory = false,
   }) async {
-    final rows = await (_database.select(
-      _database.wakePlanRows,
-    )..orderBy([(row) => OrderingTerm.asc(row.targetTimeMinutes)])).get();
+    final query = _database.select(_database.wakePlanRows);
+    if (!includeDeleted) {
+      query.where((row) => row.status.isNotValue(WakePlanStatus.deleted.name));
+    }
+    if (!includeExpiredOneTimeHistory) {
+      query.where((row) => _notExpiredOneTimeExpression(row, now));
+    }
+    query.orderBy([(row) => OrderingTerm.asc(row.targetTimeMinutes)]);
+    final rows = await query.get();
 
     return rows
         .map(_tryWakePlanFromRow)
@@ -71,12 +77,17 @@ class WakePlanRepository {
       throw ArgumentError.value(end, 'end', 'must not be before start');
     }
 
-    final rows = await _database.select(_database.wakePlanRows).get();
+    final query = _database.select(_database.wakePlanRows);
+    if (!includeDeleted) {
+      query.where((row) => row.status.isNotValue(WakePlanStatus.deleted.name));
+    }
+    if (!includeDisabled) {
+      query.where((row) => row.isEnabled.equals(true));
+    }
+    final rows = await query.get();
     return rows
         .map(_tryWakePlanFromRow)
         .whereType<WakePlan>()
-        .where((plan) => includeDeleted || !plan.isDeleted)
-        .where((plan) => includeDisabled || plan.isEnabled)
         .where((plan) => _planIntersectsRange(plan, start, end))
         .toList(growable: false);
   }
@@ -115,7 +126,7 @@ class WakePlanRepository {
       _database.alarmOccurrenceRows,
     )..where((row) => row.id.equals(id))).getSingleOrNull();
 
-    return row == null ? null : _alarmOccurrenceFromRow(row);
+    return row == null ? null : _tryAlarmOccurrenceFromRow(row);
   }
 
   Future<List<AlarmOccurrence>> fetchOccurrencesForPlan(
@@ -130,7 +141,10 @@ class WakePlanRepository {
               ]))
             .get();
 
-    return rows.map(_alarmOccurrenceFromRow).toList(growable: false);
+    return rows
+        .map(_tryAlarmOccurrenceFromRow)
+        .whereType<AlarmOccurrence>()
+        .toList(growable: false);
   }
 
   Future<List<AlarmOccurrence>> fetchOccurrencesForCalendarRange({
@@ -158,7 +172,10 @@ class WakePlanRepository {
               ]))
             .get();
 
-    return rows.map(_alarmOccurrenceFromRow).toList(growable: false);
+    return rows
+        .map(_tryAlarmOccurrenceFromRow)
+        .whereType<AlarmOccurrence>()
+        .toList(growable: false);
   }
 
   Future<List<AlarmOccurrence>> fetchReservedOccurrencesForPlan(
@@ -181,7 +198,10 @@ class WakePlanRepository {
               ]))
             .get();
 
-    return rows.map(_alarmOccurrenceFromRow).toList(growable: false);
+    return rows
+        .map(_tryAlarmOccurrenceFromRow)
+        .whereType<AlarmOccurrence>()
+        .toList(growable: false);
   }
 
   Future<void> updateOccurrencePlatformAlarmId({
@@ -222,7 +242,28 @@ class WakePlanRepository {
       _database.appSettingsRows,
     )..where((row) => row.id.equals(_appSettingsId))).getSingleOrNull();
 
-    return row == null ? null : _appSettingsFromRow(row);
+    return row == null ? null : _tryAppSettingsFromRow(row);
+  }
+
+  Expression<bool> _notExpiredOneTimeExpression(
+    $WakePlanRowsTable row,
+    DateTime now,
+  ) {
+    final retentionThreshold = now.subtract(oneTimeHistoryRetention);
+    final thresholdDay = CalendarDay.fromDateTime(
+      retentionThreshold,
+    ).daysSinceUnixEpoch;
+    final thresholdTime = TimeOfDayMinutes.fromDateTime(
+      retentionThreshold,
+    ).minutesSinceMidnight;
+
+    final expiredOneTime =
+        row.repeatType.equals(RepeatType.oneTime.name) &
+        (row.oneTimeDateDays.isSmallerThanValue(thresholdDay) |
+            (row.oneTimeDateDays.equals(thresholdDay) &
+                row.targetTimeMinutes.isSmallerOrEqualValue(thresholdTime)));
+
+    return expiredOneTime.not();
   }
 
   bool _isExpiredOneTimePlan({required WakePlan plan, required DateTime now}) {
@@ -359,6 +400,18 @@ class WakePlanRepository {
     );
   }
 
+  AlarmOccurrence? _tryAlarmOccurrenceFromRow(AlarmOccurrenceRow row) {
+    try {
+      return _alarmOccurrenceFromRow(row);
+    } on StateError {
+      return null;
+    } on RangeError {
+      return null;
+    } on ArgumentError {
+      return null;
+    }
+  }
+
   AppSettingsRowsCompanion _appSettingsCompanion(AppSettings settings) {
     return AppSettingsRowsCompanion.insert(
       id: const Value(_appSettingsId),
@@ -386,6 +439,18 @@ class WakePlanRepository {
               row.defaultTargetTimeMinutes!,
             ),
     );
+  }
+
+  AppSettings? _tryAppSettingsFromRow(AppSettingsRow row) {
+    try {
+      return _appSettingsFromRow(row);
+    } on StateError {
+      return null;
+    } on RangeError {
+      return null;
+    } on ArgumentError {
+      return null;
+    }
   }
 
   CalendarDay? _calendarDayFromEpochDays(int? days) {

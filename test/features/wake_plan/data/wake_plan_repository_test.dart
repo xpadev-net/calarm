@@ -57,6 +57,7 @@ void main() {
     TimeOfDayMinutes? time,
     AlarmOccurrenceStatus status = AlarmOccurrenceStatus.scheduled,
     String? platformAlarmId,
+    DateTime? firedAt,
     DateTime? updatedAt,
   }) {
     return AlarmOccurrence(
@@ -65,6 +66,7 @@ void main() {
       scheduledAt: DateMinute(day: day ?? monday, time: time ?? targetTime),
       status: status,
       platformAlarmId: platformAlarmId,
+      firedAt: firedAt,
       createdAt: now,
       updatedAt: updatedAt ?? now,
     );
@@ -97,6 +99,17 @@ void main() {
       expect(fetched.interval, plan.interval);
       expect(fetched.soundId, plan.soundId);
       expect(fetched.vibrationEnabled, isTrue);
+    });
+
+    test('round-trips one-time repeat rules', () async {
+      final plan = buildPlan();
+
+      await repository.saveWakePlan(plan);
+
+      final fetched = await repository.fetchWakePlan('plan-1');
+
+      expect(fetched, isNotNull);
+      expect(fetched!.repeatRule, RepeatRule.oneTime(monday));
     });
 
     test('fetches plans needed for a calendar range', () async {
@@ -314,15 +327,12 @@ void main() {
           day: tuesday,
           platformAlarmId: 'native-2',
         ),
-        AlarmOccurrence(
+        buildOccurrence(
           id: 'ringing',
-          wakePlanId: 'plan-1',
-          scheduledAt: DateMinute(day: tuesday, time: targetTime),
+          day: tuesday,
           status: AlarmOccurrenceStatus.ringing,
           platformAlarmId: 'native-ringing',
           firedAt: DateTime(2026, 7, 7, 7),
-          createdAt: now,
-          updatedAt: now,
         ),
         buildOccurrence(
           id: 'stale-cancelled',
@@ -361,9 +371,32 @@ void main() {
         'tuesday',
       ]);
     });
+
+    test('isolates malformed occurrence rows', () async {
+      await repository.saveWakePlan(buildPlan());
+      await repository.saveAlarmOccurrences([buildOccurrence(id: 'valid')]);
+      await database
+          .into(database.alarmOccurrenceRows)
+          .insert(_malformedOccurrenceCompanion());
+
+      expect(await repository.fetchAlarmOccurrence('bad-occ'), isNull);
+
+      final byPlan = await repository.fetchOccurrencesForPlan('plan-1');
+      final byRange = await repository.fetchOccurrencesForCalendarRange(
+        start: monday,
+        end: monday,
+      );
+
+      expect(byPlan.map((occurrence) => occurrence.id), ['valid']);
+      expect(byRange.map((occurrence) => occurrence.id), ['valid']);
+    });
   });
 
   group('app settings', () {
+    test('returns null before settings are saved', () async {
+      expect(await repository.fetchAppSettings(), isNull);
+    });
+
     test('saves and fetches app settings', () async {
       final settings = AppSettings(
         defaultStartOffset: const Duration(minutes: 45),
@@ -385,6 +418,47 @@ void main() {
       expect(fetched.defaultVibrationEnabled, isFalse);
       expect(fetched.defaultRepeatType, RepeatType.weekly);
       expect(fetched.defaultTargetTime, targetTime);
+    });
+
+    test('updates existing app settings', () async {
+      await repository.saveAppSettings(
+        AppSettings(
+          defaultStartOffset: const Duration(minutes: 45),
+          defaultInterval: const Duration(minutes: 10),
+          defaultSoundId: 'soft-bells',
+          defaultVibrationEnabled: false,
+          defaultRepeatType: RepeatType.weekly,
+          defaultTargetTime: targetTime,
+        ),
+      );
+
+      await repository.saveAppSettings(
+        AppSettings(
+          defaultStartOffset: const Duration(minutes: 60),
+          defaultInterval: const Duration(minutes: 5),
+          defaultSoundId: 'chime',
+          defaultVibrationEnabled: true,
+          defaultRepeatType: RepeatType.oneTime,
+        ),
+      );
+
+      final fetched = await repository.fetchAppSettings();
+
+      expect(fetched, isNotNull);
+      expect(fetched!.defaultStartOffset, const Duration(minutes: 60));
+      expect(fetched.defaultInterval, const Duration(minutes: 5));
+      expect(fetched.defaultSoundId, 'chime');
+      expect(fetched.defaultVibrationEnabled, isTrue);
+      expect(fetched.defaultRepeatType, RepeatType.oneTime);
+      expect(fetched.defaultTargetTime, isNull);
+    });
+
+    test('isolates malformed app settings rows', () async {
+      await database
+          .into(database.appSettingsRows)
+          .insert(_malformedAppSettingsCompanion());
+
+      expect(await repository.fetchAppSettings(), isNull);
     });
   });
 
@@ -415,6 +489,34 @@ void main() {
       expect(await repository.fetchWakePlan('bad-weekly'), isNull);
     });
   });
+}
+
+AlarmOccurrenceRowsCompanion _malformedOccurrenceCompanion() {
+  final now = DateTime(2026, 7, 6, 8);
+  return AlarmOccurrenceRowsCompanion.insert(
+    id: 'bad-occ',
+    wakePlanId: 'plan-1',
+    scheduledAtDays: CalendarDay(
+      year: 2026,
+      month: 7,
+      day: 6,
+    ).daysSinceUnixEpoch,
+    scheduledAtMinutes: 420,
+    status: 'not-a-status',
+    createdAt: now,
+    updatedAt: now,
+  );
+}
+
+AppSettingsRowsCompanion _malformedAppSettingsCompanion() {
+  return AppSettingsRowsCompanion.insert(
+    id: const Value(1),
+    defaultStartOffsetMinutes: 60,
+    defaultIntervalMinutes: 5,
+    defaultSoundId: 'default',
+    defaultVibrationEnabled: true,
+    defaultRepeatType: 'not-a-repeat-type',
+  );
 }
 
 WakePlanRowsCompanion _malformedPlanCompanion({

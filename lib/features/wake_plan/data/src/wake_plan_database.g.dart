@@ -2125,6 +2125,10 @@ abstract class _$WakePlanDatabase extends GeneratedDatabase {
   late final $AppSettingsRowsTable appSettingsRows = $AppSettingsRowsTable(
     this,
   );
+  late final Index alarmOccurrenceWakePlanId = Index(
+    'alarm_occurrence_wake_plan_id',
+    'CREATE INDEX alarm_occurrence_wake_plan_id ON alarm_occurrence_rows (wake_plan_id)',
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -2133,6 +2137,7 @@ abstract class _$WakePlanDatabase extends GeneratedDatabase {
     wakePlanRows,
     alarmOccurrenceRows,
     appSettingsRows,
+    alarmOccurrenceWakePlanId,
   ];
 }
 

@@ -25,6 +25,7 @@ class WakePlanRows extends Table {
 }
 
 @DataClassName('AlarmOccurrenceRow')
+@TableIndex(name: 'alarm_occurrence_wake_plan_id', columns: {#wakePlanId})
 class AlarmOccurrenceRows extends Table {
   TextColumn get id => text()();
   TextColumn get wakePlanId => text().references(WakePlanRows, #id)();
