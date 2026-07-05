@@ -1,9 +1,9 @@
 # Native Alarm Feasibility Spike Evidence
 
-- Status: pending
-- Owner: pending
-- Last updated: pending
-- Decision status: pending
+- Status: wave 3 decision recorded
+- Owner: Wave 3 Platform Feasibility Decision
+- Last updated: 2026-07-06
+- Decision status: proceed with implementation planning from API-surface feasibility; runtime approval deferred
 
 Use this document as the single evidence record for native alarm feasibility.
 Do not leave unknown values blank; write `pending`, `not tested`, or `not applicable`.
@@ -142,19 +142,83 @@ feasibility. Real-device verification is required for release-blocking cases.
 | Reboot restore behavior | not applicable | blocked: no Android API 36 runtime; local docs require `RECEIVE_BOOT_COMPLETED` restore because alarms are canceled on shutdown | pending for Android; blocks reliability claim | Implement BootReceiver probe/app and test reboot restore on Android API 36. |
 | Real-device coverage | blocked: no iOS 26+ real device or compatible runtime available in worker environment | blocked: no Android API 36 real device/emulator, no configured AVD, no `android-36` SDK/platform, and no Android app target | iOS and Android MVP approval blocked | Provide iOS 26+ and Android API 36 devices/runtimes plus installable probes/apps and rerun all cases. |
 
+## Wave 3 Platform Feasibility Decision
+
+Decision date: 2026-07-06.
+
+### Decision Summary
+
+- Continue MVP implementation planning, but do not treat either platform as runtime-approved.
+- Current evidence is API-surface feasibility plus explicit blocker evidence, not proof of wake reliability.
+- Adopt rolling concrete native occurrence reservations for the MVP architecture.
+- Keep the normal cross-platform MVP target, but release remains blocked per platform until runtime validation passes for that platform.
+- Do not ship a platform-limited MVP unless a later explicit product decision approves the target platform, excluded platform, user-facing scope, and release notes.
+
+### Evidence Classification
+
+| Platform | API-surface feasibility | Runtime-approved reliability | Decision |
+|---|---|---|---|
+| iOS 26+ | Feasible enough to implement an AlarmKit bridge around UUID-backed concrete occurrences, per-occurrence cancel, plan cancel by iterating stored IDs, and AlarmKit authorization state. | Not approved. Delivery, lock/terminated behavior, permission denial, Silent/Focus behavior, cancel semantics, and 13-occurrence reservation limits remain unverified. | Proceed with implementation behind release-blocking validation gates. |
+| Android API 36 | Feasible enough to implement an AlarmManager bridge around concrete occurrences using `setAlarmClock` as the first candidate, distinct `PendingIntent` identities, permission/status checks, full-screen alarm UI, and BootReceiver restore. | Not approved. Wake reliability, lock/terminated behavior, permission denial, full-screen stop UI, cancel semantics, 13-occurrence behavior, and reboot restore remain unverified. | Proceed with implementation behind release-blocking validation gates. |
+
+### Adopted MVP Architecture
+
+- Reservation model: schedule concrete native occurrences over the rolling reservation horizon. Do not rely on OS recurrence as the source of truth for MVP repeating plans, next-skip, individual cancel, or plan cancel.
+- Horizon: retain the existing 7-day rolling reservation assumption unless later runtime limits force a narrower horizon.
+- Identity model: persist one platform alarm identity per `AlarmOccurrence`; use those identities for stop, individual cancel, plan cancel, reconciliation, and QA evidence.
+- Reconciliation model: regenerate future occurrences from Wake Plan state, compare with stored platform IDs, cancel stale native reservations before creating replacements, and record partial failures instead of claiming success.
+- Test alarm model: use a distinct 1-minute test alarm path with distinguishable IDs and explicit cleanup.
+
+### iOS Adoption Approach
+
+- Use AlarmKit for iOS 26+.
+- Represent each MVP occurrence as a concrete AlarmKit alarm with its own UUID-backed `Alarm.ID`.
+- Use `AlarmManager.authorizationState` and `requestAuthorization()` for alarm permission state.
+- Treat AlarmKit weekly recurrence as a possible later optimization only after runtime evidence proves it can preserve next-skip and cancel semantics; it is not the MVP source of truth.
+- Do not claim iOS release readiness until real-device or approved compatible-runtime validation covers one-minute delivery, 3-alarm and 13-equivalent reservations, locked delivery, terminated-app delivery, denied authorization, Silent/Focus behavior, stop/dismiss behavior, individual cancel, and plan cancel.
+
+### Android Adoption Approach
+
+- Use AlarmManager with `setAlarmClock` as the first MVP candidate for user-visible wake alarms.
+- Use one stable immutable `PendingIntent` identity per occurrence; persist enough data to cancel and restore it.
+- Implement a native minimal stop UI for alarm delivery. Flutter UI may augment the experience when available, but Android MVP reliability must not depend on Flutter startup from a terminated state.
+- Implement BootReceiver restore and document whether Direct Boot support is required before first unlock.
+- Treat `setExactAndAllowWhileIdle` or other exact alarm APIs as fallback/secondary candidates only after policy and runtime evidence justify them.
+- Do not claim Android release readiness until Android API 36 validation covers one-minute delivery, 3-alarm and 13-equivalent reservations, locked delivery, terminated-app delivery, exact alarm and notification denied states, full-screen stop UI, stop/dismiss behavior, individual cancel, plan cancel, and reboot restore.
+
+### Permission Policy
+
+- iOS: scheduling must surface AlarmKit authorization states and must not silently report success when authorization is denied, not determined, or fails during request/schedule.
+- Android: health checks must surface exact alarm eligibility, notification permission, full-screen intent eligibility/settings, notification channel state, and reboot-restore limitations.
+- Both platforms: permission or OS-setting blockers are user-visible warning states, not successful schedules.
+
+### Native UI And Fallback Policy
+
+- iOS: accept AlarmKit-controlled presentation constraints for MVP, but app state must still record current occurrence stop/dismiss and future occurrence preservation.
+- Android: native stop UI is mandatory; it must stop only the current occurrence and preserve future scheduled occurrences.
+- Both platforms: ringing UI must not expose "wake up", "stop all remaining", "skip today", or snooze as primary MVP alarm actions.
+
+### Validation And Release Gates
+
+- Wave 4 through implementation waves may proceed under this decision as implementation scaffolding and contract work.
+- Wave 8 and Wave 11 must create or update QA checklists that retain the deferred iOS 26+ and Android API 36 runtime cases.
+- Wave 14 cannot mark MVP release APPROVED for a platform while any release-blocking native runtime case remains pending, blocked, or waived without a later explicit product/release decision.
+- Simulator or emulator evidence may support debugging, but it must not replace real-device or approved runtime evidence for release-blocking cases unless a later release decision explicitly changes that bar.
+- Deferred runtime validation remains release-blocking for wake reliability, lock/terminated behavior, permissions, full-screen stop UI, cancel semantics, and reboot restore.
+
 ## Failure Decision Points
 
 Record a decision here for every `fail` or release-blocking `pending` result.
 
 | Decision point | Trigger | Options | Decision | Owner | Follow-up |
 |---|---|---|---|---|---|
-| Rolling reservation | A platform cannot reserve all future repeating occurrences reliably, or recurrence cannot express skip/cancel semantics. | Use a rolling reservation window; reduce native reservation horizon; block MVP until solved. | iOS local API evidence favors rolling concrete occurrence reservation because inspected AlarmKit recurrence exposes weekly/never but no exception-date or next-skip API; final decision pending 13-alarm device limit test. | iOS spike owner / Wave 3 implementer | Measure 13 concrete alarms and recurring plan behavior on iOS 26+ real device. |
-| OS recurrence | Native weekly or relative recurrence cannot preserve Wake Plan semantics, especially next-skip and individual cancel. | Avoid OS recurrence and schedule concrete occurrences; use OS recurrence only for approved simple cases; block recurrence MVP. | For iOS MVP next-skip, avoid relying solely on OS recurrence unless later evidence finds exception semantics; schedule concrete occurrences for the next reservation horizon. | iOS spike owner / Wave 3 implementer | Confirm whether AlarmKit recurrence can be mixed with per-occurrence cancel without breaking future weeks. |
+| Rolling reservation | A platform cannot reserve all future repeating occurrences reliably, or recurrence cannot express skip/cancel semantics. | Use a rolling reservation window; reduce native reservation horizon; block MVP until solved. | Adopt rolling concrete occurrence reservation for MVP implementation. Runtime approval still requires the 13-equivalent reservation and delivery tests on iOS 26+ and Android API 36. | Wave 3 implementer / later native validation owners | Measure 13 concrete alarms and recurring-plan behavior on iOS 26+ real device and Android API 36 runtime. |
+| OS recurrence | Native weekly or relative recurrence cannot preserve Wake Plan semantics, especially next-skip and individual cancel. | Avoid OS recurrence and schedule concrete occurrences; use OS recurrence only for approved simple cases; block recurrence MVP. | Do not use OS recurrence as the MVP source of truth. It may be considered later only if runtime evidence proves next-skip, individual cancel, and plan cancel semantics are preserved. | Wave 3 implementer / later native validation owners | Confirm whether platform recurrence can be safely optimized without breaking per-occurrence semantics. |
 | Omitted features | A feature such as 3-minute intervals, custom sound, silent/Focus bypass, reboot restore, or native fallback is not feasible in MVP scope. | Mark omitted from MVP; move to post-MVP; platform-limit the MVP; block release if core alarm reliability is affected. | iOS Silent/Focus behavior and custom sound remain unverified; no omission decision can be approved without device evidence. | iOS spike owner | Run Silent/Focus and sound behavior tests on iOS 26+ real device. |
 | MVP delay / release blocking | Any core path cannot be verified on a real device: scheduling, firing, dismiss-one-keeps-future, edit/delete cancel, lock state, terminated app, or permission warning. | Delay MVP; run another spike; platform-limit only with explicit product decision; redesign alarm strategy. | iOS release remains blocked: no real-device evidence for scheduling, delivery, dismiss-one-keeps-future, cancel, locked, terminated, denied permission, Silent, or Focus cases. | Product / Orchestrator | Provide iOS 26+ real device or compatible runtime and rerun this spike before approving iOS MVP alarm reliability. |
-| Android setAlarmClock adoption | Android cannot deliver exact, user-visible alarm-clock occurrences with full-screen stop UI under API 36 constraints. | Prefer `setAlarmClock`; use `setExactAndAllowWhileIdle` only where policy/permission allows; redesign or block Android MVP. | Local docs favor `setAlarmClock` as the first candidate because it is the most critical exact alarm path and wakes from low-power modes, but runtime validation is blocked by missing Android API 36 device/emulator and app target. | Android spike owner / Wave 3 implementer | Build minimal Android API 36 probe; compare `setAlarmClock` acceptance, visibility, and delivery for 1, 3, and 13 occurrences. |
+| Android setAlarmClock adoption | Android cannot deliver exact, user-visible alarm-clock occurrences with full-screen stop UI under API 36 constraints. | Prefer `setAlarmClock`; use `setExactAndAllowWhileIdle` only where policy/permission allows; redesign or block Android MVP. | Adopt `setAlarmClock` as the first MVP implementation candidate, paired with a native stop UI. This is an implementation decision only; runtime approval is blocked by missing Android API 36 device/emulator and app target. | Android implementation owner / later native validation owners | Build minimal Android API 36 probe/app; compare `setAlarmClock` acceptance, visibility, and delivery for 1, 3, and 13 occurrences. |
 | Android exact-alarm permission policy | Exact alarm APIs are unavailable or denied, or app cannot qualify for install-granted alarm-clock permission. | Request special access with `SCHEDULE_EXACT_ALARM`; declare `USE_EXACT_ALARM` only if policy-qualified; block MVP if exact wake alarms cannot be guaranteed. | Android release remains blocked until policy path is confirmed. Local docs say `SCHEDULE_EXACT_ALARM` is denied by default for many new installs, while qualifying alarm-clock apps may use `USE_EXACT_ALARM`. | Android spike owner / Product | Confirm Google Play alarm-clock policy fit, then test exact-alarm denied/unavailable states on Android API 36. |
-| Android native fallback | Flutter cannot start fast enough or reliably from an alarm broadcast/terminated state. | Keep a native minimal ringing Activity; use Flutter only when already warm; block if no reliable native stop UI is possible. | Local evidence favors native fallback as required for MVP reliability because there is no Android target yet and terminated-app delivery cannot depend solely on Flutter startup. Runtime proof remains blocked. | Android spike owner / Wave 3 implementer | Implement minimal native stop screen in probe/app and validate locked and terminated delivery on Android API 36. |
+| Android native fallback | Flutter cannot start fast enough or reliably from an alarm broadcast/terminated state. | Keep a native minimal ringing Activity; use Flutter only when already warm; block if no reliable native stop UI is possible. | Require a native minimal stop UI for MVP implementation. Runtime proof remains blocked, but Android alarm stopping must not depend solely on Flutter startup from a terminated state. | Android implementation owner / later native validation owners | Implement minimal native stop screen in probe/app and validate locked and terminated delivery on Android API 36. |
 
 ## Release Readiness Criteria
 
@@ -187,8 +251,8 @@ Append one row per run or artifact.
 
 ## Final Spike Recommendation
 
-- iOS recommendation: blocked for MVP approval until an iOS 26+ real device or compatible runtime validates delivery and lifecycle behavior. Local API evidence supports proceeding with a rolling concrete occurrence design for the next implementation spike, but not release approval.
-- Android recommendation: blocked for MVP approval until Android API 36 device/emulator validation is available. Local API evidence supports a minimal native probe using `setAlarmClock` for concrete occurrences, full-screen notification to a native stop Activity, one stored PendingIntent identity per occurrence, `POST_NOTIFICATIONS` and exact-alarm permission checks, and BootReceiver restore. This is not release approval because no runtime scheduling or delivery was performed.
-- Platform-limited MVP recommendation, if any: no platform can be approved from current evidence; both iOS and Android require runtime/device validation before MVP alarm reliability can be claimed.
-- Required changes before implementation: for iOS, provide an installable minimal AlarmKit probe or production iOS target on an iOS 26+ real device; schedule concrete UUID-backed occurrences; store all UUIDs per Wake Plan for individual and plan cancel; avoid relying solely on weekly recurrence for next-skip until exception semantics are proven. For Android, install Android API 36 SDK/runtime, provide a real device or emulator, create a minimal Android alarm probe/app target, validate `setAlarmClock`/full-screen/permission/reboot behavior, and record cleanup.
+- iOS recommendation: proceed with iOS implementation planning using AlarmKit and rolling concrete UUID-backed occurrences, while keeping iOS release approval blocked until iOS 26+ runtime validation proves delivery and lifecycle behavior.
+- Android recommendation: proceed with Android implementation planning using `setAlarmClock` as the first candidate, concrete `PendingIntent` identities, native minimal stop UI, permission/status checks, and BootReceiver restore, while keeping Android release approval blocked until Android API 36 runtime validation proves delivery and lifecycle behavior.
+- Platform-limited MVP recommendation, if any: no platform can be approved from current evidence. A platform-limited release requires a later explicit product/release decision after platform-specific runtime evidence is available or consciously waived.
+- Required changes before release approval: for iOS, provide an installable minimal AlarmKit probe or production iOS target on an iOS 26+ real device; schedule concrete UUID-backed occurrences; store all UUIDs per Wake Plan for individual and plan cancel; avoid relying solely on weekly recurrence for next-skip until exception semantics are proven. For Android, install Android API 36 SDK/runtime, provide a real device or emulator, create a minimal Android alarm probe/app target, validate `setAlarmClock`/full-screen/permission/reboot behavior, and record cleanup.
 - Out-of-scope follow-up issues: confirm Google Play policy eligibility for `USE_EXACT_ALARM` before committing to that manifest permission; decide whether Direct Boot support is required for alarms before first unlock.

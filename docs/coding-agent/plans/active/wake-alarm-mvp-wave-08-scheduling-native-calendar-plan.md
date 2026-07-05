@@ -2,7 +2,7 @@
 
 - status: draft
 - generated: 2026-07-05
-- last_updated: 2026-07-05
+- last_updated: 2026-07-06
 - work_type: code
 
 ## Goal
@@ -57,6 +57,8 @@
 - A5: エラー表示はinline warningを基本とし、操作結果の短い通知はsnackbar、破壊的確認だけdialogを使う。
 - A6: 週カレンダー初期スクロールは、今日を含む週なら現在時刻付近、それ以外の週なら05:00にする。
 - A7: 編集時のDB更新順序は`pendingChange`保存 → old cancel → new schedule → committed/failedとする。
+- A8: Wave 3 approves implementation from API-surface evidence only; native bridge work must keep iOS 26+ and Android API 36 runtime reliability unapproved until manual evidence passes.
+- A9: OS recurrence is not the MVP source of truth; bridge tasks schedule concrete occurrences and persist one platform alarm identity per occurrence.
 
 ## Tasks
 
@@ -98,16 +100,16 @@
   - 一回限りOccurrenceを複数予約し、platformAlarmIdを返せる。
   - Occurrence単位cancelとPlan単位cancelが動作する。
   - テストアラームを予約できる。
-  - iOS実機確認結果がQA checklistに記録されている。
+  - iOS 26+ runtime validation status is recorded in the QA checklist; missing device/runtime evidence remains release-blocking and is not treated as platform approval.
 - validation:
   - kind: command
     required: true
     owner: worker
     detail: "flutter test"
   - kind: manual
-    required: true
+    required: false
     owner: worker
-    detail: "iOS 26以上環境でテストアラーム、複数Occurrence、個別cancel、plan cancelを確認する"
+    detail: "iOS 26以上環境が利用可能な場合はテストアラーム、複数Occurrence、個別cancel、plan cancelを確認する。実行できない場合はQA checklistへBLOCKEDとして記録し、Wave 8 completionやrelease approvalとは扱わない"
   - kind: review
     required: true
     owner: reviewer
@@ -126,16 +128,16 @@
   - 複数Occurrenceを予約し、platformAlarmIdを返せる。
   - Occurrence単位cancelとPlan単位cancelが動作する。
   - 再起動後の再予約が実装され、制限がある場合はQA checklistに記録されている。
-  - Android実機確認結果がQA checklistに記録されている。
+  - Android API 36 runtime validation status is recorded in the QA checklist; missing device/runtime evidence remains release-blocking and is not treated as platform approval.
 - validation:
   - kind: command
     required: true
     owner: worker
     detail: "flutter test"
   - kind: manual
-    required: true
+    required: false
     owner: worker
-    detail: "Android API 36環境でテストアラーム、複数Occurrence、個別cancel、plan cancel、再起動後再予約を確認する"
+    detail: "Android API 36環境が利用可能な場合はテストアラーム、複数Occurrence、個別cancel、plan cancel、再起動後再予約を確認する。実行できない場合はQA checklistへBLOCKEDとして記録し、Wave 8 completionやrelease approvalとは扱わない"
   - kind: review
     required: true
     owner: reviewer
@@ -190,6 +192,7 @@
 
 - Native alarm changes must include cleanup/cancel procedure in QA checklist.
 - Calendar code must not assume external calendar permissions.
+- Native bridge implementation may proceed without runtime approval, but any unavailable manual runtime cases must remain visible as release blockers.
 
 ## Handoff To Next Wave
 
@@ -198,9 +201,19 @@
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 3 decision integrated.
+  - Native bridges must use rolling concrete occurrence reservations and one platform alarm identity per occurrence.
+  - iOS/Android manual validation in this wave is optional implementation evidence when a matching runtime is available; if unavailable, the checklist records BLOCKED and later release gates remain blocked.
+
 - 2026-07-05 Draft created.
 
 ## Decision Log (append-only; re-plans and major discoveries)
+
+- 2026-07-06 Decision: Preserve deferred runtime approval in native bridge validation.
+  - Trigger / new insight: Wave 3 permits implementation from API-surface evidence but does not approve iOS/Android runtime reliability.
+  - Plan delta (what changed): iOS and Android bridge acceptance now requires QA checklist status rather than runtime execution; blocked runtime cases remain release blockers but do not block Wave 8 completion.
+  - Tradeoffs considered: Workers can implement the bridge without unavailable devices, while final release gates still require real runtime evidence.
+  - User approval: yes, from Wave 3 deferment.
 
 - 2026-07-05 Decision: Run service, bridges, and calendar core in parallel.
   - Trigger / new insight: File ownership is disjoint enough and all depend on Wave 7 outputs.
@@ -223,4 +236,4 @@
 ## Notes
 
 - Risks:
-  - Native manual validation may block completion if devices are unavailable.
+  - Native manual validation may remain BLOCKED until later device/runtime availability, which blocks release approval but not Wave 8 implementation completion.

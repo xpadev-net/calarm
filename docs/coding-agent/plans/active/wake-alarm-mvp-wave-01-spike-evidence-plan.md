@@ -1,8 +1,8 @@
 # Plan: Wake Alarm MVP Wave 1 - Spike Evidence Template
 
-- status: draft
+- status: done
 - generated: 2026-07-05
-- last_updated: 2026-07-05
+- last_updated: 2026-07-06
 - work_type: docs
 
 ## Goal
@@ -81,6 +81,21 @@
 - Wave 2開始前に、未検証項目が「未記録」ではなく「pending」として表現できることを確認する。
 
 ## Progress Log (append-only)
+
+- 2026-07-06 Task_1 completed and merged.
+  - PR: #1 https://github.com/xpadev-net/calarm/pull/1
+  - Branch head: `144bdeb38ebdebd437e91b8e1c11996606c87c16`.
+  - Merge commit: `79ac0480c15a577edb7c2f38268686b7fdb393b6`.
+  - Changed files: `docs/spikes/native-alarm-feasibility.md`, `docs/qa/artifacts/.gitkeep`.
+  - Worker validation evidence: acceptance inspection passed; `rtk git diff --check` passed; no markdown/docs lint target was present.
+  - Review evidence: independent Worker reviewer approved twice; `gh-review-hook 1` exited 0 after the Worker fixed missing iOS Silent/Focus and Android reboot-restore coverage; GitHub checks passed.
+  - Orchestrator validation evidence: PR diff and final template were inspected against the Wave 1 acceptance criteria; all required recording fields, cases, `pending` placeholders, failure decision points, and release-readiness criteria were present.
+
+- 2026-07-06 Task_1 delegated to Worker.
+  - Worker branch: `codex/wave-01-spike-evidence-template`.
+  - Worker state: pendingWorktreeId `local:0e4f82c0-42d9-4b75-8069-cad1fe412deb`.
+  - Scope: `docs/spikes/native-alarm-feasibility.md`, `docs/qa/artifacts/.gitkeep`.
+  - Validation evidence: pending Worker docs review, `rtk git diff --check`, independent review, `gh-review-hook`, and orchestrator-owned review before merge.
 
 - 2026-07-05 Draft created.
 

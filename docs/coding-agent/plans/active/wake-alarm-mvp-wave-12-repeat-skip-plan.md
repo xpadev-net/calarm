@@ -2,7 +2,7 @@
 
 - status: draft
 - generated: 2026-07-05
-- last_updated: 2026-07-05
+- last_updated: 2026-07-06
 - work_type: code
 
 ## Goal
@@ -47,6 +47,7 @@
 - A1: MVPの繰り返しは毎日、平日、土日、任意曜日のみ。
 - A2: 次回だけスキップは繰り返し設定を変更せず、次のWake Instanceだけを除外する。
 - A3: `nextSkipDate`はtarget date基準にする。
+- A4: Wave 3 decision uses rolling concrete occurrence reservations; OS recurrence is not the MVP source of truth for next-skip.
 
 ## Tasks
 
@@ -67,6 +68,7 @@
   - スキップ解除で次回分が再び予約対象になる。
   - 一覧・詳細でスキップ済み状態が分かる。
   - スキップ後もその次の対象日から通常通り鳴る。
+  - Native reservation changes are expressed by canceling/recreating concrete future occurrences, not by relying on unapproved OS recurrence exception behavior.
 - validation:
   - kind: command
     required: true
@@ -102,6 +104,7 @@
 
 - Skip/undo must cancel/recreate only affected future occurrences.
 - Do not implement broad "today all stop" from ringing UI.
+- Do not introduce OS recurrence as the authoritative skip/cancel mechanism without a later Wave 3 replan or runtime evidence update.
 
 ## Handoff To Next Wave
 
@@ -110,9 +113,18 @@
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 3 decision integrated.
+  - Repeat and skip implementation must use rolling concrete occurrence reservations as the authoritative schedule model.
+
 - 2026-07-05 Draft created.
 
 ## Decision Log (append-only; re-plans and major discoveries)
+
+- 2026-07-06 Decision: Model next-skip through concrete occurrences.
+  - Trigger / new insight: Wave 3 found no runtime-approved OS recurrence exception semantics for MVP next-skip/cancel behavior.
+  - Plan delta (what changed): Wave 12 must cancel/recreate concrete future occurrences for skip/undo behavior instead of relying on native recurrence exceptions.
+  - Tradeoffs considered: Concrete occurrence management adds reconciliation work but keeps user-visible skip semantics deterministic.
+  - User approval: yes, from Wave 3 rolling reservation decision.
 
 - 2026-07-05 Decision: Keep repeating/skip after one-shot operational flow.
   - Trigger / new insight: 繰り返しはOccurrence生成・予約・編集削除が安定してから載せる方が安全。
@@ -129,4 +141,4 @@
 ## Notes
 
 - Risks:
-  - OS繰り返しAPIと次回skipの相性が悪い場合、ローリング予約へ寄せる必要がある。
+  - Rolling concrete occurrence reconciliation must stay consistent with repeat/skip changes.
