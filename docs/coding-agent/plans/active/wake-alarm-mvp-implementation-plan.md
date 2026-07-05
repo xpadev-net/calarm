@@ -97,6 +97,8 @@
 - A39: Android implementation must include a native minimal stop UI and BootReceiver restore path; Flutter startup from a terminated state is not the sole stop mechanism.
 - A40: Any platform-limited MVP requires a later explicit product/release decision; Wave 3 does not approve one.
 - A41: Parent Definition of Done permits implementation progress under Wave 3 deferment, but normal release approval remains BLOCKED until deferred iOS/Android runtime validation is resolved as pass evidence.
+- A42: CI simulator/emulator smoke should be implemented as soon as native bridge code exists, but its results are NEAR_DEVICE or BLOCKED evidence and do not replace real-device runtime validation for release approval.
+- A43: Ordinary GitHub Actions baseline CI for format, analyzer/lint, and unit tests should be added before native smoke CI, then kept intact through later workflow additions.
 
 ## Child Plans
 
@@ -165,6 +167,67 @@ Interpretation:
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 6 Task_1 Wake Plan Domain Models merged.
+  - Summary: PR #7 `Add wake plan domain models` was squash-merged, adding pure Dart WakePlan, AlarmOccurrence, RepeatRule, AppSettings, status enums, nullable platformAlarmId support, and focused domain tests.
+  - Merge commit: `573a5e2f22d73dca6e27bc9289fe70d165be74be`.
+  - Validation evidence: Worker `rtk flutter test test/features/wake_plan/domain` passed with 15 tests, `rtk flutter analyze` passed, and `rtk git diff --check` passed; orchestrator reran `rtk flutter test test/features/wake_plan/domain`, `rtk flutter analyze`, and `rtk git diff --check` from a clean PR-head worktree and all passed.
+  - Review evidence: Worker deep-review self-review and independent review found and fixed set hash consistency, nullable settings copy behavior, skip-state consistency, minimum interval, and occurrence timestamp/status issues before merge; orchestrator inspected implementation and tests.
+  - Hook/check evidence: Worker `rtk gh-review-hook 7` exited 0 from a clean PR-head worktree; orchestrator reran `rtk gh-review-hook 7` from a clean PR-head worktree and it exited 0; GitHub CodeRabbit, Greptile, and Socket checks passed.
+  - PR state: #7 merged; branch head `3be2d61a5820d7311f08db85e795987928c9032d`; merge commit `573a5e2f22d73dca6e27bc9289fe70d165be74be`.
+  - Remaining Wave 6 work: Task_2 Native Alarm Gateway Contract remains in progress in PR #8 pending orchestrator-requested schedule result wakePlanId correlation hardening.
+
+- 2026-07-06 Baseline CI task inserted into Wave 7.
+  - Summary: Add ordinary GitHub Actions PR CI for Dart format, Flutter analyzer/lints, and Flutter unit tests before the later Wave 8 simulator/emulator native smoke workflow.
+  - Timing: Wave 7 is the earliest upcoming wave that can own CI workflow implementation after the Flutter scaffold is available.
+  - Scope separation: Wave 7 baseline CI does not claim native alarm runtime evidence; Wave 8 native smoke CI must extend or coexist with it.
+
+- 2026-07-06 Wave 6 domain and gateway contracts delegated.
+  - Task_1 Worker pending worktree: `local:ba19222c-bbe3-4305-b41f-f8baa6b1c93a`.
+  - Task_1 Branch: `codex/wave-06-wake-plan-domain`.
+  - Task_1 Scope: Wave 6 child plan Task_1 only; owns wake plan domain model files.
+  - Task_2 Worker pending worktree: `local:dc234667-dde3-4405-b6b1-6ebbbad63e9e`.
+  - Task_2 Branch: `codex/wave-06-native-alarm-gateway-contract`.
+  - Task_2 Scope: Wave 6 child plan Task_2 only; owns native alarm gateway contract/fake/test files.
+  - Validation ownership: each worker must provide focused tests, analyzer/diff checks, independent review, PR hook evidence, and a merge-ready or blocked report.
+
+- 2026-07-06 Wave 5 time foundation merged.
+  - Summary: PR #6 `Add time foundation value objects` was squash-merged, adding pure Dart calendar-day, minute-of-day, date+minute, week range, rounding, past-target, and day-crossing helpers with focused tests.
+  - Merge commit: `3866a72fd798e677ab813e5cb80f2d44ee069e35`.
+  - Validation evidence: Worker `rtk flutter test test/core/time` passed with 17 tests, `rtk flutter analyze` passed, and `rtk git diff --check` passed; orchestrator reran `rtk flutter test test/core/time`, `rtk flutter analyze`, and `rtk git diff --check` from a clean PR-head worktree and all passed.
+  - Review evidence: Worker deep-review self-review and independent review found and fixed date-normalization, hidden local `DateTime`, DST-adjacent elapsed-duration, UTC rounding, release-safe validation, and day-rollover rounding issues before merge; orchestrator inspected implementation and tests.
+  - Hook/check evidence: Worker final `rtk gh-review-hook 6` exited 0 after fixes; orchestrator reran `rtk gh-review-hook 6` from a clean PR-head worktree and it exited 0; GitHub CodeRabbit, Greptile, and Socket checks passed.
+  - PR state: #6 merged; branch head `ee2389a8e48f6e6d746e6794d00d4e7e47491ec8`; merge commit `3866a72fd798e677ab813e5cb80f2d44ee069e35`.
+  - Decision impact: Wave 6+ may use `lib/core/time/**` for Wake Plan domain and calendar logic; unresolved DST-depth remains an explicit future/open-question risk, not release approval.
+
+- 2026-07-06 Wave 5 time foundation delegated.
+  - Worker pending worktree: `local:1a752aa1-4554-4f5f-97b3-e49a62e72e88`.
+  - Branch: `codex/wave-05-time-foundation`.
+  - Scope: Wave 5 child plan Task_1 only; parent thread must not implement product code.
+  - Validation ownership: worker must provide time foundation tests, analyzer/diff checks, independent review, PR hook evidence, and a merge-ready or blocked report.
+
+- 2026-07-06 Wave 4 Flutter scaffold merged.
+  - Summary: PR #5 `Scaffold Flutter app` was squash-merged, creating the Flutter app scaffold, iOS/Android targets, Riverpod/Drift bootstrap, feature/core boundaries, `.fvmrc`, and placeholder tests for later waves.
+  - Merge commit: `d59d3c4c8d2912f29e9bf6cfcb4265b8f3dd188b`.
+  - Validation evidence: Worker `rtk git diff --check`, `rtk flutter analyze`, `rtk flutter test`, and `rtk flutter build apk --debug` passed; orchestrator reran `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` from a clean PR-head worktree and all passed.
+  - Review evidence: Worker deep-review self-review completed; independent reviewer approved with residual note that iOS build/runtime was not included; orchestrator inspected PR diff, app identity, platform identifiers, `.fvmrc`, tests, and directory boundaries.
+  - Hook/check evidence: Worker `rtk gh-review-hook 5` exited 0; orchestrator reran `rtk gh-review-hook 5` from a clean PR-head worktree and it exited 0; GitHub CodeRabbit, Greptile, and Socket checks passed.
+  - PR state: #5 merged; branch head `f733607d7f06a9bbaa843bdcc4284faca8ae44ff`; merge commit `d59d3c4c8d2912f29e9bf6cfcb4265b8f3dd188b`.
+  - Decision impact: Wave 5+ may proceed on the merged Flutter scaffold; iOS 26+ and Android API 36 alarm runtime validation remains deferred and unapproved.
+
+- 2026-07-06 Wave 4 Flutter scaffold delegated.
+  - Worker pending worktree: `local:1c694580-6c47-4f8a-bea9-226aad1c2c09`.
+  - Branch: `codex/wave-04-flutter-scaffold`.
+  - Scope: Wave 4 child plan Task_1 only; parent thread must not implement product code.
+  - Validation ownership: worker must provide scaffold validation, independent review, PR hook evidence, and a merge-ready or blocked report.
+
+- 2026-07-06 Wave 3 platform decision merged.
+  - Summary: PR #4 `Record Wave 3 platform decision` was squash-merged after orchestrator review as the source of truth for MVP native alarm implementation planning under deferred runtime approval.
+  - Merge commit: `86c9631ed0cd351beb513f218919b9d66f3e1932`.
+  - Validation evidence: Worker `rtk git diff --check` passed; no markdown/docs lint config or script was discoverable; orchestrator `rtk git diff --check master..origin/codex/wave-03-platform-decision` passed; orchestrator reran `rtk gh-review-hook 4` from the clean worker worktree and it exited 0.
+  - Review evidence: Worker deep-review self-review completed; independent focused reviews approved after fixing Wave 8/11 runtime gate handling, Wave 6/7 platform identity contracts, PR hook findings, and follow-up hook findings; GitHub CodeRabbit, Greptile, and Socket checks passed.
+  - Decision impact: Wave 4+ may proceed from API-surface feasibility, rolling concrete native occurrence reservations are the MVP implementation model, and Wave 14 retains release-blocking runtime validation for iOS 26+ and Android API 36 behavior.
+  - PR state: #4 merged; branch head `502eca4466b67068c74d85bd273e188a5d19b0db`; merge commit `86c9631ed0cd351beb513f218919b9d66f3e1932`.
+
 - 2026-07-06 Wave 3 platform feasibility decision recorded.
   - Summary: MVP implementation planning may continue from iOS/Android API-surface feasibility, but neither platform is runtime-approved.
   - Architecture decision: use rolling concrete native occurrence reservations with one stored platform alarm identity per `AlarmOccurrence`; do not use OS recurrence as the MVP source of truth for repeating plans, next-skip, individual cancel, or plan cancel.
@@ -225,6 +288,18 @@ Interpretation:
   - Notes: repo-specific rule suite was absent; validation was selected from project documents and general Flutter/native app expectations.
 
 ## Decision Log (append-only; re-plans and major discoveries)
+
+- 2026-07-06 Decision: Add CI near-device smoke early without relaxing runtime approval.
+  - Trigger / new insight: User asked whether CI can run tests close to real-device validation and then clarified it should be done as early as practical.
+  - Plan delta (what changed): Wave 8 now includes a Task_5 CI simulator/emulator native smoke harness after iOS/Android bridge tasks; Wave 14 keeps final CI smoke rerun/evidence integration for release readiness.
+  - Tradeoffs considered: Early CI can catch build/install/platform-channel/schedule/cancel regressions soon after native bridge work, but hosted simulators/emulators still cannot approve wake delivery, lock/terminated, Silent/Focus, full-screen stop, or Android reboot restore behavior.
+  - User approval: yes.
+
+- 2026-07-06 Decision: Add ordinary baseline CI before native smoke CI.
+  - Trigger / new insight: User asked to add ordinary CI validation in addition to near-device CI, specifically formatting, lint/analyzer, and unit tests.
+  - Plan delta (what changed): Wave 7 now owns a baseline GitHub Actions CI task; Wave 8 native smoke CI must preserve that ordinary PR validation path.
+  - Tradeoffs considered: Baseline CI can run on normal hosted runners immediately after scaffold, while native smoke remains later because it depends on bridge code and simulator/emulator availability.
+  - User approval: yes.
 
 - 2026-07-06 Decision: Continue MVP implementation with rolling native occurrence reservations under deferred runtime approval.
   - Trigger / new insight: Wave 2 evidence shows API-surface feasibility but no iOS 26+ or Android API 36 runtime proof; user approved deferring runtime validation.

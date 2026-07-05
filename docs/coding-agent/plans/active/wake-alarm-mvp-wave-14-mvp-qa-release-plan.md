@@ -54,6 +54,8 @@
 - A7: Wave 3 allowed implementation to continue without runtime approval; Wave 14 is the later gate that must resolve or explicitly block deferred runtime validation.
 - A8: A platform cannot be marked release APPROVED while wake delivery, lock/terminated behavior, permission handling, stop UI, cancel semantics, 13-equivalent reservations, or Android reboot restore remain pending/BLOCKED.
 - A9: Waiver or platform-limited release decisions are separate product/release decisions; they do not convert unresolved deferred runtime validation into APPROVED.
+- A10: CI simulator/emulator smoke can provide near-device implementation evidence for build, install, platform-channel, scheduling/cancel API paths, logs, and artifacts, but it does not replace iOS/Android real-device runtime validation for release approval.
+- A11: Baseline CI for format, analyzer/lint, and unit tests is separate release hygiene evidence and must remain green alongside native smoke and real-device evidence.
 
 ## Tasks
 
@@ -73,6 +75,7 @@
   - MVPで残す制約と次リリース候補がdocsに整理されている。
   - 親プランと子プランのProgress LogとDecision Logが最新化されている。
   - Wave 3でdeferされたiOS 26+ and Android API 36 runtime validationがpassまたはBLOCKEDとして整理され、未検証・BLOCKEDのplatformはAPPROVEDになっていない。
+  - Baseline CI for format, analyzer/lint, and unit tests is green or has an explicit release-blocking failure record.
   - waiverやplatform-limited scopeが必要な場合は、APPROVED条件ではなく別のproduct/release decision pathとして記録されている。
 - validation:
   - kind: command
@@ -92,9 +95,44 @@
     owner: reviewer
     detail: "MVP Definition of Doneに対する最終レビューを行い、deferred runtime validationがpassで解決していないplatformをAPPROVEDにしない。waiver/platform-limited判断は別decisionとして扱う"
 
+### Task_2: CI Simulator/Emulator Native Smoke Release Evidence
+- type: review
+- owns:
+  - `docs/qa/ci-native-smoke.md`
+  - `docs/qa/artifacts/**`
+- depends_on:
+  - Wave 8 CI simulator/emulator native smoke harness
+  - Wave 11 ringing/permission/test-alarm implementation
+- description: |
+  Re-run and summarize the Wave 8 CI-backed near-device smoke evidence as part of final release readiness, without treating simulator/emulator results as real-device approval.
+- acceptance:
+  - Wave 8 CI native smoke workflow exists and is runnable manually for release evidence.
+  - Android job uses an emulator image closest to the MVP target available in CI, preferring API 36 when available and recording BLOCKED/unavailable evidence when not available.
+  - iOS job uses a macOS runner and simulator/runtime closest to the MVP target available in CI, preferring an iOS 26+ runtime when available and recording BLOCKED/unavailable evidence when not available.
+  - Release QA reruns or inspects the latest CI artifacts for Flutter test logs, Android `adb` logs, optional `dumpsys alarm`, iOS `simctl` logs, screenshots when available, and updates `docs/qa/ci-native-smoke.md`.
+  - Release evidence labels simulator/emulator results as NEAR_DEVICE or BLOCKED, never as real-device APPROVED for wake delivery, lock/terminated behavior, Silent/Focus behavior, full-screen stop UI, or Android reboot restore.
+  - If hosted runner SDK/runtime limitations prevent a meaningful iOS/Android smoke, the workflow still records the exact unavailable runner/runtime/toolchain fact and leaves the corresponding release gate BLOCKED.
+- validation:
+  - kind: command
+    required: true
+    owner: worker
+    detail: "flutter analyze"
+  - kind: command
+    required: true
+    owner: worker
+    detail: "flutter test"
+  - kind: ci
+    required: true
+    owner: worker
+    detail: "Wave 8 GitHub Actions native smoke workflow is rerun or latest artifacts are inspected, and release evidence is updated with NEAR_DEVICE or BLOCKED results"
+  - kind: review
+    required: true
+    owner: reviewer
+    detail: "Verify CI smoke evidence is clearly separated from real-device runtime approval and cannot mark deferred Wave 3 cases APPROVED"
+
 ## Task Waves (explicit parallel dispatch sets)
 
-- Wave 1 (parallel): [Task_1]
+- Wave 1 (parallel): [Task_1, Task_2]
 
 ## E2E / Visual Validation Spec
 
@@ -149,6 +187,14 @@
   - Final QA owns the later gate for deferred iOS 26+ and Android API 36 runtime validation.
   - Runtime-unapproved implementation evidence is not enough for release approval.
 
+- 2026-07-06 CI near-device smoke task added.
+  - Summary: Add final QA evidence requirements for Android Emulator / iOS Simulator smoke while preserving real-device runtime validation as release-blocking.
+  - Decision impact: Wave 8 owns implementing the CI smoke harness earlier; Wave 14 reruns or summarizes it for release readiness.
+
+- 2026-07-06 Baseline CI release evidence added.
+  - Summary: Final QA now checks that ordinary format, analyzer/lint, and unit-test CI remains green or records a release-blocking failure.
+  - Decision impact: Baseline CI is release hygiene evidence, distinct from native smoke and real-device runtime approval.
+
 - 2026-07-05 Draft created.
 
 ## Decision Log (append-only; re-plans and major discoveries)
@@ -158,6 +204,18 @@
   - Plan delta (what changed): Wave 14 final review must explicitly resolve all deferred runtime cases as pass before marking a platform APPROVED; waiver/platform-limited decisions are separate release paths and do not convert unresolved validation into approval.
   - Tradeoffs considered: Implementation momentum is preserved, but release confidence still depends on platform runtime evidence.
   - User approval: yes, from Wave 3 deferment.
+
+- 2026-07-06 Decision: Add CI simulator/emulator smoke without relaxing release approval.
+  - Trigger / new insight: User asked whether CI can run tests close to real-device validation while real-device validation remains deferred.
+  - Plan delta (what changed): Wave 14 now includes Task_2 to rerun or summarize hosted CI Android Emulator / iOS Simulator smoke evidence with explicit NEAR_DEVICE/BLOCKED labels before final QA review.
+  - Tradeoffs considered: CI smoke can catch build, install, platform-channel, and some scheduling/cancel regressions earlier, but hosted simulator/emulator behavior is not sufficient evidence for alarm wake reliability or OS policy behavior.
+  - User approval: yes.
+
+- 2026-07-06 Decision: Treat ordinary baseline CI as release hygiene evidence.
+  - Trigger / new insight: User asked to add ordinary CI checks in addition to near-device CI.
+  - Plan delta (what changed): Wave 14 final QA now checks baseline CI status for format, analyzer/lint, and unit tests without conflating it with native runtime approval.
+  - Tradeoffs considered: This keeps normal regressions visible at release time while preserving real-device runtime checks as a separate alarm reliability gate.
+  - User approval: yes.
 
 - 2026-07-05 Decision: Keep final QA as its own wave.
   - Trigger / new insight: MVP Definition of Done spans UI, domain, persistence, native behavior, and docs.

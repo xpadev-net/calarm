@@ -1,8 +1,8 @@
 # Plan: Wake Alarm MVP Wave 4 - Flutter Project Scaffold
 
-- status: draft
+- status: done
 - generated: 2026-07-05
-- last_updated: 2026-07-05
+- last_updated: 2026-07-06
 - work_type: code
 
 ## Goal
@@ -113,6 +113,20 @@
 - Wave 6以降はfeature directory boundaryを前提にする。
 
 ## Progress Log (append-only)
+
+- 2026-07-06 Wave 4 Flutter scaffold merged.
+  - Summary: PR #5 `Scaffold Flutter app` was squash-merged after worker validation, independent review, GitHub checks, and orchestrator merge gate.
+  - Merge commit: `d59d3c4c8d2912f29e9bf6cfcb4265b8f3dd188b`.
+  - Validation evidence: Worker `rtk git diff --check`, `rtk flutter analyze`, `rtk flutter test`, and `rtk flutter build apk --debug` passed; orchestrator reran `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` from a clean PR-head worktree and all passed.
+  - Review evidence: Worker deep-review self-review completed; independent reviewer approved with only residual iOS build/runtime risk noted; orchestrator inspected PR diff, app identity files, iOS bundle id, Android application id/label, `.fvmrc`, scaffold tests, and feature/core boundaries.
+  - Hook/check evidence: Worker `rtk gh-review-hook 5` exited 0; orchestrator reran `rtk gh-review-hook 5` from a clean PR-head worktree and it exited 0; GitHub CodeRabbit, Greptile, and Socket checks passed.
+  - PR state: #5 merged; branch head `f733607d7f06a9bbaa843bdcc4284faca8ae44ff`; merge commit `d59d3c4c8d2912f29e9bf6cfcb4265b8f3dd188b`.
+
+- 2026-07-06 Wave 4 Flutter scaffold delegated.
+  - Worker pending worktree: `local:1c694580-6c47-4f8a-bea9-226aad1c2c09`.
+  - Branch: `codex/wave-04-flutter-scaffold`.
+  - Scope: Wave 4 Task_1 only; worker owns Flutter scaffold files and must open a PR without merging.
+  - Required gates: `rtk git diff --check`, `flutter analyze`, `flutter test`, independent review, and `rtk gh-review-hook <PR_NUMBER>`.
 
 - 2026-07-05 Draft created.
 
