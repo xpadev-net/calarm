@@ -167,6 +167,11 @@ Interpretation:
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness delegated.
+  - Summary: Task_5 was started after Task_1-Task_4 merged, with branch `codex/wave-08-ci-native-smoke` and pending worktree `local:d74c6506-5d51-4135-936d-0efe755d9012`.
+  - Scope: Worker owns `.github/workflows/**`, `integration_test/**`, `test_driver/**`, `docs/qa/ci-native-smoke.md`, and `docs/qa/artifacts/**`; baseline CI must remain intact.
+  - Runtime status: Simulator/emulator evidence must be labeled NEAR_DEVICE or BLOCKED and cannot approve deferred iOS 26+/Android API 36 real-device runtime validation.
+
 - 2026-07-06 Wave 8 Task_3 Android Alarm Bridge merged.
   - Summary: PR #16 `Add Android alarm bridge` was squash-merged, adding Android MethodChannel native scheduling/cancel/test-alarm support, capability reporting, notification/full-screen stop fallback, boot/package-replace restore, and QA checklist evidence.
   - Merge commit: `c75be241db1bb2d1e4ae39144bbd439ad55186d7`.
