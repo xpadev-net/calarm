@@ -7,6 +7,13 @@ class WeekCalendarPlaceholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return WeekCalendarView(now: DateTime.now());
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Week calendar', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        WeekCalendarView(now: DateTime.now(), height: 220, hourHeight: 44),
+      ],
+    );
   }
 }

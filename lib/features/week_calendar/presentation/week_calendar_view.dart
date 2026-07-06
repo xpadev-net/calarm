@@ -12,6 +12,7 @@ class WeekCalendarView extends StatefulWidget {
     this.initialWeek,
     this.onTargetTap,
     this.emptyStateText = 'No wake plans scheduled for this week',
+    this.height = 420,
     this.hourHeight = 56,
   });
 
@@ -19,6 +20,7 @@ class WeekCalendarView extends StatefulWidget {
   final WeekRange? initialWeek;
   final WeekCalendarTapCallback? onTargetTap;
   final String emptyStateText;
+  final double height;
   final double hourHeight;
 
   @override
@@ -50,7 +52,7 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 420,
+      height: widget.height,
       child: PageView.builder(
         controller: _pageController,
         itemBuilder: (context, index) {
