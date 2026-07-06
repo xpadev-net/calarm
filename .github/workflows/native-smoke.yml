@@ -311,10 +311,11 @@ jobs:
           fi
 
           if ! timeout 180 adb wait-for-device; then
+            echo "CALARM_NATIVE_SMOKE_OUTCOME=BLOCKED" >> "${SMOKE_ARTIFACT_ROOT}/logs/android-emulator.log"
             write_android_blocked_summary \
               "adb did not observe a booting emulator within 180 seconds." \
               "artifacts/native-smoke/logs/android-emulator.log"
-            exit 0
+            exit 1
           fi
           boot_completed=""
           for _ in {1..90}; do
@@ -325,10 +326,11 @@ jobs:
             sleep 2
           done
           if [[ "${boot_completed}" != "1" ]]; then
+            echo "CALARM_NATIVE_SMOKE_OUTCOME=BLOCKED" >> "${SMOKE_ARTIFACT_ROOT}/logs/android-emulator.log"
             write_android_blocked_summary \
               "Emulator did not finish booting on the hosted runner. Selected image: ${image}." \
               "artifacts/native-smoke/logs/android-emulator.log"
-            exit 0
+            exit 1
           fi
 
           adb shell input keyevent 82 || true
