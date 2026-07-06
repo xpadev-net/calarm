@@ -178,7 +178,15 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 ),
                 AlarmIntents.receiver(appContext, platformAlarmId),
             )
-            store.put(request.copy(platformAlarmIdOverride = platformAlarmId))
+            if (!store.put(request.copy(platformAlarmIdOverride = platformAlarmId))) {
+                alarmManager.cancel(AlarmIntents.receiver(appContext, platformAlarmId))
+                return scheduleFailure(
+                    request.occurrenceId,
+                    request.wakePlanId,
+                    "nativeError",
+                    "Failed to persist native alarm mirror state.",
+                )
+            }
             mutableMapOf(
                 "occurrenceId" to request.occurrenceId,
                 "wakePlanId" to request.wakePlanId,
@@ -206,12 +214,20 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             } else {
                 try {
                     alarmManager.cancel(AlarmIntents.receiver(appContext, platformAlarmId))
-                    store.remove(platformAlarmId)
-                    mutableMapOf(
-                        "occurrenceId" to occurrenceId,
-                        "platformAlarmId" to platformAlarmId,
-                        "status" to "success",
-                    )
+                    if (!store.remove(platformAlarmId)) {
+                        cancelFailure(
+                            occurrenceId,
+                            platformAlarmId,
+                            "nativeError",
+                            "Failed to persist native alarm mirror removal.",
+                        )
+                    } else {
+                        mutableMapOf(
+                            "occurrenceId" to occurrenceId,
+                            "platformAlarmId" to platformAlarmId,
+                            "status" to "success",
+                        )
+                    }
                 } catch (error: RuntimeException) {
                     cancelFailure(
                         occurrenceId,
@@ -352,12 +368,14 @@ class AlarmStore(context: Context) {
     private val preferences: SharedPreferences =
         context.getSharedPreferences("native_alarm_store", Context.MODE_PRIVATE)
 
-    fun put(request: AlarmRequest) {
-        preferences.edit().putString(request.platformAlarmId, request.toJson().toString()).apply()
+    fun put(request: AlarmRequest): Boolean {
+        return preferences.edit()
+            .putString(request.platformAlarmId, request.toJson().toString())
+            .commit()
     }
 
-    fun remove(platformAlarmId: String) {
-        preferences.edit().remove(platformAlarmId).apply()
+    fun remove(platformAlarmId: String): Boolean {
+        return preferences.edit().remove(platformAlarmId).commit()
     }
 
     fun all(): List<AlarmRequest> {
