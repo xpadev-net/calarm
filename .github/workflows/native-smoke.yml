@@ -4,12 +4,15 @@ on:
   pull_request:
     paths:
       - '.github/workflows/**'
+      - '.fvmrc'
       - 'android/**'
       - 'ios/**'
       - 'integration_test/**'
       - 'test_driver/**'
       - 'lib/core/platform/**'
       - 'docs/qa/ci-native-smoke.md'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
   workflow_dispatch:
     inputs:
       run_android:
@@ -237,6 +240,7 @@ jobs:
 
           adb logcat -d > "${SMOKE_ARTIFACT_ROOT}/logs/android-adb-logcat.log" || true
           adb shell dumpsys alarm > "${SMOKE_ARTIFACT_ROOT}/logs/android-dumpsys-alarm.log" 2>&1 || true
+          smoke_outcome="$(grep -E 'CALARM_NATIVE_SMOKE_OUTCOME=' "${SMOKE_ARTIFACT_ROOT}/logs/android-native-smoke-test.log" | tail -n 1 | cut -d= -f2 || true)"
           if [[ "${smoke_status}" -ne 0 ]]; then
             {
               echo "# Android native smoke"
@@ -248,6 +252,10 @@ jobs:
               echo "- runtime approval: not approved; real-device Android API 36 wake, lock/terminated, full-screen UI, Silent/Focus-equivalent, and reboot restore gates remain BLOCKED"
             } > "${SMOKE_ARTIFACT_ROOT}/summary/android-summary.md"
             exit "${smoke_status}"
+          fi
+          if [[ "${smoke_outcome}" != "NEAR_DEVICE" ]]; then
+            evidence_label="BLOCKED"
+            runtime_reason="${runtime_reason} Critical native alarm schedule/cancel/test-alarm operations did not all succeed; see artifacts/native-smoke/logs/android-native-smoke-test.log."
           fi
           {
             echo "# Android native smoke"
@@ -424,12 +432,17 @@ jobs:
             > "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-log-show.log" 2>&1 || true
           xcrun simctl io "${device_id}" screenshot "${SMOKE_ARTIFACT_ROOT}/logs/ios-screenshot.png" \
             > "${SMOKE_ARTIFACT_ROOT}/logs/ios-screenshot.log" 2>&1 || true
+          smoke_outcome="$(grep -E 'CALARM_NATIVE_SMOKE_OUTCOME=' "${SMOKE_ARTIFACT_ROOT}/logs/ios-native-smoke-test.log" | tail -n 1 | cut -d= -f2 || true)"
 
           if [[ "${smoke_status}" -ne 0 ]]; then
             write_ios_blocked_summary \
               "MethodChannel smoke test failed; see artifacts/native-smoke/logs/ios-native-smoke-test.log" \
               "artifacts/native-smoke/logs/ios-native-smoke-test.log"
             exit "${smoke_status}"
+          fi
+          if [[ "${smoke_outcome}" != "NEAR_DEVICE" ]]; then
+            status="BLOCKED"
+            reason="${reason} Critical native alarm schedule/cancel/test-alarm operations did not all succeed; see artifacts/native-smoke/logs/ios-native-smoke-test.log."
           fi
 
           {

@@ -51,6 +51,7 @@ void main() {
     final scheduleResult = await gateway
         .scheduleOccurrences([scheduleRequest])
         .nativeSmokeTimeout('scheduleOccurrences');
+    final scheduleSucceeded = scheduleResult.isSuccess;
     _emitEvidence('scheduleOccurrences', {
       'platform': platform,
       'evidenceLabel': evidenceLabel,
@@ -63,6 +64,7 @@ void main() {
 
     final scheduledPlatformAlarmId =
         scheduleResult.occurrences.single.platformAlarmId;
+    var scheduleCancelSucceeded = false;
     if (scheduledPlatformAlarmId != null) {
       final cancelResult = await gateway
           .cancelOccurrences([
@@ -79,6 +81,7 @@ void main() {
         'alarms': cancelResult.alarms.map(_cancelAlarmEvidence).toList(),
       });
       expect(cancelResult.alarms, hasLength(1));
+      scheduleCancelSucceeded = cancelResult.isSuccess;
     } else {
       _emitEvidence('cancelOccurrences', {
         'platform': platform,
@@ -96,6 +99,7 @@ void main() {
           ),
         )
         .nativeSmokeTimeout('scheduleTestAlarm');
+    final testAlarmSucceeded = testAlarmResult.isSuccess;
     _emitEvidence('scheduleTestAlarm', {
       'platform': platform,
       'evidenceLabel': evidenceLabel,
@@ -111,6 +115,7 @@ void main() {
     }
 
     final testPlatformAlarmId = testAlarmResult.platformAlarmId;
+    var testCancelSucceeded = false;
     if (testPlatformAlarmId != null) {
       final cancelTestResult = await gateway
           .cancelOccurrences([
@@ -127,7 +132,26 @@ void main() {
         'alarms': cancelTestResult.alarms.map(_cancelAlarmEvidence).toList(),
       });
       expect(cancelTestResult.alarms, hasLength(1));
+      testCancelSucceeded = cancelTestResult.isSuccess;
     }
+
+    final criticalOperationsSucceeded =
+        scheduleSucceeded &&
+        scheduleCancelSucceeded &&
+        testAlarmSucceeded &&
+        testCancelSucceeded;
+    final outcome = criticalOperationsSucceeded ? 'NEAR_DEVICE' : 'BLOCKED';
+    _emitEvidence('nativeSmokeOutcome', {
+      'platform': platform,
+      'evidenceLabel': evidenceLabel,
+      'outcome': outcome,
+      'scheduleSucceeded': scheduleSucceeded,
+      'scheduleCancelSucceeded': scheduleCancelSucceeded,
+      'testAlarmSucceeded': testAlarmSucceeded,
+      'testCancelSucceeded': testCancelSucceeded,
+      'releaseApproval': false,
+    });
+    debugPrintSynchronously('CALARM_NATIVE_SMOKE_OUTCOME=$outcome');
   });
 }
 

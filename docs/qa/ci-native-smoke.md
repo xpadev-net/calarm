@@ -30,6 +30,7 @@ Smoke steps:
 - Build the debug APK.
 - Install and run `integration_test/native_alarm_smoke_test.dart` on the selected emulator.
 - Exercise `getCapability`, `scheduleOccurrences`, `cancelOccurrences`, `scheduleTestAlarm`, and best-effort cleanup cancel paths through the native MethodChannel.
+- Parse the machine-readable smoke outcome from the test log and keep the summary `BLOCKED` unless schedule, cancel, test-alarm, and cleanup cancel semantics all succeed.
 - Upload Flutter logs, emulator logs, `adb logcat`, and optional `dumpsys alarm`.
 
 Release status: Android CI emulator evidence does not approve real-device Android API 36 wake delivery, lock/terminated behavior, full-screen stop UI, notification/Silent/Focus-equivalent behavior, or reboot restore. Those gates remain release-blocking until real-device QA explicitly passes.
@@ -47,6 +48,7 @@ Smoke steps when supported:
 - Build the iOS simulator app.
 - Boot the closest available simulator, preferring iOS 26+.
 - Run `integration_test/native_alarm_smoke_test.dart`.
+- Parse the machine-readable smoke outcome from the test log and keep the summary `BLOCKED` unless schedule, cancel, test-alarm, and cleanup cancel semantics all succeed.
 - Upload Flutter logs, `simctl` logs, and a screenshot when available.
 
 Release status: iOS CI simulator evidence does not approve real-device iOS 26+ wake delivery, lock/terminated behavior, Silent/Focus behavior, or full-screen stop UI. Those gates remain release-blocking until real-device QA explicitly passes.
@@ -55,5 +57,5 @@ Release status: iOS CI simulator evidence does not approve real-device iOS 26+ w
 
 | Platform | Hosted target | CI result label | Release runtime approval |
 | --- | --- | --- | --- |
-| Android | API 36 emulator preferred, API 35 fallback | `NEAR_DEVICE` only when API 36 boots and smoke passes; API 35 fallback or unavailable emulator is `BLOCKED` | Not approved |
-| iOS | iOS 26+ simulator preferred | `NEAR_DEVICE` only with iOS 26+ simulator runtime; otherwise `BLOCKED` | Not approved |
+| Android | API 36 emulator preferred, API 35 fallback | `NEAR_DEVICE` only when API 36 boots and critical native alarm operations pass; API 35 fallback, unavailable emulator, or native permission/unavailable/failure paths are `BLOCKED` | Not approved |
+| iOS | iOS 26+ simulator preferred | `NEAR_DEVICE` only with iOS 26+ simulator runtime and successful critical native alarm operations; missing permission, unavailable, or native failure paths are `BLOCKED` | Not approved |
