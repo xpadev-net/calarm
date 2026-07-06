@@ -304,10 +304,11 @@ jobs:
           trap 'adb emu kill >/dev/null 2>&1 || true; kill "${emulator_pid}" >/dev/null 2>&1 || true' EXIT
           sleep 5
           if ! kill -0 "${emulator_pid}" >/dev/null 2>&1; then
+            echo "CALARM_NATIVE_SMOKE_OUTCOME=BLOCKED" >> "${SMOKE_ARTIFACT_ROOT}/logs/android-emulator.log"
             write_android_blocked_summary \
               "Android emulator process exited before boot completed." \
               "artifacts/native-smoke/logs/android-emulator.log"
-            exit 0
+            exit 1
           fi
 
           if ! timeout 180 adb wait-for-device; then
