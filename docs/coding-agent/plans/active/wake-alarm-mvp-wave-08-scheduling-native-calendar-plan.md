@@ -301,6 +301,12 @@
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness continued after final hook evidence scan.
+  - PR: #17 `Add native smoke CI harness`, branch `codex/wave-08-ci-native-smoke`, reviewed head before continuation `2c71c39019f04b45446bb54cd4d71617b0d15481`.
+  - Worker `rtk gh-review-hook 17` exited 0 and GitHub checks were green, but the worker's post-hook GitHub log scan still found runtime download/use of nested mutable `actions/cache@v5` through `subosito/flutter-action`.
+  - Action: worker is replacing `subosito/flutter-action` setup blocks with shell-based Flutter SDK setup pinned to the `.fvmrc` version output, then will rerun workflow syntax checks, project validation, GitHub checks, and final `rtk gh-review-hook 17`.
+  - Merge impact: PR #17 remains unmerged until the final head proves no nested mutable cache action is downloaded and the orchestrator reruns review/checks/hook.
+
 - 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness returned after final-head orchestrator review.
   - PR: #17 `Add native smoke CI harness`, branch `codex/wave-08-ci-native-smoke`, reviewed head `f419abaf7c44d42cda6975eca2802d0788526b88`.
   - Worker evidence before return: worker validation passed (`rtk flutter analyze`, `rtk flutter test`, `rtk git diff --check`, workflow YAML parse, extracted bash syntax, mutable action scan), GitHub Baseline CI/Android smoke/iOS smoke/checks were success, and worker `rtk gh-review-hook 17` exited 0 on the final head.

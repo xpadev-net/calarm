@@ -167,6 +167,11 @@ Interpretation:
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness continued after final hook evidence scan.
+  - Summary: PR #17 reached worker `rtk gh-review-hook 17` exit 0 at head `2c71c39019f04b45446bb54cd4d71617b0d15481`, but worker log verification still found nested mutable `actions/cache@v5` usage through `subosito/flutter-action`.
+  - Action: worker is replacing `subosito/flutter-action` with shell-based Flutter SDK setup pinned by `.fvmrc`, then must rerun validation, GitHub checks, and final worker `rtk gh-review-hook 17`.
+  - Merge gate impact: PR #17 remains unmerged; orchestrator review/checks/hook must be rerun after the next final head.
+
 - 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness returned after final-head orchestrator review.
   - Summary: PR #17 `Add native smoke CI harness` returned at head `f419abaf7c44d42cda6975eca2802d0788526b88`, with worker validation, GitHub checks, and worker `rtk gh-review-hook 17` passing.
   - Orchestrator validation: clean PR-head temp worktree passed `rtk flutter pub get`, `rtk flutter analyze`, `rtk flutter test`, `rtk git diff --check`, `rtk dart format --set-exit-if-changed .`, workflow YAML parse, extracted bash syntax, mutable action scan, and `rtk gh-review-hook 17`.
