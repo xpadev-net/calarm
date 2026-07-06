@@ -167,6 +167,13 @@ Interpretation:
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness returned after orchestrator review.
+  - Summary: PR #17 `Add native smoke CI harness` reached merge-ready at head `304ad085e2390126bdca873f6caefbdc56d61508`, with worker validation, GitHub checks, and worker `rtk gh-review-hook 17` passing.
+  - Orchestrator validation: clean PR-head temp worktree passed `rtk flutter pub get`, `rtk flutter analyze`, `rtk flutter test`, `rtk git diff --check`, workflow YAML parse, extracted bash syntax, mutable action scan, and `rtk gh-review-hook 17`.
+  - Review outcome: orchestrator/reviewer final review found two merge-blocking issues: `NEAR_DEVICE` could be reported when iOS native schedule/test-alarm operations only failed with permission/unavailable paths, and Native Smoke CI path filters omitted `.fvmrc`, `pubspec.yaml`, and `pubspec.lock`.
+  - Action: worker thread `019f360f-e59c-7440-8c24-9ff9904c1e9d` was asked to fix PR #17 and provide refreshed validation and hook evidence before merge.
+  - Runtime status: CI simulator/emulator evidence remains NEAR_DEVICE/BLOCKED only and does not approve deferred real-device runtime release gates.
+
 - 2026-07-06 Worker-side post-review gh-review-hook requirement clarified.
   - Summary: Worker merge-ready evidence must include `rtk gh-review-hook <PR_NUMBER>` run from the worker worktree after worker self-review, independent review, and any review-driven fixes are complete.
   - Merge gate impact: Orchestrator must verify hook evidence points at the final reviewed head SHA before merging.

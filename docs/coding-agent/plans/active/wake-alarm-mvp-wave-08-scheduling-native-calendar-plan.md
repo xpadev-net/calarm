@@ -301,6 +301,14 @@
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness returned after orchestrator review.
+  - PR: #17 `Add native smoke CI harness`, branch `codex/wave-08-ci-native-smoke`, reviewed head `304ad085e2390126bdca873f6caefbdc56d61508`.
+  - Worker evidence before return: worker validation passed (`rtk flutter analyze`, `rtk flutter test`, `rtk git diff --check`, workflow YAML parse, extracted bash syntax, mutable action scan), GitHub Baseline CI/Android smoke/iOS smoke/checks were success, and worker `rtk gh-review-hook 17` exited 0.
+  - Orchestrator validation before return: clean PR-head temp worktree passed `rtk flutter pub get`, `rtk flutter analyze`, `rtk flutter test`, `rtk git diff --check`, workflow YAML parse, extracted bash syntax, mutable action scan, and `rtk gh-review-hook 17`.
+  - Orchestrator review findings: iOS smoke could publish `NEAR_DEVICE` even when schedule/test-alarm operations failed with permission/unavailable paths; Native Smoke CI `pull_request.paths` omitted `.fvmrc`, `pubspec.yaml`, and `pubspec.lock` even though the workflow depends on them.
+  - Action: worker thread `019f360f-e59c-7440-8c24-9ff9904c1e9d` was asked to fix the evidence-label semantics and path filters, rerun required checks and final `rtk gh-review-hook 17`, and report a refreshed merge-ready handoff.
+  - Runtime status: hosted CI evidence remains NEAR_DEVICE/BLOCKED only and does not approve iOS 26+ or Android API 36 real-device release gates.
+
 - 2026-07-06 Worker-side post-review gh-review-hook requirement clarified.
   - Trigger: User clarified that after review completes, `gh-review-hook` must also be run from the worker worktree.
   - Action: Task_5 validation now explicitly requires worker-side `rtk gh-review-hook <PR_NUMBER>` after self-review, independent review, and review-driven fixes are complete.
