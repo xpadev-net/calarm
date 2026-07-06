@@ -3,6 +3,7 @@ name: Native Smoke CI
 on:
   pull_request:
     paths:
+      - '.github/workflows/native-smoke.yml'
       - '.github/workflows/**'
       - '.fvmrc'
       - 'android/**'
@@ -48,6 +49,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
 
       - name: Read Flutter version
         id: flutter-version
@@ -285,6 +288,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
 
       - name: Read Flutter version
         id: flutter-version
@@ -340,14 +345,14 @@ jobs:
           run_with_timeout() {
             local seconds="$1"
             shift
-            "$@" &
+            perl -MPOSIX=setsid -e 'setsid() or die "setsid: $!"; exec @ARGV or die "exec: $!"' "$@" &
             local command_pid="$!"
             local elapsed=0
             while kill -0 "${command_pid}" >/dev/null 2>&1; do
               if [[ "${elapsed}" -ge "${seconds}" ]]; then
-                kill "${command_pid}" >/dev/null 2>&1 || true
+                kill -TERM "-${command_pid}" >/dev/null 2>&1 || kill "${command_pid}" >/dev/null 2>&1 || true
                 sleep 5
-                kill -9 "${command_pid}" >/dev/null 2>&1 || true
+                kill -KILL "-${command_pid}" >/dev/null 2>&1 || kill -9 "${command_pid}" >/dev/null 2>&1 || true
                 wait "${command_pid}" >/dev/null 2>&1 || true
                 return 124
               fi
@@ -404,12 +409,19 @@ jobs:
             exit 0
           fi
 
-          if ! run_with_timeout 900 bash -o pipefail -c \
+          set +e
+          run_with_timeout 900 bash -o pipefail -c \
             'flutter build ios --simulator --debug 2>&1 | tee "$1"' \
-            bash "${SMOKE_ARTIFACT_ROOT}/logs/ios-build-simulator-debug.log"; then
+            bash "${SMOKE_ARTIFACT_ROOT}/logs/ios-build-simulator-debug.log"
+          build_status="$?"
+          set -e
+          if [[ "${build_status}" -ne 0 ]]; then
             write_ios_blocked_summary \
               "iOS simulator build failed or timed out on the hosted runner." \
               "artifacts/native-smoke/logs/ios-build-simulator-debug.log"
+            if [[ "${build_status}" -eq 124 ]]; then
+              exit 0
+            fi
             exit 1
           fi
           if ! device_id="$(xcrun simctl create "Calarm Native Smoke" "iPhone 16" "${runtime_id}" 2>> "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-create.log")"; then
