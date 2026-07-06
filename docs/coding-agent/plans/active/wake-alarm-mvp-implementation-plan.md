@@ -167,6 +167,13 @@ Interpretation:
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_3 Android Alarm Bridge merged.
+  - Summary: PR #16 `Add Android alarm bridge` was squash-merged, adding Android MethodChannel native scheduling/cancel/test-alarm support, capability reporting, notification/full-screen stop fallback, boot/package-replace restore, and QA checklist evidence.
+  - Merge commit: `c75be241db1bb2d1e4ae39144bbd439ad55186d7`.
+  - Validation evidence: Worker checks passed (`rtk flutter build apk --debug`, `rtk flutter test`, `rtk flutter analyze`, `rtk git diff --check`) and worker `rtk gh-review-hook 16` exited 0; orchestrator reran the same checks and hook from a clean PR-head worktree after the final fix.
+  - Review evidence: Worker deep-review self-review and independent reviewer approved after PendingIntent identity hardening; orchestrator final review initially found asynchronous native mirror writes and returned the PR, then re-reviewed the durable `commit()` fix and found no actionable findings before merge.
+  - Runtime status: Android API 36 runtime alarm validation remains deferred and unapproved for release approval.
+
 - 2026-07-06 Wave 8 Task_1 Wake Plan Scheduling Service merged.
   - Summary: PR #15 `Add wake plan scheduling service` was squash-merged, adding WakePlan create/edit/delete/skip scheduling orchestration, occurrence generation, NativeAlarmGateway schedule/cancel calls, platformAlarmId persistence, and warning-ready failure states.
   - Merge commit: `50b0061ed2900dd9baec5889263acd0fa3e0273d`.
