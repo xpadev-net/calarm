@@ -548,9 +548,6 @@ jobs:
             write_ios_blocked_summary \
               "MethodChannel smoke test failed or timed out; see artifacts/native-smoke/logs/ios-native-smoke-test.log" \
               "artifacts/native-smoke/logs/ios-native-smoke-test.log"
-            if [[ "${smoke_status}" -eq 124 ]]; then
-              exit 0
-            fi
             exit "${smoke_status}"
           fi
           if [[ "${smoke_outcome}" != "NEAR_DEVICE" ]]; then
