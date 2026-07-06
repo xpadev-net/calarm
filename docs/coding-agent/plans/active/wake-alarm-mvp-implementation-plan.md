@@ -167,6 +167,13 @@ Interpretation:
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness returned after final-head orchestrator review.
+  - Summary: PR #17 `Add native smoke CI harness` returned at head `f419abaf7c44d42cda6975eca2802d0788526b88`, with worker validation, GitHub checks, and worker `rtk gh-review-hook 17` passing.
+  - Orchestrator validation: clean PR-head temp worktree passed `rtk flutter pub get`, `rtk flutter analyze`, `rtk flutter test`, `rtk git diff --check`, `rtk dart format --set-exit-if-changed .`, workflow YAML parse, extracted bash syntax, mutable action scan, and `rtk gh-review-hook 17`.
+  - Review outcome: orchestrator/reviewer final review found one merge-blocking issue: `subosito/flutter-action` is SHA-pinned, but `cache: true` causes its composite action to execute mutable `actions/cache@v5` internally at runtime in Baseline CI and Native Smoke CI.
+  - Action: worker thread `019f360f-e59c-7440-8c24-9ff9904c1e9d` was asked to fix PR #17 and provide refreshed validation and hook evidence before merge.
+  - Runtime status: CI simulator/emulator evidence remains NEAR_DEVICE/BLOCKED only and does not approve deferred real-device runtime release gates.
+
 - 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness returned after orchestrator review.
   - Summary: PR #17 `Add native smoke CI harness` reached merge-ready at head `304ad085e2390126bdca873f6caefbdc56d61508`, with worker validation, GitHub checks, and worker `rtk gh-review-hook 17` passing.
   - Orchestrator validation: clean PR-head temp worktree passed `rtk flutter pub get`, `rtk flutter analyze`, `rtk flutter test`, `rtk git diff --check`, workflow YAML parse, extracted bash syntax, mutable action scan, and `rtk gh-review-hook 17`.

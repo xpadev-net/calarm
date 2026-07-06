@@ -301,6 +301,14 @@
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness returned after final-head orchestrator review.
+  - PR: #17 `Add native smoke CI harness`, branch `codex/wave-08-ci-native-smoke`, reviewed head `f419abaf7c44d42cda6975eca2802d0788526b88`.
+  - Worker evidence before return: worker validation passed (`rtk flutter analyze`, `rtk flutter test`, `rtk git diff --check`, workflow YAML parse, extracted bash syntax, mutable action scan), GitHub Baseline CI/Android smoke/iOS smoke/checks were success, and worker `rtk gh-review-hook 17` exited 0 on the final head.
+  - Orchestrator validation before return: clean PR-head temp worktree passed `rtk flutter pub get`, `rtk flutter analyze`, `rtk flutter test`, `rtk git diff --check`, `rtk dart format --set-exit-if-changed .`, workflow YAML parse, extracted bash syntax, mutable action scan, and `rtk gh-review-hook 17`.
+  - Orchestrator review finding: `.github/workflows/baseline-ci.yml` and `.github/workflows/native-smoke.yml` SHA-pin `subosito/flutter-action`, but `cache: true` causes the pinned composite action to execute mutable `actions/cache@v5` internally at runtime.
+  - Action: worker thread `019f360f-e59c-7440-8c24-9ff9904c1e9d` was asked to remove or replace the mutable nested cache path while preserving CI behavior, rerun required checks and final `rtk gh-review-hook 17`, and report a refreshed merge-ready handoff.
+  - Runtime status: hosted CI evidence remains NEAR_DEVICE/BLOCKED only and does not approve iOS 26+ or Android API 36 real-device release gates.
+
 - 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness returned after orchestrator review.
   - PR: #17 `Add native smoke CI harness`, branch `codex/wave-08-ci-native-smoke`, reviewed head `304ad085e2390126bdca873f6caefbdc56d61508`.
   - Worker evidence before return: worker validation passed (`rtk flutter analyze`, `rtk flutter test`, `rtk git diff --check`, workflow YAML parse, extracted bash syntax, mutable action scan), GitHub Baseline CI/Android smoke/iOS smoke/checks were success, and worker `rtk gh-review-hook 17` exited 0.
