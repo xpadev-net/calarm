@@ -167,6 +167,14 @@ Interpretation:
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_2 iOS AlarmKit Bridge merged.
+  - Summary: PR #14 `Add iOS AlarmKit native bridge` was squash-merged, adding the iOS native bridge and QA checklist evidence for the Wave 8 child plan.
+  - Merge commit: `b2c6bc2abf181ef1613e5da76d6d5c2281b96dd0`.
+  - Validation evidence: Worker checks passed (`rtk flutter test`, `rtk flutter analyze`, `rtk git diff --check`, focused Swift bridge typecheck); orchestrator reran `rtk flutter test`, `rtk flutter analyze`, `rtk git diff --check`, focused Swift bridge typecheck, and `rtk gh-review-hook 14` from a clean PR-head worktree, all passing.
+  - Review evidence: Worker deep-review self-review and independent reviewer approved; orchestrator inspected PR metadata, diff scope, hosted checks, and checklist release-gate wording.
+  - Runtime status: iOS 26+ runtime behavior remains unapproved and release-blocking until real runtime evidence passes; the merged Wave 8 implementation evidence does not approve release reliability.
+  - Follow-up: Task_3 Android bridge and Task_4 week calendar PRs were returned to workers for a normal `origin/master` merge and refreshed hook evidence because PR #14 advanced `master`.
+
 - 2026-07-06 Wave 8 Task_1-Task_4 delegated in parallel.
   - Task_1 Wake Plan Scheduling Service thread: `019f35cb-2642-7551-be9f-e35b60b5b1cf`; pending worktree `local:8d7aeb74-f56b-4b33-8bbb-cac5f548ad7c`; branch `codex/wave-08-wake-plan-scheduling-service`.
   - Task_1 startup follow-up: worker initially stopped because the owned service/test files did not exist; orchestrator clarified those files are Task_1-owned new files and instructed the worker to continue.
