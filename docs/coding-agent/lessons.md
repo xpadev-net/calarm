@@ -21,6 +21,14 @@ Purpose:
 
 ## Entries
 
+### 2026-07-06 - Orchestrator Must Review Before Merge
+- tags: workflow/process, review, validation
+- symptom: A worker PR merge was handled primarily from worker report, checks, hook evidence, and metadata inspection without explicitly calling out an orchestrator-owned review pass that could produce findings and return the PR to the worker.
+- root cause: The merge gate evidence checklist was treated as sufficient unless checks failed, while the user expects the orchestrator to perform an active final review before merge and block on any in-scope findings.
+- fix: Before merging any worker PR, perform and record an orchestrator-owned review of the PR diff against task acceptance, ownership boundaries, validation evidence, and runtime/deferred-risk wording.
+- prevention: Merge checklist now includes an explicit "orchestrator review findings" decision: if findings exist, do not merge; send concrete follow-up to the worker and wait for a new head SHA, refreshed validation, and hook evidence.
+- promotion: Repo-local lesson only for now; no rule suite exists in this repository.
+
 ### 2026-07-06 - Push Orchestrator Ledger Commits Promptly
 - tags: workflow/process, delegation
 - symptom: Orchestrator ledger updates were committed locally, but the operating default did not explicitly require prompt push after local commits.

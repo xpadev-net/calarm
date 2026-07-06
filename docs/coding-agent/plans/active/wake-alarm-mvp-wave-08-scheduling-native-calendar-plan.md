@@ -261,6 +261,19 @@
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_2 iOS AlarmKit Bridge merged.
+  - Summary: PR #14 `Add iOS AlarmKit native bridge` was squash-merged, adding Swift AlarmKit MethodChannel bridge wiring for `net.xpadev.calarm/native_alarm`, schemaVersion 1 validation, capability/permission/schedule/cancel/test-alarm methods, and iOS QA checklist rows.
+  - Merge commit: `b2c6bc2abf181ef1613e5da76d6d5c2281b96dd0`.
+  - Validation evidence: Worker `rtk flutter test`, `rtk flutter analyze`, `rtk git diff --check`, and focused Swift bridge typecheck against the iOS 26.5 simulator SDK passed; orchestrator reran `rtk flutter test`, `rtk flutter analyze`, `rtk git diff --check`, focused Swift bridge typecheck, and `rtk gh-review-hook 14` from a clean PR-head worktree, and all passed.
+  - Review evidence: Worker deep-review self-review and independent reviewer approved; orchestrator inspected PR metadata, changed-file scope, checklist honesty, and MethodChannel/AlarmKit bridge diff.
+  - Runtime status: Full iOS build and iOS 26+ runtime validation remain BLOCKED because the local environment had no eligible iOS 26+ runtime/destination; this remains release-blocking and is not platform approval.
+  - PR state: #14 merged; branch head `a694de89cb007d9f431a0ca47e7f739eaa006119`.
+
+- 2026-07-06 Wave 8 Task_3 and Task_4 base update requested after Task_2 merge.
+  - Trigger: After PR #14 merged into `master`, parent reran `rtk gh-review-hook 13` and `rtk gh-review-hook 16`; both exited 2 because each PR was 1 commit behind base.
+  - Action: Orchestrator instructed Task_3 and Task_4 workers to merge `origin/master` normally, rerun required checks and `rtk gh-review-hook`, push, and report updated merge-ready evidence without merging.
+  - Runtime status: Android API 36 and iOS 26+ runtime alarm validation remains deferred and unapproved.
+
 - 2026-07-06 Wave 8 Task_1-Task_4 delegated in parallel.
   - Task_1 Wake Plan Scheduling Service thread: `019f35cb-2642-7551-be9f-e35b60b5b1cf`; pending worktree: `local:8d7aeb74-f56b-4b33-8bbb-cac5f548ad7c`.
   - Task_1 Branch: `codex/wave-08-wake-plan-scheduling-service`.
