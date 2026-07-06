@@ -16,7 +16,7 @@ The Baseline CI warning was caused by `actions/upload-artifact@v4`, whose action
 - `actions/upload-artifact@v5`: `runs.using: node20`.
 - `actions/upload-artifact@v7.0.1`: `runs.using: node24`.
 
-Baseline CI now uses `actions/upload-artifact@v7.0.1` without changing the `baseline-ci-logs` artifact name, path, or `if-no-files-found: warn` behavior. This should remove the Node.js 20 forced-to-24 warning for the baseline artifact upload step. If GitHub later changes action runtime enforcement again, rerun the metadata check against the current `actions/upload-artifact` release before changing pins.
+Baseline CI now uses the `actions/upload-artifact@v7.0.1` commit SHA `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` without changing the `baseline-ci-logs` artifact name, path, or `if-no-files-found: warn` behavior. This should remove the Node.js 20 forced-to-24 warning for the baseline artifact upload step while keeping the action immutable. If GitHub later changes action runtime enforcement again, rerun the metadata check against the current `actions/upload-artifact` release before changing pins.
 
 ## Android Hosted Evidence
 

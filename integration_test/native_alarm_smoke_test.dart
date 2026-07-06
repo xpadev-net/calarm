@@ -5,9 +5,10 @@ import 'package:calarm/core/platform/method_channel_native_alarm_gateway.dart';
 import 'package:calarm/core/platform/native_alarm_gateway.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:integration_test/integration_test.dart';
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('native alarm MethodChannel smoke', (_) async {
     final gateway = MethodChannelNativeAlarmGateway();
@@ -142,7 +143,7 @@ extension NativeSmokeTimeout<T> on Future<T> {
 }
 
 void _emitEvidence(String operation, Map<String, Object?> payload) {
-  debugPrint(
+  debugPrintSynchronously(
     jsonEncode({
       'operation': operation,
       'runtimeEvidence': 'SIMULATOR_OR_EMULATOR_ONLY',
