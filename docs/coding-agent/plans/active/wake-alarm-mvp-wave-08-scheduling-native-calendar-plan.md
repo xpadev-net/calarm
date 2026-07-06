@@ -292,6 +292,14 @@
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_1 Wake Plan Scheduling Service merged.
+  - Summary: PR #15 `Add wake plan scheduling service` was squash-merged, adding WakePlan create/edit/delete/skip scheduling flows, rolling concrete occurrence generation, NativeAlarmGateway schedule/cancel integration, platformAlarmId persistence, warning-ready failure results, and focused service tests.
+  - Merge commit: `50b0061ed2900dd9baec5889263acd0fa3e0273d`.
+  - Validation evidence: Worker `rtk flutter test test/features/wake_plan/application/wake_plan_service_test.dart`, `rtk flutter analyze`, `rtk git diff --check`, PR Baseline CI, and `rtk gh-review-hook 15` passed; orchestrator reran the focused service test, analyzer, diff check, and `rtk gh-review-hook 15` from a clean PR-head worktree, and all passed.
+  - Review evidence: Worker deep-review self-review and independent reviewer approved after lifecycle fixes; orchestrator performed a final scheduling-service review before merge and found no actionable findings.
+  - Runtime status: This service task does not claim iOS 26+ or Android API 36 runtime alarm validation; deferred runtime validation remains unapproved and release-blocking.
+  - PR state: #15 merged; branch head `30e41f150f494071bcdb0217e575a984dc2a0e83`.
+
 - 2026-07-06 Wave 8 Task_3 Android Alarm Bridge returned after orchestrator review.
   - Trigger: Orchestrator final review of PR #16 found that `AlarmStore.put` and `AlarmStore.remove` used asynchronous `SharedPreferences.apply()`, allowing schedule/cancel to report success before the reboot-restore mirror state was durable.
   - Risk: A process death immediately after cancel success could leave a removed `platformAlarmId` on disk and allow `BootReceiver`/`AlarmRestore` to restore a canceled alarm; a process death after schedule success could also lose restore state.
