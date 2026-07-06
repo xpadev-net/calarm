@@ -21,6 +21,22 @@ Purpose:
 
 ## Entries
 
+### 2026-07-06 - Create Missing Owned Paths
+- tags: workflow/process, scope-owns, assumptions/interpretation
+- symptom: A worker stopped as blocked because delegated owned files did not exist on the base branch.
+- root cause: The task ownership contract was interpreted as requiring preexisting files instead of allowing new file creation inside owned paths.
+- fix: Continue implementation by creating the missing service and test files under the delegated owned paths.
+- prevention: Before reporting blocked on a missing path, check whether the active task owns that path and whether the requested implementation naturally includes creating it; only block if creation would exceed ownership or a required dependency is missing.
+- promotion: Repo-local lesson only for now; no rule suite exists in this repository.
+
+### 2026-07-06 - Keep Failed Native Alarm IDs Discoverable
+- tags: review, validation, state-transitions
+- symptom: Review found that failed schedule/cancel paths could persist platform-backed occurrences as terminal failures, making native alarm IDs invisible to later retry cancellation queries.
+- root cause: Failure status was treated as a terminal app state even when a native platform alarm identity still existed and needed lifecycle cleanup.
+- fix: Keep platform-backed failed schedule/cancel rows in cancellable scheduled/ringing states, avoid soft delete on cancel failure, and add regression tests for retry-discoverability.
+- prevention: In native alarm lifecycle work, any persisted `platformAlarmId` must remain reachable by the repository path used for future cancellation until the service has observed a successful cancel.
+- promotion: Repo-local lesson only for now; no rule suite exists in this repository.
+
 ### 2026-07-06 - Orchestrator Must Review Before Merge
 - tags: workflow/process, review, validation
 - symptom: A worker PR merge was handled primarily from worker report, checks, hook evidence, and metadata inspection without explicitly calling out an orchestrator-owned review pass that could produce findings and return the PR to the worker.
