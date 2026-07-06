@@ -167,6 +167,13 @@ Interpretation:
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness returned after Android boot-timeout review.
+  - Summary: PR #17 `Add native smoke CI harness` returned at head `738e96f1981879a04c0648ae1aa3027cb0273dba`, with worker validation, GitHub checks, final run-log scan, and worker `rtk gh-review-hook 17` passing after Android setup timeout handling.
+  - Orchestrator validation: clean PR-head temp worktree confirmed expected PR files, workflow YAML parse, extracted bash syntax, mutable action/cache scan, final GitHub run-log scan, and `rtk git diff --check`; GitHub PR state was non-draft, `CLEAN`, with seven successful checks.
+  - Review outcome: orchestrator/reviewer final review found one merge-blocking issue: Android emulator boot timeout paths (`adb wait-for-device` and boot-completion polling) write BLOCKED hosted-runner evidence but can exit successfully, allowing CI to go green after a hosted-runner timeout.
+  - Action: worker thread `019f360f-e59c-7440-8c24-9ff9904c1e9d` was asked to make Android boot-timeout paths fail nonzero after writing BLOCKED evidence, preserve artifact upload behavior, then rerun validation, GitHub checks, and final worker `rtk gh-review-hook 17`.
+  - Merge gate impact: PR #17 remains unmerged; Task_6 whole-codebase review must wait until Task_5 merges.
+
 - 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness returned after Android setup timeout review.
   - Summary: PR #17 `Add native smoke CI harness` returned at head `b88b4ff7d49b444499152445a9797b6f678c1f06`, with worker validation, GitHub checks, final run-log scan, and worker `rtk gh-review-hook 17` passing after Android build/test timeout handling.
   - Orchestrator validation: clean PR-head temp worktree passed workflow YAML parse, extracted bash syntax, mutable action/cache scan, final GitHub run-log scan, `rtk flutter pub get`, `rtk dart format --set-exit-if-changed .`, `rtk flutter analyze`, `rtk flutter test`, `rtk git diff --check`, and orchestrator `rtk gh-review-hook 17`.
