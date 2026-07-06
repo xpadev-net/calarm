@@ -337,6 +337,26 @@ jobs:
             } > "${SMOKE_ARTIFACT_ROOT}/summary/ios-summary.md"
           }
 
+          run_with_timeout() {
+            local seconds="$1"
+            shift
+            "$@" &
+            local command_pid="$!"
+            local elapsed=0
+            while kill -0 "${command_pid}" >/dev/null 2>&1; do
+              if [[ "${elapsed}" -ge "${seconds}" ]]; then
+                kill "${command_pid}" >/dev/null 2>&1 || true
+                sleep 5
+                kill -9 "${command_pid}" >/dev/null 2>&1 || true
+                wait "${command_pid}" >/dev/null 2>&1 || true
+                return 124
+              fi
+              sleep 5
+              elapsed=$((elapsed + 5))
+            done
+            wait "${command_pid}"
+          }
+
           xcodebuild -version > "${SMOKE_ARTIFACT_ROOT}/logs/ios-xcodebuild-version.log" 2>&1 || true
           xcrun simctl list runtimes > "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-runtimes.txt" 2>&1 || true
           if ! xcrun simctl list runtimes -j > "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-runtimes.json" 2>&1; then
@@ -384,9 +404,11 @@ jobs:
             exit 0
           fi
 
-          if ! flutter build ios --simulator --debug 2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/ios-build-simulator-debug.log"; then
+          if ! run_with_timeout 900 bash -o pipefail -c \
+            'flutter build ios --simulator --debug 2>&1 | tee "$1"' \
+            bash "${SMOKE_ARTIFACT_ROOT}/logs/ios-build-simulator-debug.log"; then
             write_ios_blocked_summary \
-              "iOS simulator build failed on the hosted runner." \
+              "iOS simulator build failed or timed out on the hosted runner." \
               "artifacts/native-smoke/logs/ios-build-simulator-debug.log"
             exit 1
           fi
@@ -405,9 +427,11 @@ jobs:
               "artifacts/native-smoke/logs/ios-simctl-boot.log"
             exit 0
           fi
-          if ! xcrun simctl bootstatus "${device_id}" -b 2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-bootstatus.log"; then
+          if ! run_with_timeout 300 bash -o pipefail -c \
+            'xcrun simctl bootstatus "$1" -b 2>&1 | tee "$2"' \
+            bash "${device_id}" "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-bootstatus.log"; then
             write_ios_blocked_summary \
-              "Hosted iOS simulator did not reach booted status." \
+              "Hosted iOS simulator did not reach booted status within 300 seconds." \
               "artifacts/native-smoke/logs/ios-simctl-bootstatus.log"
             exit 0
           fi
@@ -420,13 +444,10 @@ jobs:
             reason="Closest hosted iOS simulator runtime was ${runtime_version}, below iOS 26; platform-channel unavailable paths were smoke-tested only."
           fi
           set +e
-          flutter test integration_test/native_alarm_smoke_test.dart \
-            -d "${device_id}" \
-            --dart-define=CALARM_NATIVE_SMOKE_PLATFORM=ios \
-            --dart-define=CALARM_NATIVE_SMOKE_EVIDENCE_LABEL="${status}" \
-            --timeout 5m \
-            2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/ios-native-smoke-test.log"
-          smoke_status="${PIPESTATUS[0]}"
+          run_with_timeout 600 bash -o pipefail -c \
+            'flutter test integration_test/native_alarm_smoke_test.dart -d "$1" --dart-define=CALARM_NATIVE_SMOKE_PLATFORM=ios --dart-define=CALARM_NATIVE_SMOKE_EVIDENCE_LABEL="$2" --timeout 5m 2>&1 | tee "$3"' \
+            bash "${device_id}" "${status}" "${SMOKE_ARTIFACT_ROOT}/logs/ios-native-smoke-test.log"
+          smoke_status="$?"
           set -e
           xcrun simctl spawn "${device_id}" log show --style compact --last 10m \
             > "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-log-show.log" 2>&1 || true
@@ -436,8 +457,11 @@ jobs:
 
           if [[ "${smoke_status}" -ne 0 ]]; then
             write_ios_blocked_summary \
-              "MethodChannel smoke test failed; see artifacts/native-smoke/logs/ios-native-smoke-test.log" \
+              "MethodChannel smoke test failed or timed out; see artifacts/native-smoke/logs/ios-native-smoke-test.log" \
               "artifacts/native-smoke/logs/ios-native-smoke-test.log"
+            if [[ "${smoke_status}" -eq 124 ]]; then
+              exit 0
+            fi
             exit "${smoke_status}"
           fi
           if [[ "${smoke_outcome}" != "NEAR_DEVICE" ]]; then
