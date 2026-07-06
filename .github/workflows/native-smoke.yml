@@ -1,0 +1,496 @@
+name: Native Smoke CI
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - 'android/**'
+      - 'ios/**'
+      - 'integration_test/**'
+      - 'test_driver/**'
+      - 'lib/core/platform/**'
+      - 'docs/qa/ci-native-smoke.md'
+  workflow_dispatch:
+    inputs:
+      run_android:
+        description: 'Run Android emulator smoke'
+        required: true
+        default: true
+        type: boolean
+      run_ios:
+        description: 'Run iOS simulator smoke'
+        required: true
+        default: true
+        type: boolean
+  schedule:
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+
+env:
+  SMOKE_ARTIFACT_ROOT: artifacts/native-smoke
+
+jobs:
+  android-emulator:
+    name: Android emulator native smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_android }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Read Flutter version
+        id: flutter-version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(jq -r '.flutter // .flutterSdkVersion // empty' .fvmrc)"
+          if [[ -z "${version}" ]]; then
+            echo "::error::.fvmrc must define a non-empty flutter version"
+            exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ steps.flutter-version.outputs.version }}
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p "${SMOKE_ARTIFACT_ROOT}/logs"
+          flutter pub get 2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/android-flutter-pub-get.log"
+
+      - name: Build Android debug APK
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p "${SMOKE_ARTIFACT_ROOT}/summary"
+          if ! flutter build apk --debug 2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/android-build-apk-debug.log"; then
+            {
+              echo "# Android native smoke"
+              echo
+              echo "- status: BLOCKED"
+              echo "- reason: Android debug APK build failed on the hosted runner."
+              echo "- evidence: artifacts/native-smoke/logs/android-build-apk-debug.log"
+              echo "- runtime approval: not approved; real-device Android API 36 wake, lock/terminated, full-screen UI, Silent/Focus-equivalent, and reboot restore gates remain BLOCKED"
+            } > "${SMOKE_ARTIFACT_ROOT}/summary/android-summary.md"
+            exit 1
+          fi
+
+      - name: Run Android emulator smoke
+        id: android-smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${SMOKE_ARTIFACT_ROOT}/logs" "${SMOKE_ARTIFACT_ROOT}/summary"
+
+          write_android_blocked_summary() {
+            local reason="$1"
+            local evidence="$2"
+            {
+              echo "# Android native smoke"
+              echo
+              echo "- status: BLOCKED"
+              echo "- preferred target: Android API 36 emulator"
+              echo "- reason: ${reason}"
+              echo "- evidence: ${evidence}"
+              echo "- runtime approval: not approved; real-device Android API 36 wake, lock/terminated, full-screen UI, Silent/Focus-equivalent, and reboot restore gates remain BLOCKED"
+            } > "${SMOKE_ARTIFACT_ROOT}/summary/android-summary.md"
+          }
+
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [[ -z "${sdk_root}" || ! -x "${sdk_root}/cmdline-tools/latest/bin/sdkmanager" ]]; then
+            write_android_blocked_summary \
+              "Android SDK command-line tools were unavailable on the hosted runner." \
+              "hosted runner environment"
+            exit 0
+          fi
+
+          sdkmanager="${sdk_root}/cmdline-tools/latest/bin/sdkmanager"
+          avdmanager="${sdk_root}/cmdline-tools/latest/bin/avdmanager"
+          emulator="${sdk_root}/emulator/emulator"
+          for tool_path in "${avdmanager}" "${emulator}"; do
+            if [[ ! -x "${tool_path}" ]]; then
+              write_android_blocked_summary \
+                "Required Android emulator tool was unavailable: ${tool_path}" \
+                "hosted runner environment"
+              exit 0
+            fi
+          done
+
+          if ! "${sdkmanager}" --list > "${SMOKE_ARTIFACT_ROOT}/logs/android-sdkmanager-list.log" 2>&1; then
+            write_android_blocked_summary \
+              "sdkmanager could not list hosted Android packages." \
+              "artifacts/native-smoke/logs/android-sdkmanager-list.log"
+            exit 0
+          fi
+          image=""
+          api=""
+          for candidate in \
+            "36;google_apis;x86_64" \
+            "36;google_apis_playstore;x86_64" \
+            "35;google_apis;x86_64" \
+            "35;google_apis_playstore;x86_64"; do
+            package="system-images;android-${candidate}"
+            if grep -Fq "${package}" "${SMOKE_ARTIFACT_ROOT}/logs/android-sdkmanager-list.log"; then
+              image="${package}"
+              api="${candidate%%;*}"
+              break
+            fi
+          done
+
+          if [[ -z "${image}" ]]; then
+            write_android_blocked_summary \
+              "No API 36 or API 35 google_apis x86_64 hosted emulator image was listed by sdkmanager." \
+              "artifacts/native-smoke/logs/android-sdkmanager-list.log"
+            exit 0
+          fi
+
+          yes | "${sdkmanager}" --licenses > "${SMOKE_ARTIFACT_ROOT}/logs/android-sdk-licenses.log" || true
+          if ! "${sdkmanager}" "${image}" "platforms;android-${api}" "platform-tools" "emulator" \
+            2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/android-sdk-install.log"; then
+            write_android_blocked_summary \
+              "Failed to install the selected hosted Android emulator image or platform tools." \
+              "artifacts/native-smoke/logs/android-sdk-install.log"
+            exit 0
+          fi
+          if ! echo "no" | "${avdmanager}" create avd \
+            --force \
+            --name "calarm-api-${api}" \
+            --package "${image}" \
+            --device "pixel_7" \
+            2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/android-avd-create.log"; then
+            write_android_blocked_summary \
+              "Failed to create an Android virtual device for ${image}." \
+              "artifacts/native-smoke/logs/android-avd-create.log"
+            exit 0
+          fi
+
+          "${emulator}" -avd "calarm-api-${api}" \
+            -no-window \
+            -no-audio \
+            -no-snapshot \
+            -gpu swiftshader_indirect \
+            -no-boot-anim \
+            > "${SMOKE_ARTIFACT_ROOT}/logs/android-emulator.log" 2>&1 &
+          emulator_pid="$!"
+          trap 'adb emu kill >/dev/null 2>&1 || true; kill "${emulator_pid}" >/dev/null 2>&1 || true' EXIT
+          sleep 5
+          if ! kill -0 "${emulator_pid}" >/dev/null 2>&1; then
+            write_android_blocked_summary \
+              "Android emulator process exited before boot completed." \
+              "artifacts/native-smoke/logs/android-emulator.log"
+            exit 0
+          fi
+
+          if ! timeout 180 adb wait-for-device; then
+            write_android_blocked_summary \
+              "adb did not observe a booting emulator within 180 seconds." \
+              "artifacts/native-smoke/logs/android-emulator.log"
+            exit 0
+          fi
+          boot_completed=""
+          for _ in {1..90}; do
+            boot_completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+            if [[ "${boot_completed}" == "1" ]]; then
+              break
+            fi
+            sleep 2
+          done
+          if [[ "${boot_completed}" != "1" ]]; then
+            write_android_blocked_summary \
+              "Emulator did not finish booting on the hosted runner. Selected image: ${image}." \
+              "artifacts/native-smoke/logs/android-emulator.log"
+            exit 0
+          fi
+
+          adb shell input keyevent 82 || true
+          flutter devices 2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/android-flutter-devices.log"
+          if [[ "${api}" == "36" ]]; then
+            evidence_label="NEAR_DEVICE"
+            runtime_reason="Android API 36 hosted emulator image was available."
+          else
+            evidence_label="BLOCKED"
+            runtime_reason="Android API 36 hosted emulator image was unavailable; closest smoke used API ${api}."
+          fi
+          set +e
+          flutter test integration_test/native_alarm_smoke_test.dart \
+            -d emulator-5554 \
+            --dart-define=CALARM_NATIVE_SMOKE_PLATFORM=android \
+            --dart-define=CALARM_NATIVE_SMOKE_EVIDENCE_LABEL="${evidence_label}" \
+            --timeout 5m \
+            2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/android-native-smoke-test.log"
+          smoke_status="${PIPESTATUS[0]}"
+          set -e
+
+          adb logcat -d > "${SMOKE_ARTIFACT_ROOT}/logs/android-adb-logcat.log" || true
+          adb shell dumpsys alarm > "${SMOKE_ARTIFACT_ROOT}/logs/android-dumpsys-alarm.log" 2>&1 || true
+          if [[ "${smoke_status}" -ne 0 ]]; then
+            {
+              echo "# Android native smoke"
+              echo
+              echo "- status: BLOCKED"
+              echo "- selected emulator image: ${image}"
+              echo "- target preference: API 36, with API 35 fallback"
+              echo "- reason: MethodChannel smoke test failed; see artifacts/native-smoke/logs/android-native-smoke-test.log"
+              echo "- runtime approval: not approved; real-device Android API 36 wake, lock/terminated, full-screen UI, Silent/Focus-equivalent, and reboot restore gates remain BLOCKED"
+            } > "${SMOKE_ARTIFACT_ROOT}/summary/android-summary.md"
+            exit "${smoke_status}"
+          fi
+          {
+            echo "# Android native smoke"
+            echo
+            echo "- status: ${evidence_label}"
+            echo "- selected emulator image: ${image}"
+            echo "- target preference: API 36, with API 35 fallback"
+            echo "- reason: ${runtime_reason}"
+            echo "- runtime approval: not approved; real-device Android API 36 wake, lock/terminated, full-screen UI, Silent/Focus-equivalent, and reboot restore gates remain BLOCKED"
+            echo "- evidence: artifacts/native-smoke/logs/android-native-smoke-test.log"
+          } > "${SMOKE_ARTIFACT_ROOT}/summary/android-summary.md"
+
+      - name: Upload Android native smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: android-native-smoke
+          path: artifacts/native-smoke
+          if-no-files-found: warn
+
+  ios-simulator:
+    name: iOS simulator native smoke
+    runs-on: macos-latest
+    timeout-minutes: 60
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_ios }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Read Flutter version
+        id: flutter-version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(jq -r '.flutter // .flutterSdkVersion // empty' .fvmrc)"
+          if [[ -z "${version}" ]]; then
+            echo "::error::.fvmrc must define a non-empty flutter version"
+            exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ steps.flutter-version.outputs.version }}
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p "${SMOKE_ARTIFACT_ROOT}/logs"
+          flutter pub get 2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/ios-flutter-pub-get.log"
+
+      - name: Run iOS simulator smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${SMOKE_ARTIFACT_ROOT}/logs" "${SMOKE_ARTIFACT_ROOT}/summary"
+
+          xcodebuild -version > "${SMOKE_ARTIFACT_ROOT}/logs/ios-xcodebuild-version.log" 2>&1 || true
+          xcrun simctl list runtimes > "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-runtimes.txt" 2>&1 || true
+          if ! xcrun simctl list runtimes -j > "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-runtimes.json" 2>&1; then
+            {
+              echo "# iOS native smoke"
+              echo
+              echo "- status: BLOCKED"
+              echo "- preferred target: iOS 26+ simulator runtime"
+              echo "- reason: simctl could not list hosted iOS runtimes as JSON."
+              echo "- evidence: artifacts/native-smoke/logs/ios-simctl-runtimes.json"
+              echo "- runtime approval: not approved; real-device iOS 26+ wake, lock/terminated, Silent/Focus, and full-screen stop UI gates remain BLOCKED"
+            } > "${SMOKE_ARTIFACT_ROOT}/summary/ios-summary.md"
+            exit 0
+          fi
+          simulator_sdk="$(xcrun --sdk iphonesimulator --show-sdk-version 2>/dev/null || true)"
+          simulator_sdk_major="${simulator_sdk%%.*}"
+
+          if [[ -z "${simulator_sdk}" || "${simulator_sdk_major}" -lt 26 ]]; then
+            {
+              echo "# iOS native smoke"
+              echo
+              echo "- status: BLOCKED"
+              echo "- preferred target: iOS 26+ simulator runtime and SDK"
+              echo "- detected iphonesimulator SDK: ${simulator_sdk:-unavailable}"
+              echo "- reason: Hosted runner does not expose an iOS 26+ simulator SDK required by the AlarmKit bridge."
+              echo "- evidence: artifacts/native-smoke/logs/ios-xcodebuild-version.log and ios-simctl-runtimes.txt"
+              echo "- runtime approval: not approved; real-device iOS 26+ wake, lock/terminated, Silent/Focus, and full-screen stop UI gates remain BLOCKED"
+            } > "${SMOKE_ARTIFACT_ROOT}/summary/ios-summary.md"
+            exit 0
+          fi
+
+          if ! jq empty "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-runtimes.json"; then
+            {
+              echo "# iOS native smoke"
+              echo
+              echo "- status: BLOCKED"
+              echo "- preferred target: iOS 26+ simulator runtime"
+              echo "- detected iphonesimulator SDK: ${simulator_sdk}"
+              echo "- reason: simctl runtime JSON was invalid on the hosted runner."
+              echo "- evidence: artifacts/native-smoke/logs/ios-simctl-runtimes.json"
+              echo "- runtime approval: not approved; real-device iOS 26+ wake, lock/terminated, Silent/Focus, and full-screen stop UI gates remain BLOCKED"
+            } > "${SMOKE_ARTIFACT_ROOT}/summary/ios-summary.md"
+            exit 0
+          fi
+
+          if ! runtime_id="$(jq -r '
+            .runtimes
+            | map(select(.platform == "iOS" and .isAvailable == true))
+            | sort_by(.version | split(".") | map(tonumber))
+            | reverse
+            | .[0].identifier // empty
+          ' "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-runtimes.json")"; then
+            {
+              echo "# iOS native smoke"
+              echo
+              echo "- status: BLOCKED"
+              echo "- preferred target: iOS 26+ simulator runtime"
+              echo "- detected iphonesimulator SDK: ${simulator_sdk}"
+              echo "- reason: Could not parse available iOS simulator runtimes."
+              echo "- evidence: artifacts/native-smoke/logs/ios-simctl-runtimes.json"
+              echo "- runtime approval: not approved; real-device iOS 26+ wake, lock/terminated, Silent/Focus, and full-screen stop UI gates remain BLOCKED"
+            } > "${SMOKE_ARTIFACT_ROOT}/summary/ios-summary.md"
+            exit 0
+          fi
+          runtime_version="$(jq -r --arg id "${runtime_id}" '.runtimes[] | select(.identifier == $id) | .version' "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-runtimes.json")"
+
+          if [[ -z "${runtime_id}" ]]; then
+            {
+              echo "# iOS native smoke"
+              echo
+              echo "- status: BLOCKED"
+              echo "- preferred target: iOS 26+ simulator runtime"
+              echo "- detected iphonesimulator SDK: ${simulator_sdk}"
+              echo "- reason: Hosted runner exposes no available iOS simulator runtime."
+              echo "- evidence: artifacts/native-smoke/logs/ios-simctl-runtimes.txt"
+              echo "- runtime approval: not approved; real-device iOS 26+ wake, lock/terminated, Silent/Focus, and full-screen stop UI gates remain BLOCKED"
+            } > "${SMOKE_ARTIFACT_ROOT}/summary/ios-summary.md"
+            exit 0
+          fi
+
+          if ! flutter build ios --simulator --debug 2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/ios-build-simulator-debug.log"; then
+            {
+              echo "# iOS native smoke"
+              echo
+              echo "- status: BLOCKED"
+              echo "- selected runtime: ${runtime_version} (${runtime_id})"
+              echo "- detected iphonesimulator SDK: ${simulator_sdk}"
+              echo "- reason: iOS simulator build failed on the hosted runner."
+              echo "- evidence: artifacts/native-smoke/logs/ios-build-simulator-debug.log"
+              echo "- runtime approval: not approved; real-device iOS 26+ wake, lock/terminated, Silent/Focus, and full-screen stop UI gates remain BLOCKED"
+            } > "${SMOKE_ARTIFACT_ROOT}/summary/ios-summary.md"
+            exit 1
+          fi
+          if ! xcrun simctl create "Calarm Native Smoke" "iPhone 16" "${runtime_id}" > "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-create.log" 2>&1; then
+            {
+              echo "# iOS native smoke"
+              echo
+              echo "- status: BLOCKED"
+              echo "- selected runtime: ${runtime_version} (${runtime_id})"
+              echo "- detected iphonesimulator SDK: ${simulator_sdk}"
+              echo "- reason: Failed to create a hosted iOS simulator."
+              echo "- evidence: artifacts/native-smoke/logs/ios-simctl-create.log"
+              echo "- runtime approval: not approved; real-device iOS 26+ wake, lock/terminated, Silent/Focus, and full-screen stop UI gates remain BLOCKED"
+            } > "${SMOKE_ARTIFACT_ROOT}/summary/ios-summary.md"
+            exit 0
+          fi
+          device_id="$(tail -n 1 "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-create.log")"
+          trap 'xcrun simctl shutdown "${device_id}" >/dev/null 2>&1 || true; xcrun simctl delete "${device_id}" >/dev/null 2>&1 || true' EXIT
+
+          if ! xcrun simctl boot "${device_id}" 2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-boot.log"; then
+            {
+              echo "# iOS native smoke"
+              echo
+              echo "- status: BLOCKED"
+              echo "- selected runtime: ${runtime_version} (${runtime_id})"
+              echo "- detected iphonesimulator SDK: ${simulator_sdk}"
+              echo "- reason: Failed to boot the hosted iOS simulator."
+              echo "- evidence: artifacts/native-smoke/logs/ios-simctl-boot.log"
+              echo "- runtime approval: not approved; real-device iOS 26+ wake, lock/terminated, Silent/Focus, and full-screen stop UI gates remain BLOCKED"
+            } > "${SMOKE_ARTIFACT_ROOT}/summary/ios-summary.md"
+            exit 0
+          fi
+          if ! xcrun simctl bootstatus "${device_id}" -b 2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-bootstatus.log"; then
+            {
+              echo "# iOS native smoke"
+              echo
+              echo "- status: BLOCKED"
+              echo "- selected runtime: ${runtime_version} (${runtime_id})"
+              echo "- detected iphonesimulator SDK: ${simulator_sdk}"
+              echo "- reason: Hosted iOS simulator did not reach booted status."
+              echo "- evidence: artifacts/native-smoke/logs/ios-simctl-bootstatus.log"
+              echo "- runtime approval: not approved; real-device iOS 26+ wake, lock/terminated, Silent/Focus, and full-screen stop UI gates remain BLOCKED"
+            } > "${SMOKE_ARTIFACT_ROOT}/summary/ios-summary.md"
+            exit 0
+          fi
+          flutter devices 2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/ios-flutter-devices.log"
+          if [[ "${runtime_version%%.*}" -ge 26 ]]; then
+            status="NEAR_DEVICE"
+            reason="iOS 26+ simulator runtime was available."
+          else
+            status="BLOCKED"
+            reason="Closest hosted iOS simulator runtime was ${runtime_version}, below iOS 26; platform-channel unavailable paths were smoke-tested only."
+          fi
+          set +e
+          flutter test integration_test/native_alarm_smoke_test.dart \
+            -d "${device_id}" \
+            --dart-define=CALARM_NATIVE_SMOKE_PLATFORM=ios \
+            --dart-define=CALARM_NATIVE_SMOKE_EVIDENCE_LABEL="${status}" \
+            --timeout 5m \
+            2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/ios-native-smoke-test.log"
+          smoke_status="${PIPESTATUS[0]}"
+          set -e
+          xcrun simctl spawn "${device_id}" log show --style compact --last 10m \
+            > "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-log-show.log" 2>&1 || true
+          xcrun simctl io "${device_id}" screenshot "${SMOKE_ARTIFACT_ROOT}/logs/ios-screenshot.png" \
+            > "${SMOKE_ARTIFACT_ROOT}/logs/ios-screenshot.log" 2>&1 || true
+
+          if [[ "${smoke_status}" -ne 0 ]]; then
+            {
+              echo "# iOS native smoke"
+              echo
+              echo "- status: BLOCKED"
+              echo "- selected runtime: ${runtime_version} (${runtime_id})"
+              echo "- detected iphonesimulator SDK: ${simulator_sdk}"
+              echo "- reason: MethodChannel smoke test failed; see artifacts/native-smoke/logs/ios-native-smoke-test.log"
+              echo "- runtime approval: not approved; real-device iOS 26+ wake, lock/terminated, Silent/Focus, and full-screen stop UI gates remain BLOCKED"
+            } > "${SMOKE_ARTIFACT_ROOT}/summary/ios-summary.md"
+            exit "${smoke_status}"
+          fi
+
+          {
+            echo "# iOS native smoke"
+            echo
+            echo "- status: ${status}"
+            echo "- selected runtime: ${runtime_version} (${runtime_id})"
+            echo "- detected iphonesimulator SDK: ${simulator_sdk}"
+            echo "- reason: ${reason}"
+            echo "- runtime approval: not approved; real-device iOS 26+ wake, lock/terminated, Silent/Focus, and full-screen stop UI gates remain BLOCKED"
+            echo "- evidence: artifacts/native-smoke/logs/ios-native-smoke-test.log"
+          } > "${SMOKE_ARTIFACT_ROOT}/summary/ios-summary.md"
+
+      - name: Upload iOS native smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ios-native-smoke
+          path: artifacts/native-smoke
+          if-no-files-found: warn
