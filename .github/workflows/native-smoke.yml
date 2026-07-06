@@ -69,7 +69,6 @@ jobs:
         with:
           flutter-version: ${{ steps.flutter-version.outputs.version }}
           channel: stable
-          cache: true
 
       - name: Resolve dependencies
         shell: bash
@@ -308,7 +307,6 @@ jobs:
         with:
           flutter-version: ${{ steps.flutter-version.outputs.version }}
           channel: stable
-          cache: true
 
       - name: Resolve dependencies
         shell: bash
