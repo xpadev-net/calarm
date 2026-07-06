@@ -167,6 +167,16 @@ Interpretation:
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_1-Task_4 delegated in parallel.
+  - Task_1 Wake Plan Scheduling Service thread: `019f35cb-2642-7551-be9f-e35b60b5b1cf`; pending worktree `local:8d7aeb74-f56b-4b33-8bbb-cac5f548ad7c`; branch `codex/wave-08-wake-plan-scheduling-service`.
+  - Task_1 startup follow-up: worker initially stopped because the owned service/test files did not exist; orchestrator clarified those files are Task_1-owned new files and instructed the worker to continue.
+  - Task_2 iOS AlarmKit Bridge pending worktree: `local:12fa1eed-c1c5-4ee1-97d1-bd3f7ba3df0c`; branch `codex/wave-08-ios-alarmkit-bridge`.
+  - Task_3 Android Alarm Bridge pending worktree: `local:96734e84-dcc8-4f8d-96dd-f1be47d01269`; branch `codex/wave-08-android-alarm-bridge`.
+  - Task_4 Week Calendar Grid and Interaction Core pending worktree: `local:a1efcac4-d9ac-4d4c-9f57-e453358c73d2`; branch `codex/wave-08-week-calendar-core`.
+  - Scope: Execute Wave 8 child plan Task_1-Task_4 in parallel with disjoint owns. Task_5 CI simulator/emulator native smoke remains dependent on Task_2 and Task_3.
+  - Validation ownership: workers must provide focused tests/checks, analyzer/diff checks, independent review, PR hook evidence, and merge-ready or blocked reports; orchestrator owns final PR review, merge, ledger completion, and thread archival.
+  - Runtime status: iOS 26+ and Android API 36 runtime alarm validation remains deferred and unapproved for release approval.
+
 - 2026-07-06 Wave 7 Task_2 Wake Plan Repository merged; Wave 7 complete.
   - Summary: PR #12 `Add wake plan Drift repository` was squash-merged, adding Drift schema/version 1, WakePlanRepository persistence APIs, nullable per-occurrence `platformAlarmId` lifecycle support, calendar/list queries, soft delete, one-time retention, malformed-row isolation, and focused data tests.
   - Merge commit: `5910c90dcc97ca05be9d2522510a209ad5a26dbc`.

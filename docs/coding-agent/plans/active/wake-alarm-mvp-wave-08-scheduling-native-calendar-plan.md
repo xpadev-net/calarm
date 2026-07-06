@@ -1,6 +1,6 @@
 # Plan: Wake Alarm MVP Wave 8 - Scheduling, Native Bridges, and Calendar Core
 
-- status: draft
+- status: in progress
 - generated: 2026-07-05
 - last_updated: 2026-07-06
 - work_type: code
@@ -260,6 +260,22 @@
 - Wave 10 uses scheduling service and calendar tap interaction for create flow.
 
 ## Progress Log (append-only)
+
+- 2026-07-06 Wave 8 Task_1-Task_4 delegated in parallel.
+  - Task_1 Wake Plan Scheduling Service thread: `019f35cb-2642-7551-be9f-e35b60b5b1cf`; pending worktree: `local:8d7aeb74-f56b-4b33-8bbb-cac5f548ad7c`.
+  - Task_1 Branch: `codex/wave-08-wake-plan-scheduling-service`.
+  - Task_1 Scope: `lib/features/wake_plan/application/wake_plan_service.dart` and `test/features/wake_plan/application/wake_plan_service_test.dart`.
+  - Task_1 follow-up: worker initially reported missing owned files as a blocker; orchestrator clarified that Task_1 owns creating those files from scratch and instructed the worker to continue.
+  - Task_2 iOS AlarmKit Bridge pending worktree: `local:12fa1eed-c1c5-4ee1-97d1-bd3f7ba3df0c`.
+  - Task_2 Branch: `codex/wave-08-ios-alarmkit-bridge`.
+  - Task_2 Scope: `ios/**` and `docs/qa/ios-alarmkit-checklist.md`.
+  - Task_3 Android Alarm Bridge pending worktree: `local:96734e84-dcc8-4f8d-96dd-f1be47d01269`.
+  - Task_3 Branch: `codex/wave-08-android-alarm-bridge`.
+  - Task_3 Scope: `android/**` and `docs/qa/android-alarm-checklist.md`.
+  - Task_4 Week Calendar Grid and Interaction Core pending worktree: `local:a1efcac4-d9ac-4d4c-9f57-e453358c73d2`.
+  - Task_4 Branch: `codex/wave-08-week-calendar-core`.
+  - Task_4 Scope: `lib/features/week_calendar/**` and `test/features/week_calendar/**`.
+  - Validation ownership: each worker must provide focused required validation, independent review, PR hook evidence, and a merge-ready or blocked report without merging. iOS 26+ and Android API 36 runtime validation remains deferred and unapproved.
 
 - 2026-07-06 CI near-device smoke harness added to Wave 8.
   - Summary: Add Task_5 after iOS/Android native bridge tasks so CI simulator/emulator smoke is implemented before final QA.
