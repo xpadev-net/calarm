@@ -292,6 +292,12 @@
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_3 Android Alarm Bridge returned after orchestrator review.
+  - Trigger: Orchestrator final review of PR #16 found that `AlarmStore.put` and `AlarmStore.remove` used asynchronous `SharedPreferences.apply()`, allowing schedule/cancel to report success before the reboot-restore mirror state was durable.
+  - Risk: A process death immediately after cancel success could leave a removed `platformAlarmId` on disk and allow `BootReceiver`/`AlarmRestore` to restore a canceled alarm; a process death after schedule success could also lose restore state.
+  - Action: Worker thread `019f35da-44bb-7a30-bb40-9d7ea9fb36b6` was instructed to make mirror writes durable or fail the native operation, rerun required validation and `rtk gh-review-hook 16`, and report an updated merge-ready head without merging.
+  - Runtime status: Android API 36 runtime alarm validation remains deferred and unapproved.
+
 - 2026-07-06 Wave 8 Task_4 Week Calendar Grid and Interaction Core merged.
   - Summary: PR #13 `Add week calendar interaction core` was squash-merged, adding the Wake Plan week calendar interaction model, week grid widget, current-time line, initial scroll behavior, tap-to-day/time conversion, compact scaffold placeholder, and focused model/widget tests.
   - Merge commit: `91d5a3b43512187c56b7e0bc42c94837dcf498d3`.
