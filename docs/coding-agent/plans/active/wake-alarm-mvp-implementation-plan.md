@@ -167,6 +167,13 @@ Interpretation:
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness returned after Android timeout review.
+  - Summary: PR #17 `Add native smoke CI harness` returned at head `7d5f074a62a5a30d068453251015235bd3585222`, with worker validation, GitHub checks, final run-log scan, and worker `rtk gh-review-hook 17` passing.
+  - Orchestrator validation: clean PR-head temp worktree passed workflow YAML parse, extracted bash syntax, mutable action/cache scan, Flutter tag check, `rtk flutter pub get`, `rtk dart format --set-exit-if-changed .`, `rtk flutter analyze`, `rtk flutter test`, `rtk git diff --check`, final GitHub run-log scan, and orchestrator `rtk gh-review-hook 17`.
+  - Review outcome: orchestrator/reviewer final review found one merge-blocking issue: Android native smoke has only a job-level timeout, so a hung `flutter build apk --debug` or Android `flutter test ... -d emulator-5554` can prevent the `if: always()` artifact upload step from running.
+  - Action: worker thread `019f360f-e59c-7440-8c24-9ff9904c1e9d` was asked to add process-level Android build/test timeout handling that writes BLOCKED hosted-runner evidence before failing, then rerun validation, GitHub checks, run-log scan, and final worker `rtk gh-review-hook 17`.
+  - Merge gate impact: PR #17 remains unmerged; Task_6 whole-codebase review must wait until Task_5 merges.
+
 - 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness continued after final hook evidence scan.
   - Summary: PR #17 reached worker `rtk gh-review-hook 17` exit 0 at head `2c71c39019f04b45446bb54cd4d71617b0d15481`, but worker log verification still found nested mutable `actions/cache@v5` usage through `subosito/flutter-action`.
   - Action: worker is replacing `subosito/flutter-action` with shell-based Flutter SDK setup pinned by `.fvmrc`, then must rerun validation, GitHub checks, and final worker `rtk gh-review-hook 17`.
