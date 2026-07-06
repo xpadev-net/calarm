@@ -167,6 +167,13 @@ Interpretation:
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness returned after Android setup timeout review.
+  - Summary: PR #17 `Add native smoke CI harness` returned at head `b88b4ff7d49b444499152445a9797b6f678c1f06`, with worker validation, GitHub checks, final run-log scan, and worker `rtk gh-review-hook 17` passing after Android build/test timeout handling.
+  - Orchestrator validation: clean PR-head temp worktree passed workflow YAML parse, extracted bash syntax, mutable action/cache scan, final GitHub run-log scan, `rtk flutter pub get`, `rtk dart format --set-exit-if-changed .`, `rtk flutter analyze`, `rtk flutter test`, `rtk git diff --check`, and orchestrator `rtk gh-review-hook 17`.
+  - Review outcome: orchestrator/reviewer final review found one merge-blocking issue: Android hosted setup commands (`sdkmanager --list`, license acceptance, package install, and `avdmanager create avd`) remain unbounded, so a setup hang can still prevent the `if: always()` artifact upload step from running.
+  - Action: worker thread `019f360f-e59c-7440-8c24-9ff9904c1e9d` was asked to add process-level timeout handling around Android setup commands, write BLOCKED hosted-runner evidence on timeout, preserve artifact upload behavior, then rerun validation, GitHub checks, run-log scan, and final worker `rtk gh-review-hook 17`.
+  - Merge gate impact: PR #17 remains unmerged; Task_6 whole-codebase review must wait until Task_5 merges.
+
 - 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness returned after Android timeout review.
   - Summary: PR #17 `Add native smoke CI harness` returned at head `7d5f074a62a5a30d068453251015235bd3585222`, with worker validation, GitHub checks, final run-log scan, and worker `rtk gh-review-hook 17` passing.
   - Orchestrator validation: clean PR-head temp worktree passed workflow YAML parse, extracted bash syntax, mutable action/cache scan, Flutter tag check, `rtk flutter pub get`, `rtk dart format --set-exit-if-changed .`, `rtk flutter analyze`, `rtk flutter test`, `rtk git diff --check`, final GitHub run-log scan, and orchestrator `rtk gh-review-hook 17`.

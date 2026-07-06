@@ -301,6 +301,14 @@
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness returned after Android setup timeout review.
+  - PR: #17 `Add native smoke CI harness`, branch `codex/wave-08-ci-native-smoke`, reviewed head `b88b4ff7d49b444499152445a9797b6f678c1f06`.
+  - Worker evidence before return: worker validation passed (`rtk flutter analyze`, `rtk flutter test`, `rtk git diff --check`, workflow YAML parse, extracted bash syntax, mutable action/cache scan), GitHub Baseline CI/Android smoke/iOS smoke/checks were success, final run-log scan found no `actions/cache` or `subosito/flutter-action`, and worker `rtk gh-review-hook 17` exited 0.
+  - Orchestrator validation before return: clean PR-head temp worktree passed `rtk flutter pub get`, `rtk dart format --set-exit-if-changed .`, `rtk flutter analyze`, `rtk flutter test`, `rtk git diff --check`, workflow YAML parse, extracted bash syntax, mutable action/cache scan, final GitHub run-log scan, and orchestrator `rtk gh-review-hook 17`.
+  - Orchestrator review finding: Android hosted setup still has unbounded external commands before artifact upload (`sdkmanager --list`, `sdkmanager --licenses`, package install, and `avdmanager create avd`), so setup hangs can still lose required BLOCKED artifacts.
+  - Action: worker thread `019f360f-e59c-7440-8c24-9ff9904c1e9d` was asked to add process-level timeout handling around Android setup commands, write BLOCKED hosted-runner evidence on timeout, preserve artifact upload behavior, rerun required checks, and provide refreshed final `rtk gh-review-hook 17` evidence.
+  - Merge impact: PR #17 remains unmerged until the Android setup timeout evidence gap is fixed and the orchestrator reruns review/checks/hook on the new head.
+
 - 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness returned after Android timeout review.
   - PR: #17 `Add native smoke CI harness`, branch `codex/wave-08-ci-native-smoke`, reviewed head `7d5f074a62a5a30d068453251015235bd3585222`.
   - Worker evidence before return: worker validation passed (`rtk flutter analyze`, `rtk flutter test`, `rtk git diff --check`, workflow YAML parse, extracted bash syntax, mutable action/cache scan, Flutter tag check), GitHub Baseline CI/Android smoke/iOS smoke/checks were success, final run-log scan found no `actions/cache` or `subosito/flutter-action`, and worker `rtk gh-review-hook 17` exited 0.
