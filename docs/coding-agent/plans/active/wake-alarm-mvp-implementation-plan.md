@@ -167,6 +167,11 @@ Interpretation:
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness waiting on CodeRabbit.
+  - Summary: PR #17 `Add native smoke CI harness` is at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43`; worker validation and GitHub Baseline CI/Native Smoke CI/Greptile/Socket evidence passed, but worker `rtk gh-review-hook 17` timed out because CodeRabbit remains pending.
+  - Orchestrator state: PR #17 is open/non-draft with merge state `UNSTABLE`; no merge is permitted until CodeRabbit completes and worker-side final `rtk gh-review-hook 17` exits 0 on the final reviewed head.
+  - Merge gate impact: PR #17 remains unmerged; Task_6 whole-codebase review must wait until Task_5 merges.
+
 - 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness returned after Android boot-timeout review.
   - Summary: PR #17 `Add native smoke CI harness` returned at head `738e96f1981879a04c0648ae1aa3027cb0273dba`, with worker validation, GitHub checks, final run-log scan, and worker `rtk gh-review-hook 17` passing after Android setup timeout handling.
   - Orchestrator validation: clean PR-head temp worktree confirmed expected PR files, workflow YAML parse, extracted bash syntax, mutable action/cache scan, final GitHub run-log scan, and `rtk git diff --check`; GitHub PR state was non-draft, `CLEAN`, with seven successful checks.

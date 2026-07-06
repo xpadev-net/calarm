@@ -301,6 +301,13 @@
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness waiting on external PR review check.
+  - PR: #17 `Add native smoke CI harness`, branch `codex/wave-08-ci-native-smoke`, current head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43`.
+  - Worker evidence on current head: workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed; GitHub Baseline CI run `28790906962`, Native Smoke CI run `28790906964`, Greptile, and Socket checks passed; final run-log scans found no `actions/cache`, `actions/cache@`, or `subosito/flutter-action`.
+  - Worker hook state: `rtk gh-review-hook 17` was rerun on head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` but timed out waiting for CodeRabbit after the other checks completed.
+  - Orchestrator state check: PR #17 is open/non-draft, but merge state is `UNSTABLE` because CodeRabbit remains `PENDING`; no merge gate can run to completion yet.
+  - Next action: wait for CodeRabbit to finish, then require worker-side final `rtk gh-review-hook 17` evidence on the same or newer final head before orchestrator review/checks/hook and merge consideration.
+
 - 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness returned after Android boot-timeout review.
   - PR: #17 `Add native smoke CI harness`, branch `codex/wave-08-ci-native-smoke`, reviewed head `738e96f1981879a04c0648ae1aa3027cb0273dba`.
   - Worker evidence before return: worker validation passed (workflow YAML parse, extracted bash syntax, mutable action/cache scan, `rtk flutter analyze`, `rtk flutter test`, `rtk git diff --check`), GitHub Baseline CI/Android smoke/iOS smoke/checks were success, final run-log scan found no `actions/cache` or `subosito/flutter-action`, and worker `rtk gh-review-hook 17` exited 0 after Greptile completed.
