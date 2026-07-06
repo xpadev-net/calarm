@@ -201,7 +201,19 @@ jobs:
             fi
           done
 
-          if ! "${sdkmanager}" --list > "${SMOKE_ARTIFACT_ROOT}/logs/android-sdkmanager-list.log" 2>&1; then
+          set +e
+          run_with_timeout 180 bash -c '"$1" --list > "$2" 2>&1' \
+            bash "${sdkmanager}" "${SMOKE_ARTIFACT_ROOT}/logs/android-sdkmanager-list.log"
+          sdk_list_status="$?"
+          set -e
+          if [[ "${sdk_list_status}" -ne 0 ]]; then
+            if [[ "${sdk_list_status}" -eq 124 ]]; then
+              echo "CALARM_NATIVE_SMOKE_OUTCOME=BLOCKED" >> "${SMOKE_ARTIFACT_ROOT}/logs/android-sdkmanager-list.log"
+              write_android_blocked_summary \
+                "sdkmanager timed out while listing hosted Android packages." \
+                "artifacts/native-smoke/logs/android-sdkmanager-list.log"
+              exit 1
+            fi
             write_android_blocked_summary \
               "sdkmanager could not list hosted Android packages." \
               "artifacts/native-smoke/logs/android-sdkmanager-list.log"
@@ -229,20 +241,52 @@ jobs:
             exit 0
           fi
 
-          yes | "${sdkmanager}" --licenses > "${SMOKE_ARTIFACT_ROOT}/logs/android-sdk-licenses.log" || true
-          if ! "${sdkmanager}" "${image}" "platforms;android-${api}" "platform-tools" "emulator" \
-            2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/android-sdk-install.log"; then
+          set +e
+          run_with_timeout 180 bash -o pipefail -c \
+            'yes | "$1" --licenses > "$2"' \
+            bash "${sdkmanager}" "${SMOKE_ARTIFACT_ROOT}/logs/android-sdk-licenses.log"
+          license_status="$?"
+          set -e
+          if [[ "${license_status}" -eq 124 ]]; then
+            echo "CALARM_NATIVE_SMOKE_OUTCOME=BLOCKED" >> "${SMOKE_ARTIFACT_ROOT}/logs/android-sdk-licenses.log"
+            write_android_blocked_summary \
+              "sdkmanager license acceptance timed out on the hosted runner." \
+              "artifacts/native-smoke/logs/android-sdk-licenses.log"
+            exit 1
+          fi
+          set +e
+          run_with_timeout 600 bash -o pipefail -c \
+            '"$1" "$2" "$3" "platform-tools" "emulator" 2>&1 | tee "$4"' \
+            bash "${sdkmanager}" "${image}" "platforms;android-${api}" "${SMOKE_ARTIFACT_ROOT}/logs/android-sdk-install.log"
+          sdk_install_status="$?"
+          set -e
+          if [[ "${sdk_install_status}" -ne 0 ]]; then
+            if [[ "${sdk_install_status}" -eq 124 ]]; then
+              echo "CALARM_NATIVE_SMOKE_OUTCOME=BLOCKED" >> "${SMOKE_ARTIFACT_ROOT}/logs/android-sdk-install.log"
+              write_android_blocked_summary \
+                "Timed out installing the selected hosted Android emulator image or platform tools." \
+                "artifacts/native-smoke/logs/android-sdk-install.log"
+              exit 1
+            fi
             write_android_blocked_summary \
               "Failed to install the selected hosted Android emulator image or platform tools." \
               "artifacts/native-smoke/logs/android-sdk-install.log"
             exit 0
           fi
-          if ! echo "no" | "${avdmanager}" create avd \
-            --force \
-            --name "calarm-api-${api}" \
-            --package "${image}" \
-            --device "pixel_7" \
-            2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/android-avd-create.log"; then
+          set +e
+          run_with_timeout 180 bash -o pipefail -c \
+            'echo "no" | "$1" create avd --force --name "$2" --package "$3" --device "pixel_7" 2>&1 | tee "$4"' \
+            bash "${avdmanager}" "calarm-api-${api}" "${image}" "${SMOKE_ARTIFACT_ROOT}/logs/android-avd-create.log"
+          avd_create_status="$?"
+          set -e
+          if [[ "${avd_create_status}" -ne 0 ]]; then
+            if [[ "${avd_create_status}" -eq 124 ]]; then
+              echo "CALARM_NATIVE_SMOKE_OUTCOME=BLOCKED" >> "${SMOKE_ARTIFACT_ROOT}/logs/android-avd-create.log"
+              write_android_blocked_summary \
+                "Timed out creating an Android virtual device for ${image}." \
+                "artifacts/native-smoke/logs/android-avd-create.log"
+              exit 1
+            fi
             write_android_blocked_summary \
               "Failed to create an Android virtual device for ${image}." \
               "artifacts/native-smoke/logs/android-avd-create.log"
