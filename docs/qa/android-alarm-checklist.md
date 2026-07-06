@@ -1,0 +1,25 @@
+# Android Alarm Bridge QA Checklist
+
+Runtime approval status: BLOCKED for release until real Android API 36 device/runtime evidence is captured. Wave 8 implementation evidence below does not approve Android runtime behavior.
+
+| Case | Status | Evidence / blocker |
+|---|---|---|
+| MethodChannel schemaVersion 1 connects to `net.xpadev.calarm/native_alarm` | PASS | Kotlin `AndroidAlarmBridge` is registered from `MainActivity` and validates `schemaVersion: 1`. |
+| Capability lookup reports exact alarm setting | PASS | `getCapability` calls `AlarmManager.canScheduleExactAlarms()` on Android 12+ and returns `requiresExactAlarmPermission`. |
+| Capability lookup reports notification setting | PASS | `getCapability` checks `POST_NOTIFICATIONS` on Android 13+ and returns `requiresNotificationPermission`. |
+| Capability lookup reports full-screen intent setting | PASS | `getCapability` checks `NotificationManager.canUseFullScreenIntent()` on Android 14+ and returns `requiresFullScreenIntentPermission`. |
+| Schedule multiple concrete occurrences | BLOCKED | Implementation schedules each occurrence with `AlarmManager.setAlarmClock`, but no Android API 36 runtime/device is available in this worker environment to verify delivery. |
+| Return platformAlarmId per scheduled occurrence | PASS | Successful schedule rows return deterministic `android:{wakePlanId}:{occurrenceId}` identities. |
+| Cancel a single occurrence by stored platformAlarmId | BLOCKED | Implementation cancels the matching `PendingIntent` and removes native mirror state, but no Android API 36 runtime/device is available to verify OS alarm removal. |
+| Cancel all resolved occurrences for a plan | BLOCKED | `cancelPlan` uses the same resolved occurrence/platform identity rows as `cancelOccurrences`; no Android API 36 runtime/device is available to verify OS alarm removal. |
+| Schedule a test alarm | BLOCKED | Implementation maps `fireAfterMillis` to a native one-off alarm, but no Android API 36 runtime/device is available to verify delivery. |
+| Alarm receiver notification and full-screen stop UI fallback | BLOCKED | `AlarmReceiver` posts a high-priority alarm notification with full-screen `AlarmStopActivity`; no Android API 36 runtime/device is available to verify lock-screen behavior. |
+| Reboot/package-replace restore | BLOCKED | `BootReceiver` restores future alarms from a native SharedPreferences mirror after boot/package replace when exact alarms are still allowed. No Android API 36 runtime/device is available to verify reboot restore. |
+| Runtime permission request flow | BLOCKED | `requestPermissionIfNeeded` opens exact alarm or app settings where needed. No Android API 36 runtime/device is available to verify user flow or post-return status. |
+
+Implementation limits recorded:
+
+- Native mirror state is stored in app `SharedPreferences`; clearing app data removes restore state.
+- Restore only re-arms alarms whose stored `scheduledAtMillis` is still in the future.
+- If exact alarm permission is revoked at boot, restore exits without rescheduling; capability lookup surfaces the missing permission.
+- Full-screen UI is a minimal native fallback for Wave 8 and does not yet integrate Flutter alarm dismissal state.
