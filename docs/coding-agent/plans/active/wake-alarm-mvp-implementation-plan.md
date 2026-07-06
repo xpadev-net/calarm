@@ -167,6 +167,13 @@ Interpretation:
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Wave 8 Task_4 Week Calendar Grid and Interaction Core merged.
+  - Summary: PR #13 `Add week calendar interaction core` was squash-merged, adding the Wake Plan week calendar model helpers, grid rendering, current-time indicator, tap conversion, compact scaffold placeholder, and focused tests.
+  - Merge commit: `91d5a3b43512187c56b7e0bc42c94837dcf498d3`.
+  - Validation evidence: Worker checks passed (`rtk flutter test test/features/week_calendar`, `rtk flutter analyze`, `rtk git diff --check`) and PR Baseline CI passed; orchestrator reran the focused week-calendar tests, analyzer, diff check, and `rtk gh-review-hook 13` from a clean PR-head worktree.
+  - Review evidence: Worker deep-review self-review and independent reviewer approved; orchestrator performed a final merge-gate review and found no actionable findings.
+  - Runtime status: iOS 26+ and Android API 36 runtime alarm validation remains deferred and unapproved for release approval.
+
 - 2026-07-06 Completed Wave 1-7 plans moved to completed lifecycle folder.
   - Summary: Wave 1-7 child plan files were moved from `docs/coding-agent/plans/active/` to `docs/coding-agent/plans/completed/` because their tasks and PR merge evidence were already complete.
   - Link update: Parent child-plan links for Wave 1-7 now point at `../completed/...`; Wave 8+ remains active.
