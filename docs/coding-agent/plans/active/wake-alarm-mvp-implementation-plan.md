@@ -167,6 +167,11 @@ Interpretation:
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Baseline CI Node.js 20 deprecation warning added to Wave 8 Task_5.
+  - Summary: The `Format, analyze, and test` workflow currently warns that `actions/upload-artifact@v4` targets Node.js 20 and is being forced to Node.js 24.
+  - Action: Wave 8 Task_5 now includes fixing or precisely documenting this warning within `.github/workflows/**`, while preserving baseline CI artifact upload behavior.
+  - Validation impact: Task_5 must verify the supported action/runtime path and show the warning is gone, or report a concrete upstream/action-version blocker.
+
 - 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness delegated.
   - Summary: Task_5 was started after Task_1-Task_4 merged, with branch `codex/wave-08-ci-native-smoke` and pending worktree `local:d74c6506-5d51-4135-936d-0efe755d9012`.
   - Scope: Worker owns `.github/workflows/**`, `integration_test/**`, `test_driver/**`, `docs/qa/ci-native-smoke.md`, and `docs/qa/artifacts/**`; baseline CI must remain intact.

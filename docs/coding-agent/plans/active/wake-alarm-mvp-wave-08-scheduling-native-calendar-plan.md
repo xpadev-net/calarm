@@ -203,6 +203,7 @@
   - iOS job uses a macOS runner and simulator/runtime closest to the MVP target available in CI, preferring an iOS 26+ runtime when available and recording BLOCKED/unavailable evidence when not available.
   - CI runs Flutter dependency resolution, build/install or integration-test smoke, and platform-channel/native alarm gateway smoke for schedule/cancel/test-alarm paths where simulator/emulator supports them.
   - CI keeps the Wave 7 baseline validation path for format, analyzer/lint, and unit tests intact.
+  - Existing baseline CI warnings are addressed when they fall within `.github/workflows/**`, including the `actions/upload-artifact@v4` Node.js 20 deprecation warning observed on the `Format, analyze, and test` job; update or replace action pins only after verifying the current supported action/runtime path, and preserve artifact upload behavior.
   - CI uploads logs/artifacts such as Flutter test logs, Android `adb` logs, optional `dumpsys alarm`, iOS `simctl` logs, screenshots when available, and a summary under `docs/qa/ci-native-smoke.md`.
   - CI evidence labels simulator/emulator results as NEAR_DEVICE or BLOCKED, never as real-device APPROVED for wake delivery, lock/terminated behavior, Silent/Focus behavior, full-screen stop UI, or Android reboot restore.
   - If hosted runner SDK/runtime limitations prevent a meaningful iOS/Android smoke, the workflow still records the exact unavailable runner/runtime/toolchain fact and leaves the corresponding release gate BLOCKED.
@@ -219,6 +220,10 @@
     required: true
     owner: worker
     detail: "GitHub Actions workflow is syntax-checked and either runs the simulator/emulator smoke successfully or records precise BLOCKED evidence for unavailable hosted runtimes"
+  - kind: ci
+    required: true
+    owner: worker
+    detail: "Baseline CI artifact upload no longer emits the observed Node.js 20 deprecation warning, or the PR records a precise upstream/action-version blocker if no supported fix is available yet"
   - kind: review
     required: true
     owner: reviewer
@@ -291,6 +296,11 @@
 - Wave 10 uses scheduling service and calendar tap interaction for create flow.
 
 ## Progress Log (append-only)
+
+- 2026-07-06 Baseline CI Node.js 20 deprecation warning added to Task_5 scope.
+  - Trigger: GitHub Actions `Format, analyze, and test` emitted a warning that `actions/upload-artifact@v4` targets Node.js 20 and is being forced to Node.js 24.
+  - Action: Task_5 now explicitly owns fixing or precisely documenting this workflow warning because it already owns `.github/workflows/**` and must preserve Wave 7 baseline CI while adding native smoke CI.
+  - Validation impact: Task_5 worker must verify the current supported action/runtime path before changing action pins, preserve artifact upload behavior, and provide CI/syntax evidence that the warning is gone or record a concrete upstream blocker.
 
 - 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness delegated.
   - Task_5 pending worktree: `local:d74c6506-5d51-4135-936d-0efe755d9012`.
