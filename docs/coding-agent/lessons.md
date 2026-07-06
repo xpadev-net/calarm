@@ -29,6 +29,14 @@ Purpose:
 - prevention: Merge checklist now includes an explicit "orchestrator review findings" decision: if findings exist, do not merge; send concrete follow-up to the worker and wait for a new head SHA, refreshed validation, and hook evidence.
 - promotion: Repo-local lesson only for now; no rule suite exists in this repository.
 
+### 2026-07-06 - Close Completed Wave Plans and Review Wave Codebase
+- tags: workflow/process, planning, review, validation
+- symptom: Completed wave plan files remained under `docs/coding-agent/plans/active/`, and Wave 8 lacked an explicit whole-codebase review-and-fix closeout after the scheduling/native/calendar implementation wave.
+- root cause: Wave merge bookkeeping focused on task PR state and ledger evidence, but plan lifecycle movement and wave-level integrated review were not encoded as mandatory closeout steps.
+- fix: Move completed wave plans to `docs/coding-agent/plans/completed/`, update parent links, and add a Wave 8 whole-codebase review/fix loop after implementation and native smoke tasks.
+- prevention: Before declaring a wave complete, verify its plan file has moved out of `active/`; for Wave 8 and similar integration-heavy waves, require an orchestrator/reviewer codebase-wide review loop with follow-up fixes until no in-scope findings remain.
+- promotion: Repo-local lesson only for now; no rule suite exists in this repository.
+
 ### 2026-07-06 - Push Orchestrator Ledger Commits Promptly
 - tags: workflow/process, delegation
 - symptom: Orchestrator ledger updates were committed locally, but the operating default did not explicitly require prompt push after local commits.

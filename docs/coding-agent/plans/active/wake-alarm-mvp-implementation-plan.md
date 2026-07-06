@@ -102,13 +102,13 @@
 
 ## Child Plans
 
-- Wave 1: [Spike Plan and Evidence Template](wake-alarm-mvp-wave-01-spike-evidence-plan.md)
-- Wave 2: [Native Alarm Feasibility Spikes](wake-alarm-mvp-wave-02-native-feasibility-spikes-plan.md)
-- Wave 3: [Platform Feasibility Decision](wake-alarm-mvp-wave-03-platform-decision-plan.md)
-- Wave 4: [Flutter Project Scaffold](wake-alarm-mvp-wave-04-flutter-scaffold-plan.md)
-- Wave 5: [Time Foundation](wake-alarm-mvp-wave-05-time-foundation-plan.md)
-- Wave 6: [Domain and Gateway Contracts](wake-alarm-mvp-wave-06-domain-gateway-contracts-plan.md)
-- Wave 7: [Planner, Repository, and MethodChannel Wiring](wake-alarm-mvp-wave-07-planner-repository-channel-plan.md)
+- Wave 1: [Spike Plan and Evidence Template](../completed/wake-alarm-mvp-wave-01-spike-evidence-plan.md)
+- Wave 2: [Native Alarm Feasibility Spikes](../completed/wake-alarm-mvp-wave-02-native-feasibility-spikes-plan.md)
+- Wave 3: [Platform Feasibility Decision](../completed/wake-alarm-mvp-wave-03-platform-decision-plan.md)
+- Wave 4: [Flutter Project Scaffold](../completed/wake-alarm-mvp-wave-04-flutter-scaffold-plan.md)
+- Wave 5: [Time Foundation](../completed/wake-alarm-mvp-wave-05-time-foundation-plan.md)
+- Wave 6: [Domain and Gateway Contracts](../completed/wake-alarm-mvp-wave-06-domain-gateway-contracts-plan.md)
+- Wave 7: [Planner, Repository, and MethodChannel Wiring](../completed/wake-alarm-mvp-wave-07-planner-repository-channel-plan.md)
 - Wave 8: [Scheduling, Native Bridges, and Calendar Core](wake-alarm-mvp-wave-08-scheduling-native-calendar-plan.md)
 - Wave 9: [Calendar Rendering and Settings Defaults](wake-alarm-mvp-wave-09-rendering-settings-plan.md)
 - Wave 10: [Create Wake Plan Flow](wake-alarm-mvp-wave-10-create-flow-plan.md)
@@ -144,13 +144,13 @@ Interpretation:
 - Child plans execute sequentially unless the parent Decision Log records a replan.
 - Parallelism inside each child plan is defined in that child plan's Task Waves section.
 
-- Wave 1 (parallel): [wake-alarm-mvp-wave-01-spike-evidence-plan.md]
-- Wave 2 (parallel): [wake-alarm-mvp-wave-02-native-feasibility-spikes-plan.md]
-- Wave 3 (parallel): [wake-alarm-mvp-wave-03-platform-decision-plan.md]
-- Wave 4 (parallel): [wake-alarm-mvp-wave-04-flutter-scaffold-plan.md]
-- Wave 5 (parallel): [wake-alarm-mvp-wave-05-time-foundation-plan.md]
-- Wave 6 (parallel): [wake-alarm-mvp-wave-06-domain-gateway-contracts-plan.md]
-- Wave 7 (parallel): [wake-alarm-mvp-wave-07-planner-repository-channel-plan.md]
+- Wave 1 (parallel): [../completed/wake-alarm-mvp-wave-01-spike-evidence-plan.md]
+- Wave 2 (parallel): [../completed/wake-alarm-mvp-wave-02-native-feasibility-spikes-plan.md]
+- Wave 3 (parallel): [../completed/wake-alarm-mvp-wave-03-platform-decision-plan.md]
+- Wave 4 (parallel): [../completed/wake-alarm-mvp-wave-04-flutter-scaffold-plan.md]
+- Wave 5 (parallel): [../completed/wake-alarm-mvp-wave-05-time-foundation-plan.md]
+- Wave 6 (parallel): [../completed/wake-alarm-mvp-wave-06-domain-gateway-contracts-plan.md]
+- Wave 7 (parallel): [../completed/wake-alarm-mvp-wave-07-planner-repository-channel-plan.md]
 - Wave 8 (parallel): [wake-alarm-mvp-wave-08-scheduling-native-calendar-plan.md]
 - Wave 9 (parallel): [wake-alarm-mvp-wave-09-rendering-settings-plan.md]
 - Wave 10 (parallel): [wake-alarm-mvp-wave-10-create-flow-plan.md]
@@ -166,6 +166,15 @@ Interpretation:
 - Native alarm実装を戻す場合は、既知の `platformAlarmId` をcancelしてからMethodChannel登録を外す。
 
 ## Progress Log (append-only)
+
+- 2026-07-06 Completed Wave 1-7 plans moved to completed lifecycle folder.
+  - Summary: Wave 1-7 child plan files were moved from `docs/coding-agent/plans/active/` to `docs/coding-agent/plans/completed/` because their tasks and PR merge evidence were already complete.
+  - Link update: Parent child-plan links for Wave 1-7 now point at `../completed/...`; Wave 8+ remains active.
+  - New closeout default: future completed wave plans must move out of `active/` before the wave is considered closed.
+
+- 2026-07-06 Wave 8 whole-codebase review closeout added.
+  - Summary: Wave 8 child plan now includes Task_6, an integrated codebase-wide review/fix loop after scheduling, native bridge, calendar, and CI smoke tasks complete.
+  - Closeout rule: Wave 8 must not move to `completed/` until final orchestrator/reviewer review reports no remaining in-scope findings or explicit deferrals.
 
 - 2026-07-06 Wave 8 Task_2 iOS AlarmKit Bridge merged.
   - Summary: PR #14 `Add iOS AlarmKit native bridge` was squash-merged, adding the iOS native bridge and QA checklist evidence for the Wave 8 child plan.
