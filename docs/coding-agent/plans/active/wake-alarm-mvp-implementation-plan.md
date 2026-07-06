@@ -167,6 +167,10 @@ Interpretation:
 
 ## Progress Log (append-only)
 
+- 2026-07-06 Worker-side post-review gh-review-hook requirement clarified.
+  - Summary: Worker merge-ready evidence must include `rtk gh-review-hook <PR_NUMBER>` run from the worker worktree after worker self-review, independent review, and any review-driven fixes are complete.
+  - Merge gate impact: Orchestrator must verify hook evidence points at the final reviewed head SHA before merging.
+
 - 2026-07-06 Baseline CI Node.js 20 deprecation warning added to Wave 8 Task_5.
   - Summary: The `Format, analyze, and test` workflow currently warns that `actions/upload-artifact@v4` targets Node.js 20 and is being forced to Node.js 24.
   - Action: Wave 8 Task_5 now includes fixing or precisely documenting this warning within `.github/workflows/**`, while preserving baseline CI artifact upload behavior.

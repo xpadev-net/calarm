@@ -226,6 +226,10 @@
     detail: "Baseline CI artifact upload no longer emits the observed Node.js 20 deprecation warning, or the PR records a precise upstream/action-version blocker if no supported fix is available yet"
   - kind: review
     required: true
+    owner: worker
+    detail: "After worker self-review, independent review, and any review-driven fixes are complete, rerun `rtk gh-review-hook <PR_NUMBER>` from the worker worktree and report hook exit 0 for the final reviewed head SHA"
+  - kind: review
+    required: true
     owner: reviewer
     detail: "CI smoke evidence is clearly separated from real-device runtime approval and cannot mark deferred Wave 3 cases APPROVED"
 
@@ -296,6 +300,11 @@
 - Wave 10 uses scheduling service and calendar tap interaction for create flow.
 
 ## Progress Log (append-only)
+
+- 2026-07-06 Worker-side post-review gh-review-hook requirement clarified.
+  - Trigger: User clarified that after review completes, `gh-review-hook` must also be run from the worker worktree.
+  - Action: Task_5 validation now explicitly requires worker-side `rtk gh-review-hook <PR_NUMBER>` after self-review, independent review, and review-driven fixes are complete.
+  - Merge gate impact: Orchestrator must reject merge-ready handoffs whose hook evidence is not from the final reviewed head SHA.
 
 - 2026-07-06 Baseline CI Node.js 20 deprecation warning added to Task_5 scope.
   - Trigger: GitHub Actions `Format, analyze, and test` emitted a warning that `actions/upload-artifact@v4` targets Node.js 20 and is being forced to Node.js 24.

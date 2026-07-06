@@ -68,3 +68,11 @@ Purpose:
 - fix: Added a Wave 7 baseline GitHub Actions CI task and release-readiness checks, while keeping Wave 8 native smoke CI separate.
 - prevention: When adding specialized CI, first confirm whether ordinary baseline CI exists and add or preserve format, lint/analyzer, and unit-test checks as an independent validation path.
 - promotion: Repo-local lesson only for now; no rule suite exists in this repository.
+
+### 2026-07-06 - Run Worker Hook After Review
+- tags: workflow/process, review, validation
+- symptom: Worker instructions could be read as allowing `gh-review-hook` evidence before final worker self-review or independent review completion.
+- root cause: The PR lifecycle required hook exit 0, but did not always spell out the ordering that review fixes must be complete before the worker worktree reruns the hook.
+- fix: Make worker validation require a final `rtk gh-review-hook <PR_NUMBER>` run from the worker worktree after self-review, independent review, and any review-driven fixes are complete.
+- prevention: For merge-ready worker reports, require the reported hook evidence to be from the final reviewed head SHA; if review findings produced follow-up commits, the worker must rerun the hook before handoff.
+- promotion: Repo-local lesson only for now; no rule suite exists in this repository.
