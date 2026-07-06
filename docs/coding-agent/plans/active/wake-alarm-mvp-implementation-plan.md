@@ -102,13 +102,13 @@
 
 ## Child Plans
 
-- Wave 1: [Spike Plan and Evidence Template](wake-alarm-mvp-wave-01-spike-evidence-plan.md)
-- Wave 2: [Native Alarm Feasibility Spikes](wake-alarm-mvp-wave-02-native-feasibility-spikes-plan.md)
-- Wave 3: [Platform Feasibility Decision](wake-alarm-mvp-wave-03-platform-decision-plan.md)
-- Wave 4: [Flutter Project Scaffold](wake-alarm-mvp-wave-04-flutter-scaffold-plan.md)
-- Wave 5: [Time Foundation](wake-alarm-mvp-wave-05-time-foundation-plan.md)
-- Wave 6: [Domain and Gateway Contracts](wake-alarm-mvp-wave-06-domain-gateway-contracts-plan.md)
-- Wave 7: [Planner, Repository, and MethodChannel Wiring](wake-alarm-mvp-wave-07-planner-repository-channel-plan.md)
+- Wave 1: [Spike Plan and Evidence Template](../completed/wake-alarm-mvp-wave-01-spike-evidence-plan.md)
+- Wave 2: [Native Alarm Feasibility Spikes](../completed/wake-alarm-mvp-wave-02-native-feasibility-spikes-plan.md)
+- Wave 3: [Platform Feasibility Decision](../completed/wake-alarm-mvp-wave-03-platform-decision-plan.md)
+- Wave 4: [Flutter Project Scaffold](../completed/wake-alarm-mvp-wave-04-flutter-scaffold-plan.md)
+- Wave 5: [Time Foundation](../completed/wake-alarm-mvp-wave-05-time-foundation-plan.md)
+- Wave 6: [Domain and Gateway Contracts](../completed/wake-alarm-mvp-wave-06-domain-gateway-contracts-plan.md)
+- Wave 7: [Planner, Repository, and MethodChannel Wiring](../completed/wake-alarm-mvp-wave-07-planner-repository-channel-plan.md)
 - Wave 8: [Scheduling, Native Bridges, and Calendar Core](wake-alarm-mvp-wave-08-scheduling-native-calendar-plan.md)
 - Wave 9: [Calendar Rendering and Settings Defaults](wake-alarm-mvp-wave-09-rendering-settings-plan.md)
 - Wave 10: [Create Wake Plan Flow](wake-alarm-mvp-wave-10-create-flow-plan.md)
@@ -144,13 +144,13 @@ Interpretation:
 - Child plans execute sequentially unless the parent Decision Log records a replan.
 - Parallelism inside each child plan is defined in that child plan's Task Waves section.
 
-- Wave 1 (parallel): [wake-alarm-mvp-wave-01-spike-evidence-plan.md]
-- Wave 2 (parallel): [wake-alarm-mvp-wave-02-native-feasibility-spikes-plan.md]
-- Wave 3 (parallel): [wake-alarm-mvp-wave-03-platform-decision-plan.md]
-- Wave 4 (parallel): [wake-alarm-mvp-wave-04-flutter-scaffold-plan.md]
-- Wave 5 (parallel): [wake-alarm-mvp-wave-05-time-foundation-plan.md]
-- Wave 6 (parallel): [wake-alarm-mvp-wave-06-domain-gateway-contracts-plan.md]
-- Wave 7 (parallel): [wake-alarm-mvp-wave-07-planner-repository-channel-plan.md]
+- Wave 1 (parallel): [../completed/wake-alarm-mvp-wave-01-spike-evidence-plan.md]
+- Wave 2 (parallel): [../completed/wake-alarm-mvp-wave-02-native-feasibility-spikes-plan.md]
+- Wave 3 (parallel): [../completed/wake-alarm-mvp-wave-03-platform-decision-plan.md]
+- Wave 4 (parallel): [../completed/wake-alarm-mvp-wave-04-flutter-scaffold-plan.md]
+- Wave 5 (parallel): [../completed/wake-alarm-mvp-wave-05-time-foundation-plan.md]
+- Wave 6 (parallel): [../completed/wake-alarm-mvp-wave-06-domain-gateway-contracts-plan.md]
+- Wave 7 (parallel): [../completed/wake-alarm-mvp-wave-07-planner-repository-channel-plan.md]
 - Wave 8 (parallel): [wake-alarm-mvp-wave-08-scheduling-native-calendar-plan.md]
 - Wave 9 (parallel): [wake-alarm-mvp-wave-09-rendering-settings-plan.md]
 - Wave 10 (parallel): [wake-alarm-mvp-wave-10-create-flow-plan.md]
@@ -166,6 +166,34 @@ Interpretation:
 - Native alarm実装を戻す場合は、既知の `platformAlarmId` をcancelしてからMethodChannel登録を外す。
 
 ## Progress Log (append-only)
+
+- 2026-07-06 Wave 8 Task_1 Wake Plan Scheduling Service merged.
+  - Summary: PR #15 `Add wake plan scheduling service` was squash-merged, adding WakePlan create/edit/delete/skip scheduling orchestration, occurrence generation, NativeAlarmGateway schedule/cancel calls, platformAlarmId persistence, and warning-ready failure states.
+  - Merge commit: `50b0061ed2900dd9baec5889263acd0fa3e0273d`.
+  - Validation evidence: Worker checks passed (`rtk flutter test test/features/wake_plan/application/wake_plan_service_test.dart`, `rtk flutter analyze`, `rtk git diff --check`), PR Baseline CI passed, and worker `rtk gh-review-hook 15` exited 0; orchestrator reran the focused service test, analyzer, diff check, and hook from a clean PR-head worktree.
+  - Review evidence: Worker deep-review self-review and independent reviewer approved; orchestrator performed a final merge-gate review of scheduling/cancel/rollback/platformAlarmId semantics and found no actionable findings.
+  - Runtime status: iOS 26+ and Android API 36 runtime alarm validation remains deferred and unapproved for release approval.
+
+- 2026-07-06 Wave 8 Task_3 Android Alarm Bridge returned after orchestrator review.
+  - Summary: PR #16 passed worker validation and orchestrator local checks, but orchestrator final review found asynchronous native mirror writes could let canceled alarms be restored after process death.
+  - Action: Worker thread `019f35da-44bb-7a30-bb40-9d7ea9fb36b6` was asked to make schedule/cancel mirror writes durable or return native failure, rerun checks and `rtk gh-review-hook 16`, and provide a refreshed merge-ready report.
+  - Runtime status: Android API 36 runtime alarm validation remains deferred and unapproved for release approval.
+
+- 2026-07-06 Wave 8 Task_4 Week Calendar Grid and Interaction Core merged.
+  - Summary: PR #13 `Add week calendar interaction core` was squash-merged, adding the Wake Plan week calendar model helpers, grid rendering, current-time indicator, tap conversion, compact scaffold placeholder, and focused tests.
+  - Merge commit: `91d5a3b43512187c56b7e0bc42c94837dcf498d3`.
+  - Validation evidence: Worker checks passed (`rtk flutter test test/features/week_calendar`, `rtk flutter analyze`, `rtk git diff --check`) and PR Baseline CI passed; orchestrator reran the focused week-calendar tests, analyzer, diff check, and `rtk gh-review-hook 13` from a clean PR-head worktree.
+  - Review evidence: Worker deep-review self-review and independent reviewer approved; orchestrator performed a final merge-gate review and found no actionable findings.
+  - Runtime status: iOS 26+ and Android API 36 runtime alarm validation remains deferred and unapproved for release approval.
+
+- 2026-07-06 Completed Wave 1-7 plans moved to completed lifecycle folder.
+  - Summary: Wave 1-7 child plan files were moved from `docs/coding-agent/plans/active/` to `docs/coding-agent/plans/completed/` because their tasks and PR merge evidence were already complete.
+  - Link update: Parent child-plan links for Wave 1-7 now point at `../completed/...`; Wave 8+ remains active.
+  - New closeout default: future completed wave plans must move out of `active/` before the wave is considered closed.
+
+- 2026-07-06 Wave 8 whole-codebase review closeout added.
+  - Summary: Wave 8 child plan now includes Task_6, an integrated codebase-wide review/fix loop after scheduling, native bridge, calendar, and CI smoke tasks complete.
+  - Closeout rule: Wave 8 must not move to `completed/` until final orchestrator/reviewer review reports no remaining in-scope findings or explicit deferrals.
 
 - 2026-07-06 Wave 8 Task_2 iOS AlarmKit Bridge merged.
   - Summary: PR #14 `Add iOS AlarmKit native bridge` was squash-merged, adding the iOS native bridge and QA checklist evidence for the Wave 8 child plan.

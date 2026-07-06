@@ -224,10 +224,40 @@
     owner: reviewer
     detail: "CI smoke evidence is clearly separated from real-device runtime approval and cannot mark deferred Wave 3 cases APPROVED"
 
+### Task_6: Wave 8 Whole Codebase Review and Fix Loop
+- type: review
+- owns:
+  - docs/coding-agent/plans/active/wake-alarm-mvp-wave-08-scheduling-native-calendar-plan.md
+  - docs/coding-agent/plans/active/wake-alarm-mvp-implementation-plan.md
+- depends_on:
+  - Task_1
+  - Task_2
+  - Task_3
+  - Task_4
+  - Task_5
+- description: |
+  After Wave 8 implementation and CI smoke tasks land, run an integrated review across the current codebase and Wave 8 evidence. This is an orchestrator/reviewer closeout loop, not product-code implementation in the parent thread; any fixes must be delegated as narrow worker tasks or handled by the owning worker/PR before the wave is marked complete.
+- acceptance:
+  - Existing codebase is reviewed across Wake Plan scheduling, repository/domain interactions, MethodChannel contract, iOS bridge, Android bridge, week calendar, CI workflows, and QA docs.
+  - Review explicitly checks for stale native alarms, duplicate/uncancelled occurrences, platformAlarmId persistence, MethodChannel schema drift, native checklist honesty, baseline CI preservation, and release-blocking runtime validation wording.
+  - Every in-scope finding is fixed through a worker PR or documented as an explicit deferred/out-of-scope decision with rationale.
+  - The review/fix loop repeats until the final orchestrator/reviewer pass reports no in-scope findings.
+  - Wave 8 is not moved to `docs/coding-agent/plans/completed/` until this loop and all required Task_1-Task_5 validation are complete.
+- validation:
+  - kind: review
+    required: true
+    owner: orchestrator
+    detail: "Run and record a codebase-wide Wave 8 closeout review; if findings exist, do not close the wave and delegate fixes."
+  - kind: review
+    required: true
+    owner: reviewer
+    detail: "Independent reviewer confirms no remaining in-scope Wave 8 integration findings after fixes."
+
 ## Task Waves (explicit parallel dispatch sets)
 
 - Wave 1 (parallel): [Task_1, Task_2, Task_3, Task_4]
 - Wave 2 (parallel): [Task_5]
+- Wave 3 (parallel): [Task_6]
 
 ## E2E / Visual Validation Spec
 
@@ -239,6 +269,7 @@
   - Week calendar renders current week, time grid, current time line, and empty state.
   - Tap a day/time cell and verify date/time conversion.
   - iOS/Android test alarm can be scheduled and cancelled.
+  - After Wave 8 implementation tasks complete, review the existing codebase end-to-end for integration, ownership, validation, and deferred-runtime wording regressions; fix or delegate every in-scope finding until the review returns no findings.
 - viewports:
   - Mobile compact: 390x844.
   - Mobile large: 430x932.
@@ -260,6 +291,32 @@
 - Wave 10 uses scheduling service and calendar tap interaction for create flow.
 
 ## Progress Log (append-only)
+
+- 2026-07-06 Wave 8 Task_1 Wake Plan Scheduling Service merged.
+  - Summary: PR #15 `Add wake plan scheduling service` was squash-merged, adding WakePlan create/edit/delete/skip scheduling flows, rolling concrete occurrence generation, NativeAlarmGateway schedule/cancel integration, platformAlarmId persistence, warning-ready failure results, and focused service tests.
+  - Merge commit: `50b0061ed2900dd9baec5889263acd0fa3e0273d`.
+  - Validation evidence: Worker `rtk flutter test test/features/wake_plan/application/wake_plan_service_test.dart`, `rtk flutter analyze`, `rtk git diff --check`, PR Baseline CI, and `rtk gh-review-hook 15` passed; orchestrator reran the focused service test, analyzer, diff check, and `rtk gh-review-hook 15` from a clean PR-head worktree, and all passed.
+  - Review evidence: Worker deep-review self-review and independent reviewer approved after lifecycle fixes; orchestrator performed a final scheduling-service review before merge and found no actionable findings.
+  - Runtime status: This service task does not claim iOS 26+ or Android API 36 runtime alarm validation; deferred runtime validation remains unapproved and release-blocking.
+  - PR state: #15 merged; branch head `30e41f150f494071bcdb0217e575a984dc2a0e83`.
+
+- 2026-07-06 Wave 8 Task_3 Android Alarm Bridge returned after orchestrator review.
+  - Trigger: Orchestrator final review of PR #16 found that `AlarmStore.put` and `AlarmStore.remove` used asynchronous `SharedPreferences.apply()`, allowing schedule/cancel to report success before the reboot-restore mirror state was durable.
+  - Risk: A process death immediately after cancel success could leave a removed `platformAlarmId` on disk and allow `BootReceiver`/`AlarmRestore` to restore a canceled alarm; a process death after schedule success could also lose restore state.
+  - Action: Worker thread `019f35da-44bb-7a30-bb40-9d7ea9fb36b6` was instructed to make mirror writes durable or fail the native operation, rerun required validation and `rtk gh-review-hook 16`, and report an updated merge-ready head without merging.
+  - Runtime status: Android API 36 runtime alarm validation remains deferred and unapproved.
+
+- 2026-07-06 Wave 8 Task_4 Week Calendar Grid and Interaction Core merged.
+  - Summary: PR #13 `Add week calendar interaction core` was squash-merged, adding the Wake Plan week calendar interaction model, week grid widget, current-time line, initial scroll behavior, tap-to-day/time conversion, compact scaffold placeholder, and focused model/widget tests.
+  - Merge commit: `91d5a3b43512187c56b7e0bc42c94837dcf498d3`.
+  - Validation evidence: Worker `rtk flutter test test/features/week_calendar`, `rtk flutter analyze`, `rtk git diff --check`, and PR Baseline CI passed; orchestrator reran `rtk flutter test test/features/week_calendar`, `rtk flutter analyze`, `rtk git diff --check origin/master...HEAD`, and `rtk gh-review-hook 13` from a clean PR-head worktree, and all passed.
+  - Review evidence: Worker deep-review self-review and independent reviewer approved; orchestrator performed a final UI/model/tests review before merge and found no actionable findings.
+  - Runtime status: This calendar task does not claim iOS 26+ or Android API 36 runtime alarm validation; deferred runtime validation remains unapproved and release-blocking.
+  - PR state: #13 merged; branch head `4ee13efd7994d4b40b4523d35d94bc7b37306b01`.
+
+- 2026-07-06 Wave 8 codebase-wide closeout review added.
+  - Summary: Added Task_6 so Wave 8 cannot close until the existing codebase receives an integrated review/fix loop after scheduling/native/calendar/CI smoke tasks land.
+  - Impact: In-scope findings from the review must be fixed through worker PRs or explicitly deferred before moving the Wave 8 plan to `completed/`.
 
 - 2026-07-06 Wave 8 Task_2 iOS AlarmKit Bridge merged.
   - Summary: PR #14 `Add iOS AlarmKit native bridge` was squash-merged, adding Swift AlarmKit MethodChannel bridge wiring for `net.xpadev.calarm/native_alarm`, schemaVersion 1 validation, capability/permission/schedule/cancel/test-alarm methods, and iOS QA checklist rows.
@@ -322,6 +379,12 @@
   - Trigger / new insight: User asked to add ordinary CI checks in addition to near-device CI.
   - Plan delta (what changed): Wave 8 Task_5 now explicitly preserves the Wave 7 baseline validation path while adding simulator/emulator native smoke coverage.
   - Tradeoffs considered: Keeping the workflows separate or clearly layered prevents native smoke runtime limitations from blocking or hiding ordinary PR checks.
+  - User approval: yes.
+
+- 2026-07-06 Decision: Add Wave 8 integrated codebase review before closing the wave.
+  - Trigger / new insight: User requested a whole-codebase review around Wave 8 completion, with fixes repeated until review findings are gone.
+  - Plan delta (what changed): Added Task_6 after Task_1-Task_5 to require orchestrator/reviewer closeout review and delegated fixes before Wave 8 can move to `completed/`.
+  - Tradeoffs considered: This adds one review/fix loop before proceeding to later UI flows, but it should catch cross-task integration drift while the scheduling/native/calendar changes are still fresh.
   - User approval: yes.
 
 - 2026-07-05 Decision: Run service, bridges, and calendar core in parallel.
