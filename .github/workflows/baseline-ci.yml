@@ -38,10 +38,17 @@ jobs:
           echo "Using Flutter ${version} from .fvmrc"
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
-        with:
-          flutter-version: ${{ steps.flutter-version.outputs.version }}
-          channel: stable
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter_root="${RUNNER_TOOL_CACHE}/flutter-${{ steps.flutter-version.outputs.version }}"
+          if [[ ! -x "${flutter_root}/bin/flutter" ]]; then
+            rm -rf "${flutter_root}"
+            git clone --depth 1 --branch "${{ steps.flutter-version.outputs.version }}" \
+              https://github.com/flutter/flutter.git "${flutter_root}"
+          fi
+          echo "${flutter_root}/bin" >> "${GITHUB_PATH}"
+          "${flutter_root}/bin/flutter" --version
 
       - name: Resolve dependencies
         shell: bash
