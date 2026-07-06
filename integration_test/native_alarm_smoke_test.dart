@@ -17,7 +17,7 @@ void main() {
     );
     const evidenceLabel = String.fromEnvironment(
       'CALARM_NATIVE_SMOKE_EVIDENCE_LABEL',
-      defaultValue: 'NEAR_DEVICE',
+      defaultValue: 'UNKNOWN',
     );
 
     final capability = await gateway.getCapability().nativeSmokeTimeout(
@@ -103,6 +103,11 @@ void main() {
       'failureReason': testAlarmResult.failureReason?.name,
       'failureMessage': testAlarmResult.failureMessage,
     });
+    if (testAlarmResult.isSuccess) {
+      expect(testAlarmResult.platformAlarmId, isNotNull);
+    } else {
+      expect(testAlarmResult.failureReason, isNotNull);
+    }
 
     final testPlatformAlarmId = testAlarmResult.platformAlarmId;
     if (testPlatformAlarmId != null) {
