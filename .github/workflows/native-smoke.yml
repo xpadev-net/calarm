@@ -93,14 +93,47 @@ jobs:
       - name: Build Android debug APK
         shell: bash
         run: |
-          set -o pipefail
+          set -euo pipefail
           mkdir -p "${SMOKE_ARTIFACT_ROOT}/summary"
-          if ! flutter build apk --debug 2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/android-build-apk-debug.log"; then
+
+          run_with_timeout() {
+            local seconds="$1"
+            shift
+            perl -MPOSIX=setsid -e 'setsid() or die "setsid: $!"; exec @ARGV or die "exec: $!"' "$@" &
+            local command_pid="$!"
+            local elapsed=0
+            while kill -0 "${command_pid}" >/dev/null 2>&1; do
+              if [[ "${elapsed}" -ge "${seconds}" ]]; then
+                kill -TERM "-${command_pid}" >/dev/null 2>&1 || kill "${command_pid}" >/dev/null 2>&1 || true
+                sleep 5
+                kill -KILL "-${command_pid}" >/dev/null 2>&1 || kill -9 "${command_pid}" >/dev/null 2>&1 || true
+                wait "${command_pid}" >/dev/null 2>&1 || true
+                return 124
+              fi
+              sleep 5
+              elapsed=$((elapsed + 5))
+            done
+            wait "${command_pid}"
+          }
+
+          set +e
+          run_with_timeout 900 bash -o pipefail -c \
+            'flutter build apk --debug 2>&1 | tee "$1"' \
+            bash "${SMOKE_ARTIFACT_ROOT}/logs/android-build-apk-debug.log"
+          build_status="$?"
+          set -e
+          if [[ "${build_status}" -ne 0 ]]; then
+            if [[ "${build_status}" -eq 124 ]]; then
+              echo "CALARM_NATIVE_SMOKE_OUTCOME=BLOCKED" >> "${SMOKE_ARTIFACT_ROOT}/logs/android-build-apk-debug.log"
+              timeout_reason="Android debug APK build timed out on the hosted runner."
+            else
+              timeout_reason="Android debug APK build failed on the hosted runner."
+            fi
             {
               echo "# Android native smoke"
               echo
               echo "- status: BLOCKED"
-              echo "- reason: Android debug APK build failed on the hosted runner."
+              echo "- reason: ${timeout_reason}"
               echo "- evidence: artifacts/native-smoke/logs/android-build-apk-debug.log"
               echo "- runtime approval: not approved; real-device Android API 36 wake, lock/terminated, full-screen UI, Silent/Focus-equivalent, and reboot restore gates remain BLOCKED"
             } > "${SMOKE_ARTIFACT_ROOT}/summary/android-summary.md"
@@ -126,6 +159,26 @@ jobs:
               echo "- evidence: ${evidence}"
               echo "- runtime approval: not approved; real-device Android API 36 wake, lock/terminated, full-screen UI, Silent/Focus-equivalent, and reboot restore gates remain BLOCKED"
             } > "${SMOKE_ARTIFACT_ROOT}/summary/android-summary.md"
+          }
+
+          run_with_timeout() {
+            local seconds="$1"
+            shift
+            perl -MPOSIX=setsid -e 'setsid() or die "setsid: $!"; exec @ARGV or die "exec: $!"' "$@" &
+            local command_pid="$!"
+            local elapsed=0
+            while kill -0 "${command_pid}" >/dev/null 2>&1; do
+              if [[ "${elapsed}" -ge "${seconds}" ]]; then
+                kill -TERM "-${command_pid}" >/dev/null 2>&1 || kill "${command_pid}" >/dev/null 2>&1 || true
+                sleep 5
+                kill -KILL "-${command_pid}" >/dev/null 2>&1 || kill -9 "${command_pid}" >/dev/null 2>&1 || true
+                wait "${command_pid}" >/dev/null 2>&1 || true
+                return 124
+              fi
+              sleep 5
+              elapsed=$((elapsed + 5))
+            done
+            wait "${command_pid}"
           }
 
           sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
@@ -244,26 +297,29 @@ jobs:
             runtime_reason="Android API 36 hosted emulator image was unavailable; closest smoke used API ${api}."
           fi
           set +e
-          flutter test integration_test/native_alarm_smoke_test.dart \
-            -d emulator-5554 \
-            --dart-define=CALARM_NATIVE_SMOKE_PLATFORM=android \
-            --dart-define=CALARM_NATIVE_SMOKE_EVIDENCE_LABEL="${evidence_label}" \
-            --timeout 5m \
-            2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/android-native-smoke-test.log"
-          smoke_status="${PIPESTATUS[0]}"
+          run_with_timeout 600 bash -o pipefail -c \
+            'flutter test integration_test/native_alarm_smoke_test.dart -d emulator-5554 --dart-define=CALARM_NATIVE_SMOKE_PLATFORM=android --dart-define=CALARM_NATIVE_SMOKE_EVIDENCE_LABEL="$1" --timeout 5m 2>&1 | tee "$2"' \
+            bash "${evidence_label}" "${SMOKE_ARTIFACT_ROOT}/logs/android-native-smoke-test.log"
+          smoke_status="$?"
           set -e
 
           adb logcat -d > "${SMOKE_ARTIFACT_ROOT}/logs/android-adb-logcat.log" || true
           adb shell dumpsys alarm > "${SMOKE_ARTIFACT_ROOT}/logs/android-dumpsys-alarm.log" 2>&1 || true
           smoke_outcome="$(grep -E 'CALARM_NATIVE_SMOKE_OUTCOME=' "${SMOKE_ARTIFACT_ROOT}/logs/android-native-smoke-test.log" | tail -n 1 | cut -d= -f2 || true)"
           if [[ "${smoke_status}" -ne 0 ]]; then
+            if [[ "${smoke_status}" -eq 124 ]]; then
+              echo "CALARM_NATIVE_SMOKE_OUTCOME=BLOCKED" >> "${SMOKE_ARTIFACT_ROOT}/logs/android-native-smoke-test.log"
+              smoke_reason="MethodChannel smoke test timed out; see artifacts/native-smoke/logs/android-native-smoke-test.log"
+            else
+              smoke_reason="MethodChannel smoke test failed; see artifacts/native-smoke/logs/android-native-smoke-test.log"
+            fi
             {
               echo "# Android native smoke"
               echo
               echo "- status: BLOCKED"
               echo "- selected emulator image: ${image}"
               echo "- target preference: API 36, with API 35 fallback"
-              echo "- reason: MethodChannel smoke test failed; see artifacts/native-smoke/logs/android-native-smoke-test.log"
+              echo "- reason: ${smoke_reason}"
               echo "- runtime approval: not approved; real-device Android API 36 wake, lock/terminated, full-screen UI, Silent/Focus-equivalent, and reboot restore gates remain BLOCKED"
             } > "${SMOKE_ARTIFACT_ROOT}/summary/android-summary.md"
             exit "${smoke_status}"
