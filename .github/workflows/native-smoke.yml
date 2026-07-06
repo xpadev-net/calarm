@@ -66,12 +66,18 @@ jobs:
 
       - name: Set up Flutter
         shell: bash
+        env:
+          FLUTTER_VERSION: ${{ steps.flutter-version.outputs.version }}
         run: |
           set -euo pipefail
-          flutter_root="${RUNNER_TOOL_CACHE}/flutter-${{ steps.flutter-version.outputs.version }}"
+          if [[ ! "${FLUTTER_VERSION}" =~ ^[0-9]+[.][0-9]+[.][0-9]+([-+][0-9A-Za-z._-]+)?$ ]]; then
+            echo "::error::.fvmrc Flutter version must be an exact semver tag"
+            exit 1
+          fi
+          flutter_root="${RUNNER_TOOL_CACHE}/flutter-${FLUTTER_VERSION}"
           if [[ ! -x "${flutter_root}/bin/flutter" ]]; then
             rm -rf "${flutter_root}"
-            git clone --depth 1 --branch "${{ steps.flutter-version.outputs.version }}" \
+            git clone --depth 1 --branch "${FLUTTER_VERSION}" \
               https://github.com/flutter/flutter.git "${flutter_root}"
           fi
           echo "${flutter_root}/bin" >> "${GITHUB_PATH}"
@@ -311,12 +317,18 @@ jobs:
 
       - name: Set up Flutter
         shell: bash
+        env:
+          FLUTTER_VERSION: ${{ steps.flutter-version.outputs.version }}
         run: |
           set -euo pipefail
-          flutter_root="${RUNNER_TOOL_CACHE}/flutter-${{ steps.flutter-version.outputs.version }}"
+          if [[ ! "${FLUTTER_VERSION}" =~ ^[0-9]+[.][0-9]+[.][0-9]+([-+][0-9A-Za-z._-]+)?$ ]]; then
+            echo "::error::.fvmrc Flutter version must be an exact semver tag"
+            exit 1
+          fi
+          flutter_root="${RUNNER_TOOL_CACHE}/flutter-${FLUTTER_VERSION}"
           if [[ ! -x "${flutter_root}/bin/flutter" ]]; then
             rm -rf "${flutter_root}"
-            git clone --depth 1 --branch "${{ steps.flutter-version.outputs.version }}" \
+            git clone --depth 1 --branch "${FLUTTER_VERSION}" \
               https://github.com/flutter/flutter.git "${flutter_root}"
           fi
           echo "${flutter_root}/bin" >> "${GITHUB_PATH}"
@@ -431,9 +443,6 @@ jobs:
             write_ios_blocked_summary \
               "iOS simulator build failed or timed out on the hosted runner." \
               "artifacts/native-smoke/logs/ios-build-simulator-debug.log"
-            if [[ "${build_status}" -eq 124 ]]; then
-              exit 0
-            fi
             exit 1
           fi
           if ! device_id="$(xcrun simctl create "Calarm Native Smoke" "iPhone 16" "${runtime_id}" 2>> "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-create.log")"; then
