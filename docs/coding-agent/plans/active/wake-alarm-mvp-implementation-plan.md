@@ -210,6 +210,12 @@ Interpretation:
   - Worker lifecycle: Task_1 worker thread `019f3cef-a1a8-7522-b687-52694fbf8947` was archived after merge.
   - Next action: continue Task_2 PR #23 review-hook/native-smoke monitoring, then start Task_3 once Task_2 native ownership is safe.
 
+- 2026-07-08 Wave 11 Task_2 Ringing/Dismiss sent back from orchestrator merge gate.
+  - Summary: PR #23 `Implement alarm ringing dismiss flow` returned merge-ready at head `ab4505bebf8686fc6a696e8fb79570e52f2b415f`; orchestrator inspected metadata/diff/current head and ran deep-review common/UI/tests/integrations review, `rtk flutter test test/features/alarm_ringing`, `rtk flutter analyze`, `rtk git diff --check origin/master...HEAD`, `rtk flutter build apk --debug`, and `rtk gh-review-hook 23`.
+  - Gate result: `rtk gh-review-hook 23` exited nonzero with two in-scope Greptile findings: recover `_stopCurrentAlarm` when `onStop` throws, and select the earliest past-due scheduled occurrence in `_selectActiveOccurrence`.
+  - Action: PR #23 was converted back to draft and worker thread `019f3cef-a1a8-7522-b687-5254531ff2b0` was instructed to fix only those findings, rerun validation/hook, and report merge-ready again.
+  - Next action: monitor Task_2 worker. Task_3 remains deferred until Task_2 native ownership is merged or safely split.
+
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
   - Validation evidence: GitHub `Format, analyze, and test`, `Android emulator native smoke`, `iOS simulator native smoke`, Greptile Review, Socket Project Report, and Socket Pull Request Alerts were successful; worker evidence on the same head reported workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed.
