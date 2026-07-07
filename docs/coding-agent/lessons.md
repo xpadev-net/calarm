@@ -21,6 +21,14 @@ Purpose:
 
 ## Entries
 
+### 2026-07-07 - Use Codex Threads for Plan Workers
+- tags: delegation, workflow/process, scope-owns
+- symptom: Parent-plan execution delegated Wave 9 implementation to multi-agent subagents, but the user required workers to run as Codex threads instead.
+- root cause: The orchestration request said worker, and the runtime had subagent tooling available, so delegation defaulted to subagents instead of preserving the task-pr-orchestrator thread/worktree model.
+- fix: Shut down the subagents and switch future parent-plan implementation delegation to Codex thread/worktree workers.
+- prevention: For this repository's parent implementation plan, treat "worker" as a Codex thread/worktree worker by default; use multi-agent subagents only for bounded review/research sidecars when explicitly requested or when they do not replace task workers.
+- promotion: Repo-local lesson only for now; no rule suite exists in this repository.
+
 ### 2026-07-06 - Create Missing Owned Paths
 - tags: workflow/process, scope-owns, assumptions/interpretation
 - symptom: A worker stopped as blocked because delegated owned files did not exist on the base branch.
