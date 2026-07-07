@@ -16,6 +16,7 @@ class CreateWakePlanSheet extends StatefulWidget {
     required this.defaults,
     required this.existingWakePlans,
     required this.onSave,
+    this.existingWakePlan,
     this.clock,
   });
 
@@ -24,6 +25,7 @@ class CreateWakePlanSheet extends StatefulWidget {
   final AppSettings defaults;
   final List<WakePlan> existingWakePlans;
   final CreateWakePlanSave onSave;
+  final WakePlan? existingWakePlan;
   final DateTime Function()? clock;
 
   @override
@@ -33,27 +35,43 @@ class CreateWakePlanSheet extends StatefulWidget {
 class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
   late Duration _startOffset;
   late Duration _interval;
+  late RepeatType _initialRepeatType;
   late RepeatType _repeatType;
+  late TimeOfDayMinutes _targetTime;
   late String _soundId;
   late bool _vibrationEnabled;
   bool _saving = false;
   bool _advancedExpanded = false;
   String? _scheduleWarning;
 
-  DateTime get _targetAt => widget.initialTarget.dateTime;
+  CalendarDay get _targetDay => widget.initialTarget.day;
+
+  DateTime get _targetAt => _targetDay.at(_targetTime);
 
   DateTime get _currentNow => widget.clock?.call() ?? DateTime.now();
 
-  bool get _isPastTarget => !_targetAt.isAfter(_currentNow);
+  bool get _canProduceFutureSchedule {
+    if (_repeatType == RepeatType.weekly) {
+      return true;
+    }
+    return _targetAt.isAfter(_currentNow);
+  }
 
   @override
   void initState() {
     super.initState();
-    _startOffset = widget.defaults.defaultStartOffset;
-    _interval = widget.defaults.defaultInterval;
-    _repeatType = widget.defaults.defaultRepeatType;
-    _soundId = widget.defaults.defaultSoundId;
-    _vibrationEnabled = widget.defaults.defaultVibrationEnabled;
+    final existingWakePlan = widget.existingWakePlan;
+    _startOffset =
+        existingWakePlan?.startOffset ?? widget.defaults.defaultStartOffset;
+    _interval = existingWakePlan?.interval ?? widget.defaults.defaultInterval;
+    _repeatType =
+        existingWakePlan?.repeatRule.type ?? widget.defaults.defaultRepeatType;
+    _initialRepeatType = _repeatType;
+    _targetTime = existingWakePlan?.targetTime ?? widget.initialTarget.time;
+    _soundId = existingWakePlan?.soundId ?? widget.defaults.defaultSoundId;
+    _vibrationEnabled =
+        existingWakePlan?.vibrationEnabled ??
+        widget.defaults.defaultVibrationEnabled;
   }
 
   @override
@@ -65,7 +83,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
       now: widget.now,
     );
     final overlaps = _findOverlaps();
-    final canSave = !_saving && !_isPastTarget;
+    final canSave = !_saving && _canProduceFutureSchedule;
 
     return SafeArea(
       child: Padding(
@@ -84,7 +102,9 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Create wake plan',
+                      widget.existingWakePlan == null
+                          ? 'Create wake plan'
+                          : 'Edit wake plan',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
@@ -96,7 +116,11 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
                 ],
               ),
               const SizedBox(height: 8),
-              _InfoRow(label: 'Wake target', value: _dateTimeLabel(_targetAt)),
+              _EditableInfoRow(
+                label: 'Wake target',
+                value: _dateTimeLabel(_targetAt),
+                onPressed: _saving ? null : _pickTargetTime,
+              ),
               const SizedBox(height: 12),
               _DurationMenu(
                 label: 'Wake window',
@@ -145,7 +169,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
               ),
               const SizedBox(height: 12),
               _PreviewCard(preview: preview),
-              if (_isPastTarget) ...[
+              if (!_canProduceFutureSchedule) ...[
                 const SizedBox(height: 12),
                 const _InlineWarning(
                   text: 'Choose a future wake target before saving.',
@@ -223,6 +247,9 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
     final overlaps = <_WakePlanOverlap>[];
 
     for (final existingPlan in widget.existingWakePlans) {
+      if (existingPlan.id == widget.existingWakePlan?.id) {
+        continue;
+      }
       final lookbackDays =
           (existingPlan.startOffset.inMinutes / TimeOfDayMinutes.minutesPerDay)
               .ceil();
@@ -257,7 +284,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
   }
 
   Future<void> _save() async {
-    if (_isPastTarget || _saving) {
+    if (!_canProduceFutureSchedule || _saving) {
       return;
     }
 
@@ -295,28 +322,59 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
   }
 
   WakePlan _buildWakePlan({required DateTime createdAt}) {
-    final day = widget.initialTarget.day;
-    final repeatRule = switch (_repeatType) {
-      RepeatType.oneTime => RepeatRule.oneTime(day),
-      RepeatType.weekly => RepeatRule.weekly({
-        Weekday.fromDateTimeValue(day.weekday),
-      }),
-    };
+    final repeatRule = _buildRepeatRule();
+    final existingWakePlan = widget.existingWakePlan;
 
     return WakePlan(
-      id: _wakePlanId(createdAt),
-      title: 'Wake ${widget.initialTarget.time}',
-      targetTime: widget.initialTarget.time,
+      id: existingWakePlan?.id ?? _wakePlanId(createdAt),
+      title: 'Wake $_targetTime',
+      targetTime: _targetTime,
       startOffset: _startOffset,
       interval: _interval,
       repeatRule: repeatRule,
-      isEnabled: true,
-      status: WakePlanStatus.scheduled,
+      isEnabled: existingWakePlan?.isEnabled ?? true,
+      status: existingWakePlan?.status ?? WakePlanStatus.scheduled,
+      skipNextDate: existingWakePlan?.skipNextDate,
       soundId: _soundId,
       vibrationEnabled: _vibrationEnabled,
-      createdAt: createdAt,
+      createdAt: existingWakePlan?.createdAt ?? createdAt,
       updatedAt: createdAt,
     );
+  }
+
+  RepeatRule _buildRepeatRule() {
+    switch (_repeatType) {
+      case RepeatType.oneTime:
+        return RepeatRule.oneTime(_targetDay);
+      case RepeatType.weekly:
+        final existingRepeatRule = widget.existingWakePlan?.repeatRule;
+        if (_initialRepeatType == RepeatType.weekly &&
+            existingRepeatRule?.type == RepeatType.weekly) {
+          return existingRepeatRule!;
+        }
+        return RepeatRule.weekly({
+          Weekday.fromDateTimeValue(_targetDay.weekday),
+        });
+    }
+  }
+
+  Future<void> _pickTargetTime() async {
+    final selected = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: _targetTime.hour,
+        minute: _targetTime.minute,
+      ),
+    );
+    if (selected == null || !mounted) {
+      return;
+    }
+    setState(() {
+      _targetTime = TimeOfDayMinutes.fromHourMinute(
+        hour: selected.hour,
+        minute: selected.minute,
+      );
+    });
   }
 
   String _wakePlanId(DateTime createdAt) {
@@ -427,6 +485,34 @@ class _InfoRow extends StatelessWidget {
           Expanded(child: Text(value)),
         ],
       ),
+    );
+  }
+}
+
+class _EditableInfoRow extends StatelessWidget {
+  const _EditableInfoRow({
+    required this.label,
+    required this.value,
+    required this.onPressed,
+  });
+
+  final String label;
+  final String value;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _InfoRow(label: label, value: value),
+        ),
+        IconButton(
+          tooltip: 'Change wake target time',
+          onPressed: onPressed,
+          icon: const Icon(Icons.schedule),
+        ),
+      ],
     );
   }
 }

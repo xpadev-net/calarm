@@ -194,6 +194,22 @@ Interpretation:
   - UI/E2E evidence: widget-level flow and failure-path evidence passed; browser screenshot evidence remains not captured because no seeded Flutter web route/harness exists.
   - Next action: start Wave 11 workers as Codex thread/worktree workers.
 
+- 2026-07-07 Wave 11 Edit, Ringing, and Health Checks started.
+  - Task_1 Detail/Edit/Delete worker thread: `019f3cef-a1a8-7522-b687-52694fbf8947`; pending worktree `local:0b418590-5b9f-4bf7-9ea2-5d1e5f11ba52`; worktree `/Users/xpadev/.codex/worktrees/e3a0/calarm`; branch `codex/wave-11-detail-edit-delete`.
+  - Task_2 Ringing/Dismiss worker thread: `019f3cef-a1a8-7522-b687-5254531ff2b0`; pending worktree `local:1b45c1de-9357-4405-9010-75016431a711`; worktree `/Users/xpadev/.codex/worktrees/7180/calarm`; branch `codex/wave-11-alarm-ringing-dismiss`.
+  - Worker type: Codex thread/worktree, not multi-agent subagent.
+  - Task_3 Health Checks is deferred until Task_2 native ownership is merged or safely split because both tasks touch `ios/**` and `android/**`.
+  - Startup stability check: both Task_1 and Task_2 threads are active and past onboarding/setup; no resume instruction needed.
+  - Next action: monitor worker reports and merge-gate PRs as they become ready.
+
+- 2026-07-07 Wave 11 Task_1 Detail/Edit/Delete merged.
+  - Summary: PR #22 `Add wake plan detail edit delete flow` was squash-merged with merge commit `1ee6a7f93279db64bc28987044dfed021b5edbb8`.
+  - Orchestrator validation: PR metadata/diff/current head inspected; deep-review common/UI/tests pass found no in-scope blocker; `rtk gh-review-hook 22` exited 0; `rtk flutter test test/features/wake_plan/ui test/features/week_calendar`, `rtk flutter analyze`, and `rtk git diff --check origin/master...HEAD` passed in the Task_1 worktree.
+  - Worker evidence: Task_1 worker thread `019f3cef-a1a8-7522-b687-52694fbf8947` reported required validation, independent review approval after recurrence fixes, and worker `rtk gh-review-hook 22` exit 0 on head `9ee892d495844fb4574973985023e0a05c35a78f`.
+  - UI/E2E evidence: widget-level detail/edit/delete flow evidence passed; browser screenshot evidence remains not captured because no seeded Flutter web route/harness exists.
+  - Worker lifecycle: Task_1 worker thread `019f3cef-a1a8-7522-b687-52694fbf8947` was archived after merge.
+  - Next action: continue Task_2 PR #23 review-hook/native-smoke monitoring, then start Task_3 once Task_2 native ownership is safe.
+
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
   - Validation evidence: GitHub `Format, analyze, and test`, `Android emulator native smoke`, `iOS simulator native smoke`, Greptile Review, Socket Project Report, and Socket Pull Request Alerts were successful; worker evidence on the same head reported workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed.

@@ -16,6 +16,7 @@ import '../../wake_plan/application/wake_plan_service.dart';
 import '../../wake_plan/data/wake_plan_data.dart';
 import '../../wake_plan/domain/wake_plan_domain.dart';
 import '../../wake_plan/ui/create_wake_plan_sheet.dart';
+import '../../wake_plan/ui/wake_plan_detail_sheet.dart';
 import '../week_calendar.dart';
 
 final weekCalendarNativeAlarmGatewayProvider = Provider<NativeAlarmGateway>((
@@ -94,6 +95,16 @@ class _WeekCalendarPlaceholderState
           hourHeight: 44,
           onTargetTap: (target) {
             _openCreateSheet(
+              context: context,
+              ref: ref,
+              now: clock(),
+              target: target,
+              defaults: currentDefaults,
+              existingWakePlans: currentWakePlans,
+            );
+          },
+          onWakePlanTap: (target) {
+            _openDetailSheet(
               context: context,
               ref: ref,
               now: clock(),
@@ -182,6 +193,76 @@ class _WeekCalendarPlaceholderState
       _sheetOpen = false;
     }
   }
+
+  Future<void> _openDetailSheet({
+    required BuildContext context,
+    required WidgetRef ref,
+    required DateTime now,
+    required WeekCalendarWakePlanTapTarget target,
+    required AppSettings defaults,
+    required List<WakePlan> existingWakePlans,
+  }) async {
+    if (_sheetOpen) {
+      return;
+    }
+    _sheetOpen = true;
+
+    try {
+      final service = await ref.read(
+        weekCalendarWakePlanServiceProvider.future,
+      );
+      if (!context.mounted) {
+        return;
+      }
+
+      var action = _WakePlanDetailAction.edit;
+      final result = await showModalBottomSheet<WakePlanSchedulingResult>(
+        context: context,
+        isScrollControlled: true,
+        builder: (context) {
+          return WakePlanDetailSheet(
+            target: target,
+            now: now,
+            defaults: defaults,
+            existingWakePlans: existingWakePlans,
+            onEdit: (plan) async {
+              action = _WakePlanDetailAction.edit;
+              final result = await service.editPlan(plan);
+              ref.invalidate(weekCalendarWakePlansProvider);
+              return result;
+            },
+            onDelete: (id) async {
+              action = _WakePlanDetailAction.delete;
+              final result = await service.deletePlan(id);
+              ref.invalidate(weekCalendarWakePlansProvider);
+              return result;
+            },
+          );
+        },
+      );
+
+      if (!context.mounted || result == null) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _detailResultMessage(result: result, now: now, action: action),
+          ),
+        ),
+      );
+    } catch (error) {
+      debugPrint('Could not open wake plan detail: $error');
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open wake plan detail.')),
+      );
+    } finally {
+      _sheetOpen = false;
+    }
+  }
 }
 
 Future<QueryExecutor> openWakePlanDatabase(String name) async {
@@ -215,3 +296,27 @@ String _loadErrorText({
   }
   return 'Could not load wake defaults.';
 }
+
+String _detailResultMessage({
+  required WakePlanSchedulingResult result,
+  required DateTime now,
+  required _WakePlanDetailAction action,
+}) {
+  if (!result.isSuccess) {
+    return result.warning?.message ??
+        switch (action) {
+          _WakePlanDetailAction.edit => 'Wake plan could not be updated.',
+          _WakePlanDetailAction.delete => 'Wake plan could not be deleted.',
+        };
+  }
+  if (result.status == WakePlanSchedulingStatus.deleted) {
+    return 'Wake plan deleted.';
+  }
+  final nextFire = wakePlanResultNextFireLabel(result: result, now: now);
+  if (nextFire == null) {
+    return 'Wake plan updated.';
+  }
+  return 'Wake plan updated. Next alarm: $nextFire';
+}
+
+enum _WakePlanDetailAction { edit, delete }
