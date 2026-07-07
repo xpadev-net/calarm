@@ -70,9 +70,23 @@ class WakePlanService {
   }
 
   Future<WakePlanSchedulingResult> editPlan(WakePlan plan) async {
+    return _editPlan(plan, skipNextDate: _preserveCurrentSkipDate);
+  }
+
+  Future<WakePlanSchedulingResult> _editPlan(
+    WakePlan plan, {
+    required Object? skipNextDate,
+  }) async {
     final now = _clock();
     final previousPlan = await _store.fetchWakePlan(plan.id);
-    final pendingPlan = plan.copyWith(updatedAt: now);
+    final pendingPlan = plan.copyWith(
+      updatedAt: now,
+      skipNextDate: _resolveEditedSkipDate(
+        requestedSkipNextDate: skipNextDate,
+        previousPlan: previousPlan,
+        repeatRule: plan.repeatRule,
+      ),
+    );
     await _store.saveWakePlan(pendingPlan);
 
     final cancelResult = await _cancelFutureReservedOccurrences(
@@ -181,7 +195,10 @@ class WakePlanService {
       );
     }
 
-    return editPlan(currentPlan.copyWith(skipNextDate: skipDate));
+    return _editPlan(
+      currentPlan.copyWith(skipNextDate: skipDate),
+      skipNextDate: skipDate,
+    );
   }
 
   Future<WakePlanSchedulingResult> undoSkipNextOccurrence(
@@ -195,7 +212,10 @@ class WakePlanService {
       );
     }
 
-    return editPlan(currentPlan.copyWith(skipNextDate: null));
+    return _editPlan(
+      currentPlan.copyWith(skipNextDate: null),
+      skipNextDate: null,
+    );
   }
 
   Future<WakePlanSchedulingResult> _generateAndSchedule({
@@ -471,6 +491,22 @@ class WakePlanService {
     await _store.saveAlarmOccurrences(recoveredOccurrences);
     return recoveredOccurrences;
   }
+}
+
+const Object _preserveCurrentSkipDate = Object();
+
+CalendarDay? _resolveEditedSkipDate({
+  required Object? requestedSkipNextDate,
+  required WakePlan? previousPlan,
+  required RepeatRule repeatRule,
+}) {
+  final skipNextDate = requestedSkipNextDate == _preserveCurrentSkipDate
+      ? previousPlan?.skipNextDate
+      : requestedSkipNextDate as CalendarDay?;
+  if (skipNextDate == null || !repeatRule.includes(skipNextDate)) {
+    return null;
+  }
+  return skipNextDate;
 }
 
 WakePlanSchedulingResult _emptyResult({
