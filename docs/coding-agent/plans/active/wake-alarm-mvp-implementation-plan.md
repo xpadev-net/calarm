@@ -2,7 +2,7 @@
 
 - status: in progress
 - generated: 2026-07-05
-- last_updated: 2026-07-07
+- last_updated: 2026-07-08
 - work_type: mixed
 
 ## Goal
@@ -221,6 +221,20 @@ Interpretation:
   - Gate result: after PR #23 was marked ready, `rtk gh-review-hook 23` exited 2 with in-scope findings on failure-path provider invalidation, native fallback cleanup on activity exit paths, and cross-plan priority for actual `ringing` occurrences over earlier past-due scheduled occurrences.
   - Action: PR #23 was converted back to draft and worker thread `019f3cef-a1a8-7522-b687-5254531ff2b0` was instructed to verify/fix only those findings, rerun validation/hook, and report merge-ready again.
   - Next action: monitor Task_2 worker. Task_3 remains deferred until Task_2 native ownership is merged or safely split.
+
+- 2026-07-08 Wave 11 Task_2 Ringing/Dismiss merged.
+  - Summary: PR #23 `Implement alarm ringing dismiss flow` was squash-merged with merge commit `12591a75718ae8597ccf973cee08dd2b0d5caae8`.
+  - Orchestrator validation: PR metadata/diff/current head inspected; deep-review common/UI/tests/integrations/event-driven review found no in-scope blocker; `rtk gh-review-hook 23` exited 0; `rtk flutter test test/features/alarm_ringing`, `rtk flutter analyze`, `rtk git diff --check origin/master...HEAD`, and `rtk flutter build apk --debug` passed in the Task_2 worktree.
+  - Worker evidence: Task_2 worker thread `019f3cef-a1a8-7522-b687-5254531ff2b0` reported required validation, scoped fixes for the final merge-gate findings, and worker `rtk gh-review-hook 23` exit 0 on head `50fc1458028b062463b9382cf26a2c991e0f748b`.
+  - Runtime evidence: iOS 26+/Android API 36 real-device stop flow remains BLOCKED/release-blocking because execution is user-deferred/unapproved. GitHub Android emulator native smoke and iOS simulator native smoke passed as NEAR_DEVICE evidence only.
+  - Worker lifecycle: Task_2 worker thread `019f3cef-a1a8-7522-b687-5254531ff2b0` was archived after merge.
+  - Next action: monitor Wave 11 Task_3 Test Alarm and Health Checks worker.
+
+- 2026-07-08 Wave 11 Task_3 Test Alarm and Health Checks delegated.
+  - Worker pending worktree: `local:9510974b-d58c-4e66-8ae4-bfe5a48778ad`; branch `codex/wave-11-health-checks`.
+  - Worker type: Codex thread/worktree, not multi-agent subagent.
+  - Merge gate: worker must provide focused settings/platform tests, analyzer/diff checks, feasible native compile/static checks or exact blockers, deep-review self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
+  - Runtime note: iOS 26+/Android API 36 real-device permission/test-alarm rows remain user-deferred/unapproved unless explicitly provided; missing real-device evidence must be BLOCKED, not PASS.
 
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.

@@ -2,7 +2,7 @@
 
 - status: in progress
 - generated: 2026-07-05
-- last_updated: 2026-07-07
+- last_updated: 2026-07-08
 - work_type: code
 
 ## Goal
@@ -228,6 +228,19 @@
   - Gate result: after converting PR #23 from draft to ready, `rtk gh-review-hook 23` exited 2 with in-scope findings around failure-path provider invalidation, native fallback cleanup on activity exit paths, and prioritizing actual `ringing` occurrences over earlier past-due scheduled occurrences across plans.
   - Action: PR #23 was converted back to draft, and worker thread `019f3cef-a1a8-7522-b687-5254531ff2b0` was instructed to verify/fix only those findings, add the multi-plan priority regression, rerun required validation and hook, and report merge-ready again.
   - Runtime note: iOS 26+/Android API 36 real-device stop evidence remains BLOCKED/release-blocking; CI simulator/emulator evidence remains NEAR_DEVICE only.
+
+- 2026-07-08 Wave 11 Task_2 Alarm Ringing UI and Dismiss Flow merged.
+  - Summary: PR #23 `Implement alarm ringing dismiss flow` was squash-merged into `master` with merge commit `12591a75718ae8597ccf973cee08dd2b0d5caae8`.
+  - Worker evidence: Task_2 worker reported PR #23 merge-ready at head `50fc1458028b062463b9382cf26a2c991e0f748b` after fixing provider invalidation on native cancel failure, Android fallback cleanup from Stop and `onDestroy`, and cross-plan priority for actual `ringing` occurrences. Worker validation included `rtk flutter test test/features/alarm_ringing`, `rtk flutter analyze`, `rtk git diff --check origin/master...HEAD`, `rtk flutter build apk --debug`, post-merge reruns, and worker `rtk gh-review-hook 23` exit 0.
+  - Orchestrator merge gate: PR metadata/diff/current head inspected; deep-review common/UI/tests/integrations/event-driven review found no in-scope blocker; `rtk flutter test test/features/alarm_ringing`, `rtk flutter analyze`, `rtk git diff --check origin/master...HEAD`, `rtk flutter build apk --debug`, and `rtk gh-review-hook 23` passed in the Task_2 worktree.
+  - Runtime evidence: iOS 26+/Android API 36 real-device stop flow remains BLOCKED/release-blocking because execution is user-deferred/unapproved. GitHub Android emulator native smoke and iOS simulator native smoke passed as NEAR_DEVICE evidence only.
+  - Worker lifecycle: Task_2 worker thread `019f3cef-a1a8-7522-b687-5254531ff2b0` was archived after merge.
+
+- 2026-07-08 Wave 11 Task_3 Test Alarm and Health Checks delegated.
+  - Task_3 worker pending worktree: `local:9510974b-d58c-4e66-8ae4-bfe5a48778ad`; branch `codex/wave-11-health-checks`.
+  - Worker type: Codex thread/worktree, not multi-agent subagent.
+  - Merge gate: worker must provide focused settings/platform tests, analyzer/diff checks, feasible native compile/static checks or exact blockers, deep-review self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
+  - Runtime note: permission and test-alarm real-device rows must be PASS only with actual evidence or BLOCKED when unavailable.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
