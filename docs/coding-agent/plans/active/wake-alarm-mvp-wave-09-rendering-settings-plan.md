@@ -134,6 +134,12 @@
   - Correction: earlier multi-agent subagent workers were stopped before completion because the user requires task workers to run as Codex threads/worktrees, not subagents.
   - Validation gate: each worker must return a merge-ready PR with required tests, analyzer, diff check, self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
   - Note: Wave 9 settings defaults expose create-flow consumption for Wave 10; full create sheet reflection is gated in Wave 10.
+- 2026-07-07 Task_1 PR #19 parent merge gate returned to worker for revision.
+  - Parent validation: `rtk flutter test test/features/week_calendar`, `rtk flutter analyze`, and `rtk git diff --check` passed in the Task_1 worktree.
+  - Blocker: compact mobile overlap review found `_WakePlanBlock` minimum-width clamping can exceed lane/day bounds with 3+ simultaneous overlapping Wake Plans, violating the overlap-readability acceptance.
+  - Status: worker thread `019f3c69-4922-7da2-a08a-c36f5b60a68e` resumed with a narrow fix request; PR #19 not merged.
+- 2026-07-07 Task_2 worker thread `019f3c69-81a4-7a72-bed9-6c2fbb67d5c2` remains active on PR #20 follow-up.
+  - Current state observed: worker fixed `gh-review-hook` findings, branch is ahead locally, and final validation/push/hook loop is still in progress.
 
 - 2026-07-05 Draft created.
 
