@@ -24,10 +24,6 @@ class AlarmStopActivity : Activity() {
             )
         }
         val platformAlarmId = intent.getStringExtra(AlarmIntents.EXTRA_PLATFORM_ALARM_ID)
-        if (platformAlarmId != null) {
-            getSystemService(NotificationManager::class.java).cancel(platformAlarmId.hashCode())
-            AlarmStore(this).remove(platformAlarmId)
-        }
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -41,7 +37,13 @@ class AlarmStopActivity : Activity() {
         })
         layout.addView(Button(this).apply {
             text = "Stop"
-            setOnClickListener { finishAndRemoveTask() }
+            setOnClickListener {
+                if (platformAlarmId != null) {
+                    getSystemService(NotificationManager::class.java).cancel(platformAlarmId.hashCode())
+                    AlarmStore(this@AlarmStopActivity).remove(platformAlarmId)
+                }
+                finishAndRemoveTask()
+            }
         })
         setContentView(layout)
     }
