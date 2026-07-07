@@ -34,6 +34,7 @@ class AlarmHealthController extends AsyncNotifier<AlarmHealthState> {
             .getCapability(),
         lastPermissionResult: previous?.lastPermissionResult,
         lastTestAlarmResult: previous?.lastTestAlarmResult,
+        isSchedulingTestAlarm: previous?.isSchedulingTestAlarm ?? false,
       ),
     );
   }
@@ -47,6 +48,7 @@ class AlarmHealthController extends AsyncNotifier<AlarmHealthState> {
         capability: capability,
         lastPermissionResult: permissionResult,
         lastTestAlarmResult: state.value?.lastTestAlarmResult,
+        isSchedulingTestAlarm: state.value?.isSchedulingTestAlarm ?? false,
       ),
     );
   }

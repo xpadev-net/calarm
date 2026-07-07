@@ -25,6 +25,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
     private val store = AlarmStore(appContext)
 
     fun register(binaryMessenger: BinaryMessenger) {
+        ensureAlarmNotificationChannel()
         MethodChannel(binaryMessenger, CHANNEL_NAME).setMethodCallHandler(this)
     }
 
@@ -273,7 +274,6 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
 
     private fun notificationChannelReady(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
-        ensureAlarmNotificationChannel()
         return notificationManager.getNotificationChannel(ALARM_CHANNEL_ID)?.importance != NotificationManager.IMPORTANCE_NONE
     }
 

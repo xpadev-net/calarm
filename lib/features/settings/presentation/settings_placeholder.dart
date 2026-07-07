@@ -114,8 +114,8 @@ class _AlarmHealthPanel extends ConsumerWidget {
               _InlineWarning(
                 text: warnings.map((warning) => warning.message).join('\n'),
               ),
-            if (warnings.isNotEmpty) const SizedBox(height: 8),
             if (testAlarmMessage != null) ...[
+              const SizedBox(height: 8),
               _InlineWarning(
                 text: testAlarmMessage,
                 isError: healthState?.hasFailedTestAlarm ?? false,
