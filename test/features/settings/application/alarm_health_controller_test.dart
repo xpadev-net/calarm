@@ -176,6 +176,25 @@ void main() {
     expect(state.warnings, isEmpty);
   });
 
+  test('refresh failure updates state without throwing', () async {
+    final flakyGateway = _CapabilityRefreshFailureGateway();
+    container.dispose();
+    container = ProviderContainer(
+      overrides: [
+        settingsNativeAlarmGatewayProvider.overrideWith((ref) => flakyGateway),
+      ],
+    );
+    final initial = await container.read(alarmHealthProvider.future);
+
+    flakyGateway.failCapabilityRefresh = true;
+    await container.read(alarmHealthProvider.notifier).refresh();
+
+    final state = container.read(alarmHealthProvider).value!;
+    expect(state.capability, same(initial.capability));
+    expect(state.capabilityCheckFailed, isTrue);
+    expect(state.isRefreshing, isFalse);
+  });
+
   test('requests permission and refreshes capability', () async {
     gateway.capability = const NativeAlarmCapability(
       permissionStatus: NativeAlarmPermissionStatus.notDetermined,

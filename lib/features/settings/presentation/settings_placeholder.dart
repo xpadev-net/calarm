@@ -81,6 +81,8 @@ class _AlarmHealthPanel extends ConsumerWidget {
     final isBusy = healthState?.isBusy ?? health.isLoading;
     final canRequestPermission =
         healthState?.capability.canRequestPermission ?? false;
+    final supportsTestAlarm =
+        healthState?.capability.supportsTestAlarm ?? false;
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -131,7 +133,7 @@ class _AlarmHealthPanel extends ConsumerWidget {
               runSpacing: 8,
               children: [
                 FilledButton.icon(
-                  onPressed: healthState == null || isBusy
+                  onPressed: healthState == null || isBusy || !supportsTestAlarm
                       ? null
                       : () {
                           _handleSave(

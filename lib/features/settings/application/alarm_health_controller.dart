@@ -65,7 +65,6 @@ class AlarmHealthController extends AsyncNotifier<AlarmHealthState> {
       state = AsyncData(
         current.copyWith(isRefreshing: false, capabilityCheckFailed: true),
       );
-      rethrow;
     }
   }
 

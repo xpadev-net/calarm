@@ -162,4 +162,36 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('disables test alarm action when unsupported', (tester) async {
+    gateway.capability = const NativeAlarmCapability(
+      permissionStatus: NativeAlarmPermissionStatus.authorized,
+      canScheduleAlarms: true,
+      canRequestPermission: false,
+      supportsTestAlarm: false,
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          wakePlanDefaultsRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          settingsNativeAlarmGatewayProvider.overrideWith((ref) => gateway),
+        ],
+        child: const MaterialApp(home: Scaffold(body: SettingsPlaceholder())),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('This device does not support test alarms.'),
+      findsOneWidget,
+    );
+    final button = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Schedule 1-minute test alarm'),
+    );
+
+    expect(button.onPressed, isNull);
+    expect(gateway.scheduledTestAlarms, isEmpty);
+  });
 }
