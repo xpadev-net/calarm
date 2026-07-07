@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:calarm/core/platform/fake_native_alarm_gateway.dart';
+import 'package:calarm/core/platform/native_alarm_gateway.dart';
 import 'package:calarm/core/time/time.dart';
 import 'package:calarm/features/settings/application/wake_plan_defaults_controller.dart';
 import 'package:calarm/features/week_calendar/presentation/week_calendar_placeholder.dart';
@@ -134,6 +135,60 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Create wake plan'), findsOneWidget);
+  });
+
+  testWidgets('refreshes persisted plans after schedule failure', (
+    tester,
+  ) async {
+    final gateway = FakeNativeAlarmGateway()
+      ..scheduleFailureReason = ScheduleFailureReason.permissionMissing;
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          weekCalendarRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          wakePlanDefaultsRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          weekCalendarNativeAlarmGatewayProvider.overrideWith((ref) => gateway),
+          weekCalendarClockProvider.overrideWith(
+            (ref) =>
+                () => DateTime(2026, 7, 8, 5, 30),
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: WeekCalendarPlaceholder()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final calendar = tester.widget<WeekCalendarView>(
+      find.byType(WeekCalendarView),
+    );
+    calendar.onTargetTap!(
+      WeekCalendarTapTarget(
+        day: CalendarDay(year: 2026, month: 7, day: 9),
+        time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Alarm permission is required before alarms can be scheduled.'),
+      findsOneWidget,
+    );
+    expect(find.text('Create wake plan'), findsOneWidget);
+    final refreshedCalendar = tester.widget<WeekCalendarView>(
+      find.byType(WeekCalendarView),
+    );
+    expect(refreshedCalendar.wakePlans, hasLength(1));
   });
 }
 

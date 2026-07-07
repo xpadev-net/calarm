@@ -154,9 +154,7 @@ class _WeekCalendarPlaceholderState
             existingWakePlans: existingWakePlans,
             onSave: (plan) async {
               final result = await service.createPlan(plan);
-              if (result.isSuccess) {
-                ref.invalidate(weekCalendarWakePlansProvider);
-              }
+              ref.invalidate(weekCalendarWakePlansProvider);
               return result;
             },
           );
