@@ -183,6 +183,10 @@ Interpretation:
   - Worker type: Codex thread/worktree, not multi-agent subagent.
   - Merge gate: worker must provide focused tests, analyzer/diff checks, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
 
+- 2026-07-07 Wave 10 Task_1 PR #21 returned merge-ready but was sent back from orchestrator merge gate.
+  - Evidence accepted before failure: worker reported focused tests, full Flutter tests, analyzer, diff check, independent review, and worker `rtk gh-review-hook 21` exit 0 on head `47176cff9a8a156135e63da39eb3dc18b503548b`; orchestrator reran focused tests, analyzer, and diff check successfully.
+  - Gate failure: after orchestrator marked the draft PR ready for review, `rtk gh-review-hook 21` waited for Greptile/CodeRabbit and exited 2 with in-scope review items. The PR was not merged; worker thread `019f3ca6-835c-7f00-a197-79e33b5b895b` was instructed to verify/fix and rerun the hook.
+
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
   - Validation evidence: GitHub `Format, analyze, and test`, `Android emulator native smoke`, `iOS simulator native smoke`, Greptile Review, Socket Project Report, and Socket Pull Request Alerts were successful; worker evidence on the same head reported workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed.
