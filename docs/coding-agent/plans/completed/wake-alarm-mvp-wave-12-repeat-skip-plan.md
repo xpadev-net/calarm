@@ -1,8 +1,8 @@
 # Plan: Wake Alarm MVP Wave 12 - Repeating Plans and Skip Next
 
-- status: in progress
+- status: completed
 - generated: 2026-07-05
-- last_updated: 2026-07-06
+- last_updated: 2026-07-08
 - work_type: code
 
 ## Goal
@@ -133,6 +133,13 @@
 - 2026-07-08 Wave 12 replacement worker assigned.
   - Task_1 replacement worker thread: `019f3dff-b281-7893-aa21-054ecb424569`; pending worktree `local:7cb642c6-5681-42ed-b973-bade06a668bc`; worktree `/Users/xpadev/.codex/worktrees/a8eb/calarm`; branch `codex/wave-12-repeat-skip-55`; requested model/reasoning: `gpt-5.5` / medium.
   - Next action: monitor replacement worker report/PR.
+
+- 2026-07-08 Wave 12 Task_1 Repeating Plans and Skip Next UI merged; Wave 12 completed.
+  - Summary: PR #25 `Add wake plan repeat skip flow` was merge-committed with merge commit `6e9af63746407d7f1d8df8ed76f2f190df77d728`.
+  - Orchestrator validation: PR metadata/diff/current head inspected; deep-review common/UI/tests/event-driven review found no in-scope blocker; `rtk gh-review-hook 25` exited 0; `rtk flutter test test/features/wake_plan`, `rtk flutter test test/features/week_calendar`, `rtk flutter analyze`, and `rtk git diff --check origin/master...HEAD && rtk git diff --check` passed in the Wave 12 worktree.
+  - Worker evidence: replacement worker thread `019f3dff-b281-7893-aa21-054ecb424569` reported required validation, self-review, independent review, CodeRabbit/Greptile approval, and worker `rtk gh-review-hook 25` exit 0 on head `a2ced94815025043eb1f7932cd4130c9fcccf2a0`.
+  - Runtime evidence: no iOS 26+ or Android API 36 real-device runtime validation was performed; this remains user-deferred/unapproved and BLOCKED for real-device runtime evidence, not PASS.
+  - Worker lifecycle: replacement worker thread `019f3dff-b281-7893-aa21-054ecb424569` archived after merge.
 
 - 2026-07-05 Draft created.
 

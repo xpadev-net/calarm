@@ -113,7 +113,7 @@
 - Wave 9: [Calendar Rendering and Settings Defaults](../completed/wake-alarm-mvp-wave-09-rendering-settings-plan.md)
 - Wave 10: [Create Wake Plan Flow](../completed/wake-alarm-mvp-wave-10-create-flow-plan.md)
 - Wave 11: [Edit, Ringing, and Health Checks](../completed/wake-alarm-mvp-wave-11-edit-ringing-health-plan.md)
-- Wave 12: [Repeating Plans and Skip Next](wake-alarm-mvp-wave-12-repeat-skip-plan.md)
+- Wave 12: [Repeating Plans and Skip Next](../completed/wake-alarm-mvp-wave-12-repeat-skip-plan.md)
 - Wave 13: [UI Harmonization and Accessibility](wake-alarm-mvp-wave-13-ui-harmonization-plan.md)
 - Wave 14: [MVP End-to-End QA and Release Readiness](wake-alarm-mvp-wave-14-mvp-qa-release-plan.md)
 
@@ -155,7 +155,7 @@ Interpretation:
 - Wave 9 (parallel): [../completed/wake-alarm-mvp-wave-09-rendering-settings-plan.md]
 - Wave 10 (parallel): [../completed/wake-alarm-mvp-wave-10-create-flow-plan.md]
 - Wave 11 (parallel): [../completed/wake-alarm-mvp-wave-11-edit-ringing-health-plan.md]
-- Wave 12 (parallel): [wake-alarm-mvp-wave-12-repeat-skip-plan.md]
+- Wave 12 (parallel): [../completed/wake-alarm-mvp-wave-12-repeat-skip-plan.md]
 - Wave 13 (parallel): [wake-alarm-mvp-wave-13-ui-harmonization-plan.md]
 - Wave 14 (parallel): [wake-alarm-mvp-wave-14-mvp-qa-release-plan.md]
 
@@ -262,6 +262,27 @@ Interpretation:
 - 2026-07-08 Wave 12 replacement worker assigned.
   - Task_1 replacement worker thread: `019f3dff-b281-7893-aa21-054ecb424569`; pending worktree `local:7cb642c6-5681-42ed-b973-bade06a668bc`; worktree `/Users/xpadev/.codex/worktrees/a8eb/calarm`; branch `codex/wave-12-repeat-skip-55`; requested model/reasoning: `gpt-5.5` / medium.
   - Next action: monitor replacement worker report/PR.
+
+- 2026-07-08 Wave 12 Repeating Plans and Skip Next merged; Wave 12 completed.
+  - Summary: PR #25 `Add wake plan repeat skip flow` was merge-committed with merge commit `6e9af63746407d7f1d8df8ed76f2f190df77d728`.
+  - Orchestrator validation: PR metadata/diff/current head inspected; deep-review common/UI/tests/event-driven review found no in-scope blocker; `rtk gh-review-hook 25` exited 0; `rtk flutter test test/features/wake_plan`, `rtk flutter test test/features/week_calendar`, `rtk flutter analyze`, and `rtk git diff --check origin/master...HEAD && rtk git diff --check` passed in the Wave 12 worktree.
+  - Worker evidence: replacement worker thread `019f3dff-b281-7893-aa21-054ecb424569` reported self-review, independent review, CodeRabbit/Greptile approval, and worker `rtk gh-review-hook 25` exit 0 on head `a2ced94815025043eb1f7932cd4130c9fcccf2a0`.
+  - Runtime evidence: no iOS 26+ or Android API 36 real-device runtime validation was performed; this remains user-deferred/unapproved and BLOCKED for real-device runtime evidence, not PASS.
+  - Worker lifecycle: replacement worker thread `019f3dff-b281-7893-aa21-054ecb424569` archived after merge. Wave 12 child plan moved to `docs/coding-agent/plans/completed/`.
+  - Next action: start Wave 13 UI Harmonization and Accessibility as a Codex thread/worktree worker.
+
+- 2026-07-08 Wave 13 UI Harmonization and Accessibility delegated.
+  - Task_1 worker thread: `019f3e25-dea8-7630-807f-affd93553d9a`; pending worktree `local:b6c002f7-75e2-48d4-a401-f664e95d7e86`; worktree `/Users/xpadev/.codex/worktrees/ff55/calarm`; branch `codex/wave-13-ui-harmonization`.
+  - Worker type: Codex thread/worktree, not multi-agent subagent.
+  - Startup note: initial turn hit `systemError` before producing work; orchestrator sent a resume instruction to continue from the current worktree/branch and report before any future stop.
+  - Merge gate: worker must provide UI review evidence, feasible visual/E2E or exact blocker evidence, targeted tests for any UI changes, analyzer/diff checks, deep-review self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
+
+- 2026-07-08 Wave 13 initial worker stopped and replacement queued.
+  - Stopped worker: thread `019f3e25-dea8-7630-807f-affd93553d9a`; pending worktree `local:b6c002f7-75e2-48d4-a401-f664e95d7e86`; worktree `/Users/xpadev/.codex/worktrees/ff55/calarm`; branch `codex/wave-13-ui-harmonization`.
+  - Reason: initial turn hit `systemError`, and a resume instruction also completed without worker output while thread status remained `systemError`; orchestrator archived the stopped thread.
+  - Replacement worker pending worktree: `local:8b181244-c3f8-41e1-a893-38d042926f31`; branch `codex/wave-13-ui-harmonization-2`.
+  - Worker type: Codex thread/worktree, not multi-agent subagent.
+  - Next action: monitor replacement worker startup, then record its assigned thread/worktree once available.
 
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
