@@ -203,9 +203,239 @@ void main() {
     );
     expect(refreshedCalendar.wakePlans, hasLength(1));
   });
+
+  testWidgets('opens wake plan detail and edit reschedules future alarms', (
+    tester,
+  ) async {
+    final gateway = FakeNativeAlarmGateway();
+    final now = DateTime(2026, 7, 8, 5, 30);
+    final plan = _plan(
+      id: 'editable',
+      targetDay: CalendarDay(year: 2026, month: 7, day: 9),
+    );
+    final service = WakePlanService(
+      repository: repository,
+      nativeAlarmGateway: gateway,
+      clock: () => now,
+    );
+    await service.createPlan(plan);
+    gateway.scheduledRequests.clear();
+    gateway.cancelledOccurrences.clear();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          weekCalendarRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          wakePlanDefaultsRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          weekCalendarNativeAlarmGatewayProvider.overrideWith((ref) => gateway),
+          weekCalendarClockProvider.overrideWith(
+            (ref) =>
+                () => now,
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: WeekCalendarPlaceholder()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final calendar = tester.widget<WeekCalendarView>(
+      find.byType(WeekCalendarView),
+    );
+    calendar.onWakePlanTap!(
+      WeekCalendarWakePlanTapTarget(
+        wakePlan: plan,
+        targetDay: CalendarDay(year: 2026, month: 7, day: 9),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Wake plan detail'), findsOneWidget);
+    expect(find.text('Next fire'), findsOneWidget);
+    expect(find.text('Repeat'), findsOneWidget);
+    expect(find.text('Skip state'), findsOneWidget);
+
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit wake plan'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(gateway.cancelledOccurrences, isNotEmpty);
+    expect(gateway.scheduledRequests, isNotEmpty);
+    expect(
+      find.textContaining('Wake plan updated. Next alarm:'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('editing weekly plan from past block preserves repeat weekdays', (
+    tester,
+  ) async {
+    final gateway = FakeNativeAlarmGateway();
+    final now = DateTime(2026, 7, 8, 5, 30);
+    final plan = _plan(
+      id: 'weekly-edit',
+      targetDay: CalendarDay(year: 2026, month: 7, day: 6),
+      repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.wednesday}),
+    );
+    final service = WakePlanService(
+      repository: repository,
+      nativeAlarmGateway: gateway,
+      clock: () => now,
+    );
+    await service.createPlan(plan);
+    gateway.scheduledRequests.clear();
+    gateway.cancelledOccurrences.clear();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          weekCalendarRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          wakePlanDefaultsRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          weekCalendarNativeAlarmGatewayProvider.overrideWith((ref) => gateway),
+          weekCalendarClockProvider.overrideWith(
+            (ref) =>
+                () => now,
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: WeekCalendarPlaceholder()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final calendar = tester.widget<WeekCalendarView>(
+      find.byType(WeekCalendarView),
+    );
+    calendar.onWakePlanTap!(
+      WeekCalendarWakePlanTapTarget(
+        wakePlan: plan,
+        targetDay: CalendarDay(year: 2026, month: 7, day: 6),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit wake plan'), findsOneWidget);
+    expect(
+      find.text('Choose a future wake target before saving.'),
+      findsNothing,
+    );
+
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(gateway.cancelledOccurrences, isNotEmpty);
+    expect(gateway.scheduledRequests, isNotEmpty);
+    final saved = await repository.fetchWakePlan('weekly-edit');
+    expect(
+      saved?.repeatRule,
+      RepeatRule.weekly({Weekday.monday, Weekday.wednesday}),
+    );
+    expect(
+      find.textContaining('Wake plan updated. Next alarm:'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'confirms repeating wake plan delete and removes calendar block',
+    (tester) async {
+      final gateway = FakeNativeAlarmGateway();
+      final now = DateTime(2026, 7, 8, 5, 30);
+      final plan = _plan(
+        id: 'weekly-delete',
+        targetDay: CalendarDay(year: 2026, month: 7, day: 10),
+        repeatRule: RepeatRule.weekly({Weekday.friday}),
+      );
+      final service = WakePlanService(
+        repository: repository,
+        nativeAlarmGateway: gateway,
+        clock: () => now,
+      );
+      await service.createPlan(plan);
+      gateway.cancelledPlans.clear();
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            weekCalendarRepositoryProvider.overrideWith(
+              (ref) async => repository,
+            ),
+            wakePlanDefaultsRepositoryProvider.overrideWith(
+              (ref) async => repository,
+            ),
+            weekCalendarNativeAlarmGatewayProvider.overrideWith(
+              (ref) => gateway,
+            ),
+            weekCalendarClockProvider.overrideWith(
+              (ref) =>
+                  () => now,
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: WeekCalendarPlaceholder()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      var calendar = tester.widget<WeekCalendarView>(
+        find.byType(WeekCalendarView),
+      );
+      expect(
+        calendar.wakePlans.map((plan) => plan.id),
+        contains('weekly-delete'),
+      );
+
+      calendar.onWakePlanTap!(
+        WeekCalendarWakePlanTapTarget(
+          wakePlan: plan,
+          targetDay: CalendarDay(year: 2026, month: 7, day: 10),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete repeating wake plan?'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete').last);
+      await tester.pumpAndSettle();
+
+      expect(gateway.cancelledPlans, isNotEmpty);
+      expect(await repository.fetchWakePlan('weekly-delete'), isNull);
+      expect(find.text('Wake plan deleted.'), findsOneWidget);
+
+      calendar = tester.widget<WeekCalendarView>(find.byType(WeekCalendarView));
+      expect(
+        calendar.wakePlans.map((plan) => plan.id),
+        isNot(contains('weekly-delete')),
+      );
+    },
+  );
 }
 
-WakePlan _plan({required String id, required CalendarDay targetDay}) {
+WakePlan _plan({
+  required String id,
+  required CalendarDay targetDay,
+  RepeatRule? repeatRule,
+}) {
   final now = DateTime(2026, 7, 8, 5, 30);
   return WakePlan(
     id: id,
@@ -213,7 +443,7 @@ WakePlan _plan({required String id, required CalendarDay targetDay}) {
     targetTime: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
     startOffset: const Duration(minutes: 60),
     interval: const Duration(minutes: 5),
-    repeatRule: RepeatRule.oneTime(targetDay),
+    repeatRule: repeatRule ?? RepeatRule.oneTime(targetDay),
     isEnabled: true,
     status: WakePlanStatus.scheduled,
     soundId: defaultWakePlanSoundId,
