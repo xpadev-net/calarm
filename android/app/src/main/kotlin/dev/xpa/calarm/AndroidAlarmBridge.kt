@@ -275,21 +275,12 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
 
     private fun notificationChannelReady(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
-        return notificationManager.getNotificationChannel(ALARM_CHANNEL_ID)?.importance != NotificationManager.IMPORTANCE_NONE
+        return notificationManager.getNotificationChannel(AlarmNotificationChannel.ID)?.importance != NotificationManager.IMPORTANCE_NONE
     }
 
     private fun ensureAlarmNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        notificationManager.createNotificationChannel(
-            NotificationChannel(
-                ALARM_CHANNEL_ID,
-                "Wake alarms",
-                NotificationManager.IMPORTANCE_HIGH,
-            ).apply {
-                description = "Calarm wake alarm alerts"
-                setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), null)
-            },
-        )
+        notificationManager.createNotificationChannel(AlarmNotificationChannel.create())
     }
 
     private fun appDetailsSettingsIntent(): Intent {
@@ -302,7 +293,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
     private fun appNotificationSettingsIntent(): Intent {
         return Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
             putExtra(Settings.EXTRA_APP_PACKAGE, appContext.packageName)
-            putExtra(Settings.EXTRA_CHANNEL_ID, ALARM_CHANNEL_ID)
+            putExtra(Settings.EXTRA_CHANNEL_ID, AlarmNotificationChannel.ID)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
     }
@@ -344,7 +335,22 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
     companion object {
         const val CHANNEL_NAME = "net.xpadev.calarm/native_alarm"
         const val SCHEMA_VERSION = 1
-        const val ALARM_CHANNEL_ID = "wake_alarms"
+        const val ALARM_CHANNEL_ID = AlarmNotificationChannel.ID
+    }
+}
+
+object AlarmNotificationChannel {
+    const val ID = "wake_alarms"
+
+    fun create(): NotificationChannel {
+        return NotificationChannel(
+            ID,
+            "Wake alarms",
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = "Calarm wake alarm alerts"
+            setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), null)
+        }
     }
 }
 

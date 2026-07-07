@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/platform/method_channel_native_alarm_gateway.dart';
@@ -18,32 +19,75 @@ class AlarmHealthController extends AsyncNotifier<AlarmHealthState> {
 
   @override
   Future<AlarmHealthState> build() async {
-    return AlarmHealthState(
-      capability: await ref
-          .watch(settingsNativeAlarmGatewayProvider)
-          .getCapability(),
-    );
+    try {
+      return AlarmHealthState(
+        capability: await ref
+            .watch(settingsNativeAlarmGatewayProvider)
+            .getCapability(),
+      );
+    } on Object catch (error) {
+      debugPrint('Alarm capability check failed: $error');
+      return const AlarmHealthState(
+        capability: NativeAlarmCapability(
+          permissionStatus: NativeAlarmPermissionStatus.unknown,
+          canScheduleAlarms: false,
+          canRequestPermission: true,
+        ),
+        capabilityCheckFailed: true,
+      );
+    }
   }
 
   Future<void> refresh() async {
     final previous = state.value;
-    state = AsyncData(
-      AlarmHealthState(
-        capability: await ref
-            .read(settingsNativeAlarmGatewayProvider)
-            .getCapability(),
-        lastPermissionResult: previous?.lastPermissionResult,
-        lastTestAlarmResult: previous?.lastTestAlarmResult,
-        isSchedulingTestAlarm: previous?.isSchedulingTestAlarm ?? false,
-      ),
-    );
+    if (previous == null) {
+      state = const AsyncLoading();
+      state = await AsyncValue.guard(build);
+      return;
+    }
+
+    state = AsyncData(previous.copyWith(isRefreshing: true));
+    try {
+      final capability = await ref
+          .read(settingsNativeAlarmGatewayProvider)
+          .getCapability();
+      final current = state.value ?? previous;
+      state = AsyncData(
+        current.copyWith(
+          capability: capability,
+          isRefreshing: false,
+          capabilityCheckFailed: false,
+        ),
+      );
+    } on Object catch (error) {
+      debugPrint('Alarm capability refresh failed: $error');
+      final current = state.value ?? previous;
+      state = AsyncData(
+        current.copyWith(isRefreshing: false, capabilityCheckFailed: true),
+      );
+      rethrow;
+    }
   }
 
   Future<void> requestPermission() async {
     final gateway = ref.read(settingsNativeAlarmGatewayProvider);
     final previous = state.value;
-    final permissionResult = await gateway.requestPermission();
+    if (previous != null) {
+      state = AsyncData(previous.copyWith(isRequestingPermission: true));
+    }
 
+    final NativeAlarmPermissionResult permissionResult;
+    try {
+      permissionResult = await gateway.requestPermission();
+    } on Object {
+      final current = state.value ?? previous;
+      if (current != null) {
+        state = AsyncData(current.copyWith(isRequestingPermission: false));
+      }
+      rethrow;
+    }
+
+    var capabilityCheckFailed = previous?.capabilityCheckFailed ?? false;
     var capability =
         previous?.capability ??
         const NativeAlarmCapability(
@@ -53,18 +97,27 @@ class AlarmHealthController extends AsyncNotifier<AlarmHealthState> {
         );
     try {
       capability = await gateway.getCapability();
-    } on Object {
+      capabilityCheckFailed = false;
+    } on Object catch (error) {
+      debugPrint('Alarm capability refresh after permission failed: $error');
+      capabilityCheckFailed = true;
       // The permission request result is authoritative for the user action.
       // A follow-up refresh failure must not claim settings failed to open.
     }
 
+    final current = state.value ?? previous;
     state = AsyncData(
-      AlarmHealthState(
-        capability: capability,
-        lastPermissionResult: permissionResult,
-        lastTestAlarmResult: previous?.lastTestAlarmResult,
-        isSchedulingTestAlarm: previous?.isSchedulingTestAlarm ?? false,
-      ),
+      (current ??
+              AlarmHealthState(
+                capability: capability,
+                lastPermissionResult: permissionResult,
+              ))
+          .copyWith(
+            capability: capability,
+            lastPermissionResult: permissionResult,
+            isRequestingPermission: false,
+            capabilityCheckFailed: capabilityCheckFailed,
+          ),
     );
   }
 
@@ -91,8 +144,9 @@ class AlarmHealthController extends AsyncNotifier<AlarmHealthState> {
         reason: ScheduleFailureReason.nativeError,
         message: error.toString(),
       );
+      final current = state.value ?? previous;
       state = AsyncData(
-        previous.copyWith(
+        current.copyWith(
           isSchedulingTestAlarm: false,
           lastTestAlarmResult: failure,
         ),
@@ -101,20 +155,26 @@ class AlarmHealthController extends AsyncNotifier<AlarmHealthState> {
     }
 
     var capability = previous.capability;
+    var capabilityCheckFailed = previous.capabilityCheckFailed;
     try {
       capability = await ref
           .read(settingsNativeAlarmGatewayProvider)
           .getCapability();
-    } on Object {
+      capabilityCheckFailed = false;
+    } on Object catch (error) {
+      debugPrint('Alarm capability refresh after test alarm failed: $error');
+      capabilityCheckFailed = true;
       // Keep the scheduling result authoritative. A post-schedule refresh failure
       // must not claim that an already-created native alarm failed to schedule.
     }
 
+    final current = state.value ?? previous;
     state = AsyncData(
-      previous.copyWith(
+      current.copyWith(
         capability: capability,
         isSchedulingTestAlarm: false,
         lastTestAlarmResult: result,
+        capabilityCheckFailed: capabilityCheckFailed,
       ),
     );
   }
@@ -126,18 +186,30 @@ class AlarmHealthState {
     this.lastPermissionResult,
     this.lastTestAlarmResult,
     this.isSchedulingTestAlarm = false,
+    this.isRefreshing = false,
+    this.isRequestingPermission = false,
+    this.capabilityCheckFailed = false,
   });
 
   final NativeAlarmCapability capability;
   final NativeAlarmPermissionResult? lastPermissionResult;
   final TestAlarmScheduleResult? lastTestAlarmResult;
   final bool isSchedulingTestAlarm;
+  final bool isRefreshing;
+  final bool isRequestingPermission;
+  final bool capabilityCheckFailed;
 
   bool get hasWarnings => warnings.isNotEmpty || hasFailedTestAlarm;
 
   bool get hasFailedTestAlarm => lastTestAlarmResult?.isSuccess == false;
 
+  bool get isBusy =>
+      isSchedulingTestAlarm || isRefreshing || isRequestingPermission;
+
   List<AlarmHealthWarning> get warnings {
+    if (capabilityCheckFailed) {
+      return const <AlarmHealthWarning>[];
+    }
     final warnings = <AlarmHealthWarning>[];
     switch (capability.permissionStatus) {
       case NativeAlarmPermissionStatus.authorized:
@@ -251,6 +323,9 @@ class AlarmHealthState {
     NativeAlarmPermissionResult? lastPermissionResult,
     TestAlarmScheduleResult? lastTestAlarmResult,
     bool? isSchedulingTestAlarm,
+    bool? isRefreshing,
+    bool? isRequestingPermission,
+    bool? capabilityCheckFailed,
   }) {
     return AlarmHealthState(
       capability: capability ?? this.capability,
@@ -258,6 +333,11 @@ class AlarmHealthState {
       lastTestAlarmResult: lastTestAlarmResult ?? this.lastTestAlarmResult,
       isSchedulingTestAlarm:
           isSchedulingTestAlarm ?? this.isSchedulingTestAlarm,
+      isRefreshing: isRefreshing ?? this.isRefreshing,
+      isRequestingPermission:
+          isRequestingPermission ?? this.isRequestingPermission,
+      capabilityCheckFailed:
+          capabilityCheckFailed ?? this.capabilityCheckFailed,
     );
   }
 }

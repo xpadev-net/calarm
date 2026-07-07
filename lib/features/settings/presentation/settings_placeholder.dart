@@ -76,6 +76,9 @@ class _AlarmHealthPanel extends ConsumerWidget {
     final warnings = healthState?.warnings ?? const <AlarmHealthWarning>[];
     final testAlarmMessage = healthState?.testAlarmMessage;
     final isScheduling = healthState?.isSchedulingTestAlarm ?? false;
+    final isRefreshing = healthState?.isRefreshing ?? false;
+    final isRequestingPermission = healthState?.isRequestingPermission ?? false;
+    final isBusy = healthState?.isBusy ?? health.isLoading;
     final canRequestPermission =
         healthState?.capability.canRequestPermission ?? false;
 
@@ -99,7 +102,8 @@ class _AlarmHealthPanel extends ConsumerWidget {
                 icon: Icons.hourglass_empty,
                 text: 'Checking alarm permissions...',
               )
-            else if (health.hasError)
+            else if (health.hasError ||
+                healthState?.capabilityCheckFailed == true)
               _SettingsStatusRow(
                 icon: Icons.error_outline,
                 text: 'Could not check alarm readiness.',
@@ -127,7 +131,7 @@ class _AlarmHealthPanel extends ConsumerWidget {
               runSpacing: 8,
               children: [
                 FilledButton.icon(
-                  onPressed: healthState == null || isScheduling
+                  onPressed: healthState == null || isBusy
                       ? null
                       : () {
                           _handleSave(
@@ -152,7 +156,7 @@ class _AlarmHealthPanel extends ConsumerWidget {
                   ),
                 ),
                 OutlinedButton.icon(
-                  onPressed: health.isLoading
+                  onPressed: health.isLoading || isBusy
                       ? null
                       : () {
                           _handleSave(
@@ -161,22 +165,38 @@ class _AlarmHealthPanel extends ConsumerWidget {
                             failureMessage: 'Could not check alarm readiness.',
                           );
                         },
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Check again'),
+                  icon: isRefreshing
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh),
+                  label: Text(isRefreshing ? 'Checking' : 'Check again'),
                 ),
                 if (canRequestPermission)
                   OutlinedButton.icon(
-                    onPressed: () {
-                      _handleSave(
-                        context,
-                        ref
-                            .read(alarmHealthProvider.notifier)
-                            .requestPermission(),
-                        failureMessage: 'Could not open alarm settings.',
-                      );
-                    },
-                    icon: const Icon(Icons.settings),
-                    label: const Text('Open alarm settings'),
+                    onPressed: isBusy
+                        ? null
+                        : () {
+                            _handleSave(
+                              context,
+                              ref
+                                  .read(alarmHealthProvider.notifier)
+                                  .requestPermission(),
+                              failureMessage: 'Could not open alarm settings.',
+                            );
+                          },
+                    icon: isRequestingPermission
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.settings),
+                    label: Text(
+                      isRequestingPermission
+                          ? 'Opening settings'
+                          : 'Open alarm settings',
+                    ),
                   ),
               ],
             ),

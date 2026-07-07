@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:calarm/core/platform/fake_native_alarm_gateway.dart';
 import 'package:calarm/core/platform/native_alarm_gateway.dart';
 import 'package:calarm/features/settings/application/alarm_health_controller.dart';
@@ -111,7 +113,67 @@ void main() {
       'Test alarm scheduled for 1 minute from now.',
     );
     expect(state.capability, same(initial.capability));
+    expect(state.capabilityCheckFailed, isTrue);
     expect(state.isSchedulingTestAlarm, isFalse);
+  });
+
+  test(
+    'refresh preserves test alarm success while updating capability',
+    () async {
+      final controlledGateway = _ControlledCapabilityGateway();
+      container.dispose();
+      container = ProviderContainer(
+        overrides: [
+          settingsNativeAlarmGatewayProvider.overrideWith(
+            (ref) => controlledGateway,
+          ),
+        ],
+      );
+
+      await container.read(alarmHealthProvider.future);
+      await container
+          .read(alarmHealthProvider.notifier)
+          .scheduleTestAlarm(AppSettings.initial());
+
+      final capabilityRefresh = Completer<NativeAlarmCapability>();
+      controlledGateway.nextCapability = capabilityRefresh.future;
+      final refresh = container.read(alarmHealthProvider.notifier).refresh();
+      await pumpEventQueue();
+
+      var state = container.read(alarmHealthProvider).value!;
+      expect(state.isRefreshing, isTrue);
+      expect(state.lastTestAlarmResult!.isSuccess, isTrue);
+
+      capabilityRefresh.complete(
+        const NativeAlarmCapability(
+          permissionStatus: NativeAlarmPermissionStatus.denied,
+          canScheduleAlarms: false,
+          canRequestPermission: true,
+        ),
+      );
+      await refresh;
+
+      state = container.read(alarmHealthProvider).value!;
+      expect(state.isRefreshing, isFalse);
+      expect(state.lastTestAlarmResult!.isSuccess, isTrue);
+      expect(state.warnings.single.kind, AlarmHealthWarningKind.permission);
+    },
+  );
+
+  test('surfaces capability check failure as explicit state', () async {
+    final flakyGateway = _CapabilityRefreshFailureGateway()
+      ..failCapabilityRefresh = true;
+    container.dispose();
+    container = ProviderContainer(
+      overrides: [
+        settingsNativeAlarmGatewayProvider.overrideWith((ref) => flakyGateway),
+      ],
+    );
+
+    final state = await container.read(alarmHealthProvider.future);
+
+    expect(state.capabilityCheckFailed, isTrue);
+    expect(state.warnings, isEmpty);
   });
 
   test('requests permission and refreshes capability', () async {
@@ -165,6 +227,8 @@ void main() {
 
     expect(state.lastPermissionResult!.isGranted, isTrue);
     expect(state.capability, same(initial.capability));
+    expect(state.capabilityCheckFailed, isTrue);
+    expect(state.isRequestingPermission, isFalse);
   });
 }
 
@@ -175,6 +239,20 @@ class _CapabilityRefreshFailureGateway extends FakeNativeAlarmGateway {
   Future<NativeAlarmCapability> getCapability() async {
     if (failCapabilityRefresh) {
       throw StateError('Capability refresh failed.');
+    }
+    return super.getCapability();
+  }
+}
+
+class _ControlledCapabilityGateway extends FakeNativeAlarmGateway {
+  Future<NativeAlarmCapability>? nextCapability;
+
+  @override
+  Future<NativeAlarmCapability> getCapability() {
+    final pending = nextCapability;
+    if (pending != null) {
+      nextCapability = null;
+      return pending;
     }
     return super.getCapability();
   }
