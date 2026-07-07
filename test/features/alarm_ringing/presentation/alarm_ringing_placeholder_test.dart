@@ -46,6 +46,36 @@ void main() {
     expect(stopped, isTrue);
     expect(find.text('Current alarm stopped.'), findsOneWidget);
   });
+
+  testWidgets('keeps stop action retryable when stop throws', (tester) async {
+    var attempts = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AlarmRingingScreen(
+            snapshot: _snapshot(),
+            now: DateTime(2026, 7, 6, 6, 50),
+            onStop: () async {
+              attempts += 1;
+              throw StateError('native bridge unavailable');
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Stop current alarm'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(attempts, 1);
+    expect(
+      find.text('Could not stop the current alarm. Try again.'),
+      findsOneWidget,
+    );
+    final button = tester.widget<FilledButton>(find.byType(FilledButton));
+    expect(button.onPressed, isNotNull);
+  });
 }
 
 AlarmRingingSnapshot _snapshot() {

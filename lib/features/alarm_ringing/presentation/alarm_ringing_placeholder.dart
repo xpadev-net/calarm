@@ -194,7 +194,22 @@ class _AlarmRingingScreenState extends State<AlarmRingingScreen> {
       _errorText = null;
     });
 
-    final result = await widget.onStop();
+    final AlarmDismissResult result;
+    try {
+      result = await widget.onStop();
+    } catch (error, stackTrace) {
+      debugPrint('Could not stop current alarm: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _errorText = 'Could not stop the current alarm. Try again.';
+        _stopping = false;
+      });
+      return;
+    }
+
     if (!mounted) {
       return;
     }

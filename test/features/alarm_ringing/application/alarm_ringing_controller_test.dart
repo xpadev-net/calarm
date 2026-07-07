@@ -43,6 +43,27 @@ void main() {
   });
 
   test(
+    'loads the earliest past-due scheduled occurrence when none is ringing',
+    () async {
+      final store = _AlarmRingingStore(
+        plans: [_plan(day: monday)],
+        occurrences: [
+          _occurrence(id: 'plan-1:20640:405', day: monday, minute: 405),
+          _occurrence(id: 'plan-1:20640:410', day: monday, minute: 410),
+          _occurrence(id: 'plan-1:20640:415', day: monday, minute: 415),
+        ],
+      );
+
+      final snapshot = await _controller(store).loadCurrentRinging();
+
+      expect(snapshot, isNotNull);
+      expect(snapshot!.currentOccurrence.id, 'plan-1:20640:405');
+      expect(snapshot.occurrenceIndex, 1);
+      expect(snapshot.nextScheduledAt!.time.toString(), '06:50');
+    },
+  );
+
+  test(
     'dismisses only the current occurrence and keeps future alarms scheduled',
     () async {
       final gateway = FakeNativeAlarmGateway();

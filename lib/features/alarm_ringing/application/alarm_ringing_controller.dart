@@ -119,7 +119,7 @@ class AlarmRingingController {
     dueScheduled.sort(
       (left, right) => left.scheduledAt.compareTo(right.scheduledAt),
     );
-    return dueScheduled.last;
+    return dueScheduled.first;
   }
 
   AlarmRingingSnapshot _snapshotFor({
