@@ -170,6 +170,14 @@ class _WeekCalendarPlaceholderState
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(message)));
+    } catch (error) {
+      debugPrint('Could not open wake plan create sheet: $error');
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open wake plan editor.')),
+      );
     } finally {
       _sheetOpen = false;
     }

@@ -78,6 +78,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Could not load wake plans or defaults.'), findsOneWidget);
+
+    final calendar = tester.widget<WeekCalendarView>(
+      find.byType(WeekCalendarView),
+    );
+    calendar.onTargetTap!(
+      WeekCalendarTapTarget(
+        day: CalendarDay(year: 2026, month: 7, day: 9),
+        time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Could not open wake plan editor.'), findsOneWidget);
   });
 
   testWidgets('guards against stacked create sheets while service loads', (
