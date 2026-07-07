@@ -98,12 +98,30 @@ class WakePlanService {
       );
     }
 
-    return _generateAndSchedule(
+    final scheduleResult = await _generateAndSchedule(
       plan: pendingPlan,
       now: now,
       changeState: WakePlanChangeState.committed,
       cancelResult: cancelResult.cancelResult,
     );
+    if (scheduleResult.status == WakePlanSchedulingStatus.scheduleFailed &&
+        previousPlan != null) {
+      final recoveredOccurrences = await _cancelReplacementOccurrences(
+        scheduleResult.occurrences,
+        now: now,
+      );
+      await _store.saveWakePlan(previousPlan.copyWith(updatedAt: now));
+      return WakePlanSchedulingResult(
+        wakePlanId: scheduleResult.wakePlanId,
+        status: scheduleResult.status,
+        changeState: scheduleResult.changeState,
+        scheduleResult: scheduleResult.scheduleResult,
+        cancelResult: scheduleResult.cancelResult,
+        occurrences: recoveredOccurrences,
+        warning: scheduleResult.warning,
+      );
+    }
+    return scheduleResult;
   }
 
   Future<WakePlanSchedulingResult> deletePlan(String wakePlanId) async {
@@ -363,6 +381,61 @@ class WakePlanService {
       cancelResult: cancelResult,
       persistedOccurrences: persistedOccurrences,
     );
+  }
+
+  Future<List<AlarmOccurrence>> _cancelReplacementOccurrences(
+    List<AlarmOccurrence> occurrences, {
+    required DateTime now,
+  }) async {
+    final cancellableOccurrences = occurrences
+        .where((occurrence) => occurrence.platformAlarmId != null)
+        .toList(growable: false);
+    if (cancellableOccurrences.isEmpty) {
+      return occurrences;
+    }
+
+    final requests = cancellableOccurrences
+        .map(
+          (occurrence) => NativeAlarmCancelRequest(
+            occurrenceId: occurrence.id,
+            platformAlarmId: occurrence.platformAlarmId!,
+          ),
+        )
+        .toList(growable: false);
+    final cancelResult = await _nativeAlarmGateway.cancelOccurrences(requests);
+    final successKeys = cancelResult.alarms
+        .where((alarm) => alarm.isSuccess)
+        .map(_cancelKey)
+        .toSet();
+    final failureKeys = cancelResult.alarms
+        .where((alarm) => !alarm.isSuccess)
+        .map(_cancelKey)
+        .toSet();
+    final recoveredOccurrences = occurrences
+        .map((occurrence) {
+          final platformAlarmId = occurrence.platformAlarmId;
+          if (platformAlarmId == null) {
+            return occurrence;
+          }
+          final key = _cancelRequestKey(
+            occurrenceId: occurrence.id,
+            platformAlarmId: platformAlarmId,
+          );
+          if (successKeys.contains(key)) {
+            return occurrence.copyWith(
+              status: AlarmOccurrenceStatus.cancelled,
+              platformAlarmId: null,
+              updatedAt: now,
+            );
+          }
+          if (failureKeys.contains(key)) {
+            return occurrence.copyWith(updatedAt: now);
+          }
+          return occurrence;
+        })
+        .toList(growable: false);
+    await _store.saveAlarmOccurrences(recoveredOccurrences);
+    return recoveredOccurrences;
   }
 }
 

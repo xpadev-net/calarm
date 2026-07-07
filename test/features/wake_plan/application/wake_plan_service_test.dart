@@ -340,6 +340,147 @@ void main() {
         );
       },
     );
+
+    test(
+      'restores previous plan when replacement scheduling fails after old alarms cancel',
+      () async {
+        final originalPlan = buildPlan(
+          targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+            hour: 6,
+            minute: 45,
+          ),
+        );
+        final editedPlan = buildPlan(
+          targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+            hour: 7,
+            minute: 30,
+          ),
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: originalPlan)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+          ];
+        final gateway = FakeNativeAlarmGateway(
+          capability: const NativeAlarmCapability(
+            permissionStatus: NativeAlarmPermissionStatus.denied,
+            canScheduleAlarms: false,
+            canRequestPermission: true,
+          ),
+        );
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+        ).editPlan(editedPlan);
+
+        expect(result.status, WakePlanSchedulingStatus.scheduleFailed);
+        expect(result.changeState, WakePlanChangeState.failed);
+        expect(
+          result.warning!.kind,
+          WakePlanSchedulingWarningKind.scheduleFailed,
+        );
+        expect(gateway.cancelledOccurrences.map((request) => request.idLabel), [
+          'old-future-1/old-native-1',
+        ]);
+        expect(gateway.scheduledRequests, hasLength(4));
+        expect(store.operations, [
+          'fetchWakePlan:plan-1',
+          'saveWakePlan:plan-1',
+          'fetchReservedOccurrencesForPlan:plan-1',
+          'saveAlarmOccurrences:1',
+          'saveAlarmOccurrences:4',
+          'saveAlarmOccurrences:4',
+          'saveWakePlan:plan-1',
+        ]);
+        expect(store.savedPlans[0].targetTime, editedPlan.targetTime);
+        expect(store.savedPlans[1].targetTime, originalPlan.targetTime);
+        expect(store.currentPlan!.targetTime, originalPlan.targetTime);
+        expect(
+          store.savedOccurrences[0].single.status,
+          AlarmOccurrenceStatus.cancelled,
+        );
+        expect(store.savedOccurrences[0].single.platformAlarmId, isNull);
+        expect(
+          store.savedOccurrences.last.map((occurrence) => occurrence.status),
+          everyElement(AlarmOccurrenceStatus.failed),
+        );
+      },
+    );
+
+    test(
+      'cancels partially scheduled replacements before restoring previous plan',
+      () async {
+        final originalPlan = buildPlan(
+          targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+            hour: 6,
+            minute: 45,
+          ),
+        );
+        final editedPlan = buildPlan(
+          targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+            hour: 7,
+            minute: 30,
+          ),
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: originalPlan)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+          ];
+        final gateway = FakeNativeAlarmGateway()
+          ..scheduleFailureOccurrenceIds.add('plan-1:20640:440');
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+        ).editPlan(editedPlan);
+
+        expect(result.status, WakePlanSchedulingStatus.scheduleFailed);
+        expect(result.changeState, WakePlanChangeState.failed);
+        expect(gateway.scheduledRequests, hasLength(4));
+        expect(gateway.cancelledOccurrences.map((request) => request.idLabel), [
+          'old-future-1/old-native-1',
+          'plan-1:20640:435/platform-plan-1:20640:435',
+          'plan-1:20640:445/platform-plan-1:20640:445',
+          'plan-1:20640:450/platform-plan-1:20640:450',
+        ]);
+        expect(store.operations, [
+          'fetchWakePlan:plan-1',
+          'saveWakePlan:plan-1',
+          'fetchReservedOccurrencesForPlan:plan-1',
+          'saveAlarmOccurrences:1',
+          'saveAlarmOccurrences:4',
+          'saveAlarmOccurrences:4',
+          'saveAlarmOccurrences:4',
+          'saveWakePlan:plan-1',
+        ]);
+        expect(store.savedPlans[0].targetTime, editedPlan.targetTime);
+        expect(store.savedPlans[1].targetTime, originalPlan.targetTime);
+        expect(store.currentPlan!.targetTime, originalPlan.targetTime);
+        expect(
+          store.savedOccurrences.last.map(
+            (occurrence) => '${occurrence.id}:${occurrence.status.name}',
+          ),
+          [
+            'plan-1:20640:435:cancelled',
+            'plan-1:20640:440:failed',
+            'plan-1:20640:445:cancelled',
+            'plan-1:20640:450:cancelled',
+          ],
+        );
+        expect(
+          store.savedOccurrences.last.map(
+            (occurrence) => occurrence.platformAlarmId,
+          ),
+          everyElement(isNull),
+        );
+      },
+    );
   });
 
   group('WakePlanService deletePlan', () {
