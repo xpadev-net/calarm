@@ -147,6 +147,14 @@ void main() {
       );
       expect(minimumWakePlanInterval, const Duration(minutes: 5));
     });
+
+    test('does not cap already-created plan wake windows', () {
+      final plan = buildPlan().copyWith(
+        startOffset: maximumWakePlanStartOffset + const Duration(minutes: 5),
+      );
+
+      expect(plan.startOffset, const Duration(minutes: 185));
+    });
   });
 
   group('AlarmOccurrence', () {
@@ -230,11 +238,24 @@ void main() {
   });
 
   group('AppSettings', () {
+    test('uses MVP initial defaults', () {
+      final settings = AppSettings.initial();
+
+      expect(settings.defaultStartOffset, defaultWakePlanStartOffset);
+      expect(settings.defaultStartOffset, const Duration(minutes: 60));
+      expect(settings.defaultInterval, defaultWakePlanInterval);
+      expect(settings.defaultInterval, const Duration(minutes: 5));
+      expect(settings.defaultSoundId, defaultWakePlanSoundId);
+      expect(settings.defaultVibrationEnabled, isTrue);
+      expect(settings.defaultRepeatType, RepeatType.oneTime);
+      expect(settings.defaultTargetTime, isNull);
+    });
+
     test('represents default plan constraints and notification settings', () {
       final settings = AppSettings(
         defaultStartOffset: const Duration(minutes: 60),
         defaultInterval: const Duration(minutes: 5),
-        defaultSoundId: 'default',
+        defaultSoundId: defaultWakePlanSoundId,
         defaultVibrationEnabled: true,
         defaultRepeatType: RepeatType.weekly,
         defaultTargetTime: targetTime,
@@ -249,6 +270,68 @@ void main() {
       expect(
         settings.copyWith(defaultTargetTime: null).defaultTargetTime,
         null,
+      );
+    });
+
+    test('sanitizes UI-facing default values to supported constraints', () {
+      final settings = sanitizeAppSettings(
+        defaultStartOffset: const Duration(hours: 12),
+        defaultInterval: const Duration(hours: 2),
+        defaultSoundId: 'unsupported',
+        defaultVibrationEnabled: false,
+        defaultRepeatType: RepeatType.weekly,
+      );
+
+      expect(settings.defaultStartOffset, maximumWakePlanStartOffset);
+      expect(settings.defaultInterval, maximumWakePlanInterval);
+      expect(settings.defaultSoundId, defaultWakePlanSoundId);
+      expect(settings.defaultVibrationEnabled, isFalse);
+      expect(settings.defaultRepeatType, RepeatType.weekly);
+    });
+
+    test('sanitizes short default intervals to the minimum', () {
+      final settings = sanitizeAppSettings(
+        defaultInterval: const Duration(minutes: 1),
+      );
+
+      expect(settings.defaultInterval, minimumWakePlanInterval);
+    });
+
+    test('sanitizes negative durations to initial defaults', () {
+      final settings = sanitizeAppSettings(
+        defaultStartOffset: const Duration(minutes: -1),
+        defaultInterval: const Duration(minutes: -1),
+      );
+
+      expect(settings.defaultStartOffset, defaultWakePlanStartOffset);
+      expect(settings.defaultInterval, defaultWakePlanInterval);
+    });
+
+    test('rejects unsupported default sound ids', () {
+      expect(
+        () => AppSettings(
+          defaultStartOffset: defaultWakePlanStartOffset,
+          defaultInterval: defaultWakePlanInterval,
+          defaultSoundId: 'soft-bells',
+          defaultVibrationEnabled: true,
+          defaultRepeatType: RepeatType.oneTime,
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('builds the repeat rule requested by create-flow defaults', () {
+      final date = CalendarDay(year: 2026, month: 7, day: 8);
+
+      expect(
+        AppSettings.initial().repeatRuleForDate(date),
+        RepeatRule.oneTime(date),
+      );
+      expect(
+        AppSettings.initial()
+            .copyWith(defaultRepeatType: RepeatType.weekly)
+            .repeatRuleForDate(date),
+        RepeatRule.weekly({Weekday.wednesday}),
       );
     });
   });

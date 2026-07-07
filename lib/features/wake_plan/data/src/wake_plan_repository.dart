@@ -245,6 +245,10 @@ class WakePlanRepository {
     return row == null ? null : _tryAppSettingsFromRow(row);
   }
 
+  Future<AppSettings> fetchEffectiveAppSettings() async {
+    return await fetchAppSettings() ?? AppSettings.initial();
+  }
+
   Expression<bool> _notExpiredOneTimeExpression(
     $WakePlanRowsTable row,
     DateTime now,
