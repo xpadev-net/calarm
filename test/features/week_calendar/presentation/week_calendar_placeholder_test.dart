@@ -429,6 +429,69 @@ void main() {
       );
     },
   );
+
+  testWidgets('skips next target from detail and keeps following repeats', (
+    tester,
+  ) async {
+    final gateway = FakeNativeAlarmGateway();
+    final now = DateTime(2026, 7, 8, 5, 30);
+    final skippedDay = CalendarDay(year: 2026, month: 7, day: 8);
+    final followingDay = CalendarDay(year: 2026, month: 7, day: 9);
+    final plan = _plan(
+      id: 'weekly-skip',
+      targetDay: skippedDay,
+      repeatRule: RepeatRule.weekly({Weekday.wednesday, Weekday.thursday}),
+    );
+    final service = WakePlanService(
+      repository: repository,
+      nativeAlarmGateway: gateway,
+      clock: () => now,
+    );
+    await service.createPlan(plan);
+    gateway.cancelledOccurrences.clear();
+    gateway.scheduledRequests.clear();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          weekCalendarRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          wakePlanDefaultsRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          weekCalendarNativeAlarmGatewayProvider.overrideWith((ref) => gateway),
+          weekCalendarClockProvider.overrideWith(
+            (ref) =>
+                () => now,
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: WeekCalendarPlaceholder()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final calendar = tester.widget<WeekCalendarView>(
+      find.byType(WeekCalendarView),
+    );
+    calendar.onWakePlanTap!(
+      WeekCalendarWakePlanTapTarget(wakePlan: plan, targetDay: skippedDay),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Skip next target'));
+    await tester.pumpAndSettle();
+
+    final saved = await repository.fetchWakePlan('weekly-skip');
+    expect(saved?.skipNextDate, skippedDay);
+    expect(gateway.cancelledOccurrences, isNotEmpty);
+    expect(gateway.scheduledRequests, isNotEmpty);
+    expect(find.text('Next wake target skipped.'), findsOneWidget);
+    expect(saved!.occursOn(skippedDay), isFalse);
+    expect(saved.occursOn(followingDay), isTrue);
+  });
 }
 
 WakePlan _plan({

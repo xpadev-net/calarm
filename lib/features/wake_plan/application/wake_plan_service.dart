@@ -70,9 +70,23 @@ class WakePlanService {
   }
 
   Future<WakePlanSchedulingResult> editPlan(WakePlan plan) async {
+    return _editPlan(plan, skipNextDate: _preserveCurrentSkipDate);
+  }
+
+  Future<WakePlanSchedulingResult> _editPlan(
+    WakePlan plan, {
+    required Object? skipNextDate,
+  }) async {
     final now = _clock();
     final previousPlan = await _store.fetchWakePlan(plan.id);
-    final pendingPlan = plan.copyWith(updatedAt: now);
+    final pendingPlan = plan.copyWith(
+      updatedAt: now,
+      skipNextDate: _resolveEditedSkipDate(
+        requestedSkipNextDate: skipNextDate,
+        previousPlan: previousPlan,
+        repeatRule: plan.repeatRule,
+      ),
+    );
     await _store.saveWakePlan(pendingPlan);
 
     final cancelResult = await _cancelFutureReservedOccurrences(
@@ -155,12 +169,52 @@ class WakePlanService {
     );
   }
 
-  Future<WakePlanSchedulingResult> skipNextOccurrence({
-    required WakePlan wakePlan,
-    required CalendarDay skipDate,
-  }) {
-    return editPlan(
-      wakePlan.copyWith(status: WakePlanStatus.skipped, skipNextDate: skipDate),
+  Future<WakePlanSchedulingResult> skipNextOccurrence(WakePlan wakePlan) async {
+    final currentPlan = await _store.fetchWakePlan(wakePlan.id);
+    if (currentPlan == null) {
+      return Future.value(
+        _emptyResult(
+          wakePlanId: wakePlan.id,
+          status: WakePlanSchedulingStatus.scheduled,
+        ),
+      );
+    }
+    if (currentPlan.repeatRule.type == RepeatType.oneTime) {
+      return _emptyResult(
+        wakePlanId: currentPlan.id,
+        status: WakePlanSchedulingStatus.scheduled,
+      );
+    }
+
+    final now = _clock();
+    final skipDate = nextWakePlanTargetDay(plan: currentPlan, now: now);
+    if (skipDate == null) {
+      return _emptyResult(
+        wakePlanId: currentPlan.id,
+        status: WakePlanSchedulingStatus.scheduled,
+      );
+    }
+
+    return _editPlan(
+      currentPlan.copyWith(skipNextDate: skipDate),
+      skipNextDate: skipDate,
+    );
+  }
+
+  Future<WakePlanSchedulingResult> undoSkipNextOccurrence(
+    WakePlan wakePlan,
+  ) async {
+    final currentPlan = await _store.fetchWakePlan(wakePlan.id);
+    if (currentPlan == null) {
+      return _emptyResult(
+        wakePlanId: wakePlan.id,
+        status: WakePlanSchedulingStatus.scheduled,
+      );
+    }
+
+    return _editPlan(
+      currentPlan.copyWith(skipNextDate: null),
+      skipNextDate: null,
     );
   }
 
@@ -437,6 +491,57 @@ class WakePlanService {
     await _store.saveAlarmOccurrences(recoveredOccurrences);
     return recoveredOccurrences;
   }
+}
+
+const Object _preserveCurrentSkipDate = Object();
+
+CalendarDay? _resolveEditedSkipDate({
+  required Object? requestedSkipNextDate,
+  required WakePlan? previousPlan,
+  required RepeatRule repeatRule,
+}) {
+  final skipNextDate = requestedSkipNextDate == _preserveCurrentSkipDate
+      ? previousPlan?.skipNextDate
+      : requestedSkipNextDate as CalendarDay?;
+  if (skipNextDate == null || !repeatRule.includes(skipNextDate)) {
+    return null;
+  }
+  return skipNextDate;
+}
+
+WakePlanSchedulingResult _emptyResult({
+  required String wakePlanId,
+  required WakePlanSchedulingStatus status,
+}) {
+  return WakePlanSchedulingResult(
+    wakePlanId: wakePlanId,
+    status: status,
+    changeState: WakePlanChangeState.committed,
+    scheduleResult: ScheduleResult.fromRequestResults(
+      requests: const [],
+      results: const [],
+    ),
+    occurrences: const [],
+  );
+}
+
+CalendarDay? nextWakePlanTargetDay({
+  required WakePlan plan,
+  required DateTime now,
+}) {
+  final today = CalendarDay.fromDateTime(now);
+  for (var offset = 0; offset <= 370; offset += 1) {
+    final day = today.addDays(offset);
+    if (!plan.occursOn(day)) {
+      continue;
+    }
+    if (plan.targetAt(day).isBefore(now)) {
+      continue;
+    }
+    return day;
+  }
+
+  return null;
 }
 
 abstract class WakePlanServiceStore {

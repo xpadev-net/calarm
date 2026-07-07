@@ -237,6 +237,18 @@ class _WeekCalendarPlaceholderState
               ref.invalidate(weekCalendarWakePlansProvider);
               return result;
             },
+            onSkipNext: (plan) async {
+              action = _WakePlanDetailAction.skipNext;
+              final result = await service.skipNextOccurrence(plan);
+              ref.invalidate(weekCalendarWakePlansProvider);
+              return result;
+            },
+            onUndoSkipNext: (plan) async {
+              action = _WakePlanDetailAction.undoSkipNext;
+              final result = await service.undoSkipNextOccurrence(plan);
+              ref.invalidate(weekCalendarWakePlansProvider);
+              return result;
+            },
           );
         },
       );
@@ -307,10 +319,19 @@ String _detailResultMessage({
         switch (action) {
           _WakePlanDetailAction.edit => 'Wake plan could not be updated.',
           _WakePlanDetailAction.delete => 'Wake plan could not be deleted.',
+          _WakePlanDetailAction.skipNext => 'Wake plan could not be updated.',
+          _WakePlanDetailAction.undoSkipNext =>
+            'Wake plan could not be updated.',
         };
   }
   if (result.status == WakePlanSchedulingStatus.deleted) {
     return 'Wake plan deleted.';
+  }
+  if (action == _WakePlanDetailAction.skipNext) {
+    return 'Next wake target skipped.';
+  }
+  if (action == _WakePlanDetailAction.undoSkipNext) {
+    return 'Next wake target restored.';
   }
   final nextFire = wakePlanResultNextFireLabel(result: result, now: now);
   if (nextFire == null) {
@@ -319,4 +340,4 @@ String _detailResultMessage({
   return 'Wake plan updated. Next alarm: $nextFire';
 }
 
-enum _WakePlanDetailAction { edit, delete }
+enum _WakePlanDetailAction { edit, delete, skipNext, undoSkipNext }

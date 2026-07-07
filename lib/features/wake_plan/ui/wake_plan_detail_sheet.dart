@@ -9,6 +9,7 @@ import 'create_wake_plan_sheet.dart';
 typedef WakePlanEditSave =
     Future<WakePlanSchedulingResult> Function(WakePlan plan);
 typedef WakePlanDelete = Future<WakePlanSchedulingResult> Function(String id);
+typedef WakePlanSkip = Future<WakePlanSchedulingResult> Function(WakePlan plan);
 
 class WakePlanDetailSheet extends StatefulWidget {
   const WakePlanDetailSheet({
@@ -19,6 +20,8 @@ class WakePlanDetailSheet extends StatefulWidget {
     required this.existingWakePlans,
     required this.onEdit,
     required this.onDelete,
+    required this.onSkipNext,
+    required this.onUndoSkipNext,
   });
 
   final WeekCalendarWakePlanTapTarget target;
@@ -27,6 +30,8 @@ class WakePlanDetailSheet extends StatefulWidget {
   final List<WakePlan> existingWakePlans;
   final WakePlanEditSave onEdit;
   final WakePlanDelete onDelete;
+  final WakePlanSkip onSkipNext;
+  final WakePlanSkip onUndoSkipNext;
 
   @override
   State<WakePlanDetailSheet> createState() => _WakePlanDetailSheetState();
@@ -34,6 +39,7 @@ class WakePlanDetailSheet extends StatefulWidget {
 
 class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
   bool _deleting = false;
+  bool _updatingSkip = false;
   String? _warning;
 
   WakePlan get _wakePlan => widget.target.wakePlan;
@@ -42,6 +48,9 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
   Widget build(BuildContext context) {
     final plan = _wakePlan;
     final nextFire = wakePlanNextFireLabel(plan: plan, now: widget.now);
+    final nextTargetDay = nextWakePlanTargetDay(plan: plan, now: widget.now);
+    final hasSkip = plan.skipNextDate != null;
+    final actionsDisabled = _deleting || _updatingSkip;
 
     return SafeArea(
       child: Padding(
@@ -65,7 +74,9 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
                 ),
                 IconButton(
                   tooltip: 'Close',
-                  onPressed: _deleting ? null : () => Navigator.pop(context),
+                  onPressed: actionsDisabled
+                      ? null
+                      : () => Navigator.pop(context),
                   icon: const Icon(Icons.close),
                 ),
               ],
@@ -88,11 +99,36 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
               _InlineWarning(text: _warning!),
             ],
             const SizedBox(height: 16),
+            if (plan.repeatRule.type != RepeatType.oneTime || hasSkip) ...[
+              OutlinedButton.icon(
+                onPressed: actionsDisabled
+                    ? null
+                    : hasSkip
+                    ? _undoSkipNext
+                    : nextTargetDay == null
+                    ? null
+                    : _skipNext,
+                icon: _updatingSkip
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(hasSkip ? Icons.undo : Icons.skip_next),
+                label: Text(
+                  hasSkip
+                      ? 'Undo skip'
+                      : nextTargetDay == null
+                      ? 'No next target to skip'
+                      : 'Skip next target',
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             Row(
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: _deleting ? null : _openEditSheet,
+                    onPressed: actionsDisabled ? null : _openEditSheet,
                     icon: const Icon(Icons.edit),
                     label: const Text('Edit'),
                   ),
@@ -104,7 +140,7 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
                       backgroundColor: Theme.of(context).colorScheme.error,
                       foregroundColor: Theme.of(context).colorScheme.onError,
                     ),
-                    onPressed: _deleting ? null : _delete,
+                    onPressed: actionsDisabled ? null : _delete,
                     icon: _deleting
                         ? const SizedBox.square(
                             dimension: 18,
@@ -209,6 +245,50 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
       });
     }
   }
+
+  Future<void> _skipNext() {
+    return _updateSkip(() => widget.onSkipNext(_wakePlan));
+  }
+
+  Future<void> _undoSkipNext() {
+    return _updateSkip(() => widget.onUndoSkipNext(_wakePlan));
+  }
+
+  Future<void> _updateSkip(
+    Future<WakePlanSchedulingResult> Function() action,
+  ) async {
+    if (_updatingSkip || _deleting) {
+      return;
+    }
+
+    setState(() {
+      _updatingSkip = true;
+      _warning = null;
+    });
+    try {
+      final result = await action();
+      if (!mounted) {
+        return;
+      }
+      if (result.isSuccess) {
+        Navigator.pop(context, result);
+        return;
+      }
+      setState(() {
+        _updatingSkip = false;
+        _warning = result.warning?.message ?? 'Wake plan could not be updated.';
+      });
+    } catch (error, stackTrace) {
+      debugPrint('WakePlanDetailSheet skip update failed: $error\n$stackTrace');
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _updatingSkip = false;
+        _warning = 'Wake plan could not be updated.';
+      });
+    }
+  }
 }
 
 String? wakePlanResultNextFireLabel({
@@ -300,7 +380,12 @@ String _skipLabel(WakePlan plan) {
   if (skipNextDate == null) {
     return 'None';
   }
-  return 'Skipping $skipNextDate';
+  return 'Skipping next target on ${_dateLabel(skipNextDate)}';
+}
+
+String _dateLabel(CalendarDay day) {
+  return '${day.year}-${day.month.toString().padLeft(2, '0')}-'
+      '${day.day.toString().padLeft(2, '0')}';
 }
 
 String _durationLabel(Duration duration) {
