@@ -1,6 +1,6 @@
 # Plan: Wake Alarm MVP Wave 10 - Create Wake Plan Flow
 
-- status: draft
+- status: in progress
 - generated: 2026-07-05
 - last_updated: 2026-07-05
 - work_type: code
@@ -114,6 +114,10 @@
 ## Progress Log (append-only)
 
 - 2026-07-05 Draft created.
+- 2026-07-07 Wave 10 delegated to Codex thread worker.
+  - Task_1 Create Wake Plan Flow pending worktree: `local:2f8ac276-c4df-4e8b-9c27-290b3745d83b`; branch `codex/wave-10-create-flow`.
+  - Validation gate: worker must return a merge-ready PR with required focused tests, analyzer, diff check, self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
+  - Runtime note: iOS 26+/Android API 36 real-device alarm validation remains user-deferred/unapproved; any simulator/emulator evidence is NEAR_DEVICE or BLOCKED only.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
