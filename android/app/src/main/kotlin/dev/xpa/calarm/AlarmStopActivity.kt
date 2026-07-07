@@ -11,6 +11,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 class AlarmStopActivity : Activity() {
+    private var platformAlarmId: String? = null
+    private var alarmCleanedUp = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
@@ -23,11 +26,7 @@ class AlarmStopActivity : Activity() {
                     WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
             )
         }
-        val platformAlarmId = intent.getStringExtra(AlarmIntents.EXTRA_PLATFORM_ALARM_ID)
-        if (platformAlarmId != null) {
-            getSystemService(NotificationManager::class.java).cancel(platformAlarmId.hashCode())
-            AlarmStore(this).remove(platformAlarmId)
-        }
+        platformAlarmId = intent.getStringExtra(AlarmIntents.EXTRA_PLATFORM_ALARM_ID)
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -41,8 +40,25 @@ class AlarmStopActivity : Activity() {
         })
         layout.addView(Button(this).apply {
             text = "Stop"
-            setOnClickListener { finishAndRemoveTask() }
+            setOnClickListener {
+                cleanupAlarm()
+                finishAndRemoveTask()
+            }
         })
         setContentView(layout)
+    }
+
+    override fun onDestroy() {
+        cleanupAlarm()
+        super.onDestroy()
+    }
+
+    private fun cleanupAlarm() {
+        val alarmId = platformAlarmId ?: return
+        if (alarmCleanedUp) return
+
+        alarmCleanedUp = true
+        getSystemService(NotificationManager::class.java).cancel(alarmId.hashCode())
+        AlarmStore(this).remove(alarmId)
     }
 }

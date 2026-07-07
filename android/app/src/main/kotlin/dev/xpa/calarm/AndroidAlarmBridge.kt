@@ -222,6 +222,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                             "Failed to persist native alarm mirror removal.",
                         )
                     } else {
+                        notificationManager.cancel(platformAlarmId.hashCode())
                         mutableMapOf(
                             "occurrenceId" to occurrenceId,
                             "platformAlarmId" to platformAlarmId,
