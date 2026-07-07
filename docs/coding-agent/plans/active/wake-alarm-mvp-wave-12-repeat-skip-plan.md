@@ -1,6 +1,6 @@
 # Plan: Wake Alarm MVP Wave 12 - Repeating Plans and Skip Next
 
-- status: draft
+- status: in progress
 - generated: 2026-07-05
 - last_updated: 2026-07-06
 - work_type: code
@@ -115,6 +115,12 @@
 
 - 2026-07-06 Wave 3 decision integrated.
   - Repeat and skip implementation must use rolling concrete occurrence reservations as the authoritative schedule model.
+
+- 2026-07-08 Wave 12 Task_1 Repeating Plans and Skip Next UI delegated.
+  - Task_1 worker pending worktree: `local:7a8d44b5-90f1-428d-8ac7-bb20989d4ad7`; branch `codex/wave-12-repeat-skip`.
+  - Worker type: Codex thread/worktree, not multi-agent subagent.
+  - Merge gate: worker must provide `rtk flutter test test/features/wake_plan`, analyzer/diff checks, focused repeat/skip validation, deep-review self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
+  - Runtime note: skip/repeat native reservation effects must use concrete future occurrence cancel/recreate semantics. iOS 26+/Android API 36 real-device runtime validation remains user-deferred/unapproved unless explicitly provided.
 
 - 2026-07-05 Draft created.
 

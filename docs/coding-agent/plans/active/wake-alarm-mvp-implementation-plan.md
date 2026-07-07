@@ -245,6 +245,12 @@ Interpretation:
   - Worker lifecycle: Task_3 worker thread `019f3d6d-5979-7160-a422-a98188fb4614` archived after merge. Wave 11 child plan moved to `docs/coding-agent/plans/completed/`.
   - Next action: start Wave 12 Repeating Plans and Skip Next as Codex thread/worktree worker(s).
 
+- 2026-07-08 Wave 12 Repeating Plans and Skip Next delegated.
+  - Task_1 worker pending worktree: `local:7a8d44b5-90f1-428d-8ac7-bb20989d4ad7`; branch `codex/wave-12-repeat-skip`.
+  - Worker type: Codex thread/worktree, not multi-agent subagent.
+  - Merge gate: worker must provide wake-plan repeat/skip tests, analyzer/diff checks, deep-review self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
+  - Next action: perform startup stability check, then monitor worker report/PR.
+
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
   - Validation evidence: GitHub `Format, analyze, and test`, `Android emulator native smoke`, `iOS simulator native smoke`, Greptile Review, Socket Project Report, and Socket Pull Request Alerts were successful; worker evidence on the same head reported workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed.
