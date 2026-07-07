@@ -207,7 +207,8 @@ Interpretation:
   - Orchestrator validation: PR metadata/diff/current head inspected; deep-review common/UI/tests pass found no in-scope blocker; `rtk gh-review-hook 22` exited 0; `rtk flutter test test/features/wake_plan/ui test/features/week_calendar`, `rtk flutter analyze`, and `rtk git diff --check origin/master...HEAD` passed in the Task_1 worktree.
   - Worker evidence: Task_1 worker thread `019f3cef-a1a8-7522-b687-52694fbf8947` reported required validation, independent review approval after recurrence fixes, and worker `rtk gh-review-hook 22` exit 0 on head `9ee892d495844fb4574973985023e0a05c35a78f`.
   - UI/E2E evidence: widget-level detail/edit/delete flow evidence passed; browser screenshot evidence remains not captured because no seeded Flutter web route/harness exists.
-  - Next action: archive Task_1 worker after this ledger commit, continue Task_2 PR #23 review-hook/native-smoke monitoring, then start Task_3 once Task_2 native ownership is safe.
+  - Worker lifecycle: Task_1 worker thread `019f3cef-a1a8-7522-b687-52694fbf8947` was archived after merge.
+  - Next action: continue Task_2 PR #23 review-hook/native-smoke monitoring, then start Task_3 once Task_2 native ownership is safe.
 
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.

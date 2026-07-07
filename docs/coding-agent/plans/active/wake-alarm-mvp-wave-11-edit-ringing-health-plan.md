@@ -213,7 +213,7 @@
   - Worker evidence: Task_1 worker reported targeted tests, analyzer, diff check, deep-review self-review, independent review approval after recurrence fixes, and `rtk gh-review-hook 22` exit 0 on head `9ee892d495844fb4574973985023e0a05c35a78f`.
   - Orchestrator merge gate: PR metadata/diff/current head inspected; deep-review common/UI/tests pass found no in-scope blocker; `rtk gh-review-hook 22` exited 0; `rtk flutter test test/features/wake_plan/ui test/features/week_calendar`, `rtk flutter analyze`, and `rtk git diff --check origin/master...HEAD` passed in the Task_1 worktree.
   - UI/E2E evidence: widget-level detail/edit/delete flow evidence passed. Browser screenshot evidence remains not captured because no existing seeded Flutter web/browser route or harness exists for this flow.
-  - Worker lifecycle: Task_1 worker thread `019f3cef-a1a8-7522-b687-52694fbf8947` is ready for archival after ledger commit.
+  - Worker lifecycle: Task_1 worker thread `019f3cef-a1a8-7522-b687-52694fbf8947` was archived after merge.
   - Next action: continue monitoring Task_2 PR #23. Task_3 remains deferred until Task_2 native ownership is merged or safely split.
 
 ## Decision Log (append-only; re-plans and major discoveries)
