@@ -25,7 +25,7 @@ class AlarmReceiver : BroadcastReceiver() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             notificationManager.createNotificationChannel(
                 NotificationChannel(
-                    CHANNEL_ID,
+                    AndroidAlarmBridge.ALARM_CHANNEL_ID,
                     "Wake alarms",
                     NotificationManager.IMPORTANCE_HIGH,
                 ).apply {
@@ -37,7 +37,7 @@ class AlarmReceiver : BroadcastReceiver() {
 
         val stopIntent = AlarmIntents.stopActivity(context, platformAlarmId)
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(context, CHANNEL_ID)
+            Notification.Builder(context, AndroidAlarmBridge.ALARM_CHANNEL_ID)
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(context)
@@ -70,9 +70,5 @@ class AlarmReceiver : BroadcastReceiver() {
             @Suppress("DEPRECATION")
             vibrator.vibrate(1_000)
         }
-    }
-
-    companion object {
-        private const val CHANNEL_ID = "wake_alarms"
     }
 }

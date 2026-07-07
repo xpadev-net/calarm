@@ -37,6 +37,10 @@ class MethodChannelNativeAlarmGateway implements NativeAlarmGateway {
         response,
         'requiresFullScreenIntentPermission',
       ),
+      requiresNotificationChannelSetup: _optionalBool(
+        response,
+        'requiresNotificationChannelSetup',
+      ),
       supportsTestAlarm: _optionalBool(
         response,
         'supportsTestAlarm',

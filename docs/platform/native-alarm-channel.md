@@ -90,6 +90,7 @@ Response:
   "requiresExactAlarmPermission": false,
   "requiresNotificationPermission": false,
   "requiresFullScreenIntentPermission": false,
+  "requiresNotificationChannelSetup": false,
   "supportsTestAlarm": true
 }
 ```

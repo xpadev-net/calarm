@@ -84,3 +84,11 @@ Purpose:
 - fix: Make worker validation require a final `rtk gh-review-hook <PR_NUMBER>` run from the worker worktree after self-review, independent review, and any review-driven fixes are complete.
 - prevention: For merge-ready worker reports, require the reported hook evidence to be from the final reviewed head SHA; if review findings produced follow-up commits, the worker must rerun the hook before handoff.
 - promotion: Repo-local lesson only for now; no rule suite exists in this repository.
+
+### 2026-07-08 - Prove Acceptance Before No-Diff Stop
+- tags: validation/verification, assumptions/interpretation, workflow/process
+- symptom: A worker stopped with a no-diff conclusion even though Task_3 user-facing settings health checks and test-alarm UI were not implemented on `master`.
+- root cause: Existing platform contract and QA checklist rows were mistaken for full acceptance coverage without re-reading the concrete UI path and proving each acceptance item in the running app surface.
+- fix: Resume the task, inspect the settings presentation path, and implement missing user-facing health warnings and test-alarm flow.
+- prevention: Before ending a delegated implementation task as already satisfied, map every acceptance bullet to concrete files/tests/UI behavior; absence of that proof means continue investigation instead of stopping.
+- promotion: Repo-local lesson only for now; no rule suite exists in this repository.

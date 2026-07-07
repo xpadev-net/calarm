@@ -16,6 +16,12 @@ Runtime approval status: BLOCKED for release until real Android API 36 device/ru
 | Alarm receiver notification and full-screen stop UI fallback | BLOCKED | `AlarmReceiver` posts a high-priority alarm notification with full-screen `AlarmStopActivity`; no Android API 36 runtime/device is available to verify lock-screen behavior. |
 | Reboot/package-replace restore | BLOCKED | `BootReceiver` restores future alarms from a native SharedPreferences mirror after boot/package replace when exact alarms are still allowed. No Android API 36 runtime/device is available to verify reboot restore. |
 | Runtime permission request flow | BLOCKED | `requestPermissionIfNeeded` opens exact alarm or app settings where needed. No Android API 36 runtime/device is available to verify user flow or post-return status. |
+| Settings inline warning for denied/missing Android alarm readiness | PASS | `rtk flutter test test/features/settings test/core/platform` covers exact alarm, notification, full-screen intent, and notification-channel warnings in the settings path. |
+| Android exact alarm permission-denial runtime warning | BLOCKED | Dart/UI path has widget coverage, but no Android API 36 device/runtime is available to revoke exact alarm permission and verify the live capability response. |
+| Android notification permission-denial runtime warning | BLOCKED | Dart/UI path has widget coverage, but no Android API 36 device/runtime is available to revoke notification permission and verify the live capability response. |
+| Android full-screen intent OS-setting runtime warning | BLOCKED | Dart/UI path has widget coverage, but no Android API 36 device/runtime is available to revoke full-screen intent access and verify the live capability response. |
+| Android notification channel OS-setting runtime warning | BLOCKED | Native capability now checks the wake alarm notification channel, but no Android API 36 device/runtime is available to disable the channel and verify the live warning. |
+| Android 1-minute test alarm settings action | BLOCKED | Widget/controller tests verify `fireAfter: Duration(minutes: 1)` and failure preservation, but no Android API 36 runtime/device is available to verify delivery. |
 
 Implementation limits recorded:
 

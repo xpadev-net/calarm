@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../wake_plan/domain/wake_plan_domain.dart';
+import '../application/alarm_health_controller.dart';
 import '../application/wake_plan_defaults_controller.dart';
 
 class SettingsPlaceholder extends ConsumerWidget {
@@ -12,9 +13,10 @@ class SettingsPlaceholder extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final defaults = ref.watch(wakePlanDefaultsProvider);
+    final health = ref.watch(alarmHealthProvider);
 
     return defaults.when(
-      data: (settings) => _SettingsDefaultsPanel(settings: settings),
+      data: (settings) => _SettingsPanel(settings: settings, health: health),
       error: (error, stackTrace) => _SettingsStatusTile(
         title: 'Settings',
         subtitle: 'Defaults could not be loaded.',
@@ -25,6 +27,161 @@ class SettingsPlaceholder extends ConsumerWidget {
         title: 'Settings',
         subtitle: 'Loading defaults...',
         icon: Icons.tune,
+      ),
+    );
+  }
+}
+
+class _SettingsPanel extends StatelessWidget {
+  const _SettingsPanel({required this.settings, required this.health});
+
+  final AppSettings settings;
+  final AsyncValue<AlarmHealthState> health;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxHeight = constraints.hasBoundedHeight
+            ? constraints.maxHeight
+            : 420.0;
+        return SizedBox(
+          height: maxHeight,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _AlarmHealthPanel(settings: settings, health: health),
+                const SizedBox(height: 12),
+                _SettingsDefaultsPanel(settings: settings),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _AlarmHealthPanel extends ConsumerWidget {
+  const _AlarmHealthPanel({required this.settings, required this.health});
+
+  final AppSettings settings;
+  final AsyncValue<AlarmHealthState> health;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final healthState = health.value;
+    final warnings = healthState?.warnings ?? const <AlarmHealthWarning>[];
+    final testAlarmMessage = healthState?.testAlarmMessage;
+    final isScheduling = healthState?.isSchedulingTestAlarm ?? false;
+    final canRequestPermission =
+        healthState?.capability.canRequestPermission ?? false;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Alarm readiness',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            if (health.isLoading && healthState == null)
+              const _SettingsStatusRow(
+                icon: Icons.hourglass_empty,
+                text: 'Checking alarm permissions...',
+              )
+            else if (health.hasError)
+              _SettingsStatusRow(
+                icon: Icons.error_outline,
+                text: 'Could not check alarm readiness.',
+                color: colorScheme.error,
+              )
+            else if (warnings.isEmpty)
+              const _SettingsStatusRow(
+                icon: Icons.check_circle_outline,
+                text: 'Alarms are ready to schedule.',
+              )
+            else
+              _InlineWarning(
+                text: warnings.map((warning) => warning.message).join('\n'),
+              ),
+            if (warnings.isNotEmpty) const SizedBox(height: 8),
+            if (testAlarmMessage != null) ...[
+              _InlineWarning(
+                text: testAlarmMessage,
+                isError: healthState?.hasFailedTestAlarm ?? false,
+              ),
+              const SizedBox(height: 8),
+            ],
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: healthState == null || isScheduling
+                      ? null
+                      : () {
+                          _handleSave(
+                            context,
+                            ref
+                                .read(alarmHealthProvider.notifier)
+                                .scheduleTestAlarm(settings),
+                            failureMessage:
+                                'Could not schedule the test alarm.',
+                          );
+                        },
+                  icon: isScheduling
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.alarm_add),
+                  label: Text(
+                    isScheduling
+                        ? 'Scheduling test alarm'
+                        : 'Schedule 1-minute test alarm',
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: health.isLoading
+                      ? null
+                      : () {
+                          _handleSave(
+                            context,
+                            ref.read(alarmHealthProvider.notifier).refresh(),
+                            failureMessage: 'Could not check alarm readiness.',
+                          );
+                        },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Check again'),
+                ),
+                if (canRequestPermission)
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      _handleSave(
+                        context,
+                        ref
+                            .read(alarmHealthProvider.notifier)
+                            .requestPermission(),
+                        failureMessage: 'Could not open alarm settings.',
+                      );
+                    },
+                    icon: const Icon(Icons.settings),
+                    label: const Text('Open alarm settings'),
+                  ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -192,6 +349,70 @@ class _SettingsStatusTile extends StatelessWidget {
   }
 }
 
+class _SettingsStatusRow extends StatelessWidget {
+  const _SettingsStatusRow({
+    required this.icon,
+    required this.text,
+    this.color,
+  });
+
+  final IconData icon;
+  final String text;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(width: 8),
+        Expanded(child: Text(text)),
+      ],
+    );
+  }
+}
+
+class _InlineWarning extends StatelessWidget {
+  const _InlineWarning({required this.text, this.isError = true});
+
+  final String text;
+  final bool isError;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final backgroundColor = isError
+        ? colorScheme.errorContainer
+        : colorScheme.secondaryContainer;
+    final foregroundColor = isError
+        ? colorScheme.onErrorContainer
+        : colorScheme.onSecondaryContainer;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              isError ? Icons.warning_amber : Icons.check_circle_outline,
+              color: foregroundColor,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(text, style: TextStyle(color: foregroundColor)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 String _formatDuration(Duration value) {
   final minutes = value.inMinutes;
   if (minutes < 60) {
@@ -206,11 +427,19 @@ String _formatDuration(Duration value) {
   return '$hours h $remainder min';
 }
 
-void _handleSave(BuildContext context, Future<void> save) {
-  unawaited(_showSaveFailure(context, save));
+void _handleSave(
+  BuildContext context,
+  Future<void> save, {
+  String failureMessage = 'Could not save settings.',
+}) {
+  unawaited(_showSaveFailure(context, save, failureMessage));
 }
 
-Future<void> _showSaveFailure(BuildContext context, Future<void> save) async {
+Future<void> _showSaveFailure(
+  BuildContext context,
+  Future<void> save,
+  String failureMessage,
+) async {
   try {
     await save;
   } on Object {
@@ -220,6 +449,6 @@ Future<void> _showSaveFailure(BuildContext context, Future<void> save) async {
 
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('Could not save settings.')));
+    ).showSnackBar(SnackBar(content: Text(failureMessage)));
   }
 }

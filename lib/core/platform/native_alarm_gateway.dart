@@ -67,6 +67,7 @@ class NativeAlarmCapability {
     this.requiresExactAlarmPermission = false,
     this.requiresNotificationPermission = false,
     this.requiresFullScreenIntentPermission = false,
+    this.requiresNotificationChannelSetup = false,
     this.supportsTestAlarm = true,
   });
 
@@ -77,6 +78,7 @@ class NativeAlarmCapability {
   final bool requiresExactAlarmPermission;
   final bool requiresNotificationPermission;
   final bool requiresFullScreenIntentPermission;
+  final bool requiresNotificationChannelSetup;
   final bool supportsTestAlarm;
 }
 
