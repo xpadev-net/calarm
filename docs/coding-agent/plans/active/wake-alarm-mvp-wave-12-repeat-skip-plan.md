@@ -130,6 +130,10 @@
   - Merge gate: replacement worker must provide `rtk flutter test test/features/wake_plan`, analyzer/diff checks, focused repeat/skip validation, deep-review self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
   - Next action: monitor replacement worker startup, then record its assigned thread/worktree once available.
 
+- 2026-07-08 Wave 12 replacement worker assigned.
+  - Task_1 replacement worker thread: `019f3dff-b281-7893-aa21-054ecb424569`; pending worktree `local:7cb642c6-5681-42ed-b973-bade06a668bc`; worktree `/Users/xpadev/.codex/worktrees/a8eb/calarm`; branch `codex/wave-12-repeat-skip-55`; requested model/reasoning: `gpt-5.5` / medium.
+  - Next action: monitor replacement worker report/PR.
+
 - 2026-07-05 Draft created.
 
 ## Decision Log (append-only; re-plans and major discoveries)
