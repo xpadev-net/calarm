@@ -91,7 +91,6 @@ class WeekCalendarPlaceholder extends ConsumerWidget {
             );
           },
         ),
-        if (wakePlans.isLoading) const LinearProgressIndicator(),
       ],
     );
   }
