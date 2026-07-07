@@ -111,7 +111,7 @@
 - Wave 7: [Planner, Repository, and MethodChannel Wiring](../completed/wake-alarm-mvp-wave-07-planner-repository-channel-plan.md)
 - Wave 8: [Scheduling, Native Bridges, and Calendar Core](../completed/wake-alarm-mvp-wave-08-scheduling-native-calendar-plan.md)
 - Wave 9: [Calendar Rendering and Settings Defaults](../completed/wake-alarm-mvp-wave-09-rendering-settings-plan.md)
-- Wave 10: [Create Wake Plan Flow](wake-alarm-mvp-wave-10-create-flow-plan.md)
+- Wave 10: [Create Wake Plan Flow](../completed/wake-alarm-mvp-wave-10-create-flow-plan.md)
 - Wave 11: [Edit, Ringing, and Health Checks](wake-alarm-mvp-wave-11-edit-ringing-health-plan.md)
 - Wave 12: [Repeating Plans and Skip Next](wake-alarm-mvp-wave-12-repeat-skip-plan.md)
 - Wave 13: [UI Harmonization and Accessibility](wake-alarm-mvp-wave-13-ui-harmonization-plan.md)
@@ -153,7 +153,7 @@ Interpretation:
 - Wave 7 (parallel): [../completed/wake-alarm-mvp-wave-07-planner-repository-channel-plan.md]
 - Wave 8 (parallel): [../completed/wake-alarm-mvp-wave-08-scheduling-native-calendar-plan.md]
 - Wave 9 (parallel): [../completed/wake-alarm-mvp-wave-09-rendering-settings-plan.md]
-- Wave 10 (parallel): [wake-alarm-mvp-wave-10-create-flow-plan.md]
+- Wave 10 (parallel): [../completed/wake-alarm-mvp-wave-10-create-flow-plan.md]
 - Wave 11 (parallel): [wake-alarm-mvp-wave-11-edit-ringing-health-plan.md]
 - Wave 12 (parallel): [wake-alarm-mvp-wave-12-repeat-skip-plan.md]
 - Wave 13 (parallel): [wake-alarm-mvp-wave-13-ui-harmonization-plan.md]
@@ -186,6 +186,13 @@ Interpretation:
 - 2026-07-07 Wave 10 Task_1 PR #21 returned merge-ready but was sent back from orchestrator merge gate.
   - Evidence accepted before failure: worker reported focused tests, full Flutter tests, analyzer, diff check, independent review, and worker `rtk gh-review-hook 21` exit 0 on head `47176cff9a8a156135e63da39eb3dc18b503548b`; orchestrator reran focused tests, analyzer, and diff check successfully.
   - Gate failure: after orchestrator marked the draft PR ready for review, `rtk gh-review-hook 21` waited for Greptile/CodeRabbit and exited 2 with in-scope review items. The PR was not merged; worker thread `019f3ca6-835c-7f00-a197-79e33b5b895b` was instructed to verify/fix and rerun the hook.
+
+- 2026-07-07 Wave 10 Create Wake Plan Flow merged; Wave 10 completed.
+  - Summary: PR #21 `Add wake plan create flow` was squash-merged with merge commit `1fd61b7bc3555a7d77e0fef737b6d784365f5971`.
+  - Orchestrator validation: PR metadata/diff/current head inspected; deep-review common/UI/tests pass found no blocker; `rtk gh-review-hook 21` exited 0; `rtk flutter test test/features/wake_plan/ui test/features/week_calendar`, `rtk flutter analyze`, and `rtk git diff --check` passed in the Task_1 worktree.
+  - Worker lifecycle: Task_1 worker thread `019f3ca6-835c-7f00-a197-79e33b5b895b` was archived after merge. Wave 10 child plan moved to `docs/coding-agent/plans/completed/`.
+  - UI/E2E evidence: widget-level flow and failure-path evidence passed; browser screenshot evidence remains not captured because no seeded Flutter web route/harness exists.
+  - Next action: start Wave 11 workers as Codex thread/worktree workers.
 
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.

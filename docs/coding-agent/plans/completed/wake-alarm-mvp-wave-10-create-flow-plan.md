@@ -1,8 +1,8 @@
 # Plan: Wake Alarm MVP Wave 10 - Create Wake Plan Flow
 
-- status: in progress
+- status: completed
 - generated: 2026-07-05
-- last_updated: 2026-07-05
+- last_updated: 2026-07-07
 - work_type: code
 
 ## Goal
@@ -122,6 +122,13 @@
   - Worker evidence on head `47176cff9a8a156135e63da39eb3dc18b503548b`: focused tests, full `rtk flutter test`, analyzer, diff check, independent review, and worker `rtk gh-review-hook 21` passed.
   - Orchestrator evidence: PR metadata/diff/current head inspected; deep-review common/UI/tests/data-store references consulted; `rtk flutter test test/features/wake_plan/ui test/features/week_calendar`, `rtk flutter analyze`, and `rtk git diff --check` passed in the worker worktree.
   - Gate result: after marking PR #21 ready, orchestrator `rtk gh-review-hook 21` exited 2 with Greptile findings around overlap-warning coverage, exception/provider error visibility, and database fallback diagnostics. The PR was not merged; the worker thread was instructed to verify/fix in scope and rerun validation/hook.
+- 2026-07-07 Task_1 PR #21 merged; Wave 10 completed.
+  - Summary: PR #21 `Add wake plan create flow` was squash-merged with merge commit `1fd61b7bc3555a7d77e0fef737b6d784365f5971`.
+  - Final head: `83bc0830d320df7b913e78b4e6103356098a508a`.
+  - Worker evidence: focused `rtk flutter test test/features/wake_plan/ui test/features/week_calendar`, `rtk flutter analyze`, `rtk git diff --check`, remote Baseline CI, Greptile Review, CodeRabbit, Socket checks, and worker `rtk gh-review-hook 21` passed after review follow-up fixes.
+  - Orchestrator validation: PR metadata/diff/current head inspected; deep-review common/UI/tests pass found no blocker; `rtk gh-review-hook 21` exited 0; `rtk flutter test test/features/wake_plan/ui test/features/week_calendar`, `rtk flutter analyze`, and `rtk git diff --check` passed in the Task_1 worktree.
+  - UI/E2E evidence: widget-level coverage verifies calendar tap -> create sheet preview -> save -> rendered block, plus schedule failure, provider error, overlap, and concurrent tap paths. Browser screenshot evidence remains not captured because no seeded Flutter web route/harness exists for this flow.
+  - Worker lifecycle: Task_1 worker thread `019f3ca6-835c-7f00-a197-79e33b5b895b` archived after merge. The remote branch remained present because local branch deletion failed while the worker worktree was still attached; no product code action is pending.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
