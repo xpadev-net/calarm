@@ -76,7 +76,10 @@ class AlarmRingingPlaceholder extends ConsumerWidget {
             final result = await controller.dismissCurrent(
               snapshot.currentOccurrence.id,
             );
-            ref.invalidate(alarmRingingSnapshotProvider);
+            if (result == AlarmDismissResult.dismissed ||
+                result == AlarmDismissResult.alreadyDismissed) {
+              ref.invalidate(alarmRingingSnapshotProvider);
+            }
             return result;
           },
         );

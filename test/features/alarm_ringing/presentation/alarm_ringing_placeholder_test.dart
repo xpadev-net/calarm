@@ -1,8 +1,10 @@
+import 'package:calarm/core/platform/fake_native_alarm_gateway.dart';
 import 'package:calarm/core/time/time.dart';
 import 'package:calarm/features/alarm_ringing/application/alarm_ringing_controller.dart';
 import 'package:calarm/features/alarm_ringing/presentation/alarm_ringing_placeholder.dart';
 import 'package:calarm/features/wake_plan/domain/wake_plan_domain.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -76,6 +78,48 @@ void main() {
     final button = tester.widget<FilledButton>(find.byType(FilledButton));
     expect(button.onPressed, isNotNull);
   });
+
+  testWidgets('keeps inline stop failure visible without reloading snapshot', (
+    tester,
+  ) async {
+    final snapshot = _snapshot();
+    final gateway = FakeNativeAlarmGateway()
+      ..cancelFailurePlatformAlarmIds.add('native-current');
+    final store = _AlarmRingingStore([snapshot.currentOccurrence]);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          alarmRingingSnapshotProvider.overrideWith((ref) async => snapshot),
+          alarmRingingControllerProvider.overrideWith((ref) async {
+            return AlarmRingingController(
+              store: store,
+              nativeAlarmGateway: gateway,
+              clock: () => DateTime(2026, 7, 6, 6, 50),
+            );
+          }),
+          alarmRingingClockProvider.overrideWith(
+            (ref) =>
+                () => DateTime(2026, 7, 6, 6, 50),
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: AlarmRingingPlaceholder()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Stop current alarm'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Could not stop the native alarm. Try again.'),
+      findsOneWidget,
+    );
+    final button = tester.widget<FilledButton>(find.byType(FilledButton));
+    expect(button.onPressed, isNotNull);
+  });
 }
 
 AlarmRingingSnapshot _snapshot() {
@@ -117,4 +161,41 @@ AlarmRingingSnapshot _snapshot() {
       time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 55),
     ),
   );
+}
+
+class _AlarmRingingStore implements AlarmRingingStore {
+  _AlarmRingingStore(Iterable<AlarmOccurrence> occurrences)
+    : occurrences = {
+        for (final occurrence in occurrences) occurrence.id: occurrence,
+      };
+
+  final Map<String, AlarmOccurrence> occurrences;
+
+  @override
+  Future<AlarmOccurrence?> fetchAlarmOccurrence(String id) async {
+    return occurrences[id];
+  }
+
+  @override
+  Future<List<AlarmOccurrence>> fetchOccurrencesForPlan(
+    String wakePlanId,
+  ) async {
+    return occurrences.values
+        .where((occurrence) => occurrence.wakePlanId == wakePlanId)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<List<WakePlan>> fetchWakePlans({required DateTime now}) async {
+    return const [];
+  }
+
+  @override
+  Future<void> saveAlarmOccurrences(
+    Iterable<AlarmOccurrence> occurrences,
+  ) async {
+    for (final occurrence in occurrences) {
+      this.occurrences[occurrence.id] = occurrence;
+    }
+  }
 }

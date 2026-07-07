@@ -33,6 +33,12 @@ class AlarmRingingController {
     }
 
     snapshots.sort((left, right) {
+      final priorityComparison = _activePriority(
+        left.currentOccurrence,
+      ).compareTo(_activePriority(right.currentOccurrence));
+      if (priorityComparison != 0) {
+        return priorityComparison;
+      }
       return left.currentOccurrence.scheduledAt.compareTo(
         right.currentOccurrence.scheduledAt,
       );
@@ -120,6 +126,10 @@ class AlarmRingingController {
       (left, right) => left.scheduledAt.compareTo(right.scheduledAt),
     );
     return dueScheduled.first;
+  }
+
+  int _activePriority(AlarmOccurrence occurrence) {
+    return occurrence.status == AlarmOccurrenceStatus.ringing ? 0 : 1;
   }
 
   AlarmRingingSnapshot _snapshotFor({

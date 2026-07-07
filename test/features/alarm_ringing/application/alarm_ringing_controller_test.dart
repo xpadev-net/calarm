@@ -64,6 +64,40 @@ void main() {
   );
 
   test(
+    'prefers a ringing occurrence over an earlier due scheduled plan',
+    () async {
+      final store = _AlarmRingingStore(
+        plans: [
+          _plan(day: monday),
+          _plan(id: 'plan-2', day: monday),
+        ],
+        occurrences: [
+          _occurrence(
+            id: 'plan-2:20640:405',
+            wakePlanId: 'plan-2',
+            day: monday,
+            minute: 405,
+          ),
+          _occurrence(
+            id: 'plan-1:20640:410',
+            day: monday,
+            minute: 410,
+            status: AlarmOccurrenceStatus.ringing,
+            firedAt: DateTime(2026, 7, 6, 6, 50),
+          ),
+        ],
+      );
+
+      final snapshot = await _controller(store).loadCurrentRinging();
+
+      expect(snapshot, isNotNull);
+      expect(snapshot!.wakePlan.id, 'plan-1');
+      expect(snapshot.currentOccurrence.id, 'plan-1:20640:410');
+      expect(snapshot.currentOccurrence.status, AlarmOccurrenceStatus.ringing);
+    },
+  );
+
+  test(
     'dismisses only the current occurrence and keeps future alarms scheduled',
     () async {
       final gateway = FakeNativeAlarmGateway();
@@ -179,10 +213,10 @@ AlarmRingingController _controller(
   );
 }
 
-WakePlan _plan({required CalendarDay day}) {
+WakePlan _plan({String id = 'plan-1', required CalendarDay day}) {
   final createdAt = DateTime(2026, 7, 6, 5, 0);
   return WakePlan(
-    id: 'plan-1',
+    id: id,
     title: 'Morning',
     targetTime: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
     startOffset: const Duration(minutes: 15),
@@ -199,6 +233,7 @@ WakePlan _plan({required CalendarDay day}) {
 
 AlarmOccurrence _occurrence({
   required String id,
+  String wakePlanId = 'plan-1',
   required CalendarDay day,
   required int minute,
   AlarmOccurrenceStatus status = AlarmOccurrenceStatus.scheduled,
@@ -209,7 +244,7 @@ AlarmOccurrence _occurrence({
   final createdAt = DateTime(2026, 7, 6, 5, 0);
   return AlarmOccurrence(
     id: id,
-    wakePlanId: 'plan-1',
+    wakePlanId: wakePlanId,
     scheduledAt: DateMinute(
       day: day,
       time: TimeOfDayMinutes.fromMinutesSinceMidnight(minute),
