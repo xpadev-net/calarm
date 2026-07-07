@@ -232,6 +232,12 @@ String? wakePlanResultNextFireLabel({
 
 String? wakePlanNextFireLabel({required WakePlan plan, required DateTime now}) {
   final today = CalendarDay.fromDateTime(now);
+  if (plan.repeatRule.type == RepeatType.oneTime) {
+    final oneTimeDate = plan.repeatRule.oneTimeDate;
+    if (oneTimeDate == null || oneTimeDate.compareTo(today) < 0) {
+      return null;
+    }
+  }
   DateTime? nextFire;
   for (var offset = 0; offset <= 370; offset += 1) {
     final day = today.addDays(offset);

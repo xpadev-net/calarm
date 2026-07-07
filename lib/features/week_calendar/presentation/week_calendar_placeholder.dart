@@ -215,6 +215,7 @@ class _WeekCalendarPlaceholderState
         return;
       }
 
+      var action = _WakePlanDetailAction.edit;
       final result = await showModalBottomSheet<WakePlanSchedulingResult>(
         context: context,
         isScrollControlled: true,
@@ -225,11 +226,13 @@ class _WeekCalendarPlaceholderState
             defaults: defaults,
             existingWakePlans: existingWakePlans,
             onEdit: (plan) async {
+              action = _WakePlanDetailAction.edit;
               final result = await service.editPlan(plan);
               ref.invalidate(weekCalendarWakePlansProvider);
               return result;
             },
             onDelete: (id) async {
+              action = _WakePlanDetailAction.delete;
               final result = await service.deletePlan(id);
               ref.invalidate(weekCalendarWakePlansProvider);
               return result;
@@ -243,7 +246,9 @@ class _WeekCalendarPlaceholderState
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(_detailResultMessage(result: result, now: now)),
+          content: Text(
+            _detailResultMessage(result: result, now: now, action: action),
+          ),
         ),
       );
     } catch (error) {
@@ -295,9 +300,14 @@ String _loadErrorText({
 String _detailResultMessage({
   required WakePlanSchedulingResult result,
   required DateTime now,
+  required _WakePlanDetailAction action,
 }) {
   if (!result.isSuccess) {
-    return result.warning?.message ?? 'Wake plan could not be updated.';
+    return result.warning?.message ??
+        switch (action) {
+          _WakePlanDetailAction.edit => 'Wake plan could not be updated.',
+          _WakePlanDetailAction.delete => 'Wake plan could not be deleted.',
+        };
   }
   if (result.status == WakePlanSchedulingStatus.deleted) {
     return 'Wake plan deleted.';
@@ -308,3 +318,5 @@ String _detailResultMessage({
   }
   return 'Wake plan updated. Next alarm: $nextFire';
 }
+
+enum _WakePlanDetailAction { edit, delete }
