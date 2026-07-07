@@ -397,11 +397,21 @@ void main() {
       expect(await repository.fetchAppSettings(), isNull);
     });
 
+    test('returns initial defaults before settings are saved', () async {
+      final settings = await repository.fetchEffectiveAppSettings();
+
+      expect(settings.defaultStartOffset, const Duration(minutes: 60));
+      expect(settings.defaultInterval, const Duration(minutes: 5));
+      expect(settings.defaultRepeatType, RepeatType.oneTime);
+      expect(settings.defaultVibrationEnabled, isTrue);
+      expect(settings.defaultSoundId, 'default');
+    });
+
     test('saves and fetches app settings', () async {
       final settings = AppSettings(
         defaultStartOffset: const Duration(minutes: 45),
         defaultInterval: const Duration(minutes: 10),
-        defaultSoundId: 'soft-bells',
+        defaultSoundId: defaultWakePlanSoundId,
         defaultVibrationEnabled: false,
         defaultRepeatType: RepeatType.weekly,
         defaultTargetTime: targetTime,
@@ -414,7 +424,7 @@ void main() {
       expect(fetched, isNotNull);
       expect(fetched!.defaultStartOffset, settings.defaultStartOffset);
       expect(fetched.defaultInterval, settings.defaultInterval);
-      expect(fetched.defaultSoundId, settings.defaultSoundId);
+      expect(fetched.defaultSoundId, defaultWakePlanSoundId);
       expect(fetched.defaultVibrationEnabled, isFalse);
       expect(fetched.defaultRepeatType, RepeatType.weekly);
       expect(fetched.defaultTargetTime, targetTime);
@@ -425,7 +435,7 @@ void main() {
         AppSettings(
           defaultStartOffset: const Duration(minutes: 45),
           defaultInterval: const Duration(minutes: 10),
-          defaultSoundId: 'soft-bells',
+          defaultSoundId: defaultWakePlanSoundId,
           defaultVibrationEnabled: false,
           defaultRepeatType: RepeatType.weekly,
           defaultTargetTime: targetTime,
@@ -436,7 +446,7 @@ void main() {
         AppSettings(
           defaultStartOffset: const Duration(minutes: 60),
           defaultInterval: const Duration(minutes: 5),
-          defaultSoundId: 'chime',
+          defaultSoundId: defaultWakePlanSoundId,
           defaultVibrationEnabled: true,
           defaultRepeatType: RepeatType.oneTime,
         ),
@@ -447,7 +457,7 @@ void main() {
       expect(fetched, isNotNull);
       expect(fetched!.defaultStartOffset, const Duration(minutes: 60));
       expect(fetched.defaultInterval, const Duration(minutes: 5));
-      expect(fetched.defaultSoundId, 'chime');
+      expect(fetched.defaultSoundId, defaultWakePlanSoundId);
       expect(fetched.defaultVibrationEnabled, isTrue);
       expect(fetched.defaultRepeatType, RepeatType.oneTime);
       expect(fetched.defaultTargetTime, isNull);
@@ -459,6 +469,37 @@ void main() {
           .insert(_malformedAppSettingsCompanion());
 
       expect(await repository.fetchAppSettings(), isNull);
+      expect(
+        (await repository.fetchEffectiveAppSettings()).defaultStartOffset,
+        AppSettings.initial().defaultStartOffset,
+      );
+    });
+
+    test(
+      'falls back when stored defaults violate timing constraints',
+      () async {
+        await database
+            .into(database.appSettingsRows)
+            .insert(_invalidTimingAppSettingsCompanion());
+
+        expect(await repository.fetchAppSettings(), isNull);
+        expect(
+          await repository.fetchEffectiveAppSettings(),
+          isA<AppSettings>(),
+        );
+      },
+    );
+
+    test('falls back when stored default sound is unsupported', () async {
+      await database
+          .into(database.appSettingsRows)
+          .insert(_unsupportedSoundAppSettingsCompanion());
+
+      expect(await repository.fetchAppSettings(), isNull);
+      expect(
+        (await repository.fetchEffectiveAppSettings()).defaultSoundId,
+        defaultWakePlanSoundId,
+      );
     });
   });
 
@@ -516,6 +557,28 @@ AppSettingsRowsCompanion _malformedAppSettingsCompanion() {
     defaultSoundId: 'default',
     defaultVibrationEnabled: true,
     defaultRepeatType: 'not-a-repeat-type',
+  );
+}
+
+AppSettingsRowsCompanion _invalidTimingAppSettingsCompanion() {
+  return AppSettingsRowsCompanion.insert(
+    id: const Value(1),
+    defaultStartOffsetMinutes: 240,
+    defaultIntervalMinutes: 1,
+    defaultSoundId: 'default',
+    defaultVibrationEnabled: true,
+    defaultRepeatType: RepeatType.oneTime.name,
+  );
+}
+
+AppSettingsRowsCompanion _unsupportedSoundAppSettingsCompanion() {
+  return AppSettingsRowsCompanion.insert(
+    id: const Value(1),
+    defaultStartOffsetMinutes: 60,
+    defaultIntervalMinutes: 5,
+    defaultSoundId: 'soft-bells',
+    defaultVibrationEnabled: true,
+    defaultRepeatType: RepeatType.oneTime.name,
   );
 }
 

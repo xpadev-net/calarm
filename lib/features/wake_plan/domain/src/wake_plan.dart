@@ -4,6 +4,11 @@ import 'repeat_rule.dart';
 enum WakePlanStatus { scheduled, active, finished, skipped, deleted }
 
 const Duration minimumWakePlanInterval = Duration(minutes: 5);
+const Duration defaultWakePlanStartOffset = Duration(minutes: 60);
+const Duration maximumWakePlanStartOffset = Duration(hours: 3);
+const Duration defaultWakePlanInterval = Duration(minutes: 5);
+const String defaultWakePlanSoundId = 'default';
+const bool defaultWakePlanVibrationEnabled = true;
 
 class WakePlan {
   factory WakePlan({
