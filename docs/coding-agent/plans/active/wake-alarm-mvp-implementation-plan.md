@@ -251,6 +251,18 @@ Interpretation:
   - Merge gate: worker must provide wake-plan repeat/skip tests, analyzer/diff checks, deep-review self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
   - Next action: perform startup stability check, then monitor worker report/PR.
 
+- 2026-07-08 Wave 12 Repeating Plans and Skip Next worker restarted by user request.
+  - Reason: user requested Wave 12 be restarted with `gpt-5.5` and medium reasoning.
+  - Replaced worker: thread `019f3dfb-00be-7151-ac16-a244ba445b26`; pending worktree `local:7a8d44b5-90f1-428d-8ac7-bb20989d4ad7`; worktree `/Users/xpadev/.codex/worktrees/5b1a/calarm`; branch `codex/wave-12-repeat-skip`. It was already archived before a merge-ready report.
+  - Replacement worker pending worktree: `local:7cb642c6-5681-42ed-b973-bade06a668bc`; requested model/reasoning: `gpt-5.5` / medium; replacement branch: `codex/wave-12-repeat-skip-55`.
+  - Worker type: Codex thread/worktree, not multi-agent subagent.
+  - Merge gate: replacement worker must provide wake-plan repeat/skip tests, analyzer/diff checks, deep-review self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
+  - Next action: monitor replacement worker startup, then record its assigned thread/worktree once available.
+
+- 2026-07-08 Wave 12 replacement worker assigned.
+  - Task_1 replacement worker thread: `019f3dff-b281-7893-aa21-054ecb424569`; pending worktree `local:7cb642c6-5681-42ed-b973-bade06a668bc`; worktree `/Users/xpadev/.codex/worktrees/a8eb/calarm`; branch `codex/wave-12-repeat-skip-55`; requested model/reasoning: `gpt-5.5` / medium.
+  - Next action: monitor replacement worker report/PR.
+
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
   - Validation evidence: GitHub `Format, analyze, and test`, `Android emulator native smoke`, `iOS simulator native smoke`, Greptile Review, Socket Project Report, and Socket Pull Request Alerts were successful; worker evidence on the same head reported workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed.
