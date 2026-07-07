@@ -32,6 +32,13 @@ class AppSettings {
         'must not be more than $maximumWakePlanStartOffset',
       );
     }
+    if (defaultInterval > maximumWakePlanInterval) {
+      throw ArgumentError.value(
+        defaultInterval,
+        'defaultInterval',
+        'must not be more than $maximumWakePlanInterval',
+      );
+    }
     _validateDefaultSoundId(defaultSoundId);
 
     return AppSettings._(
@@ -114,7 +121,7 @@ AppSettings sanitizeAppSettings({
     defaultInterval: _clampWholeMinuteDuration(
       defaultInterval,
       min: minimumWakePlanInterval,
-      max: maximumWakePlanStartOffset,
+      max: maximumWakePlanInterval,
       fallback: fallback.defaultInterval,
     ),
     defaultSoundId: _sanitizeSoundId(defaultSoundId, fallback.defaultSoundId),

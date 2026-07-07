@@ -79,6 +79,7 @@ class WakePlanDefaultsController extends AsyncNotifier<AppSettings> {
   }
 
   Future<void> _save(AppSettings settings) async {
+    final previous = state;
     final next = sanitizeAppSettings(
       defaultStartOffset: settings.defaultStartOffset,
       defaultInterval: settings.defaultInterval,
@@ -87,12 +88,17 @@ class WakePlanDefaultsController extends AsyncNotifier<AppSettings> {
       defaultRepeatType: settings.defaultRepeatType,
       defaultTargetTime: settings.defaultTargetTime,
     );
-    state = AsyncData(next);
 
     final repository = await ref.read(
       wakePlanDefaultsRepositoryProvider.future,
     );
-    await repository.saveAppSettings(next);
+    try {
+      await repository.saveAppSettings(next);
+      state = AsyncData(next);
+    } catch (error, stackTrace) {
+      state = previous;
+      Error.throwWithStackTrace(error, stackTrace);
+    }
   }
 }
 

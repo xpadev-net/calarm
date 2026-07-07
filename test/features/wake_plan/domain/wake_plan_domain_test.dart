@@ -276,17 +276,25 @@ void main() {
     test('sanitizes UI-facing default values to supported constraints', () {
       final settings = sanitizeAppSettings(
         defaultStartOffset: const Duration(hours: 12),
-        defaultInterval: const Duration(minutes: 1),
+        defaultInterval: const Duration(hours: 2),
         defaultSoundId: 'unsupported',
         defaultVibrationEnabled: false,
         defaultRepeatType: RepeatType.weekly,
       );
 
       expect(settings.defaultStartOffset, maximumWakePlanStartOffset);
-      expect(settings.defaultInterval, minimumWakePlanInterval);
+      expect(settings.defaultInterval, maximumWakePlanInterval);
       expect(settings.defaultSoundId, defaultWakePlanSoundId);
       expect(settings.defaultVibrationEnabled, isFalse);
       expect(settings.defaultRepeatType, RepeatType.weekly);
+    });
+
+    test('sanitizes short default intervals to the minimum', () {
+      final settings = sanitizeAppSettings(
+        defaultInterval: const Duration(minutes: 1),
+      );
+
+      expect(settings.defaultInterval, minimumWakePlanInterval);
     });
 
     test('rejects unsupported default sound ids', () {
