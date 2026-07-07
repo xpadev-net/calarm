@@ -92,3 +92,11 @@ Purpose:
 - fix: Resume the task, inspect the settings presentation path, and implement missing user-facing health warnings and test-alarm flow.
 - prevention: Before ending a delegated implementation task as already satisfied, map every acceptance bullet to concrete files/tests/UI behavior; absence of that proof means continue investigation instead of stopping.
 - promotion: Repo-local lesson only for now; no rule suite exists in this repository.
+
+### 2026-07-08 - Keep Follow-Up Refresh Failures Separate
+- tags: review, validation, state-transitions
+- symptom: Merge-gate review found a settings test-alarm success could be overwritten as a native scheduling failure when the follow-up capability refresh threw.
+- root cause: The controller wrapped the scheduling side effect and a non-authoritative refresh in the same `try` block, so a later read failure changed the meaning of an already-created native alarm.
+- fix: Make the native scheduling result authoritative, catch capability refresh failures separately, and retain the previous capability when refresh fails.
+- prevention: For native side effects followed by status refreshes, tests must cover "side effect succeeds, refresh fails" and assert the user-visible result still reflects the side effect.
+- promotion: Repo-local lesson only for now; no rule suite exists in this repository.

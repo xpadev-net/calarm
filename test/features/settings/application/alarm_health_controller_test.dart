@@ -87,6 +87,33 @@ void main() {
     );
   });
 
+  test('preserves test alarm success when capability refresh fails', () async {
+    final flakyGateway = _CapabilityRefreshFailureGateway();
+    container.dispose();
+    container = ProviderContainer(
+      overrides: [
+        settingsNativeAlarmGatewayProvider.overrideWith((ref) => flakyGateway),
+      ],
+    );
+    final initial = await container.read(alarmHealthProvider.future);
+
+    flakyGateway.failCapabilityRefresh = true;
+    await container
+        .read(alarmHealthProvider.notifier)
+        .scheduleTestAlarm(AppSettings.initial());
+
+    final state = container.read(alarmHealthProvider).value!;
+
+    expect(flakyGateway.scheduledTestAlarms, hasLength(1));
+    expect(state.lastTestAlarmResult!.isSuccess, isTrue);
+    expect(
+      state.testAlarmMessage,
+      'Test alarm scheduled for 1 minute from now.',
+    );
+    expect(state.capability, same(initial.capability));
+    expect(state.isSchedulingTestAlarm, isFalse);
+  });
+
   test('requests permission and refreshes capability', () async {
     gateway.capability = const NativeAlarmCapability(
       permissionStatus: NativeAlarmPermissionStatus.notDetermined,
@@ -111,4 +138,16 @@ void main() {
     expect(state.lastPermissionResult!.isGranted, isTrue);
     expect(state.warnings, isEmpty);
   });
+}
+
+class _CapabilityRefreshFailureGateway extends FakeNativeAlarmGateway {
+  bool failCapabilityRefresh = false;
+
+  @override
+  Future<NativeAlarmCapability> getCapability() async {
+    if (failCapabilityRefresh) {
+      throw StateError('Capability refresh failed.');
+    }
+    return super.getCapability();
+  }
 }

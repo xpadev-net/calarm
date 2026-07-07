@@ -60,8 +60,9 @@ class AlarmHealthController extends AsyncNotifier<AlarmHealthState> {
     }
 
     state = AsyncData(previous.copyWith(isSchedulingTestAlarm: true));
+    final TestAlarmScheduleResult result;
     try {
-      final result = await ref
+      result = await ref
           .read(settingsNativeAlarmGatewayProvider)
           .scheduleTestAlarm(
             NativeTestAlarmScheduleRequest(
@@ -70,16 +71,6 @@ class AlarmHealthController extends AsyncNotifier<AlarmHealthState> {
               vibrationEnabled: settings.defaultVibrationEnabled,
             ),
           );
-      final capability = await ref
-          .read(settingsNativeAlarmGatewayProvider)
-          .getCapability();
-      state = AsyncData(
-        previous.copyWith(
-          capability: capability,
-          isSchedulingTestAlarm: false,
-          lastTestAlarmResult: result,
-        ),
-      );
     } catch (error) {
       final failure = TestAlarmScheduleResult.failure(
         reason: ScheduleFailureReason.nativeError,
@@ -91,7 +82,26 @@ class AlarmHealthController extends AsyncNotifier<AlarmHealthState> {
           lastTestAlarmResult: failure,
         ),
       );
+      return;
     }
+
+    var capability = previous.capability;
+    try {
+      capability = await ref
+          .read(settingsNativeAlarmGatewayProvider)
+          .getCapability();
+    } on Object {
+      // Keep the scheduling result authoritative. A post-schedule refresh failure
+      // must not claim that an already-created native alarm failed to schedule.
+    }
+
+    state = AsyncData(
+      previous.copyWith(
+        capability: capability,
+        isSchedulingTestAlarm: false,
+        lastTestAlarmResult: result,
+      ),
+    );
   }
 }
 
