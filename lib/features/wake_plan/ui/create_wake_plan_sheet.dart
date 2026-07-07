@@ -64,7 +64,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
       interval: _interval,
       now: widget.now,
     );
-    final overlap = _findOverlap();
+    final overlaps = _findOverlaps();
     final canSave = !_saving && !_isPastTarget;
 
     return SafeArea(
@@ -151,13 +151,9 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
                   text: 'Choose a future wake target before saving.',
                 ),
               ],
-              if (overlap != null) ...[
+              if (overlaps.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                _InlineWarning(
-                  text:
-                      'Overlaps ${_timeLabel(overlap.startAt)}-'
-                      '${_timeLabel(overlap.endAt)}.',
-                ),
+                _InlineWarning(text: _overlapWarningText(overlaps)),
               ],
               if (_scheduleWarning != null) ...[
                 const SizedBox(height: 12),
@@ -218,22 +214,46 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
     );
   }
 
-  WeekCalendarWakePlanBlock? _findOverlap() {
+  List<_WakePlanOverlap> _findOverlaps() {
     final draftPlan = _buildWakePlan(createdAt: widget.now);
     final draftStart = draftPlan.startAt(widget.initialTarget.day);
     final draftEnd = draftPlan.targetAt(widget.initialTarget.day);
-    final blocks = weekCalendarWakePlanBlocks(
-      week: visibleWeekRange(_targetAt),
-      wakePlans: widget.existingWakePlans,
-    );
+    final draftStartDay = CalendarDay.fromDateTime(draftStart);
+    final draftEndDay = CalendarDay.fromDateTime(draftEnd);
+    final overlaps = <_WakePlanOverlap>[];
 
-    for (final block in blocks) {
-      if (draftStart.isBefore(block.endAt) &&
-          block.startAt.isBefore(draftEnd)) {
-        return block;
+    for (final existingPlan in widget.existingWakePlans) {
+      final lookbackDays =
+          (existingPlan.startOffset.inMinutes / TimeOfDayMinutes.minutesPerDay)
+              .ceil();
+      final firstTargetDay = draftStartDay.addDays(-lookbackDays);
+      final lastTargetDay = draftEndDay.addDays(lookbackDays + 1);
+
+      for (
+        var targetDay = firstTargetDay;
+        targetDay.compareTo(lastTargetDay) <= 0;
+        targetDay = targetDay.addDays(1)
+      ) {
+        if (!existingPlan.occursOn(targetDay)) {
+          continue;
+        }
+
+        final existingStart = existingPlan.startAt(targetDay);
+        final existingEnd = existingPlan.targetAt(targetDay);
+        if (draftStart.isBefore(existingEnd) &&
+            existingStart.isBefore(draftEnd)) {
+          overlaps.add(
+            _WakePlanOverlap(
+              startAt: existingStart,
+              endAt: existingEnd,
+              wakePlan: existingPlan,
+            ),
+          );
+        }
       }
     }
-    return null;
+
+    return overlaps;
   }
 
   Future<void> _save() async {
@@ -262,7 +282,8 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
         _scheduleWarning =
             result.warning?.message ?? 'Alarms could not be scheduled.';
       });
-    } catch (error) {
+    } catch (error, stackTrace) {
+      debugPrint('CreateWakePlanSheet save failed: $error\n$stackTrace');
       if (!mounted) {
         return;
       }
@@ -301,6 +322,18 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
   String _wakePlanId(DateTime createdAt) {
     return 'wake-${createdAt.microsecondsSinceEpoch}-${_targetAt.microsecondsSinceEpoch}';
   }
+}
+
+class _WakePlanOverlap {
+  const _WakePlanOverlap({
+    required this.startAt,
+    required this.endAt,
+    required this.wakePlan,
+  });
+
+  final DateTime startAt;
+  final DateTime endAt;
+  final WakePlan wakePlan;
 }
 
 class WakePlanCreatePreview {
@@ -501,6 +534,15 @@ String _durationLabel(Duration duration) {
     return '$hours hr';
   }
   return '$hours hr $minutes min';
+}
+
+String _overlapWarningText(List<_WakePlanOverlap> overlaps) {
+  if (overlaps.length == 1) {
+    final overlap = overlaps.single;
+    return 'Overlaps ${_timeLabel(overlap.startAt)}-'
+        '${_timeLabel(overlap.endAt)}.';
+  }
+  return 'Overlaps ${overlaps.length} wake plans.';
 }
 
 String _dateTimeLabel(DateTime dateTime) {

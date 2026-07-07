@@ -127,6 +127,69 @@ void main() {
     expect(find.text('Overlaps 06:00-07:00.'), findsOneWidget);
   });
 
+  testWidgets('warns when a cross-day draft overlaps before visible week', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CreateWakePlanSheet(
+            initialTarget: WeekCalendarTapTarget(
+              day: CalendarDay(year: 2026, month: 7, day: 5),
+              time: TimeOfDayMinutes.fromHourMinute(hour: 1, minute: 0),
+            ),
+            now: DateTime(2026, 7, 4, 21),
+            clock: () => DateTime(2026, 7, 4, 21),
+            defaults: AppSettings.initial().copyWith(
+              defaultStartOffset: const Duration(hours: 3),
+            ),
+            existingWakePlans: [
+              _plan(
+                id: 'previous-week',
+                targetDay: CalendarDay(year: 2026, month: 7, day: 4),
+                targetTime: TimeOfDayMinutes.fromHourMinute(
+                  hour: 23,
+                  minute: 0,
+                ),
+              ),
+            ],
+            onSave: (_) async => _successResult(),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Overlaps 22:00-23:00.'), findsOneWidget);
+  });
+
+  testWidgets('summarizes multiple overlapping wake windows', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CreateWakePlanSheet(
+            initialTarget: _target(),
+            now: DateTime(2026, 7, 8, 5, 30),
+            clock: () => DateTime(2026, 7, 8, 5, 30),
+            defaults: AppSettings.initial(),
+            existingWakePlans: [
+              _plan(
+                id: 'existing-1',
+                targetDay: CalendarDay(year: 2026, month: 7, day: 8),
+              ),
+              _plan(
+                id: 'existing-2',
+                targetDay: CalendarDay(year: 2026, month: 7, day: 8),
+              ),
+            ],
+            onSave: (_) async => _successResult(),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Overlaps 2 wake plans.'), findsOneWidget);
+  });
+
   testWidgets('calendar tap opens create sheet and save renders a block', (
     tester,
   ) async {

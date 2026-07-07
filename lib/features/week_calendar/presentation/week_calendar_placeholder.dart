@@ -63,6 +63,8 @@ class WeekCalendarPlaceholder extends ConsumerWidget {
     final now = clock();
     final wakePlans = ref.watch(weekCalendarWakePlansProvider);
     final defaults = ref.watch(wakePlanDefaultsProvider);
+    _logProviderError('Wake plans', wakePlans);
+    _logProviderError('Wake plan defaults', defaults);
     final currentWakePlans = wakePlans.hasValue
         ? wakePlans.requireValue
         : const <WakePlan>[];
@@ -91,6 +93,13 @@ class WeekCalendarPlaceholder extends ConsumerWidget {
             );
           },
         ),
+        if (wakePlans.hasError || defaults.hasError) ...[
+          const SizedBox(height: 8),
+          Text(
+            _loadErrorText(wakePlans: wakePlans, defaults: defaults),
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ],
       ],
     );
   }
@@ -126,7 +135,9 @@ class WeekCalendarPlaceholder extends ConsumerWidget {
           existingWakePlans: existingWakePlans,
           onSave: (plan) async {
             final result = await service.createPlan(plan);
-            ref.invalidate(weekCalendarWakePlansProvider);
+            if (result.isSuccess) {
+              ref.invalidate(weekCalendarWakePlansProvider);
+            }
             return result;
           },
         );
@@ -151,7 +162,28 @@ Future<QueryExecutor> openWakePlanDatabase(String name) async {
     return NativeDatabase.createInBackground(
       File(p.join(directory.path, name)),
     );
-  } on MissingPluginException {
+  } on MissingPluginException catch (error) {
+    debugPrint('Falling back to in-memory wake plan database: $error');
     return NativeDatabase.memory();
   }
+}
+
+void _logProviderError<T>(String label, AsyncValue<T> value) {
+  if (!value.hasError) {
+    return;
+  }
+  debugPrint('$label provider failed: ${value.error}');
+}
+
+String _loadErrorText({
+  required AsyncValue<List<WakePlan>> wakePlans,
+  required AsyncValue<AppSettings> defaults,
+}) {
+  if (wakePlans.hasError && defaults.hasError) {
+    return 'Could not load wake plans or defaults.';
+  }
+  if (wakePlans.hasError) {
+    return 'Could not load wake plans.';
+  }
+  return 'Could not load wake defaults.';
 }

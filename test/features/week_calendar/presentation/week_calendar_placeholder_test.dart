@@ -1,8 +1,10 @@
 import 'package:calarm/core/time/time.dart';
+import 'package:calarm/features/settings/application/wake_plan_defaults_controller.dart';
 import 'package:calarm/features/week_calendar/presentation/week_calendar_placeholder.dart';
 import 'package:calarm/features/wake_plan/data/wake_plan_data.dart';
 import 'package:calarm/features/wake_plan/domain/wake_plan_domain.dart';
 import 'package:drift/native.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -44,6 +46,33 @@ void main() {
       expect(plans.map((plan) => plan.id), contains('next-week'));
     },
   );
+
+  testWidgets('surfaces provider load errors instead of silent fallback', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          weekCalendarRepositoryProvider.overrideWith((ref) async {
+            throw StateError('database unavailable');
+          }),
+          wakePlanDefaultsRepositoryProvider.overrideWith((ref) async {
+            throw StateError('defaults unavailable');
+          }),
+          weekCalendarClockProvider.overrideWith(
+            (ref) =>
+                () => DateTime(2026, 7, 8, 5, 30),
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: WeekCalendarPlaceholder()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Could not load wake plans or defaults.'), findsOneWidget);
+  });
 }
 
 WakePlan _plan({required String id, required CalendarDay targetDay}) {
