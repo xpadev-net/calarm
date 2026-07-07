@@ -110,7 +110,7 @@
 - Wave 6: [Domain and Gateway Contracts](../completed/wake-alarm-mvp-wave-06-domain-gateway-contracts-plan.md)
 - Wave 7: [Planner, Repository, and MethodChannel Wiring](../completed/wake-alarm-mvp-wave-07-planner-repository-channel-plan.md)
 - Wave 8: [Scheduling, Native Bridges, and Calendar Core](../completed/wake-alarm-mvp-wave-08-scheduling-native-calendar-plan.md)
-- Wave 9: [Calendar Rendering and Settings Defaults](wake-alarm-mvp-wave-09-rendering-settings-plan.md)
+- Wave 9: [Calendar Rendering and Settings Defaults](../completed/wake-alarm-mvp-wave-09-rendering-settings-plan.md)
 - Wave 10: [Create Wake Plan Flow](wake-alarm-mvp-wave-10-create-flow-plan.md)
 - Wave 11: [Edit, Ringing, and Health Checks](wake-alarm-mvp-wave-11-edit-ringing-health-plan.md)
 - Wave 12: [Repeating Plans and Skip Next](wake-alarm-mvp-wave-12-repeat-skip-plan.md)
@@ -152,7 +152,7 @@ Interpretation:
 - Wave 6 (parallel): [../completed/wake-alarm-mvp-wave-06-domain-gateway-contracts-plan.md]
 - Wave 7 (parallel): [../completed/wake-alarm-mvp-wave-07-planner-repository-channel-plan.md]
 - Wave 8 (parallel): [../completed/wake-alarm-mvp-wave-08-scheduling-native-calendar-plan.md]
-- Wave 9 (parallel): [wake-alarm-mvp-wave-09-rendering-settings-plan.md]
+- Wave 9 (parallel): [../completed/wake-alarm-mvp-wave-09-rendering-settings-plan.md]
 - Wave 10 (parallel): [wake-alarm-mvp-wave-10-create-flow-plan.md]
 - Wave 11 (parallel): [wake-alarm-mvp-wave-11-edit-ringing-health-plan.md]
 - Wave 12 (parallel): [wake-alarm-mvp-wave-12-repeat-skip-plan.md]
@@ -171,6 +171,12 @@ Interpretation:
   - Summary: PR #19 `Render wake plan blocks on week calendar` was squash-merged with merge commit `bcb6cbf2198c7bdfab0451f694df10cdaa0b69fd`.
   - Orchestrator validation: PR metadata/diff/current head inspected; deep-review common/UI/tests pass found no blocker; `rtk gh-review-hook 19` exited 0; `rtk flutter test test/features/week_calendar`, `rtk flutter analyze`, and `rtk git diff --check` passed in the Task_1 worktree.
   - Worker lifecycle: Task_1 worker thread `019f3c69-4922-7da2-a08a-c36f5b60a68e` archived after merge. Task_2 PR #20 remains active in worker hook iteration.
+
+- 2026-07-07 Wave 9 Task_2 Settings Defaults merged; Wave 9 completed.
+  - Summary: PR #20 `Add settings defaults controls` was squash-merged with merge commit `d65f7c95740bec87f22329887b3807c26daf3abd`.
+  - Orchestrator validation: PR metadata/diff/current head inspected; deep-review common/UI/data-store/tests pass found no blocker; `rtk gh-review-hook 20` exited 0; `rtk flutter test test/features/settings test/features/wake_plan`, `rtk flutter analyze`, and `rtk git diff --check` passed in the Task_2 worktree.
+  - Worker lifecycle: Task_2 worker thread `019f3c69-81a4-7a72-bed9-6c2fbb67d5c2` archived after merge. Wave 9 child plan moved to `docs/coding-agent/plans/completed/`.
+  - Next action: start Wave 10 Create Wake Plan Flow as a Codex thread/worktree worker.
 
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.

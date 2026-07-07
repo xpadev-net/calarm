@@ -1,6 +1,6 @@
 # Plan: Wake Alarm MVP Wave 9 - Calendar Rendering and Settings Defaults
 
-- status: in progress
+- status: completed
 - generated: 2026-07-05
 - last_updated: 2026-07-07
 - work_type: code
@@ -146,6 +146,14 @@
   - E2E/visual note: no seeded runnable week-calendar route/harness was available for browser screenshots; compact geometry is covered by widget assertions. Runtime device validation remains outside Wave 9.
 - 2026-07-07 Task_2 worker thread `019f3c69-81a4-7a72-bed9-6c2fbb67d5c2` remains active on PR #20 follow-up.
   - Current state observed: worker fixed `gh-review-hook` findings, branch is ahead locally, and final validation/push/hook loop is still in progress.
+- 2026-07-07 Task_2 PR #20 merged.
+  - Merge commit: `d65f7c95740bec87f22329887b3807c26daf3abd`.
+  - Worker head: `d96f7129b6d38599c7281c1b33b6b5f090928d88`; worker thread `019f3c69-81a4-7a72-bed9-6c2fbb67d5c2` archived after merge.
+  - Worker fix: settings defaults UI/provider/repository support added with invalid stored value fallback, serialized saves, save-failure UI, and create-flow-facing defaults API.
+  - Orchestrator gate: inspected PR metadata/diff/current head, ran deep-review common/UI/data-store/tests pass with no blocker found, ran `rtk gh-review-hook 20` exit 0, and reran `rtk flutter test test/features/settings test/features/wake_plan`, `rtk flutter analyze`, and `rtk git diff --check` in the Task_2 worktree.
+  - E2E/visual note: worker captured widget PNG evidence for settings defaults at 390x844 and 430x932 under `/tmp/calarm-wave-09-settings-defaults-evidence/`; no Flutter web target exists for browser screenshots.
+- 2026-07-07 Wave 9 completed.
+  - Task_1 PR #19 and Task_2 PR #20 are merged with orchestrator-owned gates complete.
 
 - 2026-07-05 Draft created.
 
