@@ -216,6 +216,12 @@
   - Worker lifecycle: Task_1 worker thread `019f3cef-a1a8-7522-b687-52694fbf8947` was archived after merge.
   - Next action: continue monitoring Task_2 PR #23. Task_3 remains deferred until Task_2 native ownership is merged or safely split.
 
+- 2026-07-08 Wave 11 Task_2 Alarm Ringing UI and Dismiss Flow returned to worker after orchestrator merge gate.
+  - Summary: Task_2 worker reported PR #23 merge-ready at head `ab4505bebf8686fc6a696e8fb79570e52f2b415f`; orchestrator inspected PR metadata/diff/current head, ran deep-review common/UI/tests/integrations review, `rtk flutter test test/features/alarm_ringing`, `rtk flutter analyze`, `rtk git diff --check origin/master...HEAD`, `rtk flutter build apk --debug`, and `rtk gh-review-hook 23`.
+  - Gate result: `rtk gh-review-hook 23` exited nonzero after Greptile completed with two in-scope findings: `_stopCurrentAlarm` must recover if `onStop` throws, and `_selectActiveOccurrence` must pick the earliest past-due scheduled occurrence instead of the latest.
+  - Action: PR #23 was converted back to draft, and worker thread `019f3cef-a1a8-7522-b687-5254531ff2b0` was instructed to fix only those findings, rerun required validation and hook, and report merge-ready again.
+  - Runtime note: iOS 26+/Android API 36 real-device stop evidence remains BLOCKED/release-blocking; CI simulator/emulator evidence remains NEAR_DEVICE only.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-07-06 Decision: Runtime stop and permission evidence remains release-blocking.
