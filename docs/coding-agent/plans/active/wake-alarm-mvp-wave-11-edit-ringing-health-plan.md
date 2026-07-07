@@ -1,8 +1,8 @@
 # Plan: Wake Alarm MVP Wave 11 - Edit, Ringing, and Health Checks
 
-- status: draft
+- status: in progress
 - generated: 2026-07-05
-- last_updated: 2026-07-06
+- last_updated: 2026-07-07
 - work_type: code
 
 ## Goal
@@ -199,6 +199,13 @@
   - PASS/BLOCKED QA evidence rows are required even when device execution is unavailable.
 
 - 2026-07-05 Draft created.
+- 2026-07-07 Wave 11 Task_1 and Task_2 delegated to Codex thread/worktree workers.
+  - Task_1 Detail, Edit, and Delete Flow pending worktree: `local:0b418590-5b9f-4bf7-9ea2-5d1e5f11ba52`; branch `codex/wave-11-detail-edit-delete`.
+  - Task_2 Alarm Ringing UI and Dismiss Flow pending worktree: `local:1b45c1de-9357-4405-9010-75016431a711`; branch `codex/wave-11-alarm-ringing-dismiss`.
+  - Worker type: Codex thread/worktree, not multi-agent subagent.
+  - Merge gate: workers must provide required tests, analyzer/diff checks, self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
+  - Task_3 Test Alarm and Health Checks is intentionally not started yet because it overlaps Task_2 ownership in `ios/**` and `android/**`; start it after Task_2 merges or after a replan narrows non-overlapping native ownership.
+  - Runtime note: iOS 26+/Android API 36 real-device alarm validation remains user-deferred/unapproved; runtime rows must be PASS only with actual evidence or BLOCKED when unavailable.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
@@ -213,6 +220,12 @@
   - Plan delta (what changed): Wave 11をoperational correctness waveにした。
   - Tradeoffs considered: Native file overlapがあるためparallel workers must coordinate through MethodChannel contract and checklist sections.
   - User approval: pending.
+
+- 2026-07-07 Decision: Stagger Task_3 until Task_2 native ownership is clear.
+  - Trigger / new insight: Task_2 and Task_3 both own `ios/**` and `android/**`, so starting both immediately would create high-conflict native bridge edits.
+  - Plan delta (what changed): Start Task_1 and Task_2 now; defer Task_3 until Task_2 merges or a follow-up replan splits native ownership safely.
+  - Tradeoffs considered: This reduces parallelism but protects merge safety and review clarity.
+  - User approval: orchestrator-owned dependency adjustment under the existing parent instruction to continue through the plan.
 
 - 2026-07-05 Decision: Require Android fallback UI and 1-minute test alarms.
   - Trigger / new insight: User accepted the recommended decisions except for explicitly overridden calendar/tap behavior.
