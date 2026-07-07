@@ -301,6 +301,14 @@
 
 ## Progress Log (append-only)
 
+- 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
+  - PR: #17 `Add native smoke CI harness`, branch `codex/wave-08-ci-native-smoke`, final head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43`.
+  - Merge commit: `3ca67898e7f8700d2138ca5775ffe1de62933744`, merged at `2026-07-07T11:02:37Z` by user after they reviewed the remaining state and decided it was acceptable.
+  - Validation evidence at merge: GitHub `Format, analyze, and test`, `Android emulator native smoke`, `iOS simulator native smoke`, Greptile Review, Socket Project Report, and Socket Pull Request Alerts were successful; worker evidence on the same head reported workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed.
+  - Review-hook note: worker `rtk gh-review-hook 17` on final head timed out only because CodeRabbit remained `PENDING`; CodeRabbit was still pending at merge time and this was accepted by explicit user decision rather than an orchestrator-owned full merge gate.
+  - Runtime status: CI simulator/emulator evidence remains NEAR_DEVICE/BLOCKED only and does not approve deferred iOS 26+/Android API 36 real-device release gates.
+  - Next action: start Task_6 whole-codebase Wave 8 closeout review/fix loop on `master`.
+
 - 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness waiting on external PR review check.
   - PR: #17 `Add native smoke CI harness`, branch `codex/wave-08-ci-native-smoke`, current head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43`.
   - Worker evidence on current head: workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed; GitHub Baseline CI run `28790906962`, Native Smoke CI run `28790906964`, Greptile, and Socket checks passed; final run-log scans found no `actions/cache`, `actions/cache@`, or `subosito/flutter-action`.

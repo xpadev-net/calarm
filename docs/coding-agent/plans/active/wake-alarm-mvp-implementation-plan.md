@@ -167,6 +167,13 @@ Interpretation:
 
 ## Progress Log (append-only)
 
+- 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
+  - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
+  - Validation evidence: GitHub `Format, analyze, and test`, `Android emulator native smoke`, `iOS simulator native smoke`, Greptile Review, Socket Project Report, and Socket Pull Request Alerts were successful; worker evidence on the same head reported workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed.
+  - Merge-gate note: CodeRabbit remained `PENDING`, so worker `rtk gh-review-hook 17` could not exit 0; this was accepted by explicit user decision rather than orchestrator-owned full merge gate completion.
+  - Runtime status: CI simulator/emulator evidence remains NEAR_DEVICE/BLOCKED only and does not approve deferred iOS 26+/Android API 36 real-device release gates.
+  - Next action: proceed to Wave 8 Task_6 whole-codebase closeout review/fix loop on `master`.
+
 - 2026-07-06 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness waiting on CodeRabbit.
   - Summary: PR #17 `Add native smoke CI harness` is at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43`; worker validation and GitHub Baseline CI/Native Smoke CI/Greptile/Socket evidence passed, but worker `rtk gh-review-hook 17` timed out because CodeRabbit remains pending.
   - Orchestrator state: PR #17 is open/non-draft with merge state `UNSTABLE`; no merge is permitted until CodeRabbit completes and worker-side final `rtk gh-review-hook 17` exits 0 on the final reviewed head.
