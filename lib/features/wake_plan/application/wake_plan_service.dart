@@ -98,12 +98,17 @@ class WakePlanService {
       );
     }
 
-    return _generateAndSchedule(
+    final scheduleResult = await _generateAndSchedule(
       plan: pendingPlan,
       now: now,
       changeState: WakePlanChangeState.committed,
       cancelResult: cancelResult.cancelResult,
     );
+    if (scheduleResult.status == WakePlanSchedulingStatus.scheduleFailed &&
+        previousPlan != null) {
+      await _store.saveWakePlan(previousPlan.copyWith(updatedAt: now));
+    }
+    return scheduleResult;
   }
 
   Future<WakePlanSchedulingResult> deletePlan(String wakePlanId) async {
