@@ -118,6 +118,10 @@
   - Task_1 Create Wake Plan Flow pending worktree: `local:2f8ac276-c4df-4e8b-9c27-290b3745d83b`; branch `codex/wave-10-create-flow`.
   - Validation gate: worker must return a merge-ready PR with required focused tests, analyzer, diff check, self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
   - Runtime note: iOS 26+/Android API 36 real-device alarm validation remains user-deferred/unapproved; any simulator/emulator evidence is NEAR_DEVICE or BLOCKED only.
+- 2026-07-07 Task_1 PR #21 returned merge-ready, then failed orchestrator merge gate after ready-for-review conversion.
+  - Worker evidence on head `47176cff9a8a156135e63da39eb3dc18b503548b`: focused tests, full `rtk flutter test`, analyzer, diff check, independent review, and worker `rtk gh-review-hook 21` passed.
+  - Orchestrator evidence: PR metadata/diff/current head inspected; deep-review common/UI/tests/data-store references consulted; `rtk flutter test test/features/wake_plan/ui test/features/week_calendar`, `rtk flutter analyze`, and `rtk git diff --check` passed in the worker worktree.
+  - Gate result: after marking PR #21 ready, orchestrator `rtk gh-review-hook 21` exited 2 with Greptile findings around overlap-warning coverage, exception/provider error visibility, and database fallback diagnostics. The PR was not merged; the worker thread was instructed to verify/fix in scope and rerun validation/hook.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
