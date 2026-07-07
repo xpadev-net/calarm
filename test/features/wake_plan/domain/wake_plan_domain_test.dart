@@ -83,7 +83,6 @@ void main() {
     test('represents enabled, deleted, and skip-next-date semantics', () {
       final weekly = buildPlan(
         repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
-        status: WakePlanStatus.skipped,
         skipNextDate: monday,
       );
       final deleted = weekly.copyWith(
@@ -93,7 +92,7 @@ void main() {
       );
 
       expect(weekly.isEnabled, isTrue);
-      expect(weekly.status, WakePlanStatus.skipped);
+      expect(weekly.status, WakePlanStatus.scheduled);
       expect(weekly.hasSkippedNextDate, isTrue);
       expect(weekly.occursOn(monday), isFalse);
       expect(weekly.occursOn(tuesday), isTrue);
@@ -125,12 +124,16 @@ void main() {
       },
     );
 
-    test('enforces skipped status and skip-next-date consistency', () {
+    test('allows skip-next-date on scheduled plans only while not deleted', () {
+      expect(buildPlan(skipNextDate: monday).skipNextDate, monday);
       expect(
-        () => buildPlan(status: WakePlanStatus.skipped),
+        () => buildPlan(
+          status: WakePlanStatus.deleted,
+          isEnabled: false,
+          skipNextDate: monday,
+        ),
         throwsArgumentError,
       );
-      expect(() => buildPlan(skipNextDate: monday), throwsArgumentError);
     });
 
     test('requires deleted plans to be disabled', () {

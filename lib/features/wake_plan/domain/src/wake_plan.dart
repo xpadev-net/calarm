@@ -38,18 +38,11 @@ class WakePlan {
         'deleted plans must not be enabled',
       );
     }
-    if (status == WakePlanStatus.skipped && skipNextDate == null) {
-      throw ArgumentError.value(
-        status,
-        'status',
-        'skipped plans must include skipNextDate',
-      );
-    }
-    if (status != WakePlanStatus.skipped && skipNextDate != null) {
+    if (status == WakePlanStatus.deleted && skipNextDate != null) {
       throw ArgumentError.value(
         skipNextDate,
         'skipNextDate',
-        'is only valid when status is skipped',
+        'deleted plans must not include skipNextDate',
       );
     }
 

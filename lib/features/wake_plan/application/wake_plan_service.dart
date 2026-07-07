@@ -155,13 +155,32 @@ class WakePlanService {
     );
   }
 
-  Future<WakePlanSchedulingResult> skipNextOccurrence({
-    required WakePlan wakePlan,
-    required CalendarDay skipDate,
-  }) {
-    return editPlan(
-      wakePlan.copyWith(status: WakePlanStatus.skipped, skipNextDate: skipDate),
-    );
+  Future<WakePlanSchedulingResult> skipNextOccurrence(WakePlan wakePlan) {
+    if (wakePlan.repeatRule.type == RepeatType.oneTime) {
+      return Future.value(
+        _emptyResult(
+          wakePlanId: wakePlan.id,
+          status: WakePlanSchedulingStatus.scheduled,
+        ),
+      );
+    }
+
+    final now = _clock();
+    final skipDate = nextWakePlanTargetDay(plan: wakePlan, now: now);
+    if (skipDate == null) {
+      return Future.value(
+        _emptyResult(
+          wakePlanId: wakePlan.id,
+          status: WakePlanSchedulingStatus.scheduled,
+        ),
+      );
+    }
+
+    return editPlan(wakePlan.copyWith(skipNextDate: skipDate));
+  }
+
+  Future<WakePlanSchedulingResult> undoSkipNextOccurrence(WakePlan wakePlan) {
+    return editPlan(wakePlan.copyWith(skipNextDate: null));
   }
 
   Future<WakePlanSchedulingResult> _generateAndSchedule({
@@ -437,6 +456,41 @@ class WakePlanService {
     await _store.saveAlarmOccurrences(recoveredOccurrences);
     return recoveredOccurrences;
   }
+}
+
+WakePlanSchedulingResult _emptyResult({
+  required String wakePlanId,
+  required WakePlanSchedulingStatus status,
+}) {
+  return WakePlanSchedulingResult(
+    wakePlanId: wakePlanId,
+    status: status,
+    changeState: WakePlanChangeState.committed,
+    scheduleResult: ScheduleResult.fromRequestResults(
+      requests: const [],
+      results: const [],
+    ),
+    occurrences: const [],
+  );
+}
+
+CalendarDay? nextWakePlanTargetDay({
+  required WakePlan plan,
+  required DateTime now,
+}) {
+  final today = CalendarDay.fromDateTime(now);
+  for (var offset = 0; offset <= 370; offset += 1) {
+    final day = today.addDays(offset);
+    if (!plan.occursOn(day)) {
+      continue;
+    }
+    if (plan.targetAt(day).isBefore(now)) {
+      continue;
+    }
+    return day;
+  }
+
+  return null;
 }
 
 abstract class WakePlanServiceStore {

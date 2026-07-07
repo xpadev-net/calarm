@@ -35,8 +35,8 @@ class CreateWakePlanSheet extends StatefulWidget {
 class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
   late Duration _startOffset;
   late Duration _interval;
-  late RepeatType _initialRepeatType;
-  late RepeatType _repeatType;
+  late _RepeatOption _repeatOption;
+  late Set<Weekday> _selectedWeekdays;
   late TimeOfDayMinutes _targetTime;
   late String _soundId;
   late bool _vibrationEnabled;
@@ -51,7 +51,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
   DateTime get _currentNow => widget.clock?.call() ?? DateTime.now();
 
   bool get _canProduceFutureSchedule {
-    if (_repeatType == RepeatType.weekly) {
+    if (_repeatOption != _RepeatOption.oneTime) {
       return true;
     }
     return _targetAt.isAfter(_currentNow);
@@ -64,9 +64,14 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
     _startOffset =
         existingWakePlan?.startOffset ?? widget.defaults.defaultStartOffset;
     _interval = existingWakePlan?.interval ?? widget.defaults.defaultInterval;
-    _repeatType =
-        existingWakePlan?.repeatRule.type ?? widget.defaults.defaultRepeatType;
-    _initialRepeatType = _repeatType;
+    _repeatOption = _initialRepeatOption(
+      existingWakePlan?.repeatRule,
+      widget.defaults,
+    );
+    _selectedWeekdays = _initialWeekdays(existingWakePlan?.repeatRule);
+    if (_repeatOption == _RepeatOption.custom && _selectedWeekdays.isEmpty) {
+      _selectedWeekdays = {Weekday.fromDateTimeValue(_targetDay.weekday)};
+    }
     _targetTime = existingWakePlan?.targetTime ?? widget.initialTarget.time;
     _soundId = existingWakePlan?.soundId ?? widget.defaults.defaultSoundId;
     _vibrationEnabled =
@@ -149,24 +154,57 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
                 onChanged: (value) => setState(() => _interval = value),
               ),
               const SizedBox(height: 12),
-              SegmentedButton<RepeatType>(
-                segments: const [
-                  ButtonSegment(
-                    value: RepeatType.oneTime,
-                    label: Text('No repeat'),
-                    icon: Icon(Icons.today),
+              DropdownButtonFormField<_RepeatOption>(
+                key: ValueKey(_repeatOption),
+                initialValue: _repeatOption,
+                decoration: const InputDecoration(labelText: 'Repeat'),
+                items: const [
+                  DropdownMenuItem(
+                    value: _RepeatOption.oneTime,
+                    child: Text('No repeat'),
                   ),
-                  ButtonSegment(
-                    value: RepeatType.weekly,
-                    label: Text('Weekly'),
-                    icon: Icon(Icons.repeat),
+                  DropdownMenuItem(
+                    value: _RepeatOption.daily,
+                    child: Text('Daily'),
+                  ),
+                  DropdownMenuItem(
+                    value: _RepeatOption.weekdays,
+                    child: Text('Weekdays'),
+                  ),
+                  DropdownMenuItem(
+                    value: _RepeatOption.weekends,
+                    child: Text('Weekends'),
+                  ),
+                  DropdownMenuItem(
+                    value: _RepeatOption.custom,
+                    child: Text('Choose weekdays'),
                   ),
                 ],
-                selected: {_repeatType},
-                onSelectionChanged: (selection) {
-                  setState(() => _repeatType = selection.single);
+                onChanged: (value) {
+                  if (value == null) {
+                    return;
+                  }
+                  setState(() {
+                    _repeatOption = value;
+                    if (value != _RepeatOption.custom) {
+                      _selectedWeekdays = _weekdaysForOption(value);
+                    } else if (_selectedWeekdays.isEmpty) {
+                      _selectedWeekdays = {
+                        Weekday.fromDateTimeValue(_targetDay.weekday),
+                      };
+                    }
+                  });
                 },
               ),
+              if (_repeatOption == _RepeatOption.custom) ...[
+                const SizedBox(height: 8),
+                _WeekdayChips(
+                  selected: _selectedWeekdays,
+                  onChanged: (weekdays) {
+                    setState(() => _selectedWeekdays = weekdays);
+                  },
+                ),
+              ],
               const SizedBox(height: 12),
               _PreviewCard(preview: preview),
               if (!_canProduceFutureSchedule) ...[
@@ -333,8 +371,8 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
       interval: _interval,
       repeatRule: repeatRule,
       isEnabled: existingWakePlan?.isEnabled ?? true,
-      status: existingWakePlan?.status ?? WakePlanStatus.scheduled,
-      skipNextDate: existingWakePlan?.skipNextDate,
+      status: _statusForEditedPlan(existingWakePlan),
+      skipNextDate: _skipDateForEditedPlan(existingWakePlan, repeatRule),
       soundId: _soundId,
       vibrationEnabled: _vibrationEnabled,
       createdAt: existingWakePlan?.createdAt ?? createdAt,
@@ -343,19 +381,37 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
   }
 
   RepeatRule _buildRepeatRule() {
-    switch (_repeatType) {
-      case RepeatType.oneTime:
+    switch (_repeatOption) {
+      case _RepeatOption.oneTime:
         return RepeatRule.oneTime(_targetDay);
-      case RepeatType.weekly:
-        final existingRepeatRule = widget.existingWakePlan?.repeatRule;
-        if (_initialRepeatType == RepeatType.weekly &&
-            existingRepeatRule?.type == RepeatType.weekly) {
-          return existingRepeatRule!;
-        }
-        return RepeatRule.weekly({
-          Weekday.fromDateTimeValue(_targetDay.weekday),
-        });
+      case _RepeatOption.daily:
+      case _RepeatOption.weekdays:
+      case _RepeatOption.weekends:
+        return RepeatRule.weekly(_weekdaysForOption(_repeatOption));
+      case _RepeatOption.custom:
+        return RepeatRule.weekly(_selectedWeekdays);
     }
+  }
+
+  WakePlanStatus _statusForEditedPlan(WakePlan? existingWakePlan) {
+    if (existingWakePlan == null) {
+      return WakePlanStatus.scheduled;
+    }
+    if (existingWakePlan.status == WakePlanStatus.skipped) {
+      return WakePlanStatus.scheduled;
+    }
+    return existingWakePlan.status;
+  }
+
+  CalendarDay? _skipDateForEditedPlan(
+    WakePlan? existingWakePlan,
+    RepeatRule repeatRule,
+  ) {
+    final skipNextDate = existingWakePlan?.skipNextDate;
+    if (skipNextDate == null || !repeatRule.includes(skipNextDate)) {
+      return null;
+    }
+    return skipNextDate;
   }
 
   Future<void> _pickTargetTime() async {
@@ -379,6 +435,105 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
 
   String _wakePlanId(DateTime createdAt) {
     return 'wake-${createdAt.microsecondsSinceEpoch}-${_targetAt.microsecondsSinceEpoch}';
+  }
+}
+
+enum _RepeatOption { oneTime, daily, weekdays, weekends, custom }
+
+_RepeatOption _initialRepeatOption(
+  RepeatRule? repeatRule,
+  AppSettings defaults,
+) {
+  if (repeatRule == null) {
+    return defaults.defaultRepeatType == RepeatType.weekly
+        ? _RepeatOption.custom
+        : _RepeatOption.oneTime;
+  }
+  if (repeatRule.type == RepeatType.oneTime) {
+    return _RepeatOption.oneTime;
+  }
+  final weekdays = repeatRule.weekdays;
+  if (_setEquals(weekdays, _dailyWeekdays)) {
+    return _RepeatOption.daily;
+  }
+  if (_setEquals(weekdays, _weekdayWeekdays)) {
+    return _RepeatOption.weekdays;
+  }
+  if (_setEquals(weekdays, _weekendWeekdays)) {
+    return _RepeatOption.weekends;
+  }
+  return _RepeatOption.custom;
+}
+
+Set<Weekday> _initialWeekdays(RepeatRule? repeatRule) {
+  if (repeatRule?.type == RepeatType.weekly) {
+    return Set.of(repeatRule!.weekdays);
+  }
+  return const {};
+}
+
+Set<Weekday> _weekdaysForOption(_RepeatOption option) {
+  return switch (option) {
+    _RepeatOption.oneTime => const {},
+    _RepeatOption.daily => Set.of(_dailyWeekdays),
+    _RepeatOption.weekdays => Set.of(_weekdayWeekdays),
+    _RepeatOption.weekends => Set.of(_weekendWeekdays),
+    _RepeatOption.custom => const {},
+  };
+}
+
+const Set<Weekday> _dailyWeekdays = {
+  Weekday.monday,
+  Weekday.tuesday,
+  Weekday.wednesday,
+  Weekday.thursday,
+  Weekday.friday,
+  Weekday.saturday,
+  Weekday.sunday,
+};
+
+const Set<Weekday> _weekdayWeekdays = {
+  Weekday.monday,
+  Weekday.tuesday,
+  Weekday.wednesday,
+  Weekday.thursday,
+  Weekday.friday,
+};
+
+const Set<Weekday> _weekendWeekdays = {Weekday.saturday, Weekday.sunday};
+
+bool _setEquals(Set<Weekday> left, Set<Weekday> right) {
+  return left.length == right.length && left.containsAll(right);
+}
+
+class _WeekdayChips extends StatelessWidget {
+  const _WeekdayChips({required this.selected, required this.onChanged});
+
+  final Set<Weekday> selected;
+  final ValueChanged<Set<Weekday>> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 4,
+      children: [
+        for (final weekday in Weekday.values)
+          FilterChip(
+            label: Text(_weekdayLabel(weekday)),
+            selected: selected.contains(weekday),
+            onSelected: (isSelected) {
+              final next = Set<Weekday>.of(selected);
+              if (isSelected) {
+                next.add(weekday);
+              } else if (next.length > 1) {
+                next.remove(weekday);
+              }
+              onChanged(next);
+            },
+          ),
+      ],
+    );
   }
 }
 
@@ -620,6 +775,18 @@ String _durationLabel(Duration duration) {
     return '$hours hr';
   }
   return '$hours hr $minutes min';
+}
+
+String _weekdayLabel(Weekday weekday) {
+  return switch (weekday) {
+    Weekday.monday => 'Mon',
+    Weekday.tuesday => 'Tue',
+    Weekday.wednesday => 'Wed',
+    Weekday.thursday => 'Thu',
+    Weekday.friday => 'Fri',
+    Weekday.saturday => 'Sat',
+    Weekday.sunday => 'Sun',
+  };
 }
 
 String _overlapWarningText(List<_WakePlanOverlap> overlaps) {

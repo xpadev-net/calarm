@@ -194,7 +194,6 @@ void main() {
       final result = planner.plan(
         wakePlan: buildPlan(
           repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
-          status: WakePlanStatus.skipped,
           skipNextDate: monday,
         ),
         startDay: monday,

@@ -32,11 +32,144 @@ void main() {
     expect(find.text('13 alarms'), findsNWidgets(2));
     expect(find.text('Default sound'), findsNothing);
 
+    await tester.ensureVisible(find.text('Sound and vibration'));
     await tester.tap(find.text('Sound and vibration'));
     await tester.pumpAndSettle();
 
     expect(find.text('Default sound'), findsOneWidget);
     expect(find.text('Vibration'), findsOneWidget);
+  });
+
+  testWidgets('creates an arbitrary weekly repeat from selected weekdays', (
+    tester,
+  ) async {
+    WakePlan? savedPlan;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CreateWakePlanSheet(
+            initialTarget: _target(),
+            now: DateTime(2026, 7, 8, 5, 30),
+            clock: () => DateTime(2026, 7, 8, 5, 30),
+            defaults: AppSettings.initial(),
+            existingWakePlans: const [],
+            onSave: (plan) async {
+              savedPlan = plan;
+              return _failureResult();
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('No repeat'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Choose weekdays').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Fri'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(
+      savedPlan?.repeatRule,
+      RepeatRule.weekly({Weekday.wednesday, Weekday.friday}),
+    );
+  });
+
+  testWidgets('creates daily, weekday, and weekend repeat presets', (
+    tester,
+  ) async {
+    final savedPlans = <WakePlan>[];
+
+    Future<void> pumpForPreset(String label) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          key: UniqueKey(),
+          home: Scaffold(
+            body: CreateWakePlanSheet(
+              initialTarget: _target(),
+              now: DateTime(2026, 7, 8, 5, 30),
+              clock: () => DateTime(2026, 7, 8, 5, 30),
+              defaults: AppSettings.initial(),
+              existingWakePlans: const [],
+              onSave: (plan) async {
+                savedPlans.add(plan);
+                return _failureResult();
+              },
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('No repeat'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(label).last);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Save'));
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+    }
+
+    await pumpForPreset('Daily');
+    await pumpForPreset('Weekdays');
+    await pumpForPreset('Weekends');
+
+    expect(savedPlans[0].repeatRule.weekdays, Set.of(Weekday.values));
+    expect(savedPlans[1].repeatRule.weekdays, {
+      Weekday.monday,
+      Weekday.tuesday,
+      Weekday.wednesday,
+      Weekday.thursday,
+      Weekday.friday,
+    });
+    expect(savedPlans[2].repeatRule.weekdays, {
+      Weekday.saturday,
+      Weekday.sunday,
+    });
+  });
+
+  testWidgets('seeds default weekly repeat from the tapped target day', (
+    tester,
+  ) async {
+    WakePlan? savedPlan;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CreateWakePlanSheet(
+            initialTarget: _target(),
+            now: DateTime(2026, 7, 8, 5, 30),
+            clock: () => DateTime(2026, 7, 8, 5, 30),
+            defaults: AppSettings.initial().copyWith(
+              defaultRepeatType: RepeatType.weekly,
+            ),
+            existingWakePlans: const [],
+            onSave: (plan) async {
+              savedPlan = plan;
+              return _failureResult();
+            },
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Choose weekdays'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilterChip>(find.widgetWithText(FilterChip, 'Wed'))
+          .selected,
+      isTrue,
+    );
+
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(savedPlan?.repeatRule, RepeatRule.weekly({Weekday.wednesday}));
   });
 
   testWidgets('does not save a past concrete target', (tester) async {
