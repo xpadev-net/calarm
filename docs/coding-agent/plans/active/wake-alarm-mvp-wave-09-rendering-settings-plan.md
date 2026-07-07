@@ -1,8 +1,8 @@
 # Plan: Wake Alarm MVP Wave 9 - Calendar Rendering and Settings Defaults
 
-- status: draft
+- status: in progress
 - generated: 2026-07-05
-- last_updated: 2026-07-05
+- last_updated: 2026-07-07
 - work_type: code
 
 ## Goal
@@ -127,6 +127,12 @@
 - Wave 10 uses block rendering events and settings defaults for create sheet.
 
 ## Progress Log (append-only)
+
+- 2026-07-07 Wave 9 delegated.
+  - Task_1 Wake Plan Block Rendering worker: `019f3c67-326c-7b70-8115-3ef0f23ea2a5`; branch `codex/wave-09-block-rendering`; isolated worktree requested at `/Users/xpadev/IdeaProjects/calarm-worktrees/wave-09-block-rendering`.
+  - Task_2 Settings Defaults worker: `019f3c67-782e-7613-b8d3-e030be2a4562`; branch `codex/wave-09-settings-defaults`; isolated worktree requested at `/Users/xpadev/IdeaProjects/calarm-worktrees/wave-09-settings-defaults`.
+  - Validation gate: each worker must return a merge-ready PR with required tests, analyzer, diff check, self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
+  - Note: Wave 9 settings defaults expose create-flow consumption for Wave 10; full create sheet reflection is gated in Wave 10.
 
 - 2026-07-05 Draft created.
 
