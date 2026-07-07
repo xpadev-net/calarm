@@ -15,7 +15,9 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
 
       - name: Read Flutter version
         id: flutter-version
@@ -36,11 +38,23 @@ jobs:
           echo "Using Flutter ${version} from .fvmrc"
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ steps.flutter-version.outputs.version }}
-          channel: stable
-          cache: true
+        shell: bash
+        env:
+          FLUTTER_VERSION: ${{ steps.flutter-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${FLUTTER_VERSION}" =~ ^[0-9]+[.][0-9]+[.][0-9]+([-+][0-9A-Za-z._-]+)?$ ]]; then
+            echo "::error::.fvmrc Flutter version must be an exact semver tag"
+            exit 1
+          fi
+          flutter_root="${RUNNER_TOOL_CACHE}/flutter-${FLUTTER_VERSION}"
+          if [[ ! -x "${flutter_root}/bin/flutter" ]]; then
+            rm -rf "${flutter_root}"
+            git clone --depth 1 --branch "${FLUTTER_VERSION}" \
+              https://github.com/flutter/flutter.git "${flutter_root}"
+          fi
+          echo "${flutter_root}/bin" >> "${GITHUB_PATH}"
+          "${flutter_root}/bin/flutter" --version
 
       - name: Resolve dependencies
         shell: bash
@@ -69,7 +83,7 @@ jobs:
 
       - name: Upload validation logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: baseline-ci-logs
           path: artifacts/logs
