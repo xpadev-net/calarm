@@ -1,8 +1,8 @@
 # Plan: Wake Alarm MVP Wave 8 - Scheduling, Native Bridges, and Calendar Core
 
-- status: in progress
+- status: done
 - generated: 2026-07-05
-- last_updated: 2026-07-06
+- last_updated: 2026-07-07
 - work_type: code
 
 ## Goal
@@ -236,7 +236,7 @@
 ### Task_6: Wave 8 Whole Codebase Review and Fix Loop
 - type: review
 - owns:
-  - docs/coding-agent/plans/active/wake-alarm-mvp-wave-08-scheduling-native-calendar-plan.md
+  - docs/coding-agent/plans/completed/wake-alarm-mvp-wave-08-scheduling-native-calendar-plan.md
   - docs/coding-agent/plans/active/wake-alarm-mvp-implementation-plan.md
 - depends_on:
   - Task_1
@@ -412,6 +412,24 @@
 - 2026-07-06 Wave 8 codebase-wide closeout review added.
   - Summary: Added Task_6 so Wave 8 cannot close until the existing codebase receives an integrated review/fix loop after scheduling/native/calendar/CI smoke tasks land.
   - Impact: In-scope findings from the review must be fixed through worker PRs or explicitly deferred before moving the Wave 8 plan to `completed/`.
+
+- 2026-07-07 Wave 8 Task_6 closeout review found edit schedule-failure recovery gap.
+  - Finding: `WakePlanService.editPlan` restores the previous WakePlan when old-alarm cancellation fails, but if old native alarms are cancelled successfully and replacement scheduling then fails, the edited WakePlan remains persisted without a durable failed/pending state. This conflicts with the Wave 8 edit-order/recoverability acceptance.
+  - Action: Delegated a narrow fix to worker agent `019f3c45-17e0-7220-a6f2-3ce36049f9b6` on branch `codex/wave-08-task6-edit-schedule-failure`, owning `lib/features/wake_plan/application/wake_plan_service.dart` and `test/features/wake_plan/application/wake_plan_service_test.dart`.
+  - Required gate: Worker must add focused regression coverage, run focused service tests, analyzer, self-review, PR review hook, and return a merge-ready PR for orchestrator review before Wave 8 can close.
+  - Runtime status: iOS 26+ and Android API 36 real-device validation remains user-deferred and unapproved.
+
+- 2026-07-07 Wave 8 Task_6 delegated fix merged.
+  - Summary: PR #18 `Restore wake plan on edit schedule failure` was squash-merged, restoring the previous WakePlan when replacement scheduling fails after old alarms cancel and cleaning up partially scheduled replacement native alarms before rollback.
+  - Merge commit: `8c0eeecf9f5523b6f24cf39e9a4560878c7ea71b`.
+  - Validation evidence: Worker ran focused service tests, `rtk flutter analyze`, `rtk git diff --check`, deep-review self-review, and `rtk gh-review-hook 18`; orchestrator reran `rtk flutter test test/features/wake_plan/application/wake_plan_service_test.dart`, `rtk flutter analyze`, `rtk git diff --check origin/master...HEAD`, and `rtk gh-review-hook 18`, and all passed.
+  - Review evidence: CodeRabbit initially requested partial-failure cleanup coverage, the worker added it, CodeRabbit then approved, Greptile passed, and orchestrator reviewed the final diff and found no remaining in-scope findings.
+  - Runtime status: iOS 26+ and Android API 36 real-device validation remains user-deferred and unapproved.
+
+- 2026-07-07 Wave 8 Task_6 closeout review completed.
+  - Reviewed surfaces: WakePlan scheduling service and repository/domain interactions, MethodChannel schema/result contract, iOS AlarmKit bridge, Android AlarmManager bridge and restore path, week calendar interaction/UI core, baseline/native smoke workflows, integration smoke test, and QA docs.
+  - Result: No remaining in-scope findings after PR #18. Hosted CI simulator/emulator evidence remains NEAR_DEVICE or BLOCKED only; real-device runtime validation remains release-blocking and unapproved by design.
+  - Wave state: Wave 8 is complete and moved from `active/` to `completed/`.
 
 - 2026-07-06 Wave 8 Task_2 iOS AlarmKit Bridge merged.
   - Summary: PR #14 `Add iOS AlarmKit native bridge` was squash-merged, adding Swift AlarmKit MethodChannel bridge wiring for `net.xpadev.calarm/native_alarm`, schemaVersion 1 validation, capability/permission/schedule/cancel/test-alarm methods, and iOS QA checklist rows.

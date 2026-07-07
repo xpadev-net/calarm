@@ -2,7 +2,7 @@
 
 - status: in progress
 - generated: 2026-07-05
-- last_updated: 2026-07-06
+- last_updated: 2026-07-07
 - work_type: mixed
 
 ## Goal
@@ -109,7 +109,7 @@
 - Wave 5: [Time Foundation](../completed/wake-alarm-mvp-wave-05-time-foundation-plan.md)
 - Wave 6: [Domain and Gateway Contracts](../completed/wake-alarm-mvp-wave-06-domain-gateway-contracts-plan.md)
 - Wave 7: [Planner, Repository, and MethodChannel Wiring](../completed/wake-alarm-mvp-wave-07-planner-repository-channel-plan.md)
-- Wave 8: [Scheduling, Native Bridges, and Calendar Core](wake-alarm-mvp-wave-08-scheduling-native-calendar-plan.md)
+- Wave 8: [Scheduling, Native Bridges, and Calendar Core](../completed/wake-alarm-mvp-wave-08-scheduling-native-calendar-plan.md)
 - Wave 9: [Calendar Rendering and Settings Defaults](wake-alarm-mvp-wave-09-rendering-settings-plan.md)
 - Wave 10: [Create Wake Plan Flow](wake-alarm-mvp-wave-10-create-flow-plan.md)
 - Wave 11: [Edit, Ringing, and Health Checks](wake-alarm-mvp-wave-11-edit-ringing-health-plan.md)
@@ -151,7 +151,7 @@ Interpretation:
 - Wave 5 (parallel): [../completed/wake-alarm-mvp-wave-05-time-foundation-plan.md]
 - Wave 6 (parallel): [../completed/wake-alarm-mvp-wave-06-domain-gateway-contracts-plan.md]
 - Wave 7 (parallel): [../completed/wake-alarm-mvp-wave-07-planner-repository-channel-plan.md]
-- Wave 8 (parallel): [wake-alarm-mvp-wave-08-scheduling-native-calendar-plan.md]
+- Wave 8 (parallel): [../completed/wake-alarm-mvp-wave-08-scheduling-native-calendar-plan.md]
 - Wave 9 (parallel): [wake-alarm-mvp-wave-09-rendering-settings-plan.md]
 - Wave 10 (parallel): [wake-alarm-mvp-wave-10-create-flow-plan.md]
 - Wave 11 (parallel): [wake-alarm-mvp-wave-11-edit-ringing-health-plan.md]
@@ -458,6 +458,11 @@ Interpretation:
   - Summary: 元の24タスク計画を wave 単位の14個の独立プランへ分割し、親プランを目次と全体統制に変更した。
   - Validation evidence: 各子プランがGoal、Definition of Done、Task_X、Task Waves、validation、handoff、logsを持つ。
   - Notes: repo-specific rule suite was absent; validation was selected from project documents and general Flutter/native app expectations.
+
+- 2026-07-07 Wave 8 closeout review entered delegated fix loop.
+  - Summary: After Task_5 PR #17 was manually merged, Task_6 review found one in-scope scheduling-service recovery gap: edit replacement schedule failure after successful old-alarm cancellation can leave the edited WakePlan persisted without durable failed/pending state.
+  - Action: Delegated narrow fix to worker agent `019f3c45-17e0-7220-a6f2-3ce36049f9b6` on branch `codex/wave-08-task6-edit-schedule-failure`; Wave 8 remains active until the worker PR, required checks, independent review, and orchestrator merge gate pass.
+  - Runtime status: Real iOS 26+ and Android API 36 alarm validation remains deferred/unapproved and release-blocking.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
