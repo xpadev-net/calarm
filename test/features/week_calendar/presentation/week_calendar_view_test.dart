@@ -127,6 +127,68 @@ void main() {
     expect(selected!.targetDay, CalendarDay(year: 2026, month: 7, day: 8));
     expect(selected!.targetAt, DateTime(2026, 7, 8, 7));
   });
+
+  testWidgets('keeps three compact overlapping blocks inside their day lanes', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WeekCalendarView(
+            now: DateTime(2026, 7, 8, 7, 30),
+            initialWeek: WeekRange(
+              start: CalendarDay(year: 2026, month: 7, day: 6),
+            ),
+            wakePlans: [
+              buildPlan(
+                id: 'plan-1',
+                targetDay: CalendarDay(year: 2026, month: 7, day: 8),
+                targetTime: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+              ),
+              buildPlan(
+                id: 'plan-2',
+                targetDay: CalendarDay(year: 2026, month: 7, day: 8),
+                targetTime: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+              ),
+              buildPlan(
+                id: 'plan-3',
+                targetDay: CalendarDay(year: 2026, month: 7, day: 8),
+                targetTime: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    const timeAxisWidth = 52;
+    const dayWidth = (390 - timeAxisWidth) / DateTime.daysPerWeek;
+    final blockFinder = find.byWidgetPredicate((widget) {
+      final key = widget.key;
+      return widget is Material &&
+          key is ValueKey<String> &&
+          key.value.startsWith('week-calendar-wake-plan-block-');
+    });
+
+    expect(blockFinder, findsNWidgets(3));
+
+    final blockRects = [
+      for (var index = 0; index < 3; index++)
+        tester.getRect(blockFinder.at(index)),
+    ]..sort((left, right) => left.left.compareTo(right.left));
+
+    expect(blockRects[0].right, lessThanOrEqualTo(blockRects[1].left));
+    expect(blockRects[1].right, lessThanOrEqualTo(blockRects[2].left));
+    expect(
+      blockRects.last.right - blockRects.first.left,
+      lessThanOrEqualTo(dayWidth),
+    );
+  });
 }
 
 WakePlan buildPlan({

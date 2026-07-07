@@ -245,11 +245,15 @@ class _WakePlanBlock extends StatelessWidget {
     final left = (block.dayIndex * dayWidth) + (block.laneIndex * laneWidth);
     final top = block.topMinute * pixelsPerMinute;
     final height = block.durationMinutes * pixelsPerMinute;
+    final horizontalGap = laneWidth > (_gap * 2) ? _gap : laneWidth / 8;
+    final blockWidth = (laneWidth - (horizontalGap * 2))
+        .clamp(0, laneWidth)
+        .toDouble();
 
     return Positioned(
-      left: left + _gap,
+      left: left + horizontalGap,
       top: top + _gap,
-      width: (laneWidth - (_gap * 2)).clamp(18, double.infinity),
+      width: blockWidth,
       height: (height - (_gap * 2)).clamp(18, double.infinity),
       child: _WakePlanBlockCard(block: block, onTap: onTap),
     );
@@ -276,6 +280,10 @@ class _WakePlanBlockCard extends StatelessWidget {
       button: true,
       label: label,
       child: Material(
+        key: ValueKey(
+          'week-calendar-wake-plan-block-'
+          '${block.wakePlan.id}-${block.day}-${block.laneIndex}',
+        ),
         color: colorScheme.primaryContainer.withValues(alpha: 0.94),
         borderRadius: BorderRadius.circular(8),
         clipBehavior: Clip.antiAlias,
