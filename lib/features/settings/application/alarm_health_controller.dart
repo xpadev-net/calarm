@@ -41,14 +41,29 @@ class AlarmHealthController extends AsyncNotifier<AlarmHealthState> {
 
   Future<void> requestPermission() async {
     final gateway = ref.read(settingsNativeAlarmGatewayProvider);
+    final previous = state.value;
     final permissionResult = await gateway.requestPermission();
-    final capability = await gateway.getCapability();
+
+    var capability =
+        previous?.capability ??
+        const NativeAlarmCapability(
+          permissionStatus: NativeAlarmPermissionStatus.unknown,
+          canScheduleAlarms: false,
+          canRequestPermission: true,
+        );
+    try {
+      capability = await gateway.getCapability();
+    } on Object {
+      // The permission request result is authoritative for the user action.
+      // A follow-up refresh failure must not claim settings failed to open.
+    }
+
     state = AsyncData(
       AlarmHealthState(
         capability: capability,
         lastPermissionResult: permissionResult,
-        lastTestAlarmResult: state.value?.lastTestAlarmResult,
-        isSchedulingTestAlarm: state.value?.isSchedulingTestAlarm ?? false,
+        lastTestAlarmResult: previous?.lastTestAlarmResult,
+        isSchedulingTestAlarm: previous?.isSchedulingTestAlarm ?? false,
       ),
     );
   }

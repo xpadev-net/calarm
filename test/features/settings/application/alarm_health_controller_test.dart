@@ -138,6 +138,34 @@ void main() {
     expect(state.lastPermissionResult!.isGranted, isTrue);
     expect(state.warnings, isEmpty);
   });
+
+  test('preserves permission result when capability refresh fails', () async {
+    final flakyGateway = _CapabilityRefreshFailureGateway()
+      ..capability = const NativeAlarmCapability(
+        permissionStatus: NativeAlarmPermissionStatus.notDetermined,
+        canScheduleAlarms: false,
+        canRequestPermission: true,
+      )
+      ..permissionResult = const NativeAlarmPermissionResult(
+        status: NativeAlarmPermissionRequestStatus.granted,
+        permissionStatus: NativeAlarmPermissionStatus.authorized,
+      );
+    container.dispose();
+    container = ProviderContainer(
+      overrides: [
+        settingsNativeAlarmGatewayProvider.overrideWith((ref) => flakyGateway),
+      ],
+    );
+    final initial = await container.read(alarmHealthProvider.future);
+
+    flakyGateway.failCapabilityRefresh = true;
+    await container.read(alarmHealthProvider.notifier).requestPermission();
+
+    final state = container.read(alarmHealthProvider).value!;
+
+    expect(state.lastPermissionResult!.isGranted, isTrue);
+    expect(state.capability, same(initial.capability));
+  });
 }
 
 class _CapabilityRefreshFailureGateway extends FakeNativeAlarmGateway {
