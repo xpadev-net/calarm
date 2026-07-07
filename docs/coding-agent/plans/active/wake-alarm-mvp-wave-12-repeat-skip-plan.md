@@ -117,7 +117,7 @@
   - Repeat and skip implementation must use rolling concrete occurrence reservations as the authoritative schedule model.
 
 - 2026-07-08 Wave 12 Task_1 Repeating Plans and Skip Next UI delegated.
-  - Task_1 worker pending worktree: `local:7a8d44b5-90f1-428d-8ac7-bb20989d4ad7`; branch `codex/wave-12-repeat-skip`.
+  - Task_1 worker thread: `019f3dfb-00be-7151-ac16-a244ba445b26`; pending worktree `local:7a8d44b5-90f1-428d-8ac7-bb20989d4ad7`; worktree `/Users/xpadev/.codex/worktrees/5b1a/calarm`; branch `codex/wave-12-repeat-skip`.
   - Worker type: Codex thread/worktree, not multi-agent subagent.
   - Merge gate: worker must provide `rtk flutter test test/features/wake_plan`, analyzer/diff checks, focused repeat/skip validation, deep-review self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
   - Runtime note: skip/repeat native reservation effects must use concrete future occurrence cancel/recreate semantics. iOS 26+/Android API 36 real-device runtime validation remains user-deferred/unapproved unless explicitly provided.
