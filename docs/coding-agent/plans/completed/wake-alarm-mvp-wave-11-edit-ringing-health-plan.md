@@ -1,6 +1,6 @@
 # Plan: Wake Alarm MVP Wave 11 - Edit, Ringing, and Health Checks
 
-- status: in progress
+- status: done
 - generated: 2026-07-05
 - last_updated: 2026-07-08
 - work_type: code
@@ -242,6 +242,14 @@
   - Merge gate: worker must provide focused settings/platform tests, analyzer/diff checks, feasible native compile/static checks or exact blockers, deep-review self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
   - Runtime note: permission and test-alarm real-device rows must be PASS only with actual evidence or BLOCKED when unavailable.
   - Startup correction: worker initially stopped with a no-diff conclusion after seeing existing platform gateway/test-alarm contract pieces on `origin/master`; orchestrator checked `lib/features/settings/presentation/settings_placeholder.dart`, found no user-facing health-check/test-alarm flow, and sent a resume instruction to implement the missing Task_3 acceptance rather than stopping at setup.
+
+- 2026-07-08 Wave 11 Task_3 Test Alarm and Health Checks merged; Wave 11 completed.
+  - Summary: PR #24 `Add alarm health checks in settings` was merge-committed into `master` with merge commit `a67c4eb3ba1dafc95139d37a949f7c9a2c91f7a0`.
+  - Worker evidence: Task_3 worker thread `019f3d6d-5979-7160-a422-a98188fb4614` reported merge-ready on head `e7077d3525515de880385cd788594447afc2d69f` after implementing settings alarm readiness, 1-minute test alarm scheduling, Android notification-channel readiness checks, async refresh/result separation, unsupported-test-alarm guards, QA evidence rows, and regression tests. Worker validation included `rtk flutter test test/features/settings test/core/platform`, `rtk flutter analyze`, `rtk git diff --check`, `rtk flutter build apk --debug`, worker `rtk gh-review-hook 24` exit 0 after rerunning a timed-out iOS simulator native smoke job, and remote Android emulator/iOS simulator native smoke checks passing.
+  - Orchestrator merge gate: PR metadata/diff/current head inspected; deep-review common/UI/tests/integrations/event-driven review found no in-scope blocker; `rtk flutter test test/features/settings test/core/platform`, `rtk flutter analyze`, `rtk git diff --check origin/master...HEAD`, `rtk flutter build apk --debug`, and `rtk gh-review-hook 24` passed in the Task_3 worktree.
+  - Runtime evidence: settings/widget/controller coverage and CI Android emulator/iOS simulator native smoke passed as implementation/NEAR_DEVICE evidence. iOS 26+ real-device AlarmKit permission/test-alarm runtime and Android API 36 real-device exact-alarm/notification/full-screen/channel/test-alarm runtime remain BLOCKED/release-blocking because execution is user-deferred/unapproved.
+  - Worker lifecycle: Task_3 worker thread `019f3d6d-5979-7160-a422-a98188fb4614` is ready for archival after ledger update.
+  - Next action: move this child plan to `docs/coding-agent/plans/completed/` and start Wave 12 Repeating Plans and Skip Next as Codex thread/worktree worker(s).
 
 ## Decision Log (append-only; re-plans and major discoveries)
 

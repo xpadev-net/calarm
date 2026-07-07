@@ -112,7 +112,7 @@
 - Wave 8: [Scheduling, Native Bridges, and Calendar Core](../completed/wake-alarm-mvp-wave-08-scheduling-native-calendar-plan.md)
 - Wave 9: [Calendar Rendering and Settings Defaults](../completed/wake-alarm-mvp-wave-09-rendering-settings-plan.md)
 - Wave 10: [Create Wake Plan Flow](../completed/wake-alarm-mvp-wave-10-create-flow-plan.md)
-- Wave 11: [Edit, Ringing, and Health Checks](wake-alarm-mvp-wave-11-edit-ringing-health-plan.md)
+- Wave 11: [Edit, Ringing, and Health Checks](../completed/wake-alarm-mvp-wave-11-edit-ringing-health-plan.md)
 - Wave 12: [Repeating Plans and Skip Next](wake-alarm-mvp-wave-12-repeat-skip-plan.md)
 - Wave 13: [UI Harmonization and Accessibility](wake-alarm-mvp-wave-13-ui-harmonization-plan.md)
 - Wave 14: [MVP End-to-End QA and Release Readiness](wake-alarm-mvp-wave-14-mvp-qa-release-plan.md)
@@ -154,7 +154,7 @@ Interpretation:
 - Wave 8 (parallel): [../completed/wake-alarm-mvp-wave-08-scheduling-native-calendar-plan.md]
 - Wave 9 (parallel): [../completed/wake-alarm-mvp-wave-09-rendering-settings-plan.md]
 - Wave 10 (parallel): [../completed/wake-alarm-mvp-wave-10-create-flow-plan.md]
-- Wave 11 (parallel): [wake-alarm-mvp-wave-11-edit-ringing-health-plan.md]
+- Wave 11 (parallel): [../completed/wake-alarm-mvp-wave-11-edit-ringing-health-plan.md]
 - Wave 12 (parallel): [wake-alarm-mvp-wave-12-repeat-skip-plan.md]
 - Wave 13 (parallel): [wake-alarm-mvp-wave-13-ui-harmonization-plan.md]
 - Wave 14 (parallel): [wake-alarm-mvp-wave-14-mvp-qa-release-plan.md]
@@ -236,6 +236,14 @@ Interpretation:
   - Merge gate: worker must provide focused settings/platform tests, analyzer/diff checks, feasible native compile/static checks or exact blockers, deep-review self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
   - Runtime note: iOS 26+/Android API 36 real-device permission/test-alarm rows remain user-deferred/unapproved unless explicitly provided; missing real-device evidence must be BLOCKED, not PASS.
   - Startup correction: worker initially stopped with a no-diff conclusion after seeing existing platform gateway/test-alarm contract pieces on `origin/master`; orchestrator checked the settings UI and sent a resume instruction because the Task_3 user-facing health-check/test-alarm acceptance is not satisfied yet.
+
+- 2026-07-08 Wave 11 Task_3 Test Alarm and Health Checks merged; Wave 11 completed.
+  - Summary: PR #24 `Add alarm health checks in settings` was merge-committed with merge commit `a67c4eb3ba1dafc95139d37a949f7c9a2c91f7a0`.
+  - Orchestrator validation: PR metadata/diff/current head inspected; deep-review common/UI/tests/integrations/event-driven review found no in-scope blocker; `rtk gh-review-hook 24` exited 0; `rtk flutter test test/features/settings test/core/platform`, `rtk flutter analyze`, `rtk git diff --check origin/master...HEAD`, and `rtk flutter build apk --debug` passed in the Task_3 worktree.
+  - Worker evidence: Task_3 worker thread `019f3d6d-5979-7160-a422-a98188fb4614` reported required validation, scoped fixes for async health side effects and unsupported test-alarm action, CodeRabbit/Greptile approval, and worker `rtk gh-review-hook 24` exit 0 on head `e7077d3525515de880385cd788594447afc2d69f`.
+  - Runtime evidence: Android emulator native smoke and iOS simulator native smoke passed as NEAR_DEVICE evidence. iOS 26+ and Android API 36 real-device permission/test-alarm runtime validation remains BLOCKED/release-blocking because execution is user-deferred/unapproved.
+  - Worker lifecycle: Task_3 worker thread `019f3d6d-5979-7160-a422-a98188fb4614` archived after merge. Wave 11 child plan moved to `docs/coding-agent/plans/completed/`.
+  - Next action: start Wave 12 Repeating Plans and Skip Next as Codex thread/worktree worker(s).
 
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
