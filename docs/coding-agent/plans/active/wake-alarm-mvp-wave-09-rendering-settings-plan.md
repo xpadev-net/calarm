@@ -138,6 +138,12 @@
   - Parent validation: `rtk flutter test test/features/week_calendar`, `rtk flutter analyze`, and `rtk git diff --check` passed in the Task_1 worktree.
   - Blocker: compact mobile overlap review found `_WakePlanBlock` minimum-width clamping can exceed lane/day bounds with 3+ simultaneous overlapping Wake Plans, violating the overlap-readability acceptance.
   - Status: worker thread `019f3c69-4922-7da2-a08a-c36f5b60a68e` resumed with a narrow fix request; PR #19 not merged.
+- 2026-07-07 Task_1 PR #19 merged.
+  - Merge commit: `bcb6cbf2198c7bdfab0451f694df10cdaa0b69fd`.
+  - Worker head: `3e18d0e0ca4894255cf14b5251eec2d03db7d204`; worker thread `019f3c69-4922-7da2-a08a-c36f5b60a68e` archived after merge.
+  - Worker fix: compact WakePlan block widths are lane-bounded and covered by a 390x844 three-overlap widget regression.
+  - Orchestrator gate: inspected PR metadata/diff/current head, ran deep-review common/UI/tests pass with no blocker found, ran `rtk gh-review-hook 19` exit 0, and reran `rtk flutter test test/features/week_calendar`, `rtk flutter analyze`, and `rtk git diff --check` in the Task_1 worktree.
+  - E2E/visual note: no seeded runnable week-calendar route/harness was available for browser screenshots; compact geometry is covered by widget assertions. Runtime device validation remains outside Wave 9.
 - 2026-07-07 Task_2 worker thread `019f3c69-81a4-7a72-bed9-6c2fbb67d5c2` remains active on PR #20 follow-up.
   - Current state observed: worker fixed `gh-review-hook` findings, branch is ahead locally, and final validation/push/hook loop is still in progress.
 
