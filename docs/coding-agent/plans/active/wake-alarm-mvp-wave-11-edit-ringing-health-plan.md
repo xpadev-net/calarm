@@ -200,12 +200,13 @@
 
 - 2026-07-05 Draft created.
 - 2026-07-07 Wave 11 Task_1 and Task_2 delegated to Codex thread/worktree workers.
-  - Task_1 Detail, Edit, and Delete Flow pending worktree: `local:0b418590-5b9f-4bf7-9ea2-5d1e5f11ba52`; branch `codex/wave-11-detail-edit-delete`.
-  - Task_2 Alarm Ringing UI and Dismiss Flow pending worktree: `local:1b45c1de-9357-4405-9010-75016431a711`; branch `codex/wave-11-alarm-ringing-dismiss`.
+  - Task_1 Detail, Edit, and Delete Flow thread: `019f3cef-a1a8-7522-b687-52694fbf8947`; pending worktree `local:0b418590-5b9f-4bf7-9ea2-5d1e5f11ba52`; worktree `/Users/xpadev/.codex/worktrees/e3a0/calarm`; branch `codex/wave-11-detail-edit-delete`.
+  - Task_2 Alarm Ringing UI and Dismiss Flow thread: `019f3cef-a1a8-7522-b687-5254531ff2b0`; pending worktree `local:1b45c1de-9357-4405-9010-75016431a711`; worktree `/Users/xpadev/.codex/worktrees/7180/calarm`; branch `codex/wave-11-alarm-ringing-dismiss`.
   - Worker type: Codex thread/worktree, not multi-agent subagent.
   - Merge gate: workers must provide required tests, analyzer/diff checks, self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
   - Task_3 Test Alarm and Health Checks is intentionally not started yet because it overlaps Task_2 ownership in `ios/**` and `android/**`; start it after Task_2 merges or after a replan narrows non-overlapping native ownership.
   - Runtime note: iOS 26+/Android API 36 real-device alarm validation remains user-deferred/unapproved; runtime rows must be PASS only with actual evidence or BLOCKED when unavailable.
+  - Startup stability check: both Task_1 and Task_2 threads are active and past onboarding/setup; no resume instruction needed.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
