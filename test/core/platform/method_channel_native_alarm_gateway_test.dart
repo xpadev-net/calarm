@@ -35,6 +35,7 @@ void main() {
         'requiresExactAlarmPermission': true,
         'requiresNotificationPermission': true,
         'requiresFullScreenIntentPermission': false,
+        'requiresNotificationChannelSetup': true,
         'supportsTestAlarm': true,
       };
     });
@@ -48,6 +49,7 @@ void main() {
     expect(capability.requiresExactAlarmPermission, isTrue);
     expect(capability.requiresNotificationPermission, isTrue);
     expect(capability.requiresFullScreenIntentPermission, isFalse);
+    expect(capability.requiresNotificationChannelSetup, isTrue);
     expect(calls.single.method, 'getCapability');
   });
 

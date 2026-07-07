@@ -46,6 +46,7 @@ final class AlarmKitBridge {
       response["requiresExactAlarmPermission"] = false
       response["requiresNotificationPermission"] = false
       response["requiresFullScreenIntentPermission"] = false
+      response["requiresNotificationChannelSetup"] = false
       response["supportsTestAlarm"] = false
       return response
     }
@@ -58,6 +59,7 @@ final class AlarmKitBridge {
     response["requiresExactAlarmPermission"] = false
     response["requiresNotificationPermission"] = false
     response["requiresFullScreenIntentPermission"] = false
+    response["requiresNotificationChannelSetup"] = false
     response["supportsTestAlarm"] = true
     return response
   }

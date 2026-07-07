@@ -2,12 +2,14 @@ package dev.xpa.calarm
 
 import android.Manifest
 import android.app.AlarmManager
+import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -24,6 +26,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
     private val store = AlarmStore(appContext)
 
     fun register(binaryMessenger: BinaryMessenger) {
+        ensureAlarmNotificationChannel()
         MethodChannel(binaryMessenger, CHANNEL_NAME).setMethodCallHandler(this)
     }
 
@@ -48,15 +51,17 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         val canExact = canScheduleExactAlarms()
         val notificationsAllowed = notificationsAllowed()
         val fullScreenAllowed = canUseFullScreenIntent()
-        val canSchedule = canExact && notificationsAllowed && fullScreenAllowed
+        val notificationChannelReady = notificationChannelReady()
+        val canSchedule = canExact && notificationsAllowed && fullScreenAllowed && notificationChannelReady
         return mutableResponse(
             "permissionStatus" to if (canSchedule) "authorized" else "denied",
             "canScheduleAlarms" to canSchedule,
-            "canRequestPermission" to (!canExact || !notificationsAllowed || !fullScreenAllowed),
+            "canRequestPermission" to (!canExact || !notificationsAllowed || !fullScreenAllowed || !notificationChannelReady),
             "maxPendingAlarms" to null,
             "requiresExactAlarmPermission" to !canExact,
             "requiresNotificationPermission" to !notificationsAllowed,
             "requiresFullScreenIntentPermission" to !fullScreenAllowed,
+            "requiresNotificationChannelSetup" to !notificationChannelReady,
             "supportsTestAlarm" to true,
         )
     }
@@ -72,9 +77,14 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             appContext.startActivity(appDetailsSettingsIntent())
         } else if (!canUseFullScreenIntent() && Build.VERSION.SDK_INT >= 34) {
             appContext.startActivity(appDetailsSettingsIntent())
+        } else if (!notificationChannelReady() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            appContext.startActivity(appNotificationSettingsIntent())
         }
 
-        val canSchedule = canScheduleExactAlarms() && notificationsAllowed() && canUseFullScreenIntent()
+        val canSchedule = canScheduleExactAlarms() &&
+            notificationsAllowed() &&
+            canUseFullScreenIntent() &&
+            notificationChannelReady()
         return mutableResponse(
             "status" to if (canSchedule) "granted" else "denied",
             "permissionStatus" to if (canSchedule) "authorized" else "denied",
@@ -158,6 +168,14 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 request.wakePlanId,
                 "permissionMissing",
                 "Full-screen intent permission is not granted.",
+            )
+        }
+        if (!notificationChannelReady()) {
+            return scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "osConstraint",
+                "Wake alarm notification channel is disabled.",
             )
         }
         if (request.scheduledAtMillis <= System.currentTimeMillis()) {
@@ -255,9 +273,27 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         return Build.VERSION.SDK_INT < 34 || notificationManager.canUseFullScreenIntent()
     }
 
+    private fun notificationChannelReady(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
+        return notificationManager.getNotificationChannel(AlarmNotificationChannel.ID)?.importance != NotificationManager.IMPORTANCE_NONE
+    }
+
+    private fun ensureAlarmNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        notificationManager.createNotificationChannel(AlarmNotificationChannel.create())
+    }
+
     private fun appDetailsSettingsIntent(): Intent {
         return Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
             data = Uri.parse("package:${appContext.packageName}")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+
+    private fun appNotificationSettingsIntent(): Intent {
+        return Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+            putExtra(Settings.EXTRA_APP_PACKAGE, appContext.packageName)
+            putExtra(Settings.EXTRA_CHANNEL_ID, AlarmNotificationChannel.ID)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
     }
@@ -299,6 +335,22 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
     companion object {
         const val CHANNEL_NAME = "net.xpadev.calarm/native_alarm"
         const val SCHEMA_VERSION = 1
+        const val ALARM_CHANNEL_ID = AlarmNotificationChannel.ID
+    }
+}
+
+object AlarmNotificationChannel {
+    const val ID = "wake_alarms"
+
+    fun create(): NotificationChannel {
+        return NotificationChannel(
+            ID,
+            "Wake alarms",
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = "Calarm wake alarm alerts"
+            setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), null)
+        }
     }
 }
 

@@ -1,13 +1,11 @@
 package dev.xpa.calarm
 
 import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.media.RingtoneManager
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -23,21 +21,12 @@ class AlarmReceiver : BroadcastReceiver() {
     private fun showAlarmNotification(context: Context, platformAlarmId: String) {
         val notificationManager = context.getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            notificationManager.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ID,
-                    "Wake alarms",
-                    NotificationManager.IMPORTANCE_HIGH,
-                ).apply {
-                    description = "Calarm wake alarm alerts"
-                    setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), null)
-                },
-            )
+            notificationManager.createNotificationChannel(AlarmNotificationChannel.create())
         }
 
         val stopIntent = AlarmIntents.stopActivity(context, platformAlarmId)
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(context, CHANNEL_ID)
+            Notification.Builder(context, AlarmNotificationChannel.ID)
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(context)
@@ -70,9 +59,5 @@ class AlarmReceiver : BroadcastReceiver() {
             @Suppress("DEPRECATION")
             vibrator.vibrate(1_000)
         }
-    }
-
-    companion object {
-        private const val CHANNEL_ID = "wake_alarms"
     }
 }
