@@ -1,6 +1,11 @@
+import 'dart:async';
+
+import 'package:calarm/core/platform/fake_native_alarm_gateway.dart';
 import 'package:calarm/core/time/time.dart';
 import 'package:calarm/features/settings/application/wake_plan_defaults_controller.dart';
 import 'package:calarm/features/week_calendar/presentation/week_calendar_placeholder.dart';
+import 'package:calarm/features/week_calendar/week_calendar.dart';
+import 'package:calarm/features/wake_plan/application/wake_plan_service.dart';
 import 'package:calarm/features/wake_plan/data/wake_plan_data.dart';
 import 'package:calarm/features/wake_plan/domain/wake_plan_domain.dart';
 import 'package:drift/native.dart';
@@ -61,7 +66,7 @@ void main() {
           }),
           weekCalendarClockProvider.overrideWith(
             (ref) =>
-                () => DateTime(2026, 7, 8, 5, 30),
+                () => DateTime(2026, 7, 8, 0, 30),
           ),
         ],
         child: const MaterialApp(
@@ -72,6 +77,63 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Could not load wake plans or defaults.'), findsOneWidget);
+  });
+
+  testWidgets('guards against stacked create sheets while service loads', (
+    tester,
+  ) async {
+    final service = Completer<WakePlanService>();
+    await repository.saveWakePlan(
+      _plan(id: 'seed', targetDay: CalendarDay(year: 2026, month: 7, day: 10)),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          weekCalendarRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          wakePlanDefaultsRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          weekCalendarWakePlanServiceProvider.overrideWith((ref) {
+            return service.future;
+          }),
+          weekCalendarClockProvider.overrideWith(
+            (ref) =>
+                () => DateTime(2026, 7, 8, 5, 30),
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: WeekCalendarPlaceholder()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final calendar = tester.widget<WeekCalendarView>(
+      find.byType(WeekCalendarView),
+    );
+    final target = WeekCalendarTapTarget(
+      day: CalendarDay(year: 2026, month: 7, day: 9),
+      time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+    );
+
+    calendar.onTargetTap!(target);
+    await tester.pump();
+    calendar.onTargetTap!(target);
+    await tester.pump();
+
+    service.complete(
+      WakePlanService(
+        repository: repository,
+        nativeAlarmGateway: FakeNativeAlarmGateway(),
+        clock: () => DateTime(2026, 7, 8, 0, 30),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Create wake plan'), findsOneWidget);
   });
 }
 

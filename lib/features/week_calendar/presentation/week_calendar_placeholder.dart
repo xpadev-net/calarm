@@ -54,11 +54,21 @@ final weekCalendarWakePlansProvider = FutureProvider<List<WakePlan>>((
   return repository.fetchWakePlans(now: now);
 });
 
-class WeekCalendarPlaceholder extends ConsumerWidget {
+class WeekCalendarPlaceholder extends ConsumerStatefulWidget {
   const WeekCalendarPlaceholder({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<WeekCalendarPlaceholder> createState() {
+    return _WeekCalendarPlaceholderState();
+  }
+}
+
+class _WeekCalendarPlaceholderState
+    extends ConsumerState<WeekCalendarPlaceholder> {
+  bool _sheetOpen = false;
+
+  @override
+  Widget build(BuildContext context) {
     final clock = ref.watch(weekCalendarClockProvider);
     final now = clock();
     final wakePlans = ref.watch(weekCalendarWakePlansProvider);
@@ -112,47 +122,59 @@ class WeekCalendarPlaceholder extends ConsumerWidget {
     required AppSettings defaults,
     required List<WakePlan> existingWakePlans,
   }) async {
+    if (_sheetOpen) {
+      return;
+    }
+    _sheetOpen = true;
+
     if (!target.dateTime.isAfter(now)) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Choose a future time.')));
+      _sheetOpen = false;
       return;
     }
 
-    final service = await ref.read(weekCalendarWakePlanServiceProvider.future);
-    if (!context.mounted) {
-      return;
-    }
+    try {
+      final service = await ref.read(
+        weekCalendarWakePlanServiceProvider.future,
+      );
+      if (!context.mounted) {
+        return;
+      }
 
-    final result = await showModalBottomSheet<WakePlanSchedulingResult>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) {
-        return CreateWakePlanSheet(
-          initialTarget: target,
-          now: now,
-          defaults: defaults,
-          existingWakePlans: existingWakePlans,
-          onSave: (plan) async {
-            final result = await service.createPlan(plan);
-            if (result.isSuccess) {
-              ref.invalidate(weekCalendarWakePlansProvider);
-            }
-            return result;
-          },
-        );
-      },
-    );
+      final result = await showModalBottomSheet<WakePlanSchedulingResult>(
+        context: context,
+        isScrollControlled: true,
+        builder: (context) {
+          return CreateWakePlanSheet(
+            initialTarget: target,
+            now: now,
+            defaults: defaults,
+            existingWakePlans: existingWakePlans,
+            onSave: (plan) async {
+              final result = await service.createPlan(plan);
+              if (result.isSuccess) {
+                ref.invalidate(weekCalendarWakePlansProvider);
+              }
+              return result;
+            },
+          );
+        },
+      );
 
-    if (!context.mounted || result == null) {
-      return;
+      if (!context.mounted || result == null) {
+        return;
+      }
+      final message = result.isSuccess
+          ? 'Wake plan scheduled.'
+          : result.warning?.message ?? 'Alarms could not be scheduled.';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    } finally {
+      _sheetOpen = false;
     }
-    final message = result.isSuccess
-        ? 'Wake plan scheduled.'
-        : result.warning?.message ?? 'Alarms could not be scheduled.';
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
   }
 }
 
