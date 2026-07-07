@@ -1,5 +1,6 @@
 import 'package:calarm/core/time/time.dart';
 import 'package:calarm/features/week_calendar/week_calendar.dart';
+import 'package:calarm/features/wake_plan/domain/wake_plan_domain.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -96,4 +97,157 @@ void main() {
       expect(target.time, TimeOfDayMinutes.fromHourMinute(hour: 0, minute: 0));
     });
   });
+
+  group('weekCalendarWakePlanBlocks', () {
+    test('projects a plan from start offset to target', () {
+      final blocks = weekCalendarWakePlanBlocks(
+        week: week,
+        wakePlans: [
+          buildPlan(
+            id: 'plan-1',
+            targetDay: CalendarDay(year: 2026, month: 7, day: 8),
+            targetTime: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+            startOffset: const Duration(minutes: 60),
+            interval: const Duration(minutes: 5),
+          ),
+        ],
+      );
+
+      expect(blocks, hasLength(1));
+      expect(blocks.single.day, CalendarDay(year: 2026, month: 7, day: 8));
+      expect(blocks.single.topMinute, 6 * 60);
+      expect(blocks.single.durationMinutes, 60);
+      expect(blocks.single.occurrenceCount, 13);
+      expect(blocks.single.containsTarget, isTrue);
+    });
+
+    test('splits cross-midnight plans into visible day segments', () {
+      final blocks = weekCalendarWakePlanBlocks(
+        week: week,
+        wakePlans: [
+          buildPlan(
+            id: 'plan-1',
+            targetDay: CalendarDay(year: 2026, month: 7, day: 8),
+            targetTime: TimeOfDayMinutes.fromHourMinute(hour: 0, minute: 30),
+            startOffset: const Duration(minutes: 90),
+            interval: const Duration(minutes: 15),
+          ),
+        ],
+      );
+
+      expect(blocks, hasLength(2));
+      expect(blocks[0].day, CalendarDay(year: 2026, month: 7, day: 7));
+      expect(blocks[0].topMinute, 23 * 60);
+      expect(blocks[0].durationMinutes, 60);
+      expect(blocks[0].containsTarget, isFalse);
+      expect(blocks[1].day, CalendarDay(year: 2026, month: 7, day: 8));
+      expect(blocks[1].topMinute, 0);
+      expect(blocks[1].durationMinutes, 30);
+      expect(blocks[1].containsTarget, isTrue);
+      expect(blocks[1].occurrenceCount, 7);
+    });
+
+    test(
+      'includes a block that starts in the visible week for next target day',
+      () {
+        final blocks = weekCalendarWakePlanBlocks(
+          week: week,
+          wakePlans: [
+            buildPlan(
+              id: 'plan-1',
+              targetDay: week.endExclusive,
+              targetTime: TimeOfDayMinutes.fromHourMinute(hour: 0, minute: 20),
+              startOffset: const Duration(minutes: 80),
+              interval: const Duration(minutes: 10),
+            ),
+          ],
+        );
+
+        expect(blocks, hasLength(1));
+        expect(blocks.single.day, CalendarDay(year: 2026, month: 7, day: 12));
+        expect(blocks.single.topMinute, 23 * 60);
+        expect(blocks.single.durationMinutes, 60);
+        expect(blocks.single.containsTarget, isFalse);
+      },
+    );
+
+    test('assigns overlapping plans to separate lanes', () {
+      final blocks = weekCalendarWakePlanBlocks(
+        week: week,
+        wakePlans: [
+          buildPlan(
+            id: 'plan-1',
+            targetDay: CalendarDay(year: 2026, month: 7, day: 8),
+            targetTime: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+            startOffset: const Duration(minutes: 60),
+          ),
+          buildPlan(
+            id: 'plan-2',
+            targetDay: CalendarDay(year: 2026, month: 7, day: 8),
+            targetTime: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 30),
+            startOffset: const Duration(minutes: 60),
+          ),
+        ],
+      );
+
+      expect(blocks, hasLength(2));
+      expect(blocks.map((block) => block.laneCount), everyElement(2));
+      expect(blocks.map((block) => block.laneIndex).toSet(), {0, 1});
+    });
+
+    test('keeps a shared width for staggered overlap groups', () {
+      final blocks = weekCalendarWakePlanBlocks(
+        week: week,
+        wakePlans: [
+          buildPlan(
+            id: 'plan-1',
+            targetDay: CalendarDay(year: 2026, month: 7, day: 8),
+            targetTime: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+            startOffset: const Duration(minutes: 60),
+          ),
+          buildPlan(
+            id: 'plan-2',
+            targetDay: CalendarDay(year: 2026, month: 7, day: 8),
+            targetTime: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 30),
+            startOffset: const Duration(minutes: 60),
+          ),
+          buildPlan(
+            id: 'plan-3',
+            targetDay: CalendarDay(year: 2026, month: 7, day: 8),
+            targetTime: TimeOfDayMinutes.fromHourMinute(hour: 8, minute: 0),
+            startOffset: const Duration(minutes: 60),
+          ),
+        ],
+      );
+
+      expect(blocks, hasLength(3));
+      expect(blocks.map((block) => block.laneCount), everyElement(2));
+      expect(blocks.map((block) => block.laneIndex), [0, 1, 0]);
+    });
+  });
+}
+
+WakePlan buildPlan({
+  required String id,
+  required CalendarDay targetDay,
+  required TimeOfDayMinutes targetTime,
+  Duration startOffset = const Duration(minutes: 60),
+  Duration interval = const Duration(minutes: 5),
+}) {
+  final now = DateTime(2026, 7, 1, 12);
+
+  return WakePlan(
+    id: id,
+    title: id,
+    targetTime: targetTime,
+    startOffset: startOffset,
+    interval: interval,
+    repeatRule: RepeatRule.oneTime(targetDay),
+    isEnabled: true,
+    status: WakePlanStatus.scheduled,
+    soundId: 'default',
+    vibrationEnabled: true,
+    createdAt: now,
+    updatedAt: now,
+  );
 }

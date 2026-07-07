@@ -1,16 +1,21 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/time/time.dart';
+import '../../wake_plan/domain/wake_plan_domain.dart';
 import '../model/week_calendar_interaction.dart';
 
 typedef WeekCalendarTapCallback = void Function(WeekCalendarTapTarget target);
+typedef WeekCalendarWakePlanTapCallback =
+    void Function(WeekCalendarWakePlanTapTarget target);
 
 class WeekCalendarView extends StatefulWidget {
   const WeekCalendarView({
     super.key,
     required this.now,
     this.initialWeek,
+    this.wakePlans = const [],
     this.onTargetTap,
+    this.onWakePlanTap,
     this.emptyStateText = 'No wake plans scheduled for this week',
     this.height = 420,
     this.hourHeight = 56,
@@ -18,7 +23,9 @@ class WeekCalendarView extends StatefulWidget {
 
   final DateTime now;
   final WeekRange? initialWeek;
+  final List<WakePlan> wakePlans;
   final WeekCalendarTapCallback? onTargetTap;
+  final WeekCalendarWakePlanTapCallback? onWakePlanTap;
   final String emptyStateText;
   final double height;
   final double hourHeight;
@@ -60,7 +67,9 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
           return _WeekCalendarWeekPage(
             week: week,
             now: widget.now,
+            wakePlans: widget.wakePlans,
             onTargetTap: widget.onTargetTap,
+            onWakePlanTap: widget.onWakePlanTap,
             emptyStateText: widget.emptyStateText,
             hourHeight: widget.hourHeight,
             timeAxisWidth: _timeAxisWidth,
@@ -75,7 +84,9 @@ class _WeekCalendarWeekPage extends StatefulWidget {
   const _WeekCalendarWeekPage({
     required this.week,
     required this.now,
+    required this.wakePlans,
     required this.onTargetTap,
+    required this.onWakePlanTap,
     required this.emptyStateText,
     required this.hourHeight,
     required this.timeAxisWidth,
@@ -83,7 +94,9 @@ class _WeekCalendarWeekPage extends StatefulWidget {
 
   final WeekRange week;
   final DateTime now;
+  final List<WakePlan> wakePlans;
   final WeekCalendarTapCallback? onTargetTap;
+  final WeekCalendarWakePlanTapCallback? onWakePlanTap;
   final String emptyStateText;
   final double hourHeight;
   final double timeAxisWidth;
@@ -119,6 +132,10 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final blocks = weekCalendarWakePlanBlocks(
+      week: widget.week,
+      wakePlans: widget.wakePlans,
+    );
 
     return Column(
       children: [
@@ -173,11 +190,21 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
                                       now: widget.now,
                                       hourHeight: widget.hourHeight,
                                     ),
-                                    Center(
-                                      child: _EmptyState(
-                                        text: widget.emptyStateText,
+                                    for (final block in blocks)
+                                      _WakePlanBlock(
+                                        block: block,
+                                        pixelsPerMinute: _pixelsPerMinute,
+                                        dayWidth:
+                                            constraints.maxWidth /
+                                            DateTime.daysPerWeek,
+                                        onTap: widget.onWakePlanTap,
                                       ),
-                                    ),
+                                    if (blocks.isEmpty)
+                                      Center(
+                                        child: _EmptyState(
+                                          text: widget.emptyStateText,
+                                        ),
+                                      ),
                                   ],
                                 ),
                               );
@@ -193,6 +220,99 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _WakePlanBlock extends StatelessWidget {
+  const _WakePlanBlock({
+    required this.block,
+    required this.pixelsPerMinute,
+    required this.dayWidth,
+    required this.onTap,
+  });
+
+  static const double _gap = 2;
+
+  final WeekCalendarWakePlanBlock block;
+  final double pixelsPerMinute;
+  final double dayWidth;
+  final WeekCalendarWakePlanTapCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final laneWidth = dayWidth / block.laneCount;
+    final left = (block.dayIndex * dayWidth) + (block.laneIndex * laneWidth);
+    final top = block.topMinute * pixelsPerMinute;
+    final height = block.durationMinutes * pixelsPerMinute;
+
+    return Positioned(
+      left: left + _gap,
+      top: top + _gap,
+      width: (laneWidth - (_gap * 2)).clamp(18, double.infinity),
+      height: (height - (_gap * 2)).clamp(18, double.infinity),
+      child: _WakePlanBlockCard(block: block, onTap: onTap),
+    );
+  }
+}
+
+class _WakePlanBlockCard extends StatelessWidget {
+  const _WakePlanBlockCard({required this.block, required this.onTap});
+
+  final WeekCalendarWakePlanBlock block;
+  final WeekCalendarWakePlanTapCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final targetColor = block.containsTarget
+        ? colorScheme.tertiary
+        : colorScheme.primary;
+    final labelColor = colorScheme.onPrimaryContainer;
+    final label = _wakePlanBlockLabel(block);
+
+    return Semantics(
+      button: true,
+      label: label,
+      child: Material(
+        color: colorScheme.primaryContainer.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(8),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => onTap?.call(block.tapTarget),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(6, 5, 6, 7),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.topLeft,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 120),
+                    child: Text(
+                      label,
+                      maxLines: 4,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.labelSmall?.copyWith(
+                        color: labelColor,
+                        height: 1.12,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Align(
+                alignment: block.containsTarget
+                    ? Alignment.bottomCenter
+                    : Alignment.topCenter,
+                child: Container(height: 5, color: targetColor),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -420,4 +540,16 @@ String _weekdayLabel(int weekday) {
     DateTime.sunday => 'Sun',
     _ => throw RangeError.range(weekday, DateTime.monday, DateTime.sunday),
   };
+}
+
+String _wakePlanBlockLabel(WeekCalendarWakePlanBlock block) {
+  return '${block.wakePlan.targetTime}\n'
+      '${_timeLabel(block.startAt)}-${_timeLabel(block.targetAt)}\n'
+      'Every ${block.wakePlan.interval.inMinutes} min\n'
+      '${block.occurrenceCount} alarms';
+}
+
+String _timeLabel(DateTime dateTime) {
+  return '${dateTime.hour.toString().padLeft(2, '0')}:'
+      '${dateTime.minute.toString().padLeft(2, '0')}';
 }

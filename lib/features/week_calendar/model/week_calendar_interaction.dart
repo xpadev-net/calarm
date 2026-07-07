@@ -46,6 +46,76 @@ class WeekCalendarTapTarget {
   DateTime get dateTime => day.at(time);
 }
 
+class WeekCalendarWakePlanTapTarget {
+  const WeekCalendarWakePlanTapTarget({
+    required this.wakePlan,
+    required this.targetDay,
+  });
+
+  final WakePlan wakePlan;
+  final CalendarDay targetDay;
+
+  DateTime get targetAt => wakePlan.targetAt(targetDay);
+}
+
+class WeekCalendarWakePlanBlock {
+  const WeekCalendarWakePlanBlock({
+    required this.wakePlan,
+    required this.targetDay,
+    required this.day,
+    required this.startAt,
+    required this.endAt,
+    required this.targetAt,
+    required this.topMinute,
+    required this.durationMinutes,
+    required this.dayIndex,
+    required this.laneIndex,
+    required this.laneCount,
+    required this.occurrenceCount,
+  });
+
+  final WakePlan wakePlan;
+  final CalendarDay targetDay;
+  final CalendarDay day;
+  final DateTime startAt;
+  final DateTime endAt;
+  final DateTime targetAt;
+  final int topMinute;
+  final int durationMinutes;
+  final int dayIndex;
+  final int laneIndex;
+  final int laneCount;
+  final int occurrenceCount;
+
+  bool get containsTarget {
+    return !targetAt.isBefore(startAt) && !targetAt.isAfter(endAt);
+  }
+
+  WeekCalendarWakePlanTapTarget get tapTarget {
+    return WeekCalendarWakePlanTapTarget(
+      wakePlan: wakePlan,
+      targetDay: targetDay,
+    );
+  }
+
+  WeekCalendarWakePlanBlock copyWith({int? laneIndex, int? laneCount}) {
+    return WeekCalendarWakePlanBlock(
+      wakePlan: wakePlan,
+      targetDay: targetDay,
+      day: day,
+      startAt: startAt,
+      endAt: endAt,
+      targetAt: targetAt,
+      topMinute: topMinute,
+      durationMinutes: durationMinutes,
+      dayIndex: dayIndex,
+      laneIndex: laneIndex ?? this.laneIndex,
+      laneCount: laneCount ?? this.laneCount,
+      occurrenceCount: occurrenceCount,
+    );
+  }
+}
+
 WeekCalendarScrollTarget initialWeekCalendarScrollTarget({
   required WeekRange week,
   required DateTime now,
@@ -120,4 +190,187 @@ WeekCalendarTapTarget weekCalendarTapTargetFromPosition({
     day: week.start.addDays(dayIndex + rounded.dayOffset),
     time: rounded.time,
   );
+}
+
+List<WeekCalendarWakePlanBlock> weekCalendarWakePlanBlocks({
+  required WeekRange week,
+  required Iterable<WakePlan> wakePlans,
+}) {
+  final visibleStart = week.start.startOfDay;
+  final visibleEnd = week.endExclusive.startOfDay;
+  final blocks = <WeekCalendarWakePlanBlock>[];
+
+  for (final wakePlan in wakePlans) {
+    final lookbackDays =
+        (wakePlan.startOffset.inMinutes / TimeOfDayMinutes.minutesPerDay)
+            .ceil();
+    final firstTargetDay = week.start.addDays(-lookbackDays);
+    final lastTargetDayExclusive = week.endExclusive.addDays(lookbackDays);
+
+    for (
+      var day = firstTargetDay;
+      day.compareTo(lastTargetDayExclusive) < 0;
+      day = day.addDays(1)
+    ) {
+      if (!wakePlan.occursOn(day)) {
+        continue;
+      }
+
+      final targetAt = wakePlan.targetAt(day);
+      final startAt = wakePlan.startAt(day);
+      if (!startAt.isBefore(visibleEnd) || !targetAt.isAfter(visibleStart)) {
+        continue;
+      }
+
+      final occurrenceCount = wakePlanOccurrenceCount(wakePlan);
+
+      for (final visibleDay in week.days) {
+        final dayStart = visibleDay.startOfDay;
+        final dayEnd = visibleDay.addDays(1).startOfDay;
+        final segmentStart = _latestDateTime(startAt, dayStart);
+        final segmentEnd = _earliestDateTime(targetAt, dayEnd);
+        if (!segmentStart.isBefore(segmentEnd)) {
+          continue;
+        }
+
+        blocks.add(
+          WeekCalendarWakePlanBlock(
+            wakePlan: wakePlan,
+            targetDay: day,
+            day: visibleDay,
+            startAt: segmentStart,
+            endAt: segmentEnd,
+            targetAt: targetAt,
+            topMinute: _minuteOfDay(segmentStart),
+            durationMinutes: segmentEnd.difference(segmentStart).inMinutes,
+            dayIndex: visibleDay.differenceInDays(week.start),
+            laneIndex: 0,
+            laneCount: 1,
+            occurrenceCount: occurrenceCount,
+          ),
+        );
+      }
+    }
+  }
+
+  return _withOverlapLanes(blocks);
+}
+
+int wakePlanOccurrenceCount(WakePlan wakePlan) {
+  final offsetMinutes = wakePlan.startOffset.inMinutes;
+  final intervalMinutes = wakePlan.interval.inMinutes;
+
+  return ((offsetMinutes + intervalMinutes - 1) ~/ intervalMinutes) + 1;
+}
+
+List<WeekCalendarWakePlanBlock> _withOverlapLanes(
+  List<WeekCalendarWakePlanBlock> blocks,
+) {
+  final result = <WeekCalendarWakePlanBlock>[];
+
+  for (final dayIndex in blocks.map((block) => block.dayIndex).toSet()) {
+    final dayBlocks =
+        blocks.where((block) => block.dayIndex == dayIndex).toList()
+          ..sort((left, right) {
+            final topComparison = left.topMinute.compareTo(right.topMinute);
+            if (topComparison != 0) {
+              return topComparison;
+            }
+
+            return right.durationMinutes.compareTo(left.durationMinutes);
+          });
+    final assigned = <WeekCalendarWakePlanBlock>[];
+
+    for (final block in dayBlocks) {
+      final active = assigned.where((other) => _blocksOverlap(other, block));
+      var laneIndex = 0;
+      while (active.any((other) => other.laneIndex == laneIndex)) {
+        laneIndex += 1;
+      }
+      assigned.add(block.copyWith(laneIndex: laneIndex));
+    }
+
+    final laneCounts = _overlapGroupLaneCounts(assigned);
+
+    result.addAll(
+      assigned.map((block) {
+        final laneCount = laneCounts[block] ?? 1;
+        return block.copyWith(laneCount: laneCount);
+      }),
+    );
+  }
+
+  result.sort((left, right) {
+    final dayComparison = left.dayIndex.compareTo(right.dayIndex);
+    if (dayComparison != 0) {
+      return dayComparison;
+    }
+
+    return left.topMinute.compareTo(right.topMinute);
+  });
+
+  return result;
+}
+
+Map<WeekCalendarWakePlanBlock, int> _overlapGroupLaneCounts(
+  List<WeekCalendarWakePlanBlock> blocks,
+) {
+  final laneCounts = <WeekCalendarWakePlanBlock, int>{};
+  final visited = <WeekCalendarWakePlanBlock>{};
+
+  for (final block in blocks) {
+    if (visited.contains(block)) {
+      continue;
+    }
+
+    final group = <WeekCalendarWakePlanBlock>[];
+    final pending = <WeekCalendarWakePlanBlock>[block];
+    visited.add(block);
+
+    while (pending.isNotEmpty) {
+      final current = pending.removeLast();
+      group.add(current);
+
+      for (final candidate in blocks) {
+        if (visited.contains(candidate) ||
+            !_blocksOverlap(current, candidate)) {
+          continue;
+        }
+
+        visited.add(candidate);
+        pending.add(candidate);
+      }
+    }
+
+    final groupLaneCount =
+        group.map((block) => block.laneIndex).reduce((left, right) {
+          return left > right ? left : right;
+        }) +
+        1;
+    for (final groupBlock in group) {
+      laneCounts[groupBlock] = groupLaneCount;
+    }
+  }
+
+  return laneCounts;
+}
+
+bool _blocksOverlap(
+  WeekCalendarWakePlanBlock left,
+  WeekCalendarWakePlanBlock right,
+) {
+  return left.startAt.isBefore(right.endAt) &&
+      right.startAt.isBefore(left.endAt);
+}
+
+DateTime _latestDateTime(DateTime left, DateTime right) {
+  return left.isAfter(right) ? left : right;
+}
+
+DateTime _earliestDateTime(DateTime left, DateTime right) {
+  return left.isBefore(right) ? left : right;
+}
+
+int _minuteOfDay(DateTime dateTime) {
+  return dateTime.hour * TimeOfDayMinutes.minutesPerHour + dateTime.minute;
 }

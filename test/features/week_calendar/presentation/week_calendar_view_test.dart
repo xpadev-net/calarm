@@ -1,5 +1,6 @@
 import 'package:calarm/core/time/time.dart';
 import 'package:calarm/features/week_calendar/week_calendar.dart';
+import 'package:calarm/features/wake_plan/domain/wake_plan_domain.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -62,4 +63,93 @@ void main() {
     expect(selected!.day, CalendarDay(year: 2026, month: 7, day: 8));
     expect(selected!.time, TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 5));
   });
+
+  testWidgets('renders a wake plan block label and hides the empty state', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WeekCalendarView(
+            now: DateTime(2026, 7, 8, 7, 30),
+            initialWeek: WeekRange(
+              start: CalendarDay(year: 2026, month: 7, day: 6),
+            ),
+            wakePlans: [
+              buildPlan(
+                id: 'plan-1',
+                targetDay: CalendarDay(year: 2026, month: 7, day: 8),
+                targetTime: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('No wake plans scheduled for this week'), findsNothing);
+    expect(
+      find.text('07:00\n06:00-07:00\nEvery 5 min\n13 alarms'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('routes a block tap to the wake plan detail event', (
+    tester,
+  ) async {
+    WeekCalendarWakePlanTapTarget? selected;
+    final plan = buildPlan(
+      id: 'plan-1',
+      targetDay: CalendarDay(year: 2026, month: 7, day: 8),
+      targetTime: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WeekCalendarView(
+            now: DateTime(2026, 7, 8, 7, 30),
+            initialWeek: WeekRange(
+              start: CalendarDay(year: 2026, month: 7, day: 6),
+            ),
+            wakePlans: [plan],
+            onWakePlanTap: (target) => selected = target,
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('07:00\n06:00-07:00\nEvery 5 min\n13 alarms'));
+    await tester.pump();
+
+    expect(selected, isNotNull);
+    expect(selected!.wakePlan, plan);
+    expect(selected!.targetDay, CalendarDay(year: 2026, month: 7, day: 8));
+    expect(selected!.targetAt, DateTime(2026, 7, 8, 7));
+  });
+}
+
+WakePlan buildPlan({
+  required String id,
+  required CalendarDay targetDay,
+  required TimeOfDayMinutes targetTime,
+  Duration startOffset = const Duration(minutes: 60),
+  Duration interval = const Duration(minutes: 5),
+}) {
+  final now = DateTime(2026, 7, 1, 12);
+
+  return WakePlan(
+    id: id,
+    title: id,
+    targetTime: targetTime,
+    startOffset: startOffset,
+    interval: interval,
+    repeatRule: RepeatRule.oneTime(targetDay),
+    isEnabled: true,
+    status: WakePlanStatus.scheduled,
+    soundId: 'default',
+    vibrationEnabled: true,
+    createdAt: now,
+    updatedAt: now,
+  );
 }
