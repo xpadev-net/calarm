@@ -216,6 +216,12 @@ Interpretation:
   - Action: PR #23 was converted back to draft and worker thread `019f3cef-a1a8-7522-b687-5254531ff2b0` was instructed to fix only those findings, rerun validation/hook, and report merge-ready again.
   - Next action: monitor Task_2 worker. Task_3 remains deferred until Task_2 native ownership is merged or safely split.
 
+- 2026-07-08 Wave 11 Task_2 Ringing/Dismiss sent back from orchestrator merge gate follow-up.
+  - Summary: PR #23 returned merge-ready again at head `2e1111ac9644cb3d2a892223b12a55cbf55db4de`; orchestrator inspected current metadata/diff/head, ran deep-review common/UI/tests/integrations/event-driven review, `rtk flutter test test/features/alarm_ringing`, `rtk flutter analyze`, `rtk git diff --check origin/master...HEAD`, and `rtk flutter build apk --debug`.
+  - Gate result: after PR #23 was marked ready, `rtk gh-review-hook 23` exited 2 with in-scope findings on failure-path provider invalidation, native fallback cleanup on activity exit paths, and cross-plan priority for actual `ringing` occurrences over earlier past-due scheduled occurrences.
+  - Action: PR #23 was converted back to draft and worker thread `019f3cef-a1a8-7522-b687-5254531ff2b0` was instructed to verify/fix only those findings, rerun validation/hook, and report merge-ready again.
+  - Next action: monitor Task_2 worker. Task_3 remains deferred until Task_2 native ownership is merged or safely split.
+
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
   - Validation evidence: GitHub `Format, analyze, and test`, `Android emulator native smoke`, `iOS simulator native smoke`, Greptile Review, Socket Project Report, and Socket Pull Request Alerts were successful; worker evidence on the same head reported workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed.
