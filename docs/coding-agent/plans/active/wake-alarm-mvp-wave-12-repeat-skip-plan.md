@@ -122,6 +122,14 @@
   - Merge gate: worker must provide `rtk flutter test test/features/wake_plan`, analyzer/diff checks, focused repeat/skip validation, deep-review self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
   - Runtime note: skip/repeat native reservation effects must use concrete future occurrence cancel/recreate semantics. iOS 26+/Android API 36 real-device runtime validation remains user-deferred/unapproved unless explicitly provided.
 
+- 2026-07-08 Wave 12 Task_1 worker restarted by user request.
+  - Reason: user requested Wave 12 be restarted with `gpt-5.5` and medium reasoning.
+  - Replaced worker: thread `019f3dfb-00be-7151-ac16-a244ba445b26`; pending worktree `local:7a8d44b5-90f1-428d-8ac7-bb20989d4ad7`; worktree `/Users/xpadev/.codex/worktrees/5b1a/calarm`; branch `codex/wave-12-repeat-skip`. It was already archived before a merge-ready report.
+  - Replacement worker pending worktree: `local:7cb642c6-5681-42ed-b973-bade06a668bc`; requested model/reasoning: `gpt-5.5` / medium; replacement branch: `codex/wave-12-repeat-skip-55`.
+  - Worker type: Codex thread/worktree, not multi-agent subagent.
+  - Merge gate: replacement worker must provide `rtk flutter test test/features/wake_plan`, analyzer/diff checks, focused repeat/skip validation, deep-review self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
+  - Next action: monitor replacement worker startup, then record its assigned thread/worktree once available.
+
 - 2026-07-05 Draft created.
 
 ## Decision Log (append-only; re-plans and major discoveries)
