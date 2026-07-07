@@ -563,7 +563,7 @@ void main() {
       ).skipNextOccurrence(oneTimePlan);
 
       expect(result.status, WakePlanSchedulingStatus.scheduled);
-      expect(store.operations, isEmpty);
+      expect(store.operations, ['fetchWakePlan:plan-1']);
       expect(gateway.cancelledOccurrences, isEmpty);
       expect(gateway.scheduledRequests, isEmpty);
     });
@@ -638,6 +638,96 @@ void main() {
           result.occurrences.map((occurrence) => occurrence.scheduledAt.day),
           contains(monday),
         );
+        expect(
+          result.occurrences.map((occurrence) => occurrence.scheduledAt.day),
+          contains(tuesday),
+        );
+      },
+    );
+
+    test(
+      'uses the current stored plan instead of a stale UI snapshot when skipping',
+      () async {
+        final staleSnapshot = buildPlan(
+          targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+            hour: 7,
+            minute: 0,
+          ),
+          repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
+        );
+        final currentPlan = buildPlan(
+          targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+            hour: 8,
+            minute: 0,
+          ),
+          repeatRule: RepeatRule.weekly({Weekday.tuesday}),
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: currentPlan)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'current-old',
+              day: tuesday,
+              time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 45),
+              platformAlarmId: 'native-current',
+            ),
+          ];
+        final gateway = FakeNativeAlarmGateway();
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 2,
+        ).skipNextOccurrence(staleSnapshot);
+
+        expect(result.status, WakePlanSchedulingStatus.scheduled);
+        expect(store.savedPlans.first.targetTime, currentPlan.targetTime);
+        expect(store.savedPlans.first.repeatRule, currentPlan.repeatRule);
+        expect(store.savedPlans.first.skipNextDate, tuesday);
+        expect(
+          result.occurrences.map((occurrence) => occurrence.scheduledAt.day),
+          isEmpty,
+        );
+      },
+    );
+
+    test(
+      'uses the current stored plan instead of a stale UI snapshot when undoing',
+      () async {
+        final staleSnapshot = buildPlan(
+          targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+            hour: 7,
+            minute: 0,
+          ),
+          repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
+        ).copyWith(skipNextDate: monday);
+        final currentPlan = buildPlan(
+          targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+            hour: 8,
+            minute: 0,
+          ),
+          repeatRule: RepeatRule.weekly({Weekday.tuesday}),
+        ).copyWith(skipNextDate: tuesday);
+        final store = _LoggingWakePlanServiceStore(currentPlan: currentPlan)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'current-old',
+              day: tuesday,
+              time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 45),
+              platformAlarmId: 'native-current',
+            ),
+          ];
+        final gateway = FakeNativeAlarmGateway();
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 2,
+        ).undoSkipNextOccurrence(staleSnapshot);
+
+        expect(result.status, WakePlanSchedulingStatus.scheduled);
+        expect(store.savedPlans.first.targetTime, currentPlan.targetTime);
+        expect(store.savedPlans.first.repeatRule, currentPlan.repeatRule);
+        expect(store.savedPlans.first.skipNextDate, isNull);
         expect(
           result.occurrences.map((occurrence) => occurrence.scheduledAt.day),
           contains(tuesday),

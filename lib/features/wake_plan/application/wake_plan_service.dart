@@ -155,32 +155,47 @@ class WakePlanService {
     );
   }
 
-  Future<WakePlanSchedulingResult> skipNextOccurrence(WakePlan wakePlan) {
-    if (wakePlan.repeatRule.type == RepeatType.oneTime) {
+  Future<WakePlanSchedulingResult> skipNextOccurrence(WakePlan wakePlan) async {
+    final currentPlan = await _store.fetchWakePlan(wakePlan.id);
+    if (currentPlan == null) {
       return Future.value(
         _emptyResult(
           wakePlanId: wakePlan.id,
           status: WakePlanSchedulingStatus.scheduled,
         ),
+      );
+    }
+    if (currentPlan.repeatRule.type == RepeatType.oneTime) {
+      return _emptyResult(
+        wakePlanId: currentPlan.id,
+        status: WakePlanSchedulingStatus.scheduled,
       );
     }
 
     final now = _clock();
-    final skipDate = nextWakePlanTargetDay(plan: wakePlan, now: now);
+    final skipDate = nextWakePlanTargetDay(plan: currentPlan, now: now);
     if (skipDate == null) {
-      return Future.value(
-        _emptyResult(
-          wakePlanId: wakePlan.id,
-          status: WakePlanSchedulingStatus.scheduled,
-        ),
+      return _emptyResult(
+        wakePlanId: currentPlan.id,
+        status: WakePlanSchedulingStatus.scheduled,
       );
     }
 
-    return editPlan(wakePlan.copyWith(skipNextDate: skipDate));
+    return editPlan(currentPlan.copyWith(skipNextDate: skipDate));
   }
 
-  Future<WakePlanSchedulingResult> undoSkipNextOccurrence(WakePlan wakePlan) {
-    return editPlan(wakePlan.copyWith(skipNextDate: null));
+  Future<WakePlanSchedulingResult> undoSkipNextOccurrence(
+    WakePlan wakePlan,
+  ) async {
+    final currentPlan = await _store.fetchWakePlan(wakePlan.id);
+    if (currentPlan == null) {
+      return _emptyResult(
+        wakePlanId: wakePlan.id,
+        status: WakePlanSchedulingStatus.scheduled,
+      );
+    }
+
+    return editPlan(currentPlan.copyWith(skipNextDate: null));
   }
 
   Future<WakePlanSchedulingResult> _generateAndSchedule({
