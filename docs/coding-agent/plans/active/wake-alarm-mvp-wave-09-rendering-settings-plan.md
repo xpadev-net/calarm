@@ -128,9 +128,10 @@
 
 ## Progress Log (append-only)
 
-- 2026-07-07 Wave 9 delegated.
-  - Task_1 Wake Plan Block Rendering worker: `019f3c67-326c-7b70-8115-3ef0f23ea2a5`; branch `codex/wave-09-block-rendering`; isolated worktree requested at `/Users/xpadev/IdeaProjects/calarm-worktrees/wave-09-block-rendering`.
-  - Task_2 Settings Defaults worker: `019f3c67-782e-7613-b8d3-e030be2a4562`; branch `codex/wave-09-settings-defaults`; isolated worktree requested at `/Users/xpadev/IdeaProjects/calarm-worktrees/wave-09-settings-defaults`.
+- 2026-07-07 Wave 9 delegated to Codex thread workers.
+  - Task_1 Wake Plan Block Rendering pending worktree: `local:9ee43d45-6a5b-4682-8952-c23a2288de48`; branch `codex/wave-09-block-rendering`.
+  - Task_2 Settings Defaults pending worktree: `local:8ea7ab6d-16b3-4fde-b902-5270b3138322`; branch `codex/wave-09-settings-defaults`.
+  - Correction: earlier multi-agent subagent workers were stopped before completion because the user requires task workers to run as Codex threads/worktrees, not subagents.
   - Validation gate: each worker must return a merge-ready PR with required tests, analyzer, diff check, self-review, independent review, and `rtk gh-review-hook <PR>` exit 0 before orchestrator review/merge.
   - Note: Wave 9 settings defaults expose create-flow consumption for Wave 10; full create sheet reflection is gated in Wave 10.
 
