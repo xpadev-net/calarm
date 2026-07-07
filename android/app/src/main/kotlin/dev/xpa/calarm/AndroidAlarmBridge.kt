@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -286,6 +287,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 NotificationManager.IMPORTANCE_HIGH,
             ).apply {
                 description = "Calarm wake alarm alerts"
+                setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), null)
             },
         )
     }
