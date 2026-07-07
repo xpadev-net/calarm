@@ -50,4 +50,26 @@ void main() {
     expect(saved.defaultRepeatType, RepeatType.weekly);
     expect(saved.defaultVibrationEnabled, isFalse);
   });
+
+  testWidgets('shows a message when saving settings fails', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          wakePlanDefaultsRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+        ],
+        child: const MaterialApp(home: Scaffold(body: SettingsPlaceholder())),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await database.close();
+
+    await tester.tap(find.text('Weekday'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Could not save settings.'), findsOneWidget);
+
+    database = WakePlanDatabase(NativeDatabase.memory());
+  });
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -78,6 +80,7 @@ class _SettingsDefaultsPanel extends ConsumerWidget {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
+              key: ValueKey(settings.defaultSoundId),
               initialValue: settings.defaultSoundId,
               decoration: const InputDecoration(labelText: 'Sound'),
               items: const [
@@ -88,7 +91,7 @@ class _SettingsDefaultsPanel extends ConsumerWidget {
               ],
               onChanged: (value) {
                 if (value != null) {
-                  controller.setSoundId(value);
+                  _handleSave(context, controller.setSoundId(value));
                 }
               },
             ),
@@ -96,7 +99,9 @@ class _SettingsDefaultsPanel extends ConsumerWidget {
               contentPadding: EdgeInsets.zero,
               title: const Text('Vibration'),
               value: settings.defaultVibrationEnabled,
-              onChanged: controller.setVibrationEnabled,
+              onChanged: (value) {
+                _handleSave(context, controller.setVibrationEnabled(value));
+              },
             ),
             const SizedBox(height: 4),
             SegmentedButton<RepeatType>(
@@ -114,7 +119,10 @@ class _SettingsDefaultsPanel extends ConsumerWidget {
               ],
               selected: {settings.defaultRepeatType},
               onSelectionChanged: (selection) {
-                controller.setRepeatType(selection.single);
+                _handleSave(
+                  context,
+                  controller.setRepeatType(selection.single),
+                );
               },
             ),
           ],
@@ -135,11 +143,12 @@ class _DurationChoice extends StatelessWidget {
   final String label;
   final Duration value;
   final List<Duration> values;
-  final ValueChanged<Duration> onChanged;
+  final Future<void> Function(Duration) onChanged;
 
   @override
   Widget build(BuildContext context) {
     return DropdownButtonFormField<Duration>(
+      key: ValueKey(value),
       initialValue: values.contains(value) ? value : null,
       decoration: InputDecoration(labelText: label),
       hint: Text(_formatDuration(value)),
@@ -149,7 +158,7 @@ class _DurationChoice extends StatelessWidget {
       ],
       onChanged: (value) {
         if (value != null) {
-          onChanged(value);
+          _handleSave(context, onChanged(value));
         }
       },
     );
@@ -195,4 +204,22 @@ String _formatDuration(Duration value) {
   }
 
   return '$hours h $remainder min';
+}
+
+void _handleSave(BuildContext context, Future<void> save) {
+  unawaited(_showSaveFailure(context, save));
+}
+
+Future<void> _showSaveFailure(BuildContext context, Future<void> save) async {
+  try {
+    await save;
+  } on Object {
+    if (!context.mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Could not save settings.')));
+  }
 }

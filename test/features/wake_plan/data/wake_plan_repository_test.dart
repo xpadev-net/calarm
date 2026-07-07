@@ -483,10 +483,13 @@ void main() {
             .insert(_invalidTimingAppSettingsCompanion());
 
         expect(await repository.fetchAppSettings(), isNull);
-        expect(
-          await repository.fetchEffectiveAppSettings(),
-          isA<AppSettings>(),
-        );
+        final fallback = await repository.fetchEffectiveAppSettings();
+
+        expect(fallback.defaultStartOffset, defaultWakePlanStartOffset);
+        expect(fallback.defaultInterval, defaultWakePlanInterval);
+        expect(fallback.defaultSoundId, defaultWakePlanSoundId);
+        expect(fallback.defaultVibrationEnabled, isTrue);
+        expect(fallback.defaultRepeatType, RepeatType.oneTime);
       },
     );
 

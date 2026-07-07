@@ -60,6 +60,45 @@ void main() {
     expect(saved.defaultSoundId, defaultWakePlanSoundId);
   });
 
+  test('serializes concurrent default changes against latest state', () async {
+    await container.read(wakePlanDefaultsProvider.future);
+    final controller = container.read(wakePlanDefaultsProvider.notifier);
+
+    await Future.wait([
+      controller.setWakeWindow(const Duration(minutes: 90)),
+      controller.setInterval(const Duration(minutes: 10)),
+      controller.setVibrationEnabled(false),
+      controller.setRepeatType(RepeatType.weekly),
+    ]);
+
+    final saved = await repository.fetchEffectiveAppSettings();
+
+    expect(saved.defaultStartOffset, const Duration(minutes: 90));
+    expect(saved.defaultInterval, const Duration(minutes: 10));
+    expect(saved.defaultVibrationEnabled, isFalse);
+    expect(saved.defaultRepeatType, RepeatType.weekly);
+  });
+
+  test('restores previous state when persistence fails', () async {
+    final initial = await container.read(wakePlanDefaultsProvider.future);
+
+    await database.close();
+
+    await expectLater(
+      container
+          .read(wakePlanDefaultsProvider.notifier)
+          .setWakeWindow(const Duration(minutes: 90)),
+      throwsA(anything),
+    );
+
+    expect(
+      container.read(wakePlanDefaultsProvider).value!.defaultStartOffset,
+      initial.defaultStartOffset,
+    );
+
+    database = WakePlanDatabase(NativeDatabase.memory());
+  });
+
   test('sanitizes attempted invalid updates before persistence', () async {
     await container.read(wakePlanDefaultsProvider.future);
 

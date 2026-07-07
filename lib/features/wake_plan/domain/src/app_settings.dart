@@ -136,7 +136,7 @@ void _validateDefaultSoundId(String value) {
   if (value.trim().isEmpty) {
     throw ArgumentError.value(value, 'defaultSoundId', 'must not be blank');
   }
-  if (value.trim() != defaultWakePlanSoundId) {
+  if (!_isSupportedSoundId(value.trim())) {
     throw ArgumentError.value(
       value,
       'defaultSoundId',
@@ -173,9 +173,13 @@ String _sanitizeSoundId(String? value, String fallback) {
   }
 
   final trimmed = value.trim();
-  if (trimmed != defaultWakePlanSoundId) {
+  if (!_isSupportedSoundId(trimmed)) {
     return fallback;
   }
 
   return trimmed;
+}
+
+bool _isSupportedSoundId(String value) {
+  return value == defaultWakePlanSoundId;
 }

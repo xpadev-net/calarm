@@ -297,6 +297,16 @@ void main() {
       expect(settings.defaultInterval, minimumWakePlanInterval);
     });
 
+    test('sanitizes negative durations to initial defaults', () {
+      final settings = sanitizeAppSettings(
+        defaultStartOffset: const Duration(minutes: -1),
+        defaultInterval: const Duration(minutes: -1),
+      );
+
+      expect(settings.defaultStartOffset, defaultWakePlanStartOffset);
+      expect(settings.defaultInterval, defaultWakePlanInterval);
+    });
+
     test('rejects unsupported default sound ids', () {
       expect(
         () => AppSettings(

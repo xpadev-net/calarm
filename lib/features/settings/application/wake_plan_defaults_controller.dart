@@ -27,6 +27,8 @@ final wakePlanDefaultsProvider =
     );
 
 class WakePlanDefaultsController extends AsyncNotifier<AppSettings> {
+  Future<void> _pendingSave = Future.value();
+
   @override
   Future<AppSettings> build() async {
     final repository = await ref.watch(
@@ -36,46 +38,62 @@ class WakePlanDefaultsController extends AsyncNotifier<AppSettings> {
   }
 
   Future<void> setWakeWindow(Duration value) {
-    final current = _current;
-    return _saveSanitized(defaultStartOffset: value, current: current);
-  }
-
-  Future<void> setInterval(Duration value) {
-    final current = _current;
-    return _saveSanitized(defaultInterval: value, current: current);
-  }
-
-  Future<void> setSoundId(String value) {
-    final current = _current;
-    return _saveSanitized(defaultSoundId: value, current: current);
-  }
-
-  Future<void> setVibrationEnabled(bool value) {
-    return _save(_current.copyWith(defaultVibrationEnabled: value));
-  }
-
-  Future<void> setRepeatType(RepeatType value) {
-    return _save(_current.copyWith(defaultRepeatType: value));
-  }
-
-  AppSettings get _current => state.value ?? AppSettings.initial();
-
-  Future<void> _saveSanitized({
-    required AppSettings current,
-    Duration? defaultStartOffset,
-    Duration? defaultInterval,
-    String? defaultSoundId,
-  }) {
-    return _save(
-      sanitizeAppSettings(
-        defaultStartOffset: defaultStartOffset ?? current.defaultStartOffset,
-        defaultInterval: defaultInterval ?? current.defaultInterval,
-        defaultSoundId: defaultSoundId ?? current.defaultSoundId,
+    return _enqueueSave(
+      (current) => sanitizeAppSettings(
+        defaultStartOffset: value,
+        defaultInterval: current.defaultInterval,
+        defaultSoundId: current.defaultSoundId,
         defaultVibrationEnabled: current.defaultVibrationEnabled,
         defaultRepeatType: current.defaultRepeatType,
         defaultTargetTime: current.defaultTargetTime,
       ),
     );
+  }
+
+  Future<void> setInterval(Duration value) {
+    return _enqueueSave(
+      (current) => sanitizeAppSettings(
+        defaultStartOffset: current.defaultStartOffset,
+        defaultInterval: value,
+        defaultSoundId: current.defaultSoundId,
+        defaultVibrationEnabled: current.defaultVibrationEnabled,
+        defaultRepeatType: current.defaultRepeatType,
+        defaultTargetTime: current.defaultTargetTime,
+      ),
+    );
+  }
+
+  Future<void> setSoundId(String value) {
+    return _enqueueSave(
+      (current) => sanitizeAppSettings(
+        defaultStartOffset: current.defaultStartOffset,
+        defaultInterval: current.defaultInterval,
+        defaultSoundId: value,
+        defaultVibrationEnabled: current.defaultVibrationEnabled,
+        defaultRepeatType: current.defaultRepeatType,
+        defaultTargetTime: current.defaultTargetTime,
+      ),
+    );
+  }
+
+  Future<void> setVibrationEnabled(bool value) {
+    return _enqueueSave(
+      (current) => current.copyWith(defaultVibrationEnabled: value),
+    );
+  }
+
+  Future<void> setRepeatType(RepeatType value) {
+    return _enqueueSave(
+      (current) => current.copyWith(defaultRepeatType: value),
+    );
+  }
+
+  AppSettings get _current => state.value ?? AppSettings.initial();
+
+  Future<void> _enqueueSave(AppSettings Function(AppSettings current) update) {
+    final operation = _pendingSave.then((_) => _save(update(_current)));
+    _pendingSave = operation.catchError((Object _) {});
+    return operation;
   }
 
   Future<void> _save(AppSettings settings) async {
