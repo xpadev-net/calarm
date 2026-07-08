@@ -186,6 +186,14 @@
   - Worker validation: targeted failing test passed, `flutter test test/features/week_calendar` passed with 24 tests, `flutter analyze` passed, and diff checks passed after the base merge.
   - Orchestrator validation: PR metadata/diff/current head inspected; deep-review common/UI/tests/investigation review found no in-scope issue; clean-worktree `gh-review-hook 31` exited 0; clean-worktree targeted failing test, `flutter test test/features/week_calendar`, `flutter analyze`, and diff checks passed.
   - Worker lifecycle: thread `019f40ae-9bbd-7132-af5d-bf6779cdc0ef` archived after merge.
+- 2026-07-08 Task_3 worker materialized and opened PR.
+  - Worker thread: `019f40ae-ecc6-7a52-ad27-091b2e2f6336`.
+  - Worktree: `/Users/xpadev/.codex/worktrees/3e3e/calarm`.
+  - Branch: `codex/release-followup-ios-smoke-alternative`.
+  - PR: https://github.com/xpadev-net/calarm/pull/30
+  - Current head when recorded: `109fdbc66364333ab9351bcc082b26dc2e1dd173`.
+  - Current gate state: PR is non-draft, review decision `APPROVED`, merge state `UNSTABLE`; Baseline CI, Android emulator native smoke, Greptile, and Socket checks are successful, while iOS simulator native smoke is still in progress.
+  - Orchestrator action: leave worker running until it reports `merge_ready` or a precise blocker; do not return to PR #29 until Task_3 lands or is explicitly blocked.
 
 ## Decision Log
 

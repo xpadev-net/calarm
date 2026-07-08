@@ -422,6 +422,14 @@ Interpretation:
   - Worker lifecycle: Task_2 worker thread `019f40ae-9bbd-7132-af5d-bf6779cdc0ef` archived after merge.
   - Next action: continue Task_3 iOS Native Smoke Timeout Alternative, then return to PR #29 after follow-up fixes/evidence land.
 
+- 2026-07-08 Release artifact Task_3 iOS Native Smoke Timeout Alternative worker materialized.
+  - Worker thread: `019f40ae-ecc6-7a52-ad27-091b2e2f6336`.
+  - Worktree: `/Users/xpadev/.codex/worktrees/3e3e/calarm`.
+  - Branch: `codex/release-followup-ios-smoke-alternative`.
+  - PR: https://github.com/xpadev-net/calarm/pull/30
+  - Current head when recorded: `109fdbc66364333ab9351bcc082b26dc2e1dd173`.
+  - Current gate state: PR is non-draft, review decision `APPROVED`, merge state `UNSTABLE`; iOS simulator native smoke remains in progress, so the worker remains active and PR #29 remains blocked.
+
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
   - Validation evidence: GitHub `Format, analyze, and test`, `Android emulator native smoke`, `iOS simulator native smoke`, Greptile Review, Socket Project Report, and Socket Pull Request Alerts were successful; worker evidence on the same head reported workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed.
