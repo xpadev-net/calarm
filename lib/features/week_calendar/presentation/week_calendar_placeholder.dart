@@ -44,6 +44,7 @@ final weekCalendarWakePlanServiceProvider = FutureProvider<WakePlanService>((
   return WakePlanService(
     repository: await ref.watch(weekCalendarRepositoryProvider.future),
     nativeAlarmGateway: ref.watch(weekCalendarNativeAlarmGatewayProvider),
+    clock: ref.watch(weekCalendarClockProvider),
   );
 });
 
