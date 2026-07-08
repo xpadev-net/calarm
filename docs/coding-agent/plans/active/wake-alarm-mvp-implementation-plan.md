@@ -321,6 +321,12 @@ Interpretation:
   - Current blocker: Wave 13 cannot enter orchestrator merge gate in the current worker/parent environments because `flutter`, `fvm`, `gh`, and `gh-review-hook` are unavailable; targeted Flutter tests, `flutter analyze`, PR creation, independent review, and `gh-review-hook` remain incomplete. This is not merge-ready.
   - Next action: run the remaining validation/PR/review-hook steps from an environment with Flutter and GitHub tooling, or have the user provide/open the PR for orchestrator review in a tooling-enabled environment.
 
+- 2026-07-08 Wave 13 branch worker reopened with requested model.
+  - User decision: archived/stopped worker thread was closed by the user; reopen the Wave 13 branch worker with `gpt-5.5` and medium reasoning.
+  - Replacement worker pending worktree: `local:4032c0dd-ec0c-4f77-8781-4528cb7788c7`; starting branch `codex/wave-13-ui-harmonization-5`; expected head `bad462bba3bcd6cba00cebdaf7fcc936c550f017`.
+  - Worker type: Codex thread/worktree, not multi-agent subagent.
+  - Next action: monitor replacement worker startup, then record its assigned thread/worktree once available; if tooling is available there, worker should finish validation/PR/review-hook gates without expanding product-code scope.
+
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
   - Validation evidence: GitHub `Format, analyze, and test`, `Android emulator native smoke`, `iOS simulator native smoke`, Greptile Review, Socket Project Report, and Socket Pull Request Alerts were successful; worker evidence on the same head reported workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed.

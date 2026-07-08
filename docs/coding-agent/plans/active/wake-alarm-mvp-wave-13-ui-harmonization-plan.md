@@ -163,6 +163,12 @@
   - Current blocker: Wave 13 cannot enter orchestrator merge gate in the current worker/parent environments because `flutter`, `fvm`, `gh`, and `gh-review-hook` are unavailable; targeted Flutter tests, `flutter analyze`, PR creation, independent review, and `gh-review-hook` remain incomplete. This is not merge-ready.
   - Next action: run the remaining validation/PR/review-hook steps from an environment with Flutter and GitHub tooling, or have the user provide/open the PR for orchestrator review in a tooling-enabled environment.
 
+- 2026-07-08 Wave 13 branch worker reopened with requested model.
+  - User decision: archived/stopped worker thread was closed by the user; reopen the Wave 13 branch worker with `gpt-5.5` and medium reasoning.
+  - Replacement worker pending worktree: `local:4032c0dd-ec0c-4f77-8781-4528cb7788c7`; starting branch `codex/wave-13-ui-harmonization-5`; expected head `bad462bba3bcd6cba00cebdaf7fcc936c550f017`.
+  - Worker type: Codex thread/worktree, not multi-agent subagent.
+  - Next action: monitor replacement worker startup, then record its assigned thread/worktree once available; if tooling is available there, worker should finish validation/PR/review-hook gates without expanding product-code scope.
+
 - 2026-07-05 Draft created.
 
 ## Decision Log (append-only; re-plans and major discoveries)
