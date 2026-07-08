@@ -132,7 +132,7 @@ jobs:
       - name: Resolve dependencies
         shell: bash
         run: |
-          set -o pipefail
+          set -euo pipefail
           mkdir -p "${RELEASE_ARTIFACT_ROOT}/logs"
           flutter pub get 2>&1 | tee "${RELEASE_ARTIFACT_ROOT}/logs/flutter-pub-get.log"
 
@@ -345,6 +345,7 @@ jobs:
           {
             echo "IOS_EXPORT_OPTIONS_PLIST=${export_options_path}"
             echo "API_PRIVATE_KEYS_DIR=${private_keys_dir}"
+            echo "IOS_SIGNING_KEYCHAIN_PATH=${keychain_path}"
           } >> "${GITHUB_ENV}"
 
       - name: Build signed iOS IPA
@@ -380,8 +381,16 @@ jobs:
           xcrun altool --upload-app \
             -f "${RELEASE_ARTIFACT_ROOT}/ios/calarm-ios-testflight-internal.ipa" \
             --api-key "${APP_STORE_CONNECT_API_KEY_ID}" \
-            --api-issuer "${APP_STORE_CONNECT_API_ISSUER_ID}" \
-            --p8-file-path "${API_PRIVATE_KEYS_DIR}/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
+            --api-issuer "${APP_STORE_CONNECT_API_ISSUER_ID}"
+
+      - name: Delete temporary signing keychain
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${IOS_SIGNING_KEYCHAIN_PATH:-}" && -f "${IOS_SIGNING_KEYCHAIN_PATH}" ]]; then
+            security delete-keychain "${IOS_SIGNING_KEYCHAIN_PATH}" || true
+          fi
 
       - name: Upload iOS TestFlight logs
         if: always()
