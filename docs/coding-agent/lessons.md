@@ -21,6 +21,15 @@ Purpose:
 
 ## Entries
 
+### 2026-07-08 - Treat Debug Leads As Hypotheses
+
+- tags: validation/verification, assumptions/interpretation, ci, delegation
+- symptom: A follow-up task for a Baseline CI failure was initially worded as a timezone/date-assumption investigation after the user suggested timezone was worth checking.
+- root cause: The orchestration prompt turned a plausible debugging lead into overly narrow framing before evidence established the root cause.
+- fix: Reword the active plan and automation so timezone/current-date behavior is only one candidate cause alongside repeat/skip logic, clock seeding, CI environment, and calendar-date conversion.
+- prevention: When a user suggests a possible root cause for a failing check, preserve it as a hypothesis unless they explicitly say it is the confirmed cause; worker prompts should require evidence before narrowing the fix.
+- promotion: Repo-local lesson only for now; no rule suite exists in this repository.
+
 ### 2026-07-08 - Launch Implementation Workers With Requested Model
 
 - tags: delegation, workflow/process, assumptions/interpretation

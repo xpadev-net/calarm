@@ -77,7 +77,7 @@
     owner: worker
     detail: "gh-review-hook <PR> exits 0 before merge-ready handoff"
 
-### Task_2: Baseline CI Timezone/Date Test Follow-up
+### Task_2: Baseline CI Date/Calendar Test Follow-up
 - type: test
 - owns:
   - `test/features/week_calendar/presentation/week_calendar_placeholder_test.dart`
@@ -87,9 +87,10 @@
   - `docs/coding-agent/plans/active/wake-alarm-mvp-release-artifacts-plan.md`
 - depends_on: []
 - description: |
-  Investigate and fix the repeated Baseline CI failure from PR #29, with emphasis on timezone/current-date assumptions in the failing week calendar test.
+  Investigate and fix the repeated Baseline CI failure from PR #29. Timezone/current-date assumptions are plausible, but not assumed; compare them against repeat/skip logic, clock seeding, CI environment, and calendar-date conversion behavior.
 - acceptance:
   - The root cause of the `CalendarDay:<2026-07-08>` vs `CalendarDay:<2026-07-09>` failure is documented.
+  - Candidate causes are evaluated without prematurely assuming timezone is the root cause.
   - If caused by timezone/current-date assumptions, the affected test or code path is made deterministic using existing clock/time helpers where possible.
   - If production code is responsible, the fix is narrow and covered by regression evidence.
   - PR #29 can consume the fix by merging `master` once this follow-up lands.
@@ -164,7 +165,7 @@
   - Hook result: worker ran `PATH="/opt/homebrew/bin:/Users/xpadev/go/bin:$PATH" /Users/xpadev/go/bin/gh-review-hook 29`; it exited 2 because required checks failed.
   - Blocking decision needed: either approve a scoped follow-up/decomposition to fix the failing product test and iOS native-smoke timeout, or explicitly waive/override the failing required checks for this release-artifacts PR.
 - 2026-07-08 Follow-up decomposition started after user direction.
-  - User guidance: Baseline CI likely needs timezone/date assumption review; iOS smoke should evaluate alternatives; proceed as follow-up work.
+  - User guidance: Baseline CI should inspect timezone/date assumptions as one plausible lead, not as a predetermined root cause; iOS smoke should evaluate alternatives; proceed as follow-up work.
   - Task_2 queued: pending worktree `local:eb96f702-fcb4-4266-b4c9-8ccd4cafa877`; branch `codex/release-followup-baseline-timezone`; requested model `gpt-5.5`; reasoning `medium`.
   - Task_3 queued: pending worktree `local:3887ba65-1477-46f7-91d5-d417e9948cc5`; branch `codex/release-followup-ios-smoke-alternative`; requested model `gpt-5.5`; reasoning `medium`.
   - PR #29 remains draft/blocked until these follow-ups merge or a separate explicit waiver/override is approved.
@@ -184,7 +185,7 @@
   - User approval: user explicitly requested internal TestFlight setup work.
 
 - 2026-07-08 Decision: Do follow-up fixes instead of waiving PR #29 gates.
-  - Trigger / new insight: User indicated the Baseline CI failure should check timezone assumptions and the smoke-test failure should be handled by considering alternatives.
+  - Trigger / new insight: User indicated the Baseline CI failure should check timezone assumptions as a plausible lead and the smoke-test failure should be handled by considering alternatives.
   - Plan delta (what changed): Add Task_2 and Task_3 follow-up workers, then return to PR #29 after their fixes/evidence land.
   - Tradeoffs considered: Waiving PR #29 would ship useful artifact workflow sooner but would weaken required CI evidence. Follow-up PRs keep merge-gate discipline and isolate product-test/native-smoke changes from the release-distribution workflow.
   - User approval: user requested follow-up work.

@@ -403,8 +403,8 @@ Interpretation:
   - Current blocker: normal merge is blocked until the failing product test and iOS native-smoke timeout are fixed by scoped follow-up/decomposition, or the user explicitly approves a check waiver/override for this release-artifacts PR.
 
 - 2026-07-08 Release artifact follow-up workers queued.
-  - Trigger: user requested handling the Baseline CI failure as a timezone/date-assumption investigation and handling the iOS smoke failure by considering alternatives, as follow-up work.
-  - Task_2 Baseline CI Timezone/Date Test Follow-up: pending worktree `local:eb96f702-fcb4-4266-b4c9-8ccd4cafa877`; branch `codex/release-followup-baseline-timezone`; requested model `gpt-5.5`; reasoning `medium`.
+  - Trigger: user requested handling the Baseline CI failure as a date/calendar investigation where timezone is a plausible lead but not assumed, and handling the iOS smoke failure by considering alternatives, as follow-up work.
+  - Task_2 Baseline CI Date/Calendar Test Follow-up: pending worktree `local:eb96f702-fcb4-4266-b4c9-8ccd4cafa877`; branch `codex/release-followup-baseline-timezone`; requested model `gpt-5.5`; reasoning `medium`.
   - Task_3 iOS Native Smoke Timeout Alternative: pending worktree `local:3887ba65-1477-46f7-91d5-d417e9948cc5`; branch `codex/release-followup-ios-smoke-alternative`; requested model `gpt-5.5`; reasoning `medium`.
   - PR #29 remains draft/blocked until follow-up fixes/evidence land and the worker merges current `master` into `codex/release-device-artifacts`.
 
