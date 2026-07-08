@@ -8,6 +8,38 @@ Wave 8 Task_5 adds hosted simulator/emulator smoke coverage for the native alarm
 - Native Smoke CI is in `.github/workflows/native-smoke.yml` and runs on pull requests touching native smoke areas, on a weekly schedule, and by manual dispatch.
 - Native Smoke CI uploads `android-native-smoke` and `ios-native-smoke` artifacts containing Flutter logs, native build logs, simulator/emulator logs, optional screenshots, and per-platform Markdown summaries.
 
+## Wave 14 Release Evidence Snapshot
+
+Date: 2026-07-08
+
+Evidence source: GitHub Actions inspected with `gh` after PR #26 merged.
+
+Release baseline:
+
+- PR #26 (`Wave 13 UI harmonization and accessibility pass`) merged into `master` at 2026-07-08T05:27:23Z with merge commit `abfb5a58c1311a4537338c102ee340bb7baef8cd`.
+- `origin/master` release evidence head is `905de9f2aa614abab30c97403c53e01f5a3267fb` (`Complete Wave 13 and start Wave 14`), which is after the PR #26 merge commit.
+- Baseline CI was manually rerun on `master` with `workflow_dispatch`: run `28920020032`, head SHA `905de9f2aa614abab30c97403c53e01f5a3267fb`, completed `success` at 2026-07-08T05:34:40Z.
+- Baseline CI job `Format, analyze, and test` passed `flutter pub get`, `dart format --set-exit-if-changed .`, `flutter analyze`, `flutter test`, and `baseline-ci-logs` upload.
+
+Native smoke release evidence:
+
+| Platform | Run / job | Hosted evidence label | Result | Evidence summary |
+| --- | --- | --- | --- | --- |
+| Android | Native Smoke CI run `28920020031`, job `85795058134`, `master` head `905de9f2aa614abab30c97403c53e01f5a3267fb` | `BLOCKED` | Workflow job succeeded, release smoke result remains blocked | Android debug APK built, but the hosted runner did not expose the required emulator executable at `/usr/local/lib/android/sdk/emulator/emulator`, so no API 36/API 35 emulator boot or MethodChannel smoke execution occurred. |
+| iOS | Native Smoke CI run `28920020031`, job `85795058139`, `master` head `905de9f2aa614abab30c97403c53e01f5a3267fb` | `BLOCKED` | Workflow job succeeded, release smoke result remains blocked | Hosted macOS runner used Xcode 26.5, iPhoneSimulator SDK 26.5, and an iOS 26.5 simulator. The app built and the MethodChannel smoke test ran, but `scheduleOccurrences` and `scheduleTestAlarm` returned `permissionMissing`; `CALARM_NATIVE_SMOKE_OUTCOME=BLOCKED`. |
+
+Retrieved artifact references:
+
+- `docs/qa/artifacts/wave14-android-native-smoke-20260708-0533.md`
+- `docs/qa/artifacts/wave14-ios-native-smoke-20260708-0533.md`
+
+Release interpretation:
+
+- The Baseline CI release hygiene gate is green for the `master` head inspected above.
+- Native Smoke CI is runnable manually and uploaded per-platform artifacts on `master`, but both simulator/emulator results remain `BLOCKED`.
+- These CI results are simulator/emulator evidence only. They do not approve real-device Android API 36 or iOS 26+ wake delivery, lock/terminated behavior, Silent/Focus behavior, full-screen stop UI, cancel semantics, 13-equivalent reservations, or Android reboot restore.
+- Real-device iOS 26+ and Android API 36 runtime validation remains BLOCKED/user-deferred and release-blocking unless a separate product/release decision explicitly chooses a waiver or platform-limited path.
+
 ## Baseline Artifact Runtime Warning
 
 The Baseline CI warning was caused by `actions/upload-artifact@v4`, whose action metadata declares `runs.using: node20`, while GitHub hosted runners now force older Node actions onto Node.js 24. The supported upstream action/runtime path was verified with `gh`:
