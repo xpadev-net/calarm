@@ -672,6 +672,12 @@ Interpretation:
   - Action: Delegated narrow fix to worker agent `019f3c45-17e0-7220-a6f2-3ce36049f9b6` on branch `codex/wave-08-task6-edit-schedule-failure`; Wave 8 remains active until the worker PR, required checks, independent review, and orchestrator merge gate pass.
   - Runtime status: Real iOS 26+ and Android API 36 alarm validation remains deferred/unapproved and release-blocking.
 
+- 2026-07-08 Wave 14 Task_1 final QA release readiness documented.
+  - Summary: `docs/qa/release-readiness.md` records the MVP release gate matrix.
+  - Result: normal two-platform MVP release is `BLOCKED`, not APPROVED.
+  - Evidence: app-level create/edit/delete/repeat/skip/test-alarm/permission-warning/minimum-vertical-flow coverage is recorded as PASS from completed waves, Baseline CI is PASS from Wave 14 Task_2, CI native smoke remains BLOCKED, and all iOS 26+/Android API 36 real-device Wave 3 deferred runtime gates remain BLOCKED/user-deferred.
+  - Parent DoD impact: child implementation progress can be reviewed, but parent release approval cannot be marked done until deferred real-device runtime validation passes or a separate explicit product/release waiver/platform-limited decision is made.
+
 ## Decision Log (append-only; re-plans and major discoveries)
 
 - 2026-07-06 Decision: Add CI near-device smoke early without relaxing runtime approval.
@@ -691,6 +697,12 @@ Interpretation:
   - Plan delta (what changed): Wave 4+ may proceed, Wave 8/11 must implement/check the native paths without claiming platform approval, and Wave 14 retains release-blocking runtime gates.
   - Tradeoffs considered: Rolling concrete reservations preserve next-skip and cancel semantics across platforms; the tradeoff is more reconciliation and QA burden than relying on OS recurrence.
   - User approval: yes.
+
+- 2026-07-08 Decision: Final MVP release readiness remains blocked under current evidence.
+  - Trigger / new insight: Wave 14 final QA found no iOS 26+ or Android API 36 real-device runtime evidence and both CI native smoke platform outcomes are BLOCKED.
+  - Plan delta (what changed): Parent closeout must treat `docs/qa/release-readiness.md` as the authoritative final QA matrix for the current evidence state and must not mark either platform release APPROVED.
+  - Tradeoffs considered: Normal release remains stopped, but the document preserves which app-level gates have passed and names the exact real-device evidence needed next.
+  - User approval: not required for documenting the gate result; required later only for waiver/platform-limited release decisions.
 
 - 2026-07-06 Decision: Defer native runtime validation and continue planning under explicit risk.
   - Trigger / new insight: User approved deferring runtime validation.
