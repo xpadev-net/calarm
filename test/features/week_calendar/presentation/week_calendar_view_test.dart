@@ -29,6 +29,26 @@ void main() {
     },
   );
 
+  testWidgets('scrolls the current week near the current time after layout', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WeekCalendarView(now: DateTime(2026, 7, 8, 7, 30)),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final scrollView = tester.widget<SingleChildScrollView>(
+      find.byType(SingleChildScrollView),
+    );
+
+    expect(scrollView.controller, isNotNull);
+    expect(scrollView.controller!.offset, 324);
+  });
+
   testWidgets('converts a grid tap into a calendar day and five-minute time', (
     tester,
   ) async {

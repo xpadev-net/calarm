@@ -107,6 +107,7 @@ class _WeekCalendarWeekPage extends StatefulWidget {
 
 class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
   late final ScrollController _scrollController;
+  bool _didApplyInitialScroll = false;
 
   double get _pixelsPerMinute {
     return widget.hourHeight / TimeOfDayMinutes.minutesPerHour;
@@ -121,12 +122,45 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
       pixelsPerMinute: _pixelsPerMinute,
     );
     _scrollController = ScrollController(initialScrollOffset: target.offset);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _applyInitialScroll();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _WeekCalendarWeekPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.week.start != widget.week.start ||
+        oldWidget.now != widget.now ||
+        oldWidget.hourHeight != widget.hourHeight) {
+      _didApplyInitialScroll = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _applyInitialScroll();
+      });
+    }
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _applyInitialScroll() {
+    if (!mounted || _didApplyInitialScroll || !_scrollController.hasClients) {
+      return;
+    }
+    final target = initialWeekCalendarScrollTarget(
+      week: widget.week,
+      now: widget.now,
+      pixelsPerMinute: _pixelsPerMinute,
+    );
+    final boundedOffset = target.offset.clamp(
+      _scrollController.position.minScrollExtent,
+      _scrollController.position.maxScrollExtent,
+    );
+    _scrollController.jumpTo(boundedOffset);
+    _didApplyInitialScroll = true;
   }
 
   @override

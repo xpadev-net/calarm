@@ -2,6 +2,9 @@ package dev.xpa.calarm
 
 import android.app.Activity
 import android.app.NotificationManager
+import android.media.AudioAttributes
+import android.media.Ringtone
+import android.media.RingtoneManager
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
@@ -13,6 +16,7 @@ import android.widget.TextView
 class AlarmStopActivity : Activity() {
     private var platformAlarmId: String? = null
     private var alarmCleanedUp = false
+    private var ringtone: Ringtone? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,6 +50,7 @@ class AlarmStopActivity : Activity() {
             }
         })
         setContentView(layout)
+        startAlarmSound()
     }
 
     override fun onDestroy() {
@@ -58,7 +63,30 @@ class AlarmStopActivity : Activity() {
         if (alarmCleanedUp) return
 
         alarmCleanedUp = true
+        stopAlarmSound()
         getSystemService(NotificationManager::class.java).cancel(alarmId.hashCode())
         AlarmStore(this).remove(alarmId)
+    }
+
+    private fun startAlarmSound() {
+        val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        ringtone = RingtoneManager.getRingtone(this, alarmUri)?.apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                audioAttributes = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                isLooping = true
+            }
+            play()
+        }
+    }
+
+    private fun stopAlarmSound() {
+        ringtone?.stop()
+        ringtone = null
     }
 }

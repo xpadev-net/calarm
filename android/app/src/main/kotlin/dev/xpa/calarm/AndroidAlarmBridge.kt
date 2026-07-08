@@ -487,16 +487,25 @@ object AlarmIntents {
     }
 
     fun stopActivity(context: Context, platformAlarmId: String): PendingIntent {
-        val intent = Intent(context, AlarmStopActivity::class.java)
-            .setAction("dev.xpa.calarm.ALARM_STOP")
-            .setData(identityUri(platformAlarmId))
-            .putExtra(EXTRA_PLATFORM_ALARM_ID, platformAlarmId)
+        val intent = stopActivityIntent(context, platformAlarmId)
         return PendingIntent.getActivity(
             context,
             requestCode(platformAlarmId),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+    }
+
+    fun stopActivityIntent(context: Context, platformAlarmId: String): Intent {
+        return Intent(context, AlarmStopActivity::class.java)
+            .setAction("dev.xpa.calarm.ALARM_STOP")
+            .setData(identityUri(platformAlarmId))
+            .putExtra(EXTRA_PLATFORM_ALARM_ID, platformAlarmId)
+            .addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP,
+            )
     }
 
     private fun requestCode(platformAlarmId: String): Int {

@@ -2,7 +2,6 @@ package dev.xpa.calarm
 
 import android.app.Notification
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -15,6 +14,7 @@ class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val platformAlarmId = intent.getStringExtra(AlarmIntents.EXTRA_PLATFORM_ALARM_ID) ?: return
         showAlarmNotification(context, platformAlarmId)
+        openAlarmScreen(context, platformAlarmId)
         vibrate(context)
     }
 
@@ -40,10 +40,20 @@ class AlarmReceiver : BroadcastReceiver() {
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setFullScreenIntent(stopIntent, true)
             .setContentIntent(stopIntent)
-            .setAutoCancel(true)
+            .setOngoing(true)
+            .setAutoCancel(false)
             .build()
 
         notificationManager.notify(platformAlarmId.hashCode(), notification)
+    }
+
+    private fun openAlarmScreen(context: Context, platformAlarmId: String) {
+        try {
+            context.startActivity(AlarmIntents.stopActivityIntent(context, platformAlarmId))
+        } catch (_: RuntimeException) {
+            // Keep the full-screen notification pending intent as the supported
+            // fallback when the OS blocks a background activity launch.
+        }
     }
 
     private fun vibrate(context: Context) {
