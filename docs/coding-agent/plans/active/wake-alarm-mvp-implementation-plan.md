@@ -402,6 +402,12 @@ Interpretation:
   - Merge-gate failures: PR is draft/`UNSTABLE`; Baseline CI failed twice in out-of-scope product test `test/features/week_calendar/presentation/week_calendar_placeholder_test.dart` / `skips next target from detail and keeps following repeats` (`CalendarDay:<2026-07-08>` expected, `CalendarDay:<2026-07-09>` actual); iOS simulator native smoke failed with timeout exit code 124 after simulator/native smoke execution; worker `gh-review-hook 29` exited 2 because required checks failed.
   - Current blocker: normal merge is blocked until the failing product test and iOS native-smoke timeout are fixed by scoped follow-up/decomposition, or the user explicitly approves a check waiver/override for this release-artifacts PR.
 
+- 2026-07-08 Release artifact follow-up workers queued.
+  - Trigger: user requested handling the Baseline CI failure as a timezone/date-assumption investigation and handling the iOS smoke failure by considering alternatives, as follow-up work.
+  - Task_2 Baseline CI Timezone/Date Test Follow-up: pending worktree `local:eb96f702-fcb4-4266-b4c9-8ccd4cafa877`; branch `codex/release-followup-baseline-timezone`; requested model `gpt-5.5`; reasoning `medium`.
+  - Task_3 iOS Native Smoke Timeout Alternative: pending worktree `local:3887ba65-1477-46f7-91d5-d417e9948cc5`; branch `codex/release-followup-ios-smoke-alternative`; requested model `gpt-5.5`; reasoning `medium`.
+  - PR #29 remains draft/blocked until follow-up fixes/evidence land and the worker merges current `master` into `codex/release-device-artifacts`.
+
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
   - Validation evidence: GitHub `Format, analyze, and test`, `Android emulator native smoke`, `iOS simulator native smoke`, Greptile Review, Socket Project Report, and Socket Pull Request Alerts were successful; worker evidence on the same head reported workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed.
