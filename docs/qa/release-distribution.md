@@ -66,9 +66,9 @@ Workflow: `.github/workflows/release-distribution.yml`
 
 Trigger:
 
-- `workflow_dispatch` with `upload_ios_testflight: true`.
+- `workflow_dispatch` with `release_tag: <existing GitHub Release tag>` and `upload_ios_testflight: true`.
 
-The iOS TestFlight job does not run on GitHub Release publication. It is manual and guarded so release creation cannot imply that an iOS build was uploaded or validated.
+The iOS TestFlight job does not run on GitHub Release publication. It is manual and guarded so release creation cannot imply that an iOS build was uploaded or validated. The `release_tag` input is required so the job can check out and build the exact GitHub Release tag before uploading to TestFlight.
 
 Behavior when explicitly enabled:
 
