@@ -1,6 +1,6 @@
 # Plan: Wake Alarm MVP Implementation - Plan Index
 
-- status: blocked
+- status: in progress
 - generated: 2026-07-05
 - last_updated: 2026-07-08
 - work_type: mixed
@@ -383,6 +383,12 @@ Interpretation:
   - Worker evidence: final QA artifact `docs/qa/release-readiness.md` records app-level create/edit/delete/repeat/skip/test-alarm/permission-warning/minimum-vertical-flow evidence as PASS, while normal two-platform MVP release remains `BLOCKED`; local Flutter analyze/test remained BLOCKED by Flutter `3.35.7` / Dart `3.9.2` not satisfying SDK `^3.12.2`, and PR Baseline CI passed with the repo toolchain.
   - Release gate status: all implementation/documentation waves are merged, but the parent Definition of Done remains blocked because iOS 26+/Android API 36 real-device runtime validation is absent/user-deferred. Normal release now needs either real-device artifacts that pass the deferred runtime rows or an explicit product/release waiver/platform-limited decision.
   - Worker lifecycle: worker thread `019f406a-20b6-7cb0-bfa0-61c175377aa6` archived after merge. Wave 14 child plan moved to `docs/coding-agent/plans/completed/`.
+
+- 2026-07-08 Release artifact enablement started.
+  - Trigger: user requested GitHub Release APK generation for real-device validation and asked whether IPA can be installed for iOS validation or whether TestFlight setup is needed.
+  - Child plan: `docs/coding-agent/plans/active/wake-alarm-mvp-release-artifacts-plan.md`.
+  - Scope: add Android validation APK release workflow and iOS Ad Hoc/TestFlight setup documentation without claiming any runtime gate APPROVED.
+  - Current status: worker delegation pending.
 
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
