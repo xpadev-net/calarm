@@ -7,6 +7,7 @@ Wave 8 Task_5 adds hosted simulator/emulator smoke coverage for the native alarm
 - Baseline CI remains in `.github/workflows/baseline-ci.yml` as the ordinary pull request validation for `flutter pub get`, `dart format --set-exit-if-changed .`, `flutter analyze`, and `flutter test`.
 - Native Smoke CI is in `.github/workflows/native-smoke.yml` and runs on pull requests touching native smoke areas, on a weekly schedule, and by manual dispatch.
 - Native Smoke CI uploads `android-native-smoke` and `ios-native-smoke` artifacts containing Flutter logs, native build logs, simulator/emulator logs, optional screenshots, and per-platform Markdown summaries.
+- Release Distribution Artifacts is in `.github/workflows/release-distribution.yml` and attaches `calarm-android-validation-debug.apk` to a GitHub Release for Android real-device validation. The same workflow has an opt-in guarded TestFlight internal-testing upload job for iOS. These are distribution setup only; they do not replace Native Smoke CI or approve any real-device runtime gate.
 
 ## Wave 14 Release Evidence Snapshot
 
