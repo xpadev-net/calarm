@@ -356,7 +356,7 @@ Interpretation:
   - Worker thread: `019f4034-355b-7311-b785-f50d2e305760`; worktree `/Users/xpadev/.codex/worktrees/272b/calarm`; pending worktree `local:2a395fb2-d18c-471f-adf9-2ee3089f584d`; branch `codex/wave-14-ci-native-smoke-release`; requested model `gpt-5.5`; reasoning `medium`.
   - Owned paths: `docs/qa/ci-native-smoke.md`, `docs/qa/artifacts/**`, and Wave 14 ledger status only if needed.
   - Sequencing: run Task_2 before Task_1 because Task_1 owns broad `docs/qa/**` and final release review should consume Task_2 evidence.
-  - Current status: Task_2 completed and merged; start Wave 14 Task_1 final QA review next.
+  - Current status: Task_2 completed and merged; Wave 14 Task_1 final QA review is queued.
 
 - 2026-07-08 Wave 14 Task_2 CI Simulator/Emulator Native Smoke Release Evidence merged.
   - PR: #27 `https://github.com/xpadev-net/calarm/pull/27`.
@@ -367,6 +367,12 @@ Interpretation:
   - Release evidence result: `docs/qa/ci-native-smoke.md` now records current release hygiene and native smoke artifacts. Android and iOS CI smoke outcomes remain `BLOCKED`, not real-device APPROVED.
   - Worker lifecycle: worker thread `019f4034-355b-7311-b785-f50d2e305760` archived after merge.
   - Next action: start Wave 14 Task_1 final MVP QA/release readiness review using Task_2 evidence.
+
+- 2026-07-08 Wave 14 Task_1 MVP End-to-End QA and Release Readiness queued.
+  - Worker type: Codex thread/worktree, not multi-agent subagent.
+  - Pending worktree: `local:b5ec81f9-1e81-45b6-b763-9951b07b19be`; branch `codex/wave-14-final-qa-release-readiness`; requested model `gpt-5.5`; reasoning `medium`.
+  - Owned paths: broad `docs/qa/**` final evidence plus Wave 14 and parent ledger status updates as needed.
+  - Worker requirement: consume merged Task_2 CI/native-smoke release evidence, preserve iOS 26+/Android API 36 real-device runtime validation as BLOCKED/user-deferred unless evidence is explicitly provided, and report either `merge_ready` with complete validation/review/hook evidence or a precise blocker with the single external decision/tooling needed.
 
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.

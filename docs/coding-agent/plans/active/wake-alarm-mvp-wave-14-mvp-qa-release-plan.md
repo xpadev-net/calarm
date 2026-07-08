@@ -190,7 +190,7 @@
   - Worker requirement: Codex thread/worktree worker, not multi-agent subagent; use `gpt-5.5` with medium reasoning for implementation-bearing or documentation-producing work.
   - Task_2 worker started: thread `019f4034-355b-7311-b785-f50d2e305760`; worktree `/Users/xpadev/.codex/worktrees/272b/calarm`; pending worktree `local:2a395fb2-d18c-471f-adf9-2ee3089f584d`; branch `codex/wave-14-ci-native-smoke-release`; requested model `gpt-5.5`; reasoning `medium`.
   - Task_2 owned paths: `docs/qa/ci-native-smoke.md`, `docs/qa/artifacts/**`, and Wave 14 ledger status only if needed.
-  - Current status: Task_2 completed and merged; start Task_1 final QA review next.
+  - Current status: Task_2 completed and merged; Task_1 final QA review is queued.
 
 - 2026-07-08 Wave 14 Task_2 CI Simulator/Emulator Native Smoke Release Evidence merged.
   - PR: #27 `https://github.com/xpadev-net/calarm/pull/27`.
@@ -202,6 +202,12 @@
   - Release evidence result: Baseline CI is green for the inspected `master` head; Android and iOS Native Smoke CI workflows ran and uploaded artifacts, but both platform runtime smoke outcomes remain `BLOCKED`, not real-device APPROVED.
   - Worker lifecycle: worker thread `019f4034-355b-7311-b785-f50d2e305760` archived after merge.
   - Next action: start Task_1 final MVP QA/release readiness review using the Task_2 evidence.
+
+- 2026-07-08 Wave 14 Task_1 MVP End-to-End QA and Release Readiness queued.
+  - Worker type: Codex thread/worktree, not multi-agent subagent.
+  - Pending worktree: `local:b5ec81f9-1e81-45b6-b763-9951b07b19be`; branch `codex/wave-14-final-qa-release-readiness`; requested model `gpt-5.5`; reasoning `medium`.
+  - Owned paths: broad `docs/qa/**` final evidence plus Wave 14 and parent ledger status updates as needed.
+  - Worker requirement: consume the merged Task_2 evidence in `docs/qa/ci-native-smoke.md` and `docs/qa/artifacts/wave14-*.md`, then report either `merge_ready` with complete validation/review/hook evidence or a precise blocker with the single external decision/tooling needed.
 
 - 2026-07-06 Wave 3 decision integrated.
   - Final QA owns the later gate for deferred iOS 26+ and Android API 36 runtime validation.
