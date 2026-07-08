@@ -370,9 +370,10 @@ Interpretation:
 
 - 2026-07-08 Wave 14 Task_1 MVP End-to-End QA and Release Readiness queued.
   - Worker type: Codex thread/worktree, not multi-agent subagent.
-  - Pending worktree: `local:b5ec81f9-1e81-45b6-b763-9951b07b19be`; branch `codex/wave-14-final-qa-release-readiness`; requested model `gpt-5.5`; reasoning `medium`.
+  - Worker thread: `019f406a-20b6-7cb0-bfa0-61c175377aa6`; worktree `/Users/xpadev/.codex/worktrees/3bf0/calarm`; pending worktree `local:b5ec81f9-1e81-45b6-b763-9951b07b19be`; branch `codex/wave-14-final-qa-release-readiness`; requested model `gpt-5.5`; reasoning `medium`.
   - Owned paths: broad `docs/qa/**` final evidence plus Wave 14 and parent ledger status updates as needed.
   - Worker requirement: consume merged Task_2 CI/native-smoke release evidence, preserve iOS 26+/Android API 36 real-device runtime validation as BLOCKED/user-deferred unless evidence is explicitly provided, and report either `merge_ready` with complete validation/review/hook evidence or a precise blocker with the single external decision/tooling needed.
+  - Startup check: worker materialized and is actively progressing after creating the requested branch and merging the latest parent ledger commit; no resume instruction needed.
 
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
