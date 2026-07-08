@@ -334,6 +334,12 @@ Interpretation:
   - Current status: Wave 13 PR #26 is blocked from orchestrator merge solely by parent-owned `gh-review-hook 26` exit-0 evidence. Do not merge until the hook exits 0, or the user explicitly approves a hook exception based on the green remote checks, worker hook success, and orchestrator deep-review.
   - Next action: rerun parent `gh-review-hook 26` after Greptile description review/API behavior recovers, or ask the user whether to approve a hook exception for PR #26.
 
+- 2026-07-08 Wave 13 PR #26 parent hook retry still blocked.
+  - Orchestrator retry: ran parent-owned `gh-review-hook 26` from clean worker worktree `/Users/xpadev/.codex/worktrees/312f/calarm`.
+  - Current PR verification: head remained `89062e68ceb1d15dbeac8cc045d644dfd310f444`; merge state returned to `CLEAN`; remote Baseline CI, Greptile Review, Socket Security checks, and CodeRabbit remained successful.
+  - Hook result: the retry again confirmed all CI/AI checks success but stayed in `[Greptile] waiting for PR description review update` for several minutes despite the Greptile check-run being success; orchestrator interrupted it to avoid an indefinite wait.
+  - Current status: blocked pending external decision. Either wait and rerun the parent hook later, or approve a recorded hook exception for PR #26.
+
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
   - Validation evidence: GitHub `Format, analyze, and test`, `Android emulator native smoke`, `iOS simulator native smoke`, Greptile Review, Socket Project Report, and Socket Pull Request Alerts were successful; worker evidence on the same head reported workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed.

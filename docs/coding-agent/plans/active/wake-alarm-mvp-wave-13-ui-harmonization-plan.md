@@ -176,6 +176,12 @@
   - Current status: blocked at orchestrator merge gate solely on parent-owned `gh-review-hook 26` exit-0 evidence. The PR itself is clean with green remote checks and worker hook success, but the explicit parent merge gate has not passed.
   - Next action: either rerun parent `gh-review-hook 26` after Greptile description review/API behavior recovers, or get an explicit user/orchestrator approval to merge PR #26 with a recorded hook exception based on green remote checks, worker hook success, and orchestrator deep-review.
 
+- 2026-07-08 Wave 13 PR #26 parent hook retry still blocked.
+  - Orchestrator retry: ran parent-owned `gh-review-hook 26` from clean worker worktree `/Users/xpadev/.codex/worktrees/312f/calarm`.
+  - Current PR verification: head remained `89062e68ceb1d15dbeac8cc045d644dfd310f444`; merge state returned to `CLEAN`; remote Baseline CI, Greptile Review, Socket Security checks, and CodeRabbit remained successful.
+  - Hook result: the retry again confirmed all CI/AI checks success but stayed in `[Greptile] waiting for PR description review update` for several minutes despite the Greptile check-run being success; orchestrator interrupted it to avoid an indefinite wait.
+  - Current status: blocked pending external decision. Either wait and rerun the parent hook later, or approve a recorded hook exception for PR #26.
+
 - 2026-07-05 Draft created.
 
 ## Decision Log (append-only; re-plans and major discoveries)
