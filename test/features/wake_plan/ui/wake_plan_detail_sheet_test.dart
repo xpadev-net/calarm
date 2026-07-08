@@ -40,10 +40,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Delete wake plan?'), findsOneWidget);
-    expect(
-      find.text('This removes the selected wake plan.'),
-      findsOneWidget,
-    );
+    expect(find.text('This removes the selected wake plan.'), findsOneWidget);
 
     await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
     await tester.pumpAndSettle();
@@ -61,6 +58,41 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(deleted, isTrue);
+  });
+
+  testWidgets('preserves repeating wake plan delete confirmation copy', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WakePlanDetailSheet(
+            target: WeekCalendarWakePlanTapTarget(
+              wakePlan: _plan(),
+              targetDay: _targetDay,
+            ),
+            now: DateTime(2026, 7, 8, 5, 30),
+            defaults: AppSettings.initial(),
+            existingWakePlans: const [],
+            onEdit: (_) async => _successResult(),
+            onDelete: (_) async => _successResult(),
+            onSkipNext: (_) async => _successResult(),
+            onUndoSkipNext: (_) async => _successResult(),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Delete repeating wake plan?'), findsOneWidget);
+    expect(
+      find.text(
+        'This removes future alarms for every repeat of this wake plan.',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('does not offer skip next for an unskipped one-time plan', (

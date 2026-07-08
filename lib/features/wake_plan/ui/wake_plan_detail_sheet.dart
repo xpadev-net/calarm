@@ -190,38 +190,34 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
   }
 
   Future<void> _delete() async {
-    if (_requiresDeleteConfirmation()) {
-      final isRepeating = _wakePlan.repeatRule.type != RepeatType.oneTime;
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (context) {
-          return AlertDialog(
-            title: Text(
-              isRepeating
-                  ? 'Delete repeating wake plan?'
-                  : 'Delete wake plan?',
+    final isRepeating = _wakePlan.repeatRule.type != RepeatType.oneTime;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(
+            isRepeating ? 'Delete repeating wake plan?' : 'Delete wake plan?',
+          ),
+          content: Text(
+            isRepeating
+                ? 'This removes future alarms for every repeat of this wake plan.'
+                : 'This removes the selected wake plan.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
             ),
-            content: Text(
-              isRepeating
-                  ? 'This removes future alarms for every repeat of this wake plan.'
-                  : 'This removes the selected wake plan.',
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete'),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('Delete'),
-              ),
-            ],
-          );
-        },
-      );
-      if (confirmed != true || !mounted) {
-        return;
-      }
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) {
+      return;
     }
 
     setState(() {
@@ -352,10 +348,6 @@ String? wakePlanNextFireLabel({required WakePlan plan, required DateTime now}) {
   }
 
   return nextFire == null ? null : _dateTimeLabel(nextFire);
-}
-
-bool _requiresDeleteConfirmation() {
-  return true;
 }
 
 String _repeatLabel(RepeatRule repeatRule) {

@@ -38,16 +38,15 @@ Owner thread: 019f3e2f-d144-74a0-8ac8-d6bde8e7f190 / delegated branch `codex/wav
 | Skip | Skip/undo clarity | PASS (manual + tests) | `test/features/wake_plan/ui/wake_plan_detail_sheet_test.dart`; `test/features/week_calendar/presentation/week_calendar_placeholder_test.dart` | Skip state, skip/undo actions and result messages remain explicit. |
 | Settings / Health | Navigation/action clarity | PASS (manual code review) | `lib/features/settings/presentation/settings_placeholder.dart` | Existing health and defaults actions are explicit and labelled. |
 | Ringing | Forbidden actions audit | PASS | `lib/features/alarm_ringing/presentation/alarm_ringing_placeholder.dart` | No stop-all/snooze/wake-up affordances present. |
-| Compact mobile width | Overflow risk | PARTIAL | Code review of row/overflow behavior in edited surfaces (`_InfoRow`, button rows, `_WakePlanBlockCard`, settings controls)
- | Full viewport screenshot validation not executed. |
-| Flutter/widget validation | Targeted tests | BLOCKED | `flutter` command unavailable in this environment (`command not found`). |
-| Flutter analyze | Static analyzer check | BLOCKED | `flutter` command unavailable in this environment (`command not found`). |
+| Compact mobile width | Overflow risk | PARTIAL | Code review of row/overflow behavior in edited surfaces (`_InfoRow`, button rows, `_WakePlanBlockCard`, settings controls) | Full viewport screenshot validation not executed. |
+| Flutter/widget validation | Targeted tests | BLOCKED | `/Users/xpadev/fvm/versions/3.35.7/bin/flutter test test/features/wake_plan/ui/wake_plan_detail_sheet_test.dart` failed before running: Dart 3.9.2 does not satisfy `pubspec.yaml` SDK `^3.12.2`. |
+| Flutter analyze | Static analyzer check | BLOCKED | `/Users/xpadev/fvm/versions/3.35.7/bin/flutter analyze` failed before running: Dart 3.9.2 does not satisfy `pubspec.yaml` SDK `^3.12.2`. |
 | Diff hygiene | `git diff --check` | PASS | `git diff --check origin/master...HEAD` and `git diff --check` returned no issues. |
 | E2E / Visual validation | Playwright or equivalent | BLOCKED | No Playwright route/harness present in repo (`rg --files` returned no `.playwright-cli` config; only `integration_test/native_alarm_smoke_test.dart`). |
-| Native device runtime evidence | Blocker rule compliance | BLOCKED/NEAR_DEVICE | Real-device iOS 26+/Android API 36 validation remains user-deferred/unapproved per repo-wide gate; no simulator evidence captured in this worker context. |
+| Native device runtime evidence | Blocker rule compliance | BLOCKED | Real-device iOS 26+/Android API 36 validation remains user-deferred/unapproved per repo-wide gate; no simulator evidence captured in this worker context. |
 
 ## Blockers / follow-up
-- Environment missing Flutter tooling, so required widget tests and analyzer checks could not be executed in this thread.
+- Environment Flutter SDK is incompatible with this repository (`3.35.7` / Dart `3.9.2` available; `pubspec.yaml` requires Dart `^3.12.2`), so required widget tests and analyzer checks could not be executed in this thread.
 - E2E/visual validation requires a runnable Flutter web harness or Playwright route; not available in current repo state/worktree.
 
 ## Recommended next validation actions
