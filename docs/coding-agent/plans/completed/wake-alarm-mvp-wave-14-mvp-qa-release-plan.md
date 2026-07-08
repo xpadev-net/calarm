@@ -1,6 +1,6 @@
 # Plan: Wake Alarm MVP Wave 14 - MVP End-to-End QA and Release Readiness
 
-- status: in_progress
+- status: completed
 - generated: 2026-07-05
 - last_updated: 2026-07-08
 - work_type: review
@@ -218,6 +218,15 @@
   - Runtime evidence: iOS 26+ and Android API 36 real-device validation remains absent/user-deferred for all Wave 3 deferred runtime cases, so neither platform is release APPROVED.
   - Local validation note: this worker environment has only Flutter `3.35.7` / Dart `3.9.2`, while `.fvmrc` requests Flutter `3.44.4` and `pubspec.yaml` requires Dart `^3.12.2`; local `flutter analyze` / `flutter test` are expected to be blocked and must rely on remote Baseline CI unless a compatible SDK is provided.
   - Tooling note: `rtk` was unavailable. `gh` and `gh-review-hook` were not on PATH at startup, but were later found at `/opt/homebrew/bin/gh` and `/Users/xpadev/go/bin/gh-review-hook` for PR lifecycle validation.
+
+- 2026-07-08 Wave 14 Task_1 MVP End-to-End QA and Release Readiness merged; Wave 14 completed.
+  - PR: #28 `https://github.com/xpadev-net/calarm/pull/28`.
+  - Head SHA: `4ec1b310200772d3329ba7e53a6fceda5232a122`.
+  - Merge commit: `26fb812feb288a13f1dd00c31238b67e9fb5f1d9`.
+  - Worker evidence: `git diff --check origin/master...HEAD` and `git diff --check` passed; local Flutter analyze/test remained BLOCKED by Flutter `3.35.7` / Dart `3.9.2` not satisfying SDK `^3.12.2`; PR Baseline CI, Greptile Review, CodeRabbit, and Socket checks passed; independent reviewer and worker `gh-review-hook 28` passed after wording fixes.
+  - Orchestrator validation: PR metadata/diff/current head inspected; merge preflight passed with non-draft PR, CLEAN merge state, approved review decision, successful required checks, and clean worker worktree; deep-review common/external-command-artifact/automation perspectives found no in-scope findings; parent `gh-review-hook 28` exited 0 from the clean worker worktree.
+  - Release result: Wave 14 records normal two-platform MVP release as `BLOCKED`, not APPROVED, because iOS 26+/Android API 36 real-device runtime validation remains absent/user-deferred.
+  - Worker lifecycle: worker thread `019f406a-20b6-7cb0-bfa0-61c175377aa6` archived after merge.
 
 - 2026-07-06 Wave 3 decision integrated.
   - Final QA owns the later gate for deferred iOS 26+ and Android API 36 runtime validation.

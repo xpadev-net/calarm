@@ -1,6 +1,6 @@
 # Plan: Wake Alarm MVP Implementation - Plan Index
 
-- status: in progress
+- status: blocked
 - generated: 2026-07-05
 - last_updated: 2026-07-08
 - work_type: mixed
@@ -374,6 +374,15 @@ Interpretation:
   - Owned paths: broad `docs/qa/**` final evidence plus Wave 14 and parent ledger status updates as needed.
   - Worker requirement: consume merged Task_2 CI/native-smoke release evidence, preserve iOS 26+/Android API 36 real-device runtime validation as BLOCKED/user-deferred unless evidence is explicitly provided, and report either `merge_ready` with complete validation/review/hook evidence or a precise blocker with the single external decision/tooling needed.
   - Startup check: worker materialized and is actively progressing after creating the requested branch and merging the latest parent ledger commit; no resume instruction needed.
+
+- 2026-07-08 Wave 14 Task_1 MVP End-to-End QA and Release Readiness merged; Wave 14 completed.
+  - PR: #28 `https://github.com/xpadev-net/calarm/pull/28`.
+  - Head SHA: `4ec1b310200772d3329ba7e53a6fceda5232a122`.
+  - Merge commit: `26fb812feb288a13f1dd00c31238b67e9fb5f1d9`.
+  - Orchestrator validation: PR metadata/diff/current head inspected; merge preflight passed with non-draft PR, CLEAN merge state, approved review decision, successful required checks, and clean worker worktree; deep-review common/external-command-artifact/automation perspectives found no in-scope findings; parent `gh-review-hook 28` exited 0 from the clean worker worktree; `git diff --check origin/master...HEAD` and `git diff --check` passed in the worker worktree.
+  - Worker evidence: final QA artifact `docs/qa/release-readiness.md` records app-level create/edit/delete/repeat/skip/test-alarm/permission-warning/minimum-vertical-flow evidence as PASS, while normal two-platform MVP release remains `BLOCKED`; local Flutter analyze/test remained BLOCKED by Flutter `3.35.7` / Dart `3.9.2` not satisfying SDK `^3.12.2`, and PR Baseline CI passed with the repo toolchain.
+  - Release gate status: all implementation/documentation waves are merged, but the parent Definition of Done remains blocked because iOS 26+/Android API 36 real-device runtime validation is absent/user-deferred. Normal release now needs either real-device artifacts that pass the deferred runtime rows or an explicit product/release waiver/platform-limited decision.
+  - Worker lifecycle: worker thread `019f406a-20b6-7cb0-bfa0-61c175377aa6` archived after merge. Wave 14 child plan moved to `docs/coding-agent/plans/completed/`.
 
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
