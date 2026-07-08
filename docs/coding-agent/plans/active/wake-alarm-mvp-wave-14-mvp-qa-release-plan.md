@@ -190,7 +190,18 @@
   - Worker requirement: Codex thread/worktree worker, not multi-agent subagent; use `gpt-5.5` with medium reasoning for implementation-bearing or documentation-producing work.
   - Task_2 worker started: thread `019f4034-355b-7311-b785-f50d2e305760`; worktree `/Users/xpadev/.codex/worktrees/272b/calarm`; pending worktree `local:2a395fb2-d18c-471f-adf9-2ee3089f584d`; branch `codex/wave-14-ci-native-smoke-release`; requested model `gpt-5.5`; reasoning `medium`.
   - Task_2 owned paths: `docs/qa/ci-native-smoke.md`, `docs/qa/artifacts/**`, and Wave 14 ledger status only if needed.
-  - Current status: Task_2 worker is active and gathering current `master` Baseline CI and Native Smoke CI evidence.
+  - Current status: Task_2 completed and merged; start Task_1 final QA review next.
+
+- 2026-07-08 Wave 14 Task_2 CI Simulator/Emulator Native Smoke Release Evidence merged.
+  - PR: #27 `https://github.com/xpadev-net/calarm/pull/27`.
+  - Head SHA: `45986c2a480b9b63fddfe5fe725aca48cecfd90d`.
+  - Merge commit: `836f29c52a79d2568f81a92632d5116334485d03`.
+  - Changed files: `docs/qa/ci-native-smoke.md`, `docs/qa/artifacts/wave14-android-native-smoke-20260708-0533.md`, `docs/qa/artifacts/wave14-ios-native-smoke-20260708-0533.md`.
+  - Worker evidence: `git diff --check origin/master...HEAD` and `git diff --check` passed; local Flutter analyze/test remained BLOCKED by Flutter `3.35.7` / Dart `3.9.2` not satisfying `pubspec.yaml` SDK `^3.12.2`; remote PR Baseline CI, Android emulator native smoke, iOS simulator native smoke, Greptile Review, CodeRabbit, and Socket checks passed; worker `gh-review-hook 27` exited 0.
+  - Orchestrator validation: PR metadata/diff/current head inspected; merge preflight passed with non-draft PR, CLEAN merge state, current branch, successful required checks, and clean worker worktree; deep-review common/external-command-artifact/automation perspectives found no in-scope findings; parent `gh-review-hook 27` exited 0.
+  - Release evidence result: Baseline CI is green for the inspected `master` head; Android and iOS Native Smoke CI workflows ran and uploaded artifacts, but both platform runtime smoke outcomes remain `BLOCKED`, not real-device APPROVED.
+  - Worker lifecycle: worker thread `019f4034-355b-7311-b785-f50d2e305760` archived after merge.
+  - Next action: start Task_1 final MVP QA/release readiness review using the Task_2 evidence.
 
 - 2026-07-06 Wave 3 decision integrated.
   - Final QA owns the later gate for deferred iOS 26+ and Android API 36 runtime validation.
