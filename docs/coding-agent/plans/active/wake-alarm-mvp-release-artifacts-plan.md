@@ -169,6 +169,11 @@
   - Task_2 queued: pending worktree `local:eb96f702-fcb4-4266-b4c9-8ccd4cafa877`; branch `codex/release-followup-baseline-timezone`; requested model `gpt-5.5`; reasoning `medium`.
   - Task_3 queued: pending worktree `local:3887ba65-1477-46f7-91d5-d417e9948cc5`; branch `codex/release-followup-ios-smoke-alternative`; requested model `gpt-5.5`; reasoning `medium`.
   - PR #29 remains draft/blocked until these follow-ups merge or a separate explicit waiver/override is approved.
+- 2026-07-08 Task_2 worker branch PR created by orchestrator due worker-local GitHub tooling gap.
+  - Worker thread: `019f40ae-9bbd-7132-af5d-bf6779cdc0ef`.
+  - Worker report: implementation committed and pushed at `ea949066aa057f3215bc7ec01f8aa072332cdf24`; local worker could not create PR or run `gh-review-hook` because `gh` and `gh-review-hook` were unavailable there.
+  - Reported root cause: `WeekCalendarPlaceholder` and `weekCalendarWakePlansProvider` used `weekCalendarClockProvider`, but `weekCalendarWakePlanServiceProvider` constructed `WakePlanService` without that clock, so service-side skip/next calculations used `DateTime.now`; on CI with real date `2026-07-09`, the frozen-clock test expected `CalendarDay<2026-07-08>` while service state advanced to `CalendarDay<2026-07-09>`.
+  - Orchestrator action: created draft PR #31 (`https://github.com/xpadev-net/calarm/pull/31`) from branch `codex/release-followup-baseline-timezone`, confirmed diff is limited to `lib/features/week_calendar/presentation/week_calendar_placeholder.dart`, and returned the non-merge-ready PR to the worker because PR is draft and checks are pending.
 
 ## Decision Log
 
