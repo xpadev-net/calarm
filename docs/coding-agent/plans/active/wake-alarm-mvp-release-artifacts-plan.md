@@ -7,14 +7,14 @@
 
 ## Goal
 
-- 実機検証を進められるように、GitHub Release から Android 検証用 APK を取得できるようにし、iOS 検証配布は IPA / Ad Hoc / TestFlight のどの経路を使うべきかを明確化し、必要なセットアップをリポジトリに記録する。
+- 実機検証を進められるように、GitHub Release から Android 検証用 APK を取得できるようにし、iOS 検証配布は TestFlight 内部テストを前提に、必要なセットアップと可能な安全な自動化をリポジトリに記録する。
 
 ## Definition of Done
 
 - GitHub Release または手動 release workflow から Android 実機検証用 APK を取得できる。
 - APK が production approval artifact ではなく real-device validation artifact であることが明記されている。
-- iOS の IPA 配布可否、Ad Hoc 配布条件、TestFlight が必要になる条件が公式情報ベースで docs に整理されている。
-- TestFlight を使う場合に必要な GitHub Secrets / Apple Developer / App Store Connect 作業が漏れなく docs に整理されている。
+- iOS は TestFlight 内部テストを想定し、App Store Connect / Apple Developer / GitHub Secrets / signing setup と、可能なら secret-driven なアップロード workflow が整理されている。
+- IPA / Ad Hoc は補足経路として、任意配布できない理由と登録デバイス・証明書・provisioning profile 条件が docs に整理されている。
 - 変更は PR 化され、worker validation、independent review、`gh-review-hook` を通過してから orchestrator が merge する。
 
 ## Scope / Non-goals
@@ -46,13 +46,14 @@
   - `docs/coding-agent/plans/active/wake-alarm-mvp-release-artifacts-plan.md`
 - depends_on: []
 - description: |
-  Add a release/distribution workflow and documentation so Android real-device validation can start from a GitHub Release APK, and iOS validation has a precise TestFlight/Ad Hoc setup path.
+  Add a release/distribution workflow and documentation so Android real-device validation can start from a GitHub Release APK, and iOS validation can proceed through TestFlight internal testing when Apple/App Store Connect credentials and signing setup are available.
 - acceptance:
   - A GitHub Actions workflow can build an Android installable APK and upload it to an existing GitHub Release or create/update a validation prerelease from a tag/workflow_dispatch.
   - Workflow permissions and triggers are least-privilege for release asset upload.
   - Artifact names and release notes make clear the APK is for validation and does not approve Android API 36 runtime gates.
-  - iOS documentation explains that arbitrary IPA sideloading is not a general replacement for TestFlight, and records Ad Hoc requirements for registered-device testing.
-  - TestFlight setup docs list required Apple/App Store Connect records, signing/provisioning choices, GitHub secrets, build-number/version behavior, and the remaining manual steps before an automated upload can run.
+  - iOS distribution target is TestFlight internal testing. If safe automation is feasible, the workflow is manual/guarded, secret-driven, and fails fast or skips clearly when signing/App Store Connect setup is absent.
+  - TestFlight setup docs list required Apple/App Store Connect records, signing/provisioning choices, GitHub secrets, build-number/version behavior, internal tester setup, and the remaining manual steps before an automated upload can run.
+  - iOS documentation explains that arbitrary IPA sideloading is not a general replacement for TestFlight, and records Ad Hoc requirements for registered-device testing only as a secondary path.
   - Parent and child ledgers are updated with the new release-artifact enablement status.
 - validation:
   - kind: command
@@ -79,6 +80,7 @@
 ## Progress Log
 
 - 2026-07-08 Plan created after final release readiness documented BLOCKED and user requested GitHub Release APK generation plus iOS/TestFlight setup path.
+- 2026-07-08 User clarified iOS distribution should proceed for TestFlight internal testing. Follow-up sent to worker thread `019f4088-edf4-7481-8f1f-1bc2930a0323` with requested model `gpt-5.5` and reasoning `medium`.
 
 ## Decision Log
 
@@ -87,3 +89,9 @@
   - Plan delta (what changed): Add a release artifact workflow and distribution docs while preserving the existing BLOCKED runtime gates.
   - Tradeoffs considered: Debug/validation APKs can unblock Android device checks quickly, while production-quality signed releases and TestFlight require secrets and Apple account setup.
   - User approval: user requested enabling GitHub Release APK generation and TestFlight setup if needed.
+
+- 2026-07-08 Decision: Use TestFlight internal testing as the primary iOS validation distribution target.
+  - Trigger / new insight: User asked to proceed on iOS assuming TestFlight internal testing.
+  - Plan delta (what changed): Worker should prefer a safe, manual/guarded, secret-driven TestFlight upload path when feasible, and otherwise document exact App Store Connect/signing/GitHub Secrets blockers.
+  - Tradeoffs considered: TestFlight internal testing avoids UDID management for testers, but requires App Store Connect app setup, signing assets, and API-key/private-key secrets that must never be committed.
+  - User approval: user explicitly requested internal TestFlight setup work.

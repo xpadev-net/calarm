@@ -390,6 +390,11 @@ Interpretation:
   - Scope: add Android validation APK release workflow and iOS Ad Hoc/TestFlight setup documentation without claiming any runtime gate APPROVED.
   - Current status: worker delegation pending.
 
+- 2026-07-08 Release artifact iOS direction clarified.
+  - Trigger: user requested continuing iOS setup assuming TestFlight internal testing.
+  - Worker thread: `019f4088-edf4-7481-8f1f-1bc2930a0323`; worktree `/Users/xpadev/.codex/worktrees/5ab6/calarm`; branch `codex/release-device-artifacts`; requested model `gpt-5.5`; reasoning `medium`.
+  - Scope update: TestFlight internal testing is now the primary iOS distribution target. Worker should implement a safe manual/guarded App Store Connect upload path if feasible with secrets only, or document exact Apple/App Store Connect/signing/GitHub secret blockers without claiming runtime gate approval.
+
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
   - Validation evidence: GitHub `Format, analyze, and test`, `Android emulator native smoke`, `iOS simulator native smoke`, Greptile Review, Socket Project Report, and Socket Pull Request Alerts were successful; worker evidence on the same head reported workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed.
