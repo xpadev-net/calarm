@@ -91,6 +91,9 @@
   - iOS native smoke failure: existing native-smoke workflow built the iOS simulator app, then `Run iOS simulator smoke` timed out with exit code 124 after simulator/native smoke execution.
   - Hook result: worker ran `PATH="/opt/homebrew/bin:/Users/xpadev/go/bin:$PATH" /Users/xpadev/go/bin/gh-review-hook 29`; it exited 2 because required checks failed.
   - Blocking decision needed: either approve a scoped follow-up/decomposition to fix the failing product test and iOS native-smoke timeout, or explicitly waive/override the failing required checks for this release-artifacts PR.
+- 2026-07-08 Follow-up Task_2 started on branch `codex/release-followup-ios-smoke-alternative`.
+  - Scope: keep iOS simulator build evidence and ordinary non-timeout test failures fatal, but make hosted simulator runtime smoke timeouts produce bounded `BLOCKED` artifacts instead of failing the workflow.
+  - Evidence wording: CI simulator smoke remains near-device or blocked evidence only; it does not approve real-device iOS 26+ AlarmKit wake, lock/terminated, Silent/Focus, or full-screen stop UI gates.
 
 ## Decision Log
 
