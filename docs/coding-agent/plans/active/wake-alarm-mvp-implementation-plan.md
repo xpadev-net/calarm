@@ -353,10 +353,10 @@ Interpretation:
 
 - 2026-07-08 Wave 14 Task_2 CI Simulator/Emulator Native Smoke Release Evidence queued.
   - Worker type: Codex thread/worktree, not multi-agent subagent.
-  - Pending worktree: `local:2a395fb2-d18c-471f-adf9-2ee3089f584d`; branch `codex/wave-14-ci-native-smoke-release`; requested model `gpt-5.5`; reasoning `medium`.
+  - Worker thread: `019f4034-355b-7311-b785-f50d2e305760`; worktree `/Users/xpadev/.codex/worktrees/272b/calarm`; pending worktree `local:2a395fb2-d18c-471f-adf9-2ee3089f584d`; branch `codex/wave-14-ci-native-smoke-release`; requested model `gpt-5.5`; reasoning `medium`.
   - Owned paths: `docs/qa/ci-native-smoke.md`, `docs/qa/artifacts/**`, and Wave 14 ledger status only if needed.
   - Sequencing: run Task_2 before Task_1 because Task_1 owns broad `docs/qa/**` and final release review should consume Task_2 evidence.
-  - Current status: waiting for Task_2 worker startup.
+  - Current status: Task_2 worker is active and gathering current `master` Baseline CI and Native Smoke CI evidence.
 
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
