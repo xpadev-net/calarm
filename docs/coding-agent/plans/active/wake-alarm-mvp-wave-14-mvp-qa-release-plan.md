@@ -209,6 +209,15 @@
   - Owned paths: broad `docs/qa/**` final evidence plus Wave 14 and parent ledger status updates as needed.
   - Worker requirement: consume the merged Task_2 evidence in `docs/qa/ci-native-smoke.md` and `docs/qa/artifacts/wave14-*.md`, then report either `merge_ready` with complete validation/review/hook evidence or a precise blocker with the single external decision/tooling needed.
 
+- 2026-07-08 Wave 14 Task_1 final QA release readiness documented.
+  - Artifact: `docs/qa/release-readiness.md`.
+  - Result: normal two-platform MVP release is `BLOCKED`, not APPROVED.
+  - App-level evidence: create, edit, delete, repeat, skip, test alarm, permission warning, and minimum vertical flow have implementation/widget/service evidence from Waves 10-13 and QA summaries.
+  - CI evidence: Baseline CI is PASS from Wave 14 Task_2 release evidence; CI native smoke remains BLOCKED for both platforms and is not real-device approval.
+  - Runtime evidence: iOS 26+ and Android API 36 real-device validation remains absent/user-deferred for all Wave 3 deferred runtime cases, so neither platform is release APPROVED.
+  - Local validation note: this worker environment has only Flutter `3.35.7` / Dart `3.9.2`, while `.fvmrc` requests Flutter `3.44.4` and `pubspec.yaml` requires Dart `^3.12.2`; local `flutter analyze` / `flutter test` are expected to be blocked and must rely on remote Baseline CI unless a compatible SDK is provided.
+  - Tooling note: `rtk`, `gh`, and `gh-review-hook` were unavailable on this worker PATH at startup; PR lifecycle readiness still requires those tools or an explicit replacement/waiver before merge-ready can be claimed.
+
 - 2026-07-06 Wave 3 decision integrated.
   - Final QA owns the later gate for deferred iOS 26+ and Android API 36 runtime validation.
   - Runtime-unapproved implementation evidence is not enough for release approval.
@@ -242,6 +251,12 @@
   - Plan delta (what changed): Wave 14 final QA now checks baseline CI status for format, analyzer/lint, and unit tests without conflating it with native runtime approval.
   - Tradeoffs considered: This keeps normal regressions visible at release time while preserving real-device runtime checks as a separate alarm reliability gate.
   - User approval: yes.
+
+- 2026-07-08 Decision: Record final MVP release readiness as BLOCKED, not platform APPROVED.
+  - Trigger / new insight: Wave 14 Task_2 evidence and existing iOS/Android QA checklists show no approved iOS 26+ or Android API 36 real-device runtime evidence; CI native smoke is also BLOCKED for both platforms.
+  - Plan delta (what changed): `docs/qa/release-readiness.md` is the final QA summary for the current evidence state and explicitly lists PASS app-level evidence separately from BLOCKED release runtime gates.
+  - Tradeoffs considered: This preserves implementation progress while avoiding a false release approval for alarm delivery and OS-policy behavior that has not run on real devices.
+  - User approval: not required for documentation; any waiver or platform-limited release remains a separate future product/release decision.
 
 - 2026-07-05 Decision: Keep final QA as its own wave.
   - Trigger / new insight: MVP Definition of Done spans UI, domain, persistence, native behavior, and docs.
