@@ -79,6 +79,7 @@
 
 ### Task_2: Baseline CI Date/Calendar Test Follow-up
 - type: test
+- status: complete
 - owns:
   - `test/features/week_calendar/presentation/week_calendar_placeholder_test.dart`
   - `test/features/week_calendar/**`
@@ -174,6 +175,14 @@
   - Worker report: implementation committed and pushed at `ea949066aa057f3215bc7ec01f8aa072332cdf24`; local worker could not create PR or run `gh-review-hook` because `gh` and `gh-review-hook` were unavailable there.
   - Reported root cause: `WeekCalendarPlaceholder` and `weekCalendarWakePlansProvider` used `weekCalendarClockProvider`, but `weekCalendarWakePlanServiceProvider` constructed `WakePlanService` without that clock, so service-side skip/next calculations used `DateTime.now`; on CI with real date `2026-07-09`, the frozen-clock test expected `CalendarDay<2026-07-08>` while service state advanced to `CalendarDay<2026-07-09>`.
   - Orchestrator action: created draft PR #31 (`https://github.com/xpadev-net/calarm/pull/31`) from branch `codex/release-followup-baseline-timezone`, confirmed diff is limited to `lib/features/week_calendar/presentation/week_calendar_placeholder.dart`, and returned the non-merge-ready PR to the worker because PR is draft and checks are pending.
+- 2026-07-08 Task_2 merged.
+  - PR: https://github.com/xpadev-net/calarm/pull/31
+  - Merge commit: `7264ea52f6373be00cea1f9cbc4ac36a6343a80a`.
+  - Head merged: `41428ad4ad640d3efccc907a93c222f750ea1182`; worker merged `origin/master` normally into the PR branch after `gh-review-hook` reported the branch was behind.
+  - Final diff: one insertion in `lib/features/week_calendar/presentation/week_calendar_placeholder.dart`, passing `weekCalendarClockProvider` into `WakePlanService`.
+  - Worker validation: targeted failing test passed, `flutter test test/features/week_calendar` passed with 24 tests, `flutter analyze` passed, and diff checks passed after the base merge.
+  - Orchestrator validation: PR metadata/diff/current head inspected; deep-review common/UI/tests/investigation review found no in-scope issue; clean-worktree `gh-review-hook 31` exited 0; clean-worktree targeted failing test, `flutter test test/features/week_calendar`, `flutter analyze`, and diff checks passed.
+  - Worker lifecycle: thread `019f40ae-9bbd-7132-af5d-bf6779cdc0ef` archived after merge.
 
 ## Decision Log
 

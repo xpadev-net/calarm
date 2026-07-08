@@ -413,6 +413,15 @@ Interpretation:
   - Worker reported root cause as a missing `weekCalendarClockProvider` clock injection into `WakePlanService`, not a confirmed timezone setting issue.
   - Orchestrator created draft PR #31 (`https://github.com/xpadev-net/calarm/pull/31`) because worker-local `gh`/`gh-review-hook` tooling was unavailable; PR is non-merge-ready while draft and checks are pending, so it was returned to the worker for refreshed merge-ready or precise blocker reporting.
 
+- 2026-07-08 Release artifact Task_2 Baseline CI Date/Calendar follow-up merged.
+  - PR: https://github.com/xpadev-net/calarm/pull/31
+  - Merge commit: `7264ea52f6373be00cea1f9cbc4ac36a6343a80a`.
+  - Merged head: `41428ad4ad640d3efccc907a93c222f750ea1182`.
+  - Summary: `weekCalendarWakePlanServiceProvider` now passes `weekCalendarClockProvider` into `WakePlanService`, fixing the PR #29 Baseline CI regression where skip-next calculations used real `DateTime.now` while the widget/test clock was frozen.
+  - Orchestrator validation: PR metadata/diff/current head inspected; deep-review found no in-scope issue; clean-worktree `gh-review-hook 31` exited 0; clean-worktree targeted failing test, `flutter test test/features/week_calendar`, `flutter analyze`, and diff checks passed.
+  - Worker lifecycle: Task_2 worker thread `019f40ae-9bbd-7132-af5d-bf6779cdc0ef` archived after merge.
+  - Next action: continue Task_3 iOS Native Smoke Timeout Alternative, then return to PR #29 after follow-up fixes/evidence land.
+
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
   - Validation evidence: GitHub `Format, analyze, and test`, `Android emulator native smoke`, `iOS simulator native smoke`, Greptile Review, Socket Project Report, and Socket Pull Request Alerts were successful; worker evidence on the same head reported workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed.
