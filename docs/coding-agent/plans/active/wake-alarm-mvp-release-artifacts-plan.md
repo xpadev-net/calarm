@@ -93,6 +93,8 @@
 - 2026-07-08 Draft PR #29 opened: `https://github.com/xpadev-net/calarm/pull/29`.
   - PR is draft because `gh-review-hook` is not installed locally as a command, GitHub CLI alias, or GitHub CLI extension.
   - Initial PR merge state was DIRTY because `origin/master` added this plan after the worker branch started. Worker merged `origin/master` normally and resolved the owned plan conflict.
+  - Post-merge local validation rerun: `git diff --check origin/master...HEAD && git diff --check` PASS; Ruby workflow YAML parse PASS.
+  - Merge-resolution commit pushed at `2d3767c6ae9780156358f239d5f6aa9139c73dd5`; GitHub reports PR merge state `UNSTABLE` with Baseline CI, Native Smoke CI, Socket Security, and CodeRabbit queued/pending.
 
 ## Decision Log
 
