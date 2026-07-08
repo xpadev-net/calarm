@@ -430,6 +430,15 @@ Interpretation:
   - Current head when recorded: `109fdbc66364333ab9351bcc082b26dc2e1dd173`.
   - Current gate state: PR is non-draft, review decision `APPROVED`, merge state `UNSTABLE`; iOS simulator native smoke remains in progress, so the worker remains active and PR #29 remains blocked.
 
+- 2026-07-08 Release artifact Task_3 iOS Native Smoke Timeout Alternative merged.
+  - PR: https://github.com/xpadev-net/calarm/pull/30
+  - Merge commit: `0a80b51b948df1dafbe9b335d14cd1cf6f63fd61`.
+  - Merged head: `a0e992a6b92d6101a743f37c8c09d104240542f9`.
+  - Summary: hosted iOS simulator runtime smoke timeout exit `124` now produces bounded `BLOCKED` artifacts instead of failing the workflow, while simulator build failures and non-timeout test failures remain fatal.
+  - Orchestrator validation: PR metadata/diff/current head inspected; deep-review found no in-scope blocker; parent `gh-review-hook 30` exited 0; parent diff checks and workflow YAML parse passed.
+  - Worker lifecycle: Task_3 worker thread `019f40ae-ecc6-7a52-ad27-091b2e2f6336` archived after merge.
+  - Next action: return release artifact PR #29 to its worker for current-base merge, draft exit, checks, and hook rerun before final merge-gate evaluation.
+
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
   - Validation evidence: GitHub `Format, analyze, and test`, `Android emulator native smoke`, `iOS simulator native smoke`, Greptile Review, Socket Project Report, and Socket Pull Request Alerts were successful; worker evidence on the same head reported workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed.

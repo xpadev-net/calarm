@@ -194,6 +194,16 @@
   - Current head when recorded: `109fdbc66364333ab9351bcc082b26dc2e1dd173`.
   - Current gate state: PR is non-draft, review decision `APPROVED`, merge state `UNSTABLE`; Baseline CI, Android emulator native smoke, Greptile, and Socket checks are successful, while iOS simulator native smoke is still in progress.
   - Orchestrator action: leave worker running until it reports `merge_ready` or a precise blocker; do not return to PR #29 until Task_3 lands or is explicitly blocked.
+- 2026-07-08 Task_3 merged.
+  - PR: https://github.com/xpadev-net/calarm/pull/30
+  - Merge commit: `0a80b51b948df1dafbe9b335d14cd1cf6f63fd61`.
+  - Head merged: `a0e992a6b92d6101a743f37c8c09d104240542f9`.
+  - Summary: iOS simulator build failures and ordinary non-timeout runtime failures remain fatal, while hosted simulator runtime smoke timeout exit `124` now writes bounded `BLOCKED` evidence and exits successfully after artifact collection.
+  - Worker validation: diff checks, workflow YAML parse, extracted iOS smoke shell `bash -n`, PR Baseline CI, Android emulator native smoke, iOS simulator native smoke, Socket checks, CodeRabbit, Greptile, and `gh-review-hook 30` passed.
+  - Orchestrator validation: PR metadata/diff/current head inspected; deep-review automation/external-command review found no in-scope blocker; parent `gh-review-hook 30` exited 0; parent diff checks and workflow YAML parse passed.
+  - Runtime status: CI simulator smoke remains NEAR_DEVICE/BLOCKED only and does not approve iOS 26+ real-device AlarmKit runtime gates.
+  - Worker lifecycle: thread `019f40ae-ecc6-7a52-ad27-091b2e2f6336` archived after merge.
+  - Next action: return to PR #29; require branch update from current `master`, exit draft, rerun checks and `gh-review-hook`, then evaluate final merge gates.
 
 ## Decision Log
 
