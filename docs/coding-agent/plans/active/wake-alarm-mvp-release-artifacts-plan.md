@@ -1,6 +1,6 @@
 # Plan: Wake Alarm MVP Release Artifacts and Device Distribution
 
-- status: in_progress
+- status: blocked
 - generated: 2026-07-08
 - last_updated: 2026-07-08
 - work_type: ci
@@ -81,6 +81,16 @@
 
 - 2026-07-08 Plan created after final release readiness documented BLOCKED and user requested GitHub Release APK generation plus iOS/TestFlight setup path.
 - 2026-07-08 User clarified iOS distribution should proceed for TestFlight internal testing. Follow-up sent to worker thread `019f4088-edf4-7481-8f1f-1bc2930a0323` with requested model `gpt-5.5` and reasoning `medium`.
+- 2026-07-08 PR #29 blocked at merge gates.
+  - PR: https://github.com/xpadev-net/calarm/pull/29
+  - Branch/head: `codex/release-device-artifacts` at `84f8c823608dc84e6f1b6910ab3e206e79393684`; worker reported local/remote clean.
+  - Implemented scope: Android GitHub Release validation APK workflow plus manual guarded iOS TestFlight internal-testing upload/docs.
+  - Worker validation/review: local diff checks, Ruby workflow YAML parse, targeted workflow semantic checks passed; independent review approved after release-tag provenance fix.
+  - Merge-gate failures: PR remains draft and `UNSTABLE`; parent `gh pr view 29` confirms Baseline CI `Format, analyze, and test` failed, iOS simulator native smoke failed, Android native smoke passed, CodeRabbit/Socket passed.
+  - Baseline failure: repeated out-of-scope product test `test/features/week_calendar/presentation/week_calendar_placeholder_test.dart` / `skips next target from detail and keeps following repeats`, expected `CalendarDay:<2026-07-08>`, actual `CalendarDay:<2026-07-09>`.
+  - iOS native smoke failure: existing native-smoke workflow built the iOS simulator app, then `Run iOS simulator smoke` timed out with exit code 124 after simulator/native smoke execution.
+  - Hook result: worker ran `PATH="/opt/homebrew/bin:/Users/xpadev/go/bin:$PATH" /Users/xpadev/go/bin/gh-review-hook 29`; it exited 2 because required checks failed.
+  - Blocking decision needed: either approve a scoped follow-up/decomposition to fix the failing product test and iOS native-smoke timeout, or explicitly waive/override the failing required checks for this release-artifacts PR.
 
 ## Decision Log
 

@@ -395,6 +395,13 @@ Interpretation:
   - Worker thread: `019f4088-edf4-7481-8f1f-1bc2930a0323`; worktree `/Users/xpadev/.codex/worktrees/5ab6/calarm`; branch `codex/release-device-artifacts`; requested model `gpt-5.5`; reasoning `medium`.
   - Scope update: TestFlight internal testing is now the primary iOS distribution target. Worker should implement a safe manual/guarded App Store Connect upload path if feasible with secrets only, or document exact Apple/App Store Connect/signing/GitHub secret blockers without claiming runtime gate approval.
 
+- 2026-07-08 Release artifact PR #29 blocked at merge gates.
+  - PR: https://github.com/xpadev-net/calarm/pull/29
+  - Branch/head: `codex/release-device-artifacts` at `84f8c823608dc84e6f1b6910ab3e206e79393684`.
+  - Implemented scope: Android GitHub Release validation APK workflow and manual guarded iOS TestFlight internal-testing upload/docs are present in the worker PR.
+  - Merge-gate failures: PR is draft/`UNSTABLE`; Baseline CI failed twice in out-of-scope product test `test/features/week_calendar/presentation/week_calendar_placeholder_test.dart` / `skips next target from detail and keeps following repeats` (`CalendarDay:<2026-07-08>` expected, `CalendarDay:<2026-07-09>` actual); iOS simulator native smoke failed with timeout exit code 124 after simulator/native smoke execution; worker `gh-review-hook 29` exited 2 because required checks failed.
+  - Current blocker: normal merge is blocked until the failing product test and iOS native-smoke timeout are fixed by scoped follow-up/decomposition, or the user explicitly approves a check waiver/override for this release-artifacts PR.
+
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
   - Validation evidence: GitHub `Format, analyze, and test`, `Android emulator native smoke`, `iOS simulator native smoke`, Greptile Review, Socket Project Report, and Socket Pull Request Alerts were successful; worker evidence on the same head reported workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed.
