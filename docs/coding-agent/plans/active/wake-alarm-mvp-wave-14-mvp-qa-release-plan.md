@@ -217,7 +217,7 @@
   - CI evidence: Baseline CI is PASS from Wave 14 Task_2 release evidence; CI native smoke remains BLOCKED for both platforms and is not real-device approval.
   - Runtime evidence: iOS 26+ and Android API 36 real-device validation remains absent/user-deferred for all Wave 3 deferred runtime cases, so neither platform is release APPROVED.
   - Local validation note: this worker environment has only Flutter `3.35.7` / Dart `3.9.2`, while `.fvmrc` requests Flutter `3.44.4` and `pubspec.yaml` requires Dart `^3.12.2`; local `flutter analyze` / `flutter test` are expected to be blocked and must rely on remote Baseline CI unless a compatible SDK is provided.
-  - Tooling note: `rtk`, `gh`, and `gh-review-hook` were unavailable on this worker PATH at startup; PR lifecycle readiness still requires those tools or an explicit replacement/waiver before merge-ready can be claimed.
+  - Tooling note: `rtk` was unavailable. `gh` and `gh-review-hook` were not on PATH at startup, but were later found at `/opt/homebrew/bin/gh` and `/Users/xpadev/go/bin/gh-review-hook` for PR lifecycle validation.
 
 - 2026-07-06 Wave 3 decision integrated.
   - Final QA owns the later gate for deferred iOS 26+ and Android API 36 runtime validation.

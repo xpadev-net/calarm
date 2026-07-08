@@ -32,7 +32,7 @@ Reason: app-level implementation and baseline CI evidence exist for the represen
 | Test alarm | PASS | BLOCKED | Settings/controller evidence covers 1-minute test-alarm request and failure preservation. iOS simulator smoke returned `permissionMissing`; Android hosted smoke did not boot an emulator; real-device delivery remains unapproved. |
 | Permission warning | PASS | BLOCKED | Settings/controller/widget evidence covers inline warnings for missing alarm permission and Android exact alarm, notification, full-screen, and channel readiness. Live iOS 26+/Android API 36 permission denial and post-return states remain unapproved. |
 | Minimum vertical flow | PASS | BLOCKED | App-level evidence covers 07:00 target creation with 06:00-07:00 occurrence window and stop-current-alarm-only ringing affordance. The native requirement that one stopped alarm leaves later alarms scheduled remains unapproved on real devices. |
-| Baseline CI | PASS | PASS for inspected release evidence head | Wave 14 Task_2 recorded successful Baseline CI run `28920020032` on `master` head `905de9f2aa614abab30c97403c53e01f5a3267fb`, covering `flutter pub get`, `dart format --set-exit-if-changed .`, `flutter analyze`, and `flutter test`. Current PR CI still requires PR creation/check inspection before merge-ready handoff. |
+| Baseline CI | PASS | PASS for inspected release evidence head | Wave 14 Task_2 recorded successful Baseline CI run `28920020032` on `master` head `905de9f2aa614abab30c97403c53e01f5a3267fb`, covering `flutter pub get`, `dart format --set-exit-if-changed .`, `flutter analyze`, and `flutter test`. Later master/PR commits require their own PR check evidence before merge-ready handoff; that ephemeral PR evidence is recorded in the worker report rather than pinned in this release-readiness artifact. |
 | CI native smoke | BLOCKED | BLOCKED | Android Native Smoke CI built the debug APK but could not run the required emulator executable. iOS Native Smoke CI built and ran on an iOS 26.5 simulator, but scheduling/test-alarm paths returned `permissionMissing`. These are not real-device approvals. |
 | E2E / visual evidence | BLOCKED | BLOCKED | Wave 13 UI review recorded code/test review evidence and widget-level coverage, but full Playwright/browser screenshots are blocked because no seeded Flutter web route/harness exists. Native E2E evidence is blocked by absent real-device validation. |
 
@@ -99,6 +99,6 @@ Local validation in this worker:
 
 Remote validation relied on for release hygiene:
 
-- Wave 14 Task_2 recorded Baseline CI run `28920020032` on `master` head `905de9f2aa614abab30c97403c53e01f5a3267fb` as PASS for `flutter pub get`, `dart format --set-exit-if-changed .`, `flutter analyze`, and `flutter test`.
+- Wave 14 Task_2 recorded earlier Baseline CI run `28920020032` on `master` head `905de9f2aa614abab30c97403c53e01f5a3267fb` as PASS for the same commands.
 - Remote CI native smoke evidence remains BLOCKED for both platforms, as recorded above.
-- Current branch PR checks are not yet verified in this worker because `gh` and `gh-review-hook` are unavailable on PATH.
+- Current PR Baseline CI and review checks are merge gates for the worker handoff and are recorded in the final worker report, not pinned in this repository artifact because each documentation fix commit changes the branch head.
