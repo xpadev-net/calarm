@@ -1,8 +1,8 @@
 # Plan: Wake Alarm MVP Wave 14 - MVP End-to-End QA and Release Readiness
 
-- status: draft
+- status: in_progress
 - generated: 2026-07-05
-- last_updated: 2026-07-06
+- last_updated: 2026-07-08
 - work_type: review
 
 ## Goal
@@ -132,7 +132,8 @@
 
 ## Task Waves (explicit parallel dispatch sets)
 
-- Wave 1 (parallel): [Task_1, Task_2]
+- Wave 1 (sequential): [Task_2]
+- Wave 2 (sequential): [Task_1]
 
 ## E2E / Visual Validation Spec
 
@@ -182,6 +183,14 @@
 - Do not delete MVP QA artifacts before final release readiness is recorded.
 
 ## Progress Log (append-only)
+
+- 2026-07-08 Wave 14 started after Wave 13 completion.
+  - Trigger: Wave 13 PR #26 merged with merge commit `abfb5a58c1311a4537338c102ee340bb7baef8cd`.
+  - Orchestrator decision: although the original Task Waves section listed Task_1 and Task_2 together, Task_1 owns broad `docs/qa/**` while Task_2 owns `docs/qa/ci-native-smoke.md` and `docs/qa/artifacts/**`, so running them in parallel would create overlapping documentation ownership. Execute Task_2 first, then Task_1 final QA review.
+  - Worker requirement: Codex thread/worktree worker, not multi-agent subagent; use `gpt-5.5` with medium reasoning for implementation-bearing or documentation-producing work.
+  - Task_2 worker queued: pending worktree `local:2a395fb2-d18c-471f-adf9-2ee3089f584d`; branch `codex/wave-14-ci-native-smoke-release`; requested model `gpt-5.5`; reasoning `medium`.
+  - Task_2 owned paths: `docs/qa/ci-native-smoke.md`, `docs/qa/artifacts/**`, and Wave 14 ledger status only if needed.
+  - Current status: waiting for Task_2 worker startup.
 
 - 2026-07-06 Wave 3 decision integrated.
   - Final QA owns the later gate for deferred iOS 26+ and Android API 36 runtime validation.

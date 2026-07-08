@@ -114,7 +114,7 @@
 - Wave 10: [Create Wake Plan Flow](../completed/wake-alarm-mvp-wave-10-create-flow-plan.md)
 - Wave 11: [Edit, Ringing, and Health Checks](../completed/wake-alarm-mvp-wave-11-edit-ringing-health-plan.md)
 - Wave 12: [Repeating Plans and Skip Next](../completed/wake-alarm-mvp-wave-12-repeat-skip-plan.md)
-- Wave 13: [UI Harmonization and Accessibility](wake-alarm-mvp-wave-13-ui-harmonization-plan.md)
+- Wave 13: [UI Harmonization and Accessibility](../completed/wake-alarm-mvp-wave-13-ui-harmonization-plan.md)
 - Wave 14: [MVP End-to-End QA and Release Readiness](wake-alarm-mvp-wave-14-mvp-qa-release-plan.md)
 
 ## Tasks
@@ -156,7 +156,7 @@ Interpretation:
 - Wave 10 (parallel): [../completed/wake-alarm-mvp-wave-10-create-flow-plan.md]
 - Wave 11 (parallel): [../completed/wake-alarm-mvp-wave-11-edit-ringing-health-plan.md]
 - Wave 12 (parallel): [../completed/wake-alarm-mvp-wave-12-repeat-skip-plan.md]
-- Wave 13 (parallel): [wake-alarm-mvp-wave-13-ui-harmonization-plan.md]
+- Wave 13 (parallel): [../completed/wake-alarm-mvp-wave-13-ui-harmonization-plan.md]
 - Wave 14 (parallel): [wake-alarm-mvp-wave-14-mvp-qa-release-plan.md]
 
 ## Rollback / Safety
@@ -344,7 +344,19 @@ Interpretation:
   - User correction: if a PR is not merge-ready, return it to the owning worker instead of holding it at the parent for a merge exception decision.
   - Action: sent follow-up to worker thread `019f3fec-a705-75b2-8844-9fdaaf822952` with model `gpt-5.5` and medium reasoning.
   - Worker instruction: continue from branch `codex/wave-13-ui-harmonization-5` at head `89062e68ceb1d15dbeac8cc045d644dfd310f444`, resolve the missing merge-readiness evidence if possible, rerun `gh-review-hook 26`, and report either `merge_ready` with exact evidence or `blocked` with the single external decision needed. Do not claim merge-ready while required merge-gate evidence is missing.
-  - Current status: waiting for worker follow-up.
+  - Worker follow-up: worker posted one supported Greptile trigger comment, merged `origin/master` normally into the PR branch, pushed head `dd4cf71af1d263e1647d52667d2f7b464855d8a7`, confirmed the PR diff still only touched the three delegated files, and reran `gh-review-hook 26` to exit 0.
+  - Merge: PR #26 `Wave 13 UI harmonization and accessibility pass` merged on 2026-07-08 with merge commit `abfb5a58c1311a4537338c102ee340bb7baef8cd`.
+  - Orchestrator validation: PR metadata/diff/current head inspected; changed files were limited to `docs/qa/ui-review.md`, `lib/features/wake_plan/ui/wake_plan_detail_sheet.dart`, and `test/features/wake_plan/ui/wake_plan_detail_sheet_test.dart`; `git diff --check origin/master...HEAD` and `git diff --check` passed in the worker worktree; remote Baseline CI, Socket Security, CodeRabbit, and Greptile checks passed; parent `gh-review-hook 26` exited 0; orchestrator deep-review common/UI/tests pass found no in-scope findings.
+  - Validation caveats: local compatible Flutter SDK remains unavailable in the worker context (`Flutter 3.35.7` / Dart `3.9.2` while `pubspec.yaml` requires Dart `^3.12.2`), but remote Baseline CI passed at the merged head; E2E/visual evidence and iOS 26+/Android API 36 real-device runtime validation remain BLOCKED/user-deferred as recorded in `docs/qa/ui-review.md`.
+  - Worker lifecycle: worker thread `019f3fec-a705-75b2-8844-9fdaaf822952` archived after merge. Wave 13 child plan moved to `docs/coding-agent/plans/completed/`.
+  - Next action: start Wave 14 release QA, running Task_2 CI native smoke release evidence before the broader Task_1 final QA review to avoid overlapping `docs/qa/**` ownership.
+
+- 2026-07-08 Wave 14 Task_2 CI Simulator/Emulator Native Smoke Release Evidence queued.
+  - Worker type: Codex thread/worktree, not multi-agent subagent.
+  - Pending worktree: `local:2a395fb2-d18c-471f-adf9-2ee3089f584d`; branch `codex/wave-14-ci-native-smoke-release`; requested model `gpt-5.5`; reasoning `medium`.
+  - Owned paths: `docs/qa/ci-native-smoke.md`, `docs/qa/artifacts/**`, and Wave 14 ledger status only if needed.
+  - Sequencing: run Task_2 before Task_1 because Task_1 owns broad `docs/qa/**` and final release review should consume Task_2 evidence.
+  - Current status: waiting for Task_2 worker startup.
 
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
