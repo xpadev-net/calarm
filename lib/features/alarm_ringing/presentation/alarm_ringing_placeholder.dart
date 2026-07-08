@@ -1,14 +1,6 @@
-import 'dart:io';
-
-import 'package:drift/drift.dart' show QueryExecutor;
-import 'package:drift/native.dart' show NativeDatabase;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
-import '../../../core/bootstrap/app_bootstrap.dart';
 import '../../../core/platform/method_channel_native_alarm_gateway.dart';
 import '../../../core/platform/native_alarm_gateway.dart';
 import '../../../core/time/time.dart';
@@ -28,12 +20,7 @@ final alarmRingingNativeAlarmGatewayProvider = Provider<NativeAlarmGateway>((
 final alarmRingingRepositoryProvider = FutureProvider<WakePlanRepository>((
   ref,
 ) async {
-  final config = ref.watch(appDatabaseConfigProvider);
-  final database = WakePlanDatabase(
-    await openAlarmRingingDatabase(config.name),
-  );
-  ref.onDispose(database.close);
-  return WakePlanRepository(database);
+  return ref.watch(appWakePlanRepositoryProvider.future);
 });
 
 final alarmRingingControllerProvider = FutureProvider<AlarmRingingController>((
@@ -290,18 +277,6 @@ class _FeatureTile extends StatelessWidget {
         side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
       ),
     );
-  }
-}
-
-Future<QueryExecutor> openAlarmRingingDatabase(String name) async {
-  try {
-    final directory = await getApplicationDocumentsDirectory();
-    return NativeDatabase.createInBackground(
-      File(p.join(directory.path, name)),
-    );
-  } on MissingPluginException catch (error) {
-    debugPrint('Falling back to in-memory alarm ringing database: $error');
-    return NativeDatabase.memory();
   }
 }
 

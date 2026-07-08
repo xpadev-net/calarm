@@ -1,24 +1,12 @@
-import 'dart:io';
-
-import 'package:drift/drift.dart';
-import 'package:drift/native.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
-import '../../../core/bootstrap/app_bootstrap.dart';
 import '../../wake_plan/data/wake_plan_data.dart';
 import '../../wake_plan/domain/wake_plan_domain.dart';
 
 final wakePlanDefaultsRepositoryProvider = FutureProvider<WakePlanRepository>((
   ref,
 ) async {
-  final config = ref.watch(appDatabaseConfigProvider);
-  final database = WakePlanDatabase(await _openSettingsDatabase(config.name));
-  ref.onDispose(database.close);
-
-  return WakePlanRepository(database);
+  return ref.watch(appWakePlanRepositoryProvider.future);
 });
 
 final wakePlanDefaultsProvider =
@@ -117,16 +105,5 @@ class WakePlanDefaultsController extends AsyncNotifier<AppSettings> {
       state = previous;
       Error.throwWithStackTrace(error, stackTrace);
     }
-  }
-}
-
-Future<QueryExecutor> _openSettingsDatabase(String name) async {
-  try {
-    final directory = await getApplicationDocumentsDirectory();
-    return NativeDatabase.createInBackground(
-      File(p.join(directory.path, name)),
-    );
-  } on MissingPluginException {
-    return NativeDatabase.memory();
   }
 }

@@ -1,14 +1,6 @@
-import 'dart:io';
-
-import 'package:drift/drift.dart' show QueryExecutor;
-import 'package:drift/native.dart' show NativeDatabase;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
-import '../../../core/bootstrap/app_bootstrap.dart';
 import '../../../core/platform/method_channel_native_alarm_gateway.dart';
 import '../../../core/platform/native_alarm_gateway.dart';
 import '../../settings/application/wake_plan_defaults_controller.dart';
@@ -32,10 +24,7 @@ final weekCalendarClockProvider = Provider<DateTime Function()>((ref) {
 final weekCalendarRepositoryProvider = FutureProvider<WakePlanRepository>((
   ref,
 ) async {
-  final config = ref.watch(appDatabaseConfigProvider);
-  final database = WakePlanDatabase(await openWakePlanDatabase(config.name));
-  ref.onDispose(database.close);
-  return WakePlanRepository(database);
+  return ref.watch(appWakePlanRepositoryProvider.future);
 });
 
 final weekCalendarWakePlanServiceProvider = FutureProvider<WakePlanService>((
@@ -84,45 +73,63 @@ class _WeekCalendarPlaceholderState
         ? defaults.requireValue
         : AppSettings.initial();
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text('Week calendar', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-        WeekCalendarView(
-          now: now,
-          wakePlans: currentWakePlans,
-          height: 220,
-          hourHeight: 44,
-          onTargetTap: (target) {
-            _openCreateSheet(
-              context: context,
-              ref: ref,
-              now: clock(),
-              target: target,
-              defaults: currentDefaults,
-              existingWakePlans: currentWakePlans,
-            );
-          },
-          onWakePlanTap: (target) {
-            _openDetailSheet(
-              context: context,
-              ref: ref,
-              now: clock(),
-              target: target,
-              defaults: currentDefaults,
-              existingWakePlans: currentWakePlans,
-            );
-          },
-        ),
-        if (wakePlans.hasError || defaults.hasError) ...[
-          const SizedBox(height: 8),
-          Text(
-            _loadErrorText(wakePlans: wakePlans, defaults: defaults),
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
-          ),
-        ],
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableHeight = constraints.hasBoundedHeight
+            ? constraints.maxHeight
+            : 420.0;
+        final errorHeight = wakePlans.hasError || defaults.hasError
+            ? 32.0
+            : 0.0;
+        final calendarHeight = (availableHeight - 32.0 - errorHeight).clamp(
+          120.0,
+          720.0,
+        );
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Week calendar',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            WeekCalendarView(
+              now: now,
+              wakePlans: currentWakePlans,
+              height: calendarHeight,
+              hourHeight: 52,
+              onTargetTap: (target) {
+                _openCreateSheet(
+                  context: context,
+                  ref: ref,
+                  now: clock(),
+                  target: target,
+                  defaults: currentDefaults,
+                  existingWakePlans: currentWakePlans,
+                );
+              },
+              onWakePlanTap: (target) {
+                _openDetailSheet(
+                  context: context,
+                  ref: ref,
+                  now: clock(),
+                  target: target,
+                  defaults: currentDefaults,
+                  existingWakePlans: currentWakePlans,
+                );
+              },
+            ),
+            if (wakePlans.hasError || defaults.hasError) ...[
+              const SizedBox(height: 8),
+              Text(
+                _loadErrorText(wakePlans: wakePlans, defaults: defaults),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+          ],
+        );
+      },
     );
   }
 
@@ -275,18 +282,6 @@ class _WeekCalendarPlaceholderState
     } finally {
       _sheetOpen = false;
     }
-  }
-}
-
-Future<QueryExecutor> openWakePlanDatabase(String name) async {
-  try {
-    final directory = await getApplicationDocumentsDirectory();
-    return NativeDatabase.createInBackground(
-      File(p.join(directory.path, name)),
-    );
-  } on MissingPluginException catch (error) {
-    debugPrint('Falling back to in-memory wake plan database: $error');
-    return NativeDatabase.memory();
   }
 }
 

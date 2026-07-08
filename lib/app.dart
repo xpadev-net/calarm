@@ -35,17 +35,17 @@ class CalarmHomePage extends StatelessWidget {
       appBar: AppBar(title: const Text(AppIdentity.defaultDisplayName)),
       body: const SafeArea(
         child: Padding(
-          padding: EdgeInsets.all(16),
+          padding: EdgeInsets.fromLTRB(12, 8, 12, 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              WakePlanPlaceholder(),
-              SizedBox(height: 12),
-              WeekCalendarPlaceholder(),
-              SizedBox(height: 12),
+              Expanded(child: WeekCalendarPlaceholder()),
+              SizedBox(height: 8),
               AlarmRingingPlaceholder(),
-              SizedBox(height: 12),
+              SizedBox(height: 8),
               SettingsPlaceholder(),
+              SizedBox(height: 8),
+              WakePlanPlaceholder(),
             ],
           ),
         ),

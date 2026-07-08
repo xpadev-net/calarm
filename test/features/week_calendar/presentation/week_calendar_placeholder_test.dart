@@ -93,6 +93,61 @@ void main() {
     expect(find.text('Could not open wake plan editor.'), findsOneWidget);
   });
 
+  testWidgets('expands calendar to fill the available primary surface', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          weekCalendarRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          wakePlanDefaultsRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          weekCalendarClockProvider.overrideWith(
+            (ref) =>
+                () => DateTime(2026, 7, 8, 5, 30),
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(
+            body: SizedBox(height: 720, child: WeekCalendarPlaceholder()),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final calendar = tester.widget<WeekCalendarView>(
+      find.byType(WeekCalendarView),
+    );
+
+    expect(calendar.height, greaterThanOrEqualTo(560));
+    expect(calendar.hourHeight, 52);
+  });
+
+  test(
+    'feature repository providers share the app repository instance',
+    () async {
+      final container = ProviderContainer(
+        overrides: [
+          appWakePlanRepositoryProvider.overrideWith((ref) async => repository),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      expect(
+        await container.read(weekCalendarRepositoryProvider.future),
+        same(repository),
+      );
+      expect(
+        await container.read(wakePlanDefaultsRepositoryProvider.future),
+        same(repository),
+      );
+    },
+  );
+
   testWidgets('guards against stacked create sheets while service loads', (
     tester,
   ) async {
