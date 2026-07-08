@@ -116,6 +116,7 @@
 - Wave 12: [Repeating Plans and Skip Next](../completed/wake-alarm-mvp-wave-12-repeat-skip-plan.md)
 - Wave 13: [UI Harmonization and Accessibility](../completed/wake-alarm-mvp-wave-13-ui-harmonization-plan.md)
 - Wave 14: [MVP End-to-End QA and Release Readiness](wake-alarm-mvp-wave-14-mvp-qa-release-plan.md)
+- Release Artifacts: [Release APK and iOS Distribution Setup](wake-alarm-mvp-release-artifacts-plan.md)
 
 ## Tasks
 
@@ -158,6 +159,7 @@ Interpretation:
 - Wave 12 (parallel): [../completed/wake-alarm-mvp-wave-12-repeat-skip-plan.md]
 - Wave 13 (parallel): [../completed/wake-alarm-mvp-wave-13-ui-harmonization-plan.md]
 - Wave 14 (parallel): [wake-alarm-mvp-wave-14-mvp-qa-release-plan.md]
+- Release Artifacts (parallel): [wake-alarm-mvp-release-artifacts-plan.md]
 
 ## Rollback / Safety
 

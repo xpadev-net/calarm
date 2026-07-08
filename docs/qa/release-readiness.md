@@ -13,6 +13,7 @@ Reason: app-level implementation and baseline CI evidence exist for the represen
 - Completed Wave 1-13 plans under `docs/coding-agent/plans/completed/`
 - Baseline CI evidence: `docs/qa/ci-baseline.md`
 - Native smoke release evidence: `docs/qa/ci-native-smoke.md`
+- Release distribution artifact setup: `docs/qa/release-distribution.md`
 - iOS runtime checklist: `docs/qa/ios-alarmkit-checklist.md`
 - Android runtime checklist: `docs/qa/android-alarm-checklist.md`
 - UI review evidence: `docs/qa/ui-review.md`
@@ -34,6 +35,7 @@ Reason: app-level implementation and baseline CI evidence exist for the represen
 | Minimum vertical flow | PASS | BLOCKED | App-level evidence covers 07:00 target creation with 06:00-07:00 occurrence window and stop-current-alarm-only ringing affordance. The native requirement that one stopped alarm leaves later alarms scheduled remains unapproved on real devices. |
 | Baseline CI | PASS | PASS for inspected release evidence head | Wave 14 Task_2 recorded successful Baseline CI run `28920020032` on `master` head `905de9f2aa614abab30c97403c53e01f5a3267fb`, covering `flutter pub get`, `dart format --set-exit-if-changed .`, `flutter analyze`, and `flutter test`. Later master/PR commits require their own PR check evidence before merge-ready handoff; that ephemeral PR evidence is recorded in the worker report rather than pinned in this release-readiness artifact. |
 | CI native smoke | BLOCKED | BLOCKED | Android Native Smoke CI built the debug APK but could not run the required emulator executable. iOS Native Smoke CI built and ran on an iOS 26.5 simulator, but scheduling/test-alarm paths returned `permissionMissing`. These are not real-device approvals. |
+| Release distribution artifacts | PASS for guarded setup only | BLOCKED | Release Distribution Artifacts can attach `calarm-android-validation-debug.apk` to a GitHub Release for Android real-device QA and includes a manual, guarded TestFlight internal-testing upload path for iOS. Android APK generation is debug-signed validation-only, and the iOS TestFlight path requires Apple signing/App Store Connect secrets before it can build/upload. Neither path is production/release approval evidence. |
 | E2E / visual evidence | BLOCKED | BLOCKED | Wave 13 UI review recorded code/test review evidence and widget-level coverage, but full Playwright/browser screenshots are blocked because no seeded Flutter web route/harness exists. Native E2E evidence is blocked by absent real-device validation. |
 
 ## Wave 3 Deferred Runtime Gates
@@ -85,6 +87,12 @@ Minimum external evidence needed to unblock normal MVP release:
 1. iOS 26+ real-device QA logs/screenshots for every iOS deferred runtime row above, including cleanup/cancel confirmation.
 2. Android API 36 real-device QA logs/screenshots for every Android deferred runtime row above, including reboot/package-replace restore and cleanup/cancel confirmation.
 3. A rerun of final QA after the real-device artifacts are added under `docs/qa/artifacts/`.
+
+Distribution support added after this readiness snapshot:
+
+- `.github/workflows/release-distribution.yml` builds and attaches a debug-signed Android validation APK to a GitHub Release so Android API 36 real-device evidence can be collected.
+- `docs/qa/release-distribution.md` documents Android release-signing prerequisites, the guarded iOS TestFlight internal-testing workflow path, and the Ad Hoc fallback.
+- These distribution artifacts do not approve any iOS 26+ or Android API 36 runtime gate by themselves.
 
 ## Worker Validation
 
