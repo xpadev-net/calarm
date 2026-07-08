@@ -175,6 +175,9 @@
   - Worker report: implementation committed and pushed at `ea949066aa057f3215bc7ec01f8aa072332cdf24`; local worker could not create PR or run `gh-review-hook` because `gh` and `gh-review-hook` were unavailable there.
   - Reported root cause: `WeekCalendarPlaceholder` and `weekCalendarWakePlansProvider` used `weekCalendarClockProvider`, but `weekCalendarWakePlanServiceProvider` constructed `WakePlanService` without that clock, so service-side skip/next calculations used `DateTime.now`; on CI with real date `2026-07-09`, the frozen-clock test expected `CalendarDay<2026-07-08>` while service state advanced to `CalendarDay<2026-07-09>`.
   - Orchestrator action: created draft PR #31 (`https://github.com/xpadev-net/calarm/pull/31`) from branch `codex/release-followup-baseline-timezone`, confirmed diff is limited to `lib/features/week_calendar/presentation/week_calendar_placeholder.dart`, and returned the non-merge-ready PR to the worker because PR is draft and checks are pending.
+- 2026-07-08 Task_3 iOS native-smoke timeout alternative implemented on branch `codex/release-followup-ios-smoke-alternative`.
+  - Scope: keep iOS simulator build evidence and ordinary non-timeout test failures fatal, but make hosted simulator runtime smoke timeouts produce bounded `BLOCKED` artifacts instead of failing the workflow.
+  - Evidence wording: CI simulator smoke remains near-device or blocked evidence only; it does not approve real-device iOS 26+ AlarmKit wake, lock/terminated, Silent/Focus, or full-screen stop UI gates.
 - 2026-07-08 Task_2 merged.
   - PR: https://github.com/xpadev-net/calarm/pull/31
   - Merge commit: `7264ea52f6373be00cea1f9cbc4ac36a6343a80a`.
