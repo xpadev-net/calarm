@@ -1,6 +1,6 @@
 # Plan: Wake Alarm MVP Implementation - Plan Index
 
-- status: in progress
+- status: blocked
 - generated: 2026-07-05
 - last_updated: 2026-07-08
 - work_type: mixed
@@ -116,7 +116,7 @@
 - Wave 12: [Repeating Plans and Skip Next](../completed/wake-alarm-mvp-wave-12-repeat-skip-plan.md)
 - Wave 13: [UI Harmonization and Accessibility](../completed/wake-alarm-mvp-wave-13-ui-harmonization-plan.md)
 - Wave 14: [MVP End-to-End QA and Release Readiness](wake-alarm-mvp-wave-14-mvp-qa-release-plan.md)
-- Release Artifacts: [Release APK and iOS Distribution Setup](wake-alarm-mvp-release-artifacts-plan.md)
+- Release Artifacts: [Release APK and iOS Distribution Setup](../completed/wake-alarm-mvp-release-artifacts-plan.md)
 
 ## Tasks
 
@@ -159,7 +159,7 @@ Interpretation:
 - Wave 12 (parallel): [../completed/wake-alarm-mvp-wave-12-repeat-skip-plan.md]
 - Wave 13 (parallel): [../completed/wake-alarm-mvp-wave-13-ui-harmonization-plan.md]
 - Wave 14 (parallel): [wake-alarm-mvp-wave-14-mvp-qa-release-plan.md]
-- Release Artifacts (parallel): [wake-alarm-mvp-release-artifacts-plan.md]
+- Release Artifacts (parallel): [../completed/wake-alarm-mvp-release-artifacts-plan.md]
 
 ## Rollback / Safety
 
@@ -743,6 +743,14 @@ Interpretation:
   - Result: normal two-platform MVP release is `BLOCKED`, not APPROVED.
   - Evidence: app-level create/edit/delete/repeat/skip/test-alarm/permission-warning/minimum-vertical-flow coverage is recorded as PASS from completed waves, Baseline CI is PASS from Wave 14 Task_2, CI native smoke remains BLOCKED, and all iOS 26+/Android API 36 real-device Wave 3 deferred runtime gates remain BLOCKED/user-deferred.
   - Parent DoD impact: child implementation progress can be reviewed, but parent release approval cannot be marked done until deferred real-device runtime validation passes or a separate explicit product/release waiver/platform-limited decision is made.
+
+- 2026-07-08 Release artifact enablement completed.
+  - Summary: PR #29 `Add release distribution artifact workflow` was merged with merge commit `c4d4216d1131500d8973570e8012ecbdc329d015`.
+  - Android distribution: `.github/workflows/release-distribution.yml` can attach `calarm-android-validation-debug.apk`, checksum, and README to an existing GitHub Release as validation-only artifacts.
+  - iOS distribution: the same workflow includes a manual, guarded TestFlight internal-testing upload path requiring Apple signing/App Store Connect secrets; arbitrary IPA sideloading remains documented as not generally sufficient.
+  - Orchestrator validation: PR metadata/diff/current head inspected; parent diff checks passed; Ruby workflow YAML parse passed; targeted workflow semantic checks passed; parent `gh-review-hook 29` exited 0; GitHub Baseline CI, Android native smoke, iOS native smoke, CodeRabbit, Greptile, and Socket checks were successful at head `af91c88fbf7b1903f6d388c3f1c82ea1e7fdc101`.
+  - Worker lifecycle: Release Artifacts worker thread `019f4088-edf4-7481-8f1f-1bc2930a0323` archived after merge.
+  - Parent DoD impact: all planned implementation/distribution repository work is complete, but the parent plan remains BLOCKED because no iOS 26+ or Android API 36 real-device runtime evidence has been provided and no explicit waiver/platform-limited release decision exists.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 

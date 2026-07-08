@@ -1,6 +1,6 @@
 # Plan: Wake Alarm MVP Release Artifacts and Device Distribution
 
-- status: blocked
+- status: completed
 - generated: 2026-07-08
 - last_updated: 2026-07-08
 - work_type: ci
@@ -218,6 +218,15 @@
   - Runtime status: CI simulator smoke remains NEAR_DEVICE/BLOCKED only and does not approve iOS 26+ real-device AlarmKit runtime gates.
   - Worker lifecycle: thread `019f40ae-ecc6-7a52-ad27-091b2e2f6336` archived after merge.
   - Next action: return to PR #29; require branch update from current `master`, exit draft, rerun checks and `gh-review-hook`, then evaluate final merge gates.
+- 2026-07-08 Task_1 release artifacts merged and plan completed.
+  - PR: https://github.com/xpadev-net/calarm/pull/29
+  - Merge commit: `c4d4216d1131500d8973570e8012ecbdc329d015`.
+  - Head merged: `af91c88fbf7b1903f6d388c3f1c82ea1e7fdc101`.
+  - Summary: `.github/workflows/release-distribution.yml` now attaches a debug-signed Android validation APK to an existing GitHub Release and provides a manual, guarded TestFlight internal-testing upload path for iOS.
+  - Orchestrator validation: PR metadata/diff/current head inspected; parent diff checks passed; Ruby workflow YAML parse passed; targeted workflow semantic checks for tag checkout/provenance, Android debug APK upload, guarded TestFlight secrets, `flutter build ipa`, `xcrun altool --upload-app`, keychain cleanup, and no `set -x` passed; parent `gh-review-hook 29` exited 0.
+  - GitHub checks: Baseline CI, Android emulator native smoke, iOS simulator native smoke, CodeRabbit, Greptile, and Socket Security checks were successful at the merged head.
+  - Runtime status: release distribution artifacts only unblock future real-device QA collection. iOS 26+ and Android API 36 runtime gates remain BLOCKED/user-deferred until real-device logs/screenshots are added or an explicit waiver/platform-limited release decision is made.
+  - Worker lifecycle: thread `019f4088-edf4-7481-8f1f-1bc2930a0323` archived after merge.
 
 ## Decision Log
 
