@@ -21,6 +21,15 @@ Purpose:
 
 ## Entries
 
+### 2026-07-08 - Launch Implementation Workers With Requested Model
+
+- tags: delegation, workflow/process, assumptions/interpretation
+- symptom: A retry implementation worker was launched without explicitly setting the user's requested model/reasoning defaults.
+- root cause: The orchestration retry focused on recovering from repeated worker startup failures and reused default thread settings instead of carrying forward the user preference for implementation-worker model selection.
+- fix: Treat implementation-worker creation and implementation-bearing follow-up prompts as requiring `gpt-5.5` with medium reasoning unless the user says otherwise.
+- prevention: Before creating or steering a Codex thread/worktree worker that may implement product code, check the active plan/user preferences for model/reasoning and pass them explicitly to `create_thread` or `send_message_to_thread`.
+- promotion: Repo-local lesson only for now; no rule suite exists in this repository.
+
 ### 2026-07-07 - Use Codex Threads for Plan Workers
 
 - tags: delegation, workflow/process, scope-owns
