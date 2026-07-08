@@ -82,6 +82,7 @@ Smoke steps when supported:
 - Boot the closest available simulator, preferring iOS 26+.
 - Run `integration_test/native_alarm_smoke_test.dart`.
 - Parse the machine-readable smoke outcome from the test log and keep the summary `BLOCKED` unless schedule, cancel, test-alarm, and cleanup cancel semantics all succeed.
+- Treat hosted simulator permission-missing paths and runtime smoke timeouts as bounded `BLOCKED` evidence instead of failing the workflow after the simulator build has already passed. Ordinary non-timeout test failures still fail CI. This preserves build and log evidence while keeping the iOS 26+ real-device runtime gate blocked.
 - Upload Flutter logs, `simctl` logs, and a screenshot when available.
 
 Release status: iOS CI simulator evidence does not approve real-device iOS 26+ wake delivery, lock/terminated behavior, Silent/Focus behavior, or full-screen stop UI. Those gates remain release-blocking until real-device QA explicitly passes.

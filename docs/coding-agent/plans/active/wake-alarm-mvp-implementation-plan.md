@@ -397,6 +397,50 @@ Interpretation:
   - Worker thread: `019f4088-edf4-7481-8f1f-1bc2930a0323`; worktree `/Users/xpadev/.codex/worktrees/5ab6/calarm`; branch `codex/release-device-artifacts`; requested model `gpt-5.5`; reasoning `medium`.
   - Scope update: TestFlight internal testing is now the primary iOS distribution target. Worker should implement a safe manual/guarded App Store Connect upload path if feasible with secrets only, or document exact Apple/App Store Connect/signing/GitHub secret blockers without claiming runtime gate approval.
 
+- 2026-07-08 Release artifact PR #29 blocked at merge gates.
+  - PR: https://github.com/xpadev-net/calarm/pull/29
+  - Branch/head: `codex/release-device-artifacts` at `84f8c823608dc84e6f1b6910ab3e206e79393684`.
+  - Implemented scope: Android GitHub Release validation APK workflow and manual guarded iOS TestFlight internal-testing upload/docs are present in the worker PR.
+  - Merge-gate failures: PR is draft/`UNSTABLE`; Baseline CI failed twice in out-of-scope product test `test/features/week_calendar/presentation/week_calendar_placeholder_test.dart` / `skips next target from detail and keeps following repeats` (`CalendarDay:<2026-07-08>` expected, `CalendarDay:<2026-07-09>` actual); iOS simulator native smoke failed with timeout exit code 124 after simulator/native smoke execution; worker `gh-review-hook 29` exited 2 because required checks failed.
+  - Current blocker: normal merge is blocked until the failing product test and iOS native-smoke timeout are fixed by scoped follow-up/decomposition, or the user explicitly approves a check waiver/override for this release-artifacts PR.
+
+- 2026-07-08 Release artifact follow-up workers queued.
+  - Trigger: user requested handling the Baseline CI failure as a date/calendar investigation where timezone is a plausible lead but not assumed, and handling the iOS smoke failure by considering alternatives, as follow-up work.
+  - Task_2 Baseline CI Date/Calendar Test Follow-up: pending worktree `local:eb96f702-fcb4-4266-b4c9-8ccd4cafa877`; branch `codex/release-followup-baseline-timezone`; requested model `gpt-5.5`; reasoning `medium`.
+  - Task_3 iOS Native Smoke Timeout Alternative: pending worktree `local:3887ba65-1477-46f7-91d5-d417e9948cc5`; branch `codex/release-followup-ios-smoke-alternative`; requested model `gpt-5.5`; reasoning `medium`.
+  - PR #29 remains draft/blocked until follow-up fixes/evidence land and the worker merges current `master` into `codex/release-device-artifacts`.
+
+- 2026-07-08 Release artifact Task_2 worker branch reached PR gate.
+  - Worker thread: `019f40ae-9bbd-7132-af5d-bf6779cdc0ef`; branch `codex/release-followup-baseline-timezone`; head `ea949066aa057f3215bc7ec01f8aa072332cdf24`.
+  - Worker reported root cause as a missing `weekCalendarClockProvider` clock injection into `WakePlanService`, not a confirmed timezone setting issue.
+  - Orchestrator created draft PR #31 (`https://github.com/xpadev-net/calarm/pull/31`) because worker-local `gh`/`gh-review-hook` tooling was unavailable; PR is non-merge-ready while draft and checks are pending, so it was returned to the worker for refreshed merge-ready or precise blocker reporting.
+
+- 2026-07-08 Release artifact Task_2 Baseline CI Date/Calendar follow-up merged.
+  - PR: https://github.com/xpadev-net/calarm/pull/31
+  - Merge commit: `7264ea52f6373be00cea1f9cbc4ac36a6343a80a`.
+  - Merged head: `41428ad4ad640d3efccc907a93c222f750ea1182`.
+  - Summary: `weekCalendarWakePlanServiceProvider` now passes `weekCalendarClockProvider` into `WakePlanService`, fixing the PR #29 Baseline CI regression where skip-next calculations used real `DateTime.now` while the widget/test clock was frozen.
+  - Orchestrator validation: PR metadata/diff/current head inspected; deep-review found no in-scope issue; clean-worktree `gh-review-hook 31` exited 0; clean-worktree targeted failing test, `flutter test test/features/week_calendar`, `flutter analyze`, and diff checks passed.
+  - Worker lifecycle: Task_2 worker thread `019f40ae-9bbd-7132-af5d-bf6779cdc0ef` archived after merge.
+  - Next action: continue Task_3 iOS Native Smoke Timeout Alternative, then return to PR #29 after follow-up fixes/evidence land.
+
+- 2026-07-08 Release artifact Task_3 iOS Native Smoke Timeout Alternative worker materialized.
+  - Worker thread: `019f40ae-ecc6-7a52-ad27-091b2e2f6336`.
+  - Worktree: `/Users/xpadev/.codex/worktrees/3e3e/calarm`.
+  - Branch: `codex/release-followup-ios-smoke-alternative`.
+  - PR: https://github.com/xpadev-net/calarm/pull/30
+  - Current head when recorded: `109fdbc66364333ab9351bcc082b26dc2e1dd173`.
+  - Current gate state: PR is non-draft, review decision `APPROVED`, merge state `UNSTABLE`; iOS simulator native smoke remains in progress, so the worker remains active and PR #29 remains blocked.
+
+- 2026-07-08 Release artifact Task_3 iOS Native Smoke Timeout Alternative merged.
+  - PR: https://github.com/xpadev-net/calarm/pull/30
+  - Merge commit: `0a80b51b948df1dafbe9b335d14cd1cf6f63fd61`.
+  - Merged head: `a0e992a6b92d6101a743f37c8c09d104240542f9`.
+  - Summary: hosted iOS simulator runtime smoke timeout exit `124` now produces bounded `BLOCKED` artifacts instead of failing the workflow, while simulator build failures and non-timeout test failures remain fatal.
+  - Orchestrator validation: PR metadata/diff/current head inspected; deep-review found no in-scope blocker; parent `gh-review-hook 30` exited 0; parent diff checks and workflow YAML parse passed.
+  - Worker lifecycle: Task_3 worker thread `019f40ae-ecc6-7a52-ad27-091b2e2f6336` archived after merge.
+  - Next action: return release artifact PR #29 to its worker for current-base merge, draft exit, checks, and hook rerun before final merge-gate evaluation.
+
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
   - Validation evidence: GitHub `Format, analyze, and test`, `Android emulator native smoke`, `iOS simulator native smoke`, Greptile Review, Socket Project Report, and Socket Pull Request Alerts were successful; worker evidence on the same head reported workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed.

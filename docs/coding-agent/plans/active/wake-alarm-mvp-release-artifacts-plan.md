@@ -78,6 +78,80 @@
     owner: worker
     detail: "gh-review-hook <PR> exits 0 before merge-ready handoff"
 
+### Task_2: Baseline CI Date/Calendar Test Follow-up
+- type: test
+- status: complete
+- owns:
+  - `test/features/week_calendar/presentation/week_calendar_placeholder_test.dart`
+  - `test/features/week_calendar/**`
+  - `lib/features/week_calendar/**`
+  - `lib/core/time/**`
+  - `docs/coding-agent/plans/active/wake-alarm-mvp-release-artifacts-plan.md`
+- depends_on: []
+- description: |
+  Investigate and fix the repeated Baseline CI failure from PR #29. Timezone/current-date assumptions are plausible, but not assumed; compare them against repeat/skip logic, clock seeding, CI environment, and calendar-date conversion behavior.
+- acceptance:
+  - The root cause of the `CalendarDay:<2026-07-08>` vs `CalendarDay:<2026-07-09>` failure is documented.
+  - Candidate causes are evaluated without prematurely assuming timezone is the root cause.
+  - If caused by timezone/current-date assumptions, the affected test or code path is made deterministic using existing clock/time helpers where possible.
+  - If production code is responsible, the fix is narrow and covered by regression evidence.
+  - PR #29 can consume the fix by merging `master` once this follow-up lands.
+- validation:
+  - kind: command
+    required: true
+    owner: worker
+    detail: "git diff --check origin/master...HEAD && git diff --check"
+  - kind: command
+    required: true
+    owner: worker
+    detail: "targeted week_calendar Flutter test(s), unless blocked by local SDK; if blocked, rely on PR CI and record exact blocker"
+  - kind: review
+    required: true
+    owner: worker
+    detail: "deep-review self-review plus independent review if available"
+  - kind: command
+    required: true
+    owner: worker
+    detail: "gh-review-hook <PR> exits 0 before merge-ready handoff"
+
+### Task_3: iOS Native Smoke Timeout Alternative
+- type: ci
+- owns:
+  - `.github/workflows/native-smoke.yml`
+  - `integration_test/native_alarm_smoke_test.dart`
+  - `docs/qa/ci-native-smoke.md`
+  - `docs/qa/artifacts/**`
+  - `docs/coding-agent/plans/active/wake-alarm-mvp-release-artifacts-plan.md`
+- depends_on: []
+- description: |
+  Investigate the iOS simulator native-smoke timeout from PR #29 and implement a safer CI alternative that preserves honest BLOCKED/NEAR_DEVICE wording.
+- acceptance:
+  - The timeout cause is investigated and documented from PR #29 / native-smoke logs.
+  - The chosen alternative avoids hanging CI and still produces useful release-artifact validation evidence.
+  - Simulator evidence remains explicitly not equivalent to iOS 26+ real-device AlarmKit runtime approval.
+  - PR #29 can consume the fix by merging `master` once this follow-up lands.
+- validation:
+  - kind: command
+    required: true
+    owner: worker
+    detail: "git diff --check origin/master...HEAD && git diff --check"
+  - kind: command
+    required: true
+    owner: worker
+    detail: "workflow YAML syntax validation and extractable shell/script syntax checks where feasible"
+  - kind: command
+    required: true
+    owner: worker
+    detail: "run or trigger relevant native smoke validation if feasible; otherwise record exact blocker and rely on PR CI"
+  - kind: review
+    required: true
+    owner: worker
+    detail: "deep-review self-review plus independent review if available"
+  - kind: command
+    required: true
+    owner: worker
+    detail: "gh-review-hook <PR> exits 0 before merge-ready handoff"
+
 ## Progress Log
 
 - 2026-07-08 Plan created after final release readiness documented BLOCKED and user requested GitHub Release APK generation plus iOS/TestFlight setup path.
@@ -95,6 +169,55 @@
   - Initial PR merge state was DIRTY because `origin/master` added this plan after the worker branch started. Worker merged `origin/master` normally and resolved the owned plan conflict.
   - Post-merge local validation rerun: `git diff --check origin/master...HEAD && git diff --check` PASS; Ruby workflow YAML parse PASS.
   - Merge-resolution commit pushed at `2d3767c6ae9780156358f239d5f6aa9139c73dd5`; GitHub reports PR merge state `UNSTABLE` with Baseline CI, Native Smoke CI, Socket Security, and CodeRabbit queued/pending.
+- 2026-07-08 PR #29 blocked at merge gates.
+  - PR: https://github.com/xpadev-net/calarm/pull/29
+  - Branch/head: `codex/release-device-artifacts` at `84f8c823608dc84e6f1b6910ab3e206e79393684`; worker reported local/remote clean.
+  - Implemented scope: Android GitHub Release validation APK workflow plus manual guarded iOS TestFlight internal-testing upload/docs.
+  - Worker validation/review: local diff checks, Ruby workflow YAML parse, targeted workflow semantic checks passed; independent review approved after release-tag provenance fix.
+  - Merge-gate failures: PR remains draft and `UNSTABLE`; parent `gh pr view 29` confirms Baseline CI `Format, analyze, and test` failed, iOS simulator native smoke failed, Android native smoke passed, CodeRabbit/Socket passed.
+  - Baseline failure: repeated out-of-scope product test `test/features/week_calendar/presentation/week_calendar_placeholder_test.dart` / `skips next target from detail and keeps following repeats`, expected `CalendarDay:<2026-07-08>`, actual `CalendarDay:<2026-07-09>`.
+  - iOS native smoke failure: existing native-smoke workflow built the iOS simulator app, then `Run iOS simulator smoke` timed out with exit code 124 after simulator/native smoke execution.
+  - Hook result: worker ran `PATH="/opt/homebrew/bin:/Users/xpadev/go/bin:$PATH" /Users/xpadev/go/bin/gh-review-hook 29`; it exited 2 because required checks failed.
+  - Blocking decision needed: either approve a scoped follow-up/decomposition to fix the failing product test and iOS native-smoke timeout, or explicitly waive/override the failing required checks for this release-artifacts PR.
+- 2026-07-08 Follow-up decomposition started after user direction.
+  - User guidance: Baseline CI should inspect timezone/date assumptions as one plausible lead, not as a predetermined root cause; iOS smoke should evaluate alternatives; proceed as follow-up work.
+  - Task_2 queued: pending worktree `local:eb96f702-fcb4-4266-b4c9-8ccd4cafa877`; branch `codex/release-followup-baseline-timezone`; requested model `gpt-5.5`; reasoning `medium`.
+  - Task_3 queued: pending worktree `local:3887ba65-1477-46f7-91d5-d417e9948cc5`; branch `codex/release-followup-ios-smoke-alternative`; requested model `gpt-5.5`; reasoning `medium`.
+  - PR #29 remains draft/blocked until these follow-ups merge or a separate explicit waiver/override is approved.
+- 2026-07-08 Task_2 worker branch PR created by orchestrator due worker-local GitHub tooling gap.
+  - Worker thread: `019f40ae-9bbd-7132-af5d-bf6779cdc0ef`.
+  - Worker report: implementation committed and pushed at `ea949066aa057f3215bc7ec01f8aa072332cdf24`; local worker could not create PR or run `gh-review-hook` because `gh` and `gh-review-hook` were unavailable there.
+  - Reported root cause: `WeekCalendarPlaceholder` and `weekCalendarWakePlansProvider` used `weekCalendarClockProvider`, but `weekCalendarWakePlanServiceProvider` constructed `WakePlanService` without that clock, so service-side skip/next calculations used `DateTime.now`; on CI with real date `2026-07-09`, the frozen-clock test expected `CalendarDay<2026-07-08>` while service state advanced to `CalendarDay<2026-07-09>`.
+  - Orchestrator action: created draft PR #31 (`https://github.com/xpadev-net/calarm/pull/31`) from branch `codex/release-followup-baseline-timezone`, confirmed diff is limited to `lib/features/week_calendar/presentation/week_calendar_placeholder.dart`, and returned the non-merge-ready PR to the worker because PR is draft and checks are pending.
+- 2026-07-08 Task_3 iOS native-smoke timeout alternative implemented on branch `codex/release-followup-ios-smoke-alternative`.
+  - Scope: keep iOS simulator build evidence and ordinary non-timeout test failures fatal, but make hosted simulator runtime smoke timeouts produce bounded `BLOCKED` artifacts instead of failing the workflow.
+  - Evidence wording: CI simulator smoke remains near-device or blocked evidence only; it does not approve real-device iOS 26+ AlarmKit wake, lock/terminated, Silent/Focus, or full-screen stop UI gates.
+- 2026-07-08 Task_2 merged.
+  - PR: https://github.com/xpadev-net/calarm/pull/31
+  - Merge commit: `7264ea52f6373be00cea1f9cbc4ac36a6343a80a`.
+  - Head merged: `41428ad4ad640d3efccc907a93c222f750ea1182`; worker merged `origin/master` normally into the PR branch after `gh-review-hook` reported the branch was behind.
+  - Final diff: one insertion in `lib/features/week_calendar/presentation/week_calendar_placeholder.dart`, passing `weekCalendarClockProvider` into `WakePlanService`.
+  - Worker validation: targeted failing test passed, `flutter test test/features/week_calendar` passed with 24 tests, `flutter analyze` passed, and diff checks passed after the base merge.
+  - Orchestrator validation: PR metadata/diff/current head inspected; deep-review common/UI/tests/investigation review found no in-scope issue; clean-worktree `gh-review-hook 31` exited 0; clean-worktree targeted failing test, `flutter test test/features/week_calendar`, `flutter analyze`, and diff checks passed.
+  - Worker lifecycle: thread `019f40ae-9bbd-7132-af5d-bf6779cdc0ef` archived after merge.
+- 2026-07-08 Task_3 worker materialized and opened PR.
+  - Worker thread: `019f40ae-ecc6-7a52-ad27-091b2e2f6336`.
+  - Worktree: `/Users/xpadev/.codex/worktrees/3e3e/calarm`.
+  - Branch: `codex/release-followup-ios-smoke-alternative`.
+  - PR: https://github.com/xpadev-net/calarm/pull/30
+  - Current head when recorded: `109fdbc66364333ab9351bcc082b26dc2e1dd173`.
+  - Current gate state: PR is non-draft, review decision `APPROVED`, merge state `UNSTABLE`; Baseline CI, Android emulator native smoke, Greptile, and Socket checks are successful, while iOS simulator native smoke is still in progress.
+  - Orchestrator action: leave worker running until it reports `merge_ready` or a precise blocker; do not return to PR #29 until Task_3 lands or is explicitly blocked.
+- 2026-07-08 Task_3 merged.
+  - PR: https://github.com/xpadev-net/calarm/pull/30
+  - Merge commit: `0a80b51b948df1dafbe9b335d14cd1cf6f63fd61`.
+  - Head merged: `a0e992a6b92d6101a743f37c8c09d104240542f9`.
+  - Summary: iOS simulator build failures and ordinary non-timeout runtime failures remain fatal, while hosted simulator runtime smoke timeout exit `124` now writes bounded `BLOCKED` evidence and exits successfully after artifact collection.
+  - Worker validation: diff checks, workflow YAML parse, extracted iOS smoke shell `bash -n`, PR Baseline CI, Android emulator native smoke, iOS simulator native smoke, Socket checks, CodeRabbit, Greptile, and `gh-review-hook 30` passed.
+  - Orchestrator validation: PR metadata/diff/current head inspected; deep-review automation/external-command review found no in-scope blocker; parent `gh-review-hook 30` exited 0; parent diff checks and workflow YAML parse passed.
+  - Runtime status: CI simulator smoke remains NEAR_DEVICE/BLOCKED only and does not approve iOS 26+ real-device AlarmKit runtime gates.
+  - Worker lifecycle: thread `019f40ae-ecc6-7a52-ad27-091b2e2f6336` archived after merge.
+  - Next action: return to PR #29; require branch update from current `master`, exit draft, rerun checks and `gh-review-hook`, then evaluate final merge gates.
 
 ## Decision Log
 
@@ -114,3 +237,9 @@
   - Trigger / new insight: Independent review found manual dispatch could attach an artifact built from a mismatched workflow ref to a release tag.
   - Plan delta (what changed): The workflow now checks out `refs/tags/<release_tag>`, verifies the checked-out commit matches the tag commit, and writes source commit provenance into the Android artifact README.
   - Tradeoffs considered: Building from the tag is stricter than building from the workflow-selected ref and prevents false release artifact provenance.
+
+- 2026-07-08 Decision: Do follow-up fixes instead of waiving PR #29 gates.
+  - Trigger / new insight: User indicated the Baseline CI failure should check timezone assumptions as a plausible lead and the smoke-test failure should be handled by considering alternatives.
+  - Plan delta (what changed): Add Task_2 and Task_3 follow-up workers, then return to PR #29 after their fixes/evidence land.
+  - Tradeoffs considered: Waiving PR #29 would ship useful artifact workflow sooner but would weaken required CI evidence. Follow-up PRs keep merge-gate discipline and isolate product-test/native-smoke changes from the release-distribution workflow.
+  - User approval: user requested follow-up work.
