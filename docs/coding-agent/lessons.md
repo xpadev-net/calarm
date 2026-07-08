@@ -128,3 +128,12 @@ Purpose:
 - fix: Add explicit busy flags for refresh, permission, and test-alarm scheduling; disable readiness actions while any health action is in flight; preserve the latest controller state when async operations complete.
 - prevention: For controller actions that share state, tests and UI review must verify overlapping action paths cannot overwrite newer user-visible results.
 - promotion: Repo-local lesson only for now; no rule suite exists in this repository.
+
+### 2026-07-08 - Return Non-Merge-Ready PRs To Workers
+
+- tags: workflow/process, validation/verification, delegation, review
+- symptom: The orchestrator held PR #26 at a user-decision point after determining it was not merge-ready because parent-owned `gh-review-hook` had not exited 0.
+- root cause: A missing merge-gate artifact was treated as an external exception decision before first returning the non-merge-ready state to the owning worker for another bounded attempt or a precise blocker report.
+- fix: Send the PR back to the owning Codex thread/worktree worker with concrete missing evidence and require either a refreshed merge-ready report or an exact blocker; keep parent-thread product code untouched.
+- prevention: Before asking the user to approve a hook/validation exception, check whether an active owning worker can still address or precisely classify the missing merge-readiness evidence. If yes, send it back to the worker instead of pausing on user decision.
+- promotion: Repo-local lesson only for now; no rule suite exists in this repository.

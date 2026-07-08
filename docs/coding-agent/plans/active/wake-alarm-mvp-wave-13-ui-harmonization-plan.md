@@ -182,6 +182,12 @@
   - Hook result: the retry again confirmed all CI/AI checks success but stayed in `[Greptile] waiting for PR description review update` for several minutes despite the Greptile check-run being success; orchestrator interrupted it to avoid an indefinite wait.
   - Current status: blocked pending external decision. Either wait and rerun the parent hook later, or approve a recorded hook exception for PR #26.
 
+- 2026-07-08 Wave 13 PR #26 returned to worker after user correction.
+  - User correction: if a PR is not merge-ready, return it to the owning worker instead of holding it at the parent for a merge exception decision.
+  - Action: sent follow-up to worker thread `019f3fec-a705-75b2-8844-9fdaaf822952` with model `gpt-5.5` and medium reasoning.
+  - Worker instruction: continue from branch `codex/wave-13-ui-harmonization-5` at head `89062e68ceb1d15dbeac8cc045d644dfd310f444`, resolve the missing merge-readiness evidence if possible, rerun `gh-review-hook 26`, and report either `merge_ready` with exact evidence or `blocked` with the single external decision needed. Do not claim merge-ready while required merge-gate evidence is missing.
+  - Current status: waiting for worker follow-up.
+
 - 2026-07-05 Draft created.
 
 ## Decision Log (append-only; re-plans and major discoveries)

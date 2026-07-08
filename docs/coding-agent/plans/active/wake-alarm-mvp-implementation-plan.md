@@ -340,6 +340,12 @@ Interpretation:
   - Hook result: the retry again confirmed all CI/AI checks success but stayed in `[Greptile] waiting for PR description review update` for several minutes despite the Greptile check-run being success; orchestrator interrupted it to avoid an indefinite wait.
   - Current status: blocked pending external decision. Either wait and rerun the parent hook later, or approve a recorded hook exception for PR #26.
 
+- 2026-07-08 Wave 13 PR #26 returned to worker after user correction.
+  - User correction: if a PR is not merge-ready, return it to the owning worker instead of holding it at the parent for a merge exception decision.
+  - Action: sent follow-up to worker thread `019f3fec-a705-75b2-8844-9fdaaf822952` with model `gpt-5.5` and medium reasoning.
+  - Worker instruction: continue from branch `codex/wave-13-ui-harmonization-5` at head `89062e68ceb1d15dbeac8cc045d644dfd310f444`, resolve the missing merge-readiness evidence if possible, rerun `gh-review-hook 26`, and report either `merge_ready` with exact evidence or `blocked` with the single external decision needed. Do not claim merge-ready while required merge-gate evidence is missing.
+  - Current status: waiting for worker follow-up.
+
 - 2026-07-07 Wave 8 Task_5 CI Simulator/Emulator Native Smoke Harness manually merged by user.
   - Summary: PR #17 `Add native smoke CI harness` was merged by the user at head `836bc62dbc17a26f5e96bd6f36de9b0066c3db43` with merge commit `3ca67898e7f8700d2138ca5775ffe1de62933744`.
   - Validation evidence: GitHub `Format, analyze, and test`, `Android emulator native smoke`, `iOS simulator native smoke`, Greptile Review, Socket Project Report, and Socket Pull Request Alerts were successful; worker evidence on the same head reported workflow YAML parse, extracted workflow bash syntax, mutable action/cache scan, `rtk git diff --check`, `rtk flutter analyze`, and `rtk flutter test` passed.
