@@ -190,14 +190,21 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
   }
 
   Future<void> _delete() async {
-    if (_requiresDeleteConfirmation(_wakePlan)) {
+    if (_requiresDeleteConfirmation()) {
+      final isRepeating = _wakePlan.repeatRule.type != RepeatType.oneTime;
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) {
           return AlertDialog(
-            title: const Text('Delete repeating wake plan?'),
-            content: const Text(
-              'This removes future alarms for every repeat of this wake plan.',
+            title: Text(
+              isRepeating
+                  ? 'Delete repeating wake plan?'
+                  : 'Delete wake plan?',
+            ),
+            content: Text(
+              isRepeating
+                  ? 'This removes future alarms for every repeat of this wake plan.'
+                  : 'This removes the selected wake plan.',
             ),
             actions: [
               TextButton(
@@ -347,8 +354,8 @@ String? wakePlanNextFireLabel({required WakePlan plan, required DateTime now}) {
   return nextFire == null ? null : _dateTimeLabel(nextFire);
 }
 
-bool _requiresDeleteConfirmation(WakePlan plan) {
-  return plan.repeatRule.type != RepeatType.oneTime;
+bool _requiresDeleteConfirmation() {
+  return true;
 }
 
 String _repeatLabel(RepeatRule repeatRule) {

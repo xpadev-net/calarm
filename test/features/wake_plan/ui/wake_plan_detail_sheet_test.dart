@@ -8,6 +8,61 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('asks confirmation before deleting a one-time wake plan', (
+    tester,
+  ) async {
+    var deleted = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WakePlanDetailSheet(
+            target: WeekCalendarWakePlanTapTarget(
+              wakePlan: _plan(repeatRule: RepeatRule.oneTime(_targetDay)),
+              targetDay: _targetDay,
+            ),
+            now: DateTime(2026, 7, 8, 5, 30),
+            defaults: AppSettings.initial(),
+            existingWakePlans: const [],
+            onEdit: (_) async => _successResult(),
+            onDelete: (_) async {
+              deleted = true;
+              return _successResult();
+            },
+            onSkipNext: (_) async => _successResult(),
+            onUndoSkipNext: (_) async => _successResult(),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Delete wake plan?'), findsOneWidget);
+    expect(
+      find.text('This removes the selected wake plan.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(deleted, isFalse);
+
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.widgetWithText(FilledButton, 'Delete'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(deleted, isTrue);
+  });
+
   testWidgets('does not offer skip next for an unskipped one-time plan', (
     tester,
   ) async {
