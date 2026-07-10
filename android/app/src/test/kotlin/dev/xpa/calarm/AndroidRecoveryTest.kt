@@ -131,6 +131,44 @@ class AndroidRecoveryTest {
     }
 
     @Test
+    fun `package replacement prefers a newer credential row over a stale device mirror`() {
+        val platformAlarmId = "android:plan:stale-mirror"
+        val staleRequest = alarmRequest(
+            platformAlarmId,
+            scheduledAtMillis = System.currentTimeMillis() + 60_000,
+        )
+        val credentialRequest = alarmRequest(
+            platformAlarmId,
+            scheduledAtMillis = System.currentTimeMillis() + 120_000,
+        )
+        mirrorPreferences().edit()
+            .putString(platformAlarmId, staleRequest.toJson().toString())
+            .commit()
+        credentialPreferences().edit()
+            .putString(platformAlarmId, credentialRequest.toJson().toString())
+            .commit()
+
+        BootReceiver().onReceive(context, Intent(Intent.ACTION_MY_PACKAGE_REPLACED))
+
+        val restored = AlarmStore(context).get(platformAlarmId)
+        assertNotNull(restored)
+        assertEquals(credentialRequest.scheduledAtMillis, restored!!.scheduledAtMillis)
+        assertFalse(credentialPreferences().contains(platformAlarmId))
+    }
+
+    @Test
+    fun `transient restore scheduling failure keeps future mirror row for retry`() {
+        val request = alarmRequest("android:plan:transient-restore-failure")
+        assertTrue(AlarmStore(context).put(request))
+
+        AlarmRestore.restoreForTest(context, context) {
+            throw IllegalStateException("temporary AlarmManager failure")
+        }
+
+        assertNotNull(AlarmStore(context).get(request.platformAlarmId))
+    }
+
+    @Test
     fun `expired and corrupt mirror rows are removed without scheduling`() {
         val expiredRequest = alarmRequest(
             platformAlarmId = "android:plan:expired",

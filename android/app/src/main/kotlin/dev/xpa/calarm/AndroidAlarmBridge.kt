@@ -511,10 +511,11 @@ class AlarmStore(context: Context) {
                 .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
             val editor = deviceProtectedPreferences.edit()
             val copiedKeys = mutableListOf<String>()
+            val deviceRows = deviceProtectedPreferences.all
             credentialPreferences.all.forEach { (key, value) ->
-                if (!deviceProtectedPreferences.contains(key) && putValue(editor, key, value)) {
+                if (deviceRows[key] == value) {
                     copiedKeys += key
-                } else if (deviceProtectedPreferences.contains(key)) {
+                } else if (putValue(editor, key, value)) {
                     copiedKeys += key
                 }
             }
@@ -591,8 +592,33 @@ object AlarmRestore {
     }
 
     fun restore(storageContext: Context, serviceContext: Context) {
+        val appContext = serviceContext.applicationContext
+        val alarmManager = appContext.getSystemService(AlarmManager::class.java)
+        restoreInternal(storageContext, appContext) { request ->
+            alarmManager.setAlarmClock(
+                AlarmManager.AlarmClockInfo(
+                    request.scheduledAtMillis,
+                    AlarmIntents.showIntent(appContext, request.platformAlarmId),
+                ),
+                AlarmIntents.receiver(appContext, request.platformAlarmId),
+            )
+        }
+    }
+
+    internal fun restoreForTest(
+        storageContext: Context,
+        serviceContext: Context,
+        schedule: (AlarmRequest) -> Unit,
+    ) {
+        restoreInternal(storageContext, serviceContext.applicationContext, schedule)
+    }
+
+    private fun restoreInternal(
+        storageContext: Context,
+        appContext: Context,
+        schedule: (AlarmRequest) -> Unit,
+    ) {
         synchronized(restoreLock) {
-            val appContext = serviceContext.applicationContext
             val alarmManager = appContext.getSystemService(AlarmManager::class.java)
             val store = AlarmStore(storageContext)
             val now = System.currentTimeMillis()
@@ -609,15 +635,9 @@ object AlarmRestore {
                 .filter { it.scheduledAtMillis > now }
                 .forEach { request ->
                     try {
-                        alarmManager.setAlarmClock(
-                            AlarmManager.AlarmClockInfo(
-                                request.scheduledAtMillis,
-                                AlarmIntents.showIntent(appContext, request.platformAlarmId),
-                            ),
-                            AlarmIntents.receiver(appContext, request.platformAlarmId),
-                        )
+                        schedule(request)
                     } catch (_: RuntimeException) {
-                        store.remove(request.platformAlarmId)
+                        // Keep future rows for a later boot or permission-state retry.
                     }
                 }
         }
