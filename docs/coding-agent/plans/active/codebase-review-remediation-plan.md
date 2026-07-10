@@ -181,11 +181,12 @@
 
 ### Task_6: Repair Android exact-alarm, full-screen, and Direct Boot recovery
 
-- status: blocked
+- status: in_progress
 - stopped_cli_session: `019f4cd9-8741-75d3-9944-2fb899e496c5`
 - stopped_cli_session_archived: true
-- intended_worker_runtime: `gpt-5.6-luna` / `high`
-- blocker: the active orchestrator tool surface does not expose `create_thread`; the user requires a user-visible Codex thread and prohibits CLI worker startup
+- worker_thread: `019f4d61-3a43-7a90-97f9-0f78d1a14124`
+- branch: `codex/reviewfix-android-recovery-thread`
+- worker_runtime: `gpt-5.6-luna` / `high`
 - type: impl
 - owns:
   - `android/app/src/main/AndroidManifest.xml`
@@ -208,11 +209,12 @@
 
 ### Task_7: Add rolling schedule replenishment
 
-- status: blocked
+- status: in_progress
 - stopped_cli_session: `019f4cd9-8755-7283-8189-f870a3fb92d8`
 - stopped_cli_session_archived: true
-- intended_worker_runtime: `gpt-5.6-luna` / `high`
-- blocker: the active orchestrator tool surface does not expose `create_thread`; the user requires a user-visible Codex thread and prohibits CLI worker startup
+- worker_thread: `019f4d61-3a43-7a90-97f9-0f50eb5366d9`
+- branch: `codex/reviewfix-rolling-replenishment-thread`
+- worker_runtime: `gpt-5.6-luna` / `high`
 - type: impl
 - owns:
   - `lib/features/wake_plan/application/wake_plan_service.dart`
@@ -519,6 +521,15 @@
   - The active parent tool surface was checked for `create_thread`, `send_message_to_thread`, and related thread-management capabilities, but none are exposed.
   - Task_6 and Task_7 are blocked pending thread-management capability; CLI and internal-subagent substitution are prohibited.
   - Future default: task-pr workers are created only as user-visible Codex threads with the requested runtime.
+
+- 2026-07-11 Wave 2 resumed with user-visible Codex threads.
+  - The previously missing `create_thread` capability is now available, so the durable Task_6/Task_7 blocker is resolved.
+  - Task_6: thread `019f4d61-3a43-7a90-97f9-0f78d1a14124`, branch `codex/reviewfix-android-recovery-thread`, Codex worktree `/Users/xpadev/.codex/worktrees/bf39/calarm`.
+  - Task_7: thread `019f4d61-3a43-7a90-97f9-0f50eb5366d9`, branch `codex/reviewfix-rolling-replenishment-thread`, Codex worktree `/Users/xpadev/.codex/worktrees/b266/calarm`.
+  - Both workers use `gpt-5.6-luna` / `high`, have disjoint ownership, and were active beyond initial worktree setup.
+  - The old clean CLI worktrees and archived session references remain untouched for auditability; the new branches avoid worktree checkout conflicts.
+  - Independent Reviewer threads will be orchestrator-created because the repository harness forbids nested worker subagents.
+  - Next action: wait for review-ready or blocker reports, dispatch independent Reviewer threads, then continue each worker through PR/hook and orchestrator merge gates.
 
 ## Decision Log
 
