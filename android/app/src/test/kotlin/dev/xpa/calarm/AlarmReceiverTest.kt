@@ -53,7 +53,7 @@ class AlarmReceiverTest {
     }
 
     @Test
-    fun `alarm clock show intent opens MainActivity without consuming scheduled alarm`() {
+    fun `alarm clock show intent opens non-ringing detail activity without consuming scheduled alarm`() {
         val platformAlarmId = "android:plan:show"
         val request = alarmRequest(platformAlarmId, vibrationEnabled = true)
         assertTrue(AlarmStore(context).put(request))
@@ -79,11 +79,20 @@ class AlarmReceiverTest {
 
         val started = Shadows.shadowOf(application).nextStartedActivity
         assertNotNull(started)
-        assertEquals(MainActivity::class.java.name, started!!.component?.className)
-        assertNull(started.action)
-        assertNull(started.data)
+        assertEquals(AlarmStopActivity::class.java.name, started!!.component?.className)
+        assertEquals(AlarmIntents.ACTION_ALARM_SHOW, started.action)
+        assertEquals(platformAlarmId, started.getStringExtra(AlarmIntents.EXTRA_PLATFORM_ALARM_ID))
         assertNotNull(AlarmStore(context).get(platformAlarmId))
         assertNull(shadowVibrator().getVibrationAttributesFromLastVibration())
+
+        val detailActivity = Robolectric.buildActivity(AlarmStopActivity::class.java, started)
+            .setup()
+            .get()
+        val detailLayout = detailActivity.findViewById<ViewGroup>(android.R.id.content)
+            .getChildAt(0) as LinearLayout
+        assertEquals("Close", (detailLayout.getChildAt(1) as Button).text)
+        detailActivity.finish()
+        assertNotNull(AlarmStore(context).get(platformAlarmId))
     }
 
     @Test
@@ -161,6 +170,7 @@ class AlarmReceiverTest {
         val platformAlarmId = "android:plan:stop"
         assertTrue(AlarmStore(context).put(alarmRequest(platformAlarmId, vibrationEnabled = true)))
         val intent = Intent(context, AlarmStopActivity::class.java)
+            .setAction(AlarmIntents.ACTION_ALARM_STOP)
             .putExtra(AlarmIntents.EXTRA_PLATFORM_ALARM_ID, platformAlarmId)
 
         val activity = Robolectric.buildActivity(AlarmStopActivity::class.java, intent)

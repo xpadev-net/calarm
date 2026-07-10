@@ -17,18 +17,22 @@ class AlarmStopActivity : Activity() {
     private var platformAlarmId: String? = null
     private var alarmCleanedUp = false
     private var ringtone: Ringtone? = null
+    private var isRinging = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(true)
-            setTurnScreenOn(true)
-        } else {
-            @Suppress("DEPRECATION")
-            window.addFlags(
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
-            )
+        isRinging = intent.action != AlarmIntents.ACTION_ALARM_SHOW
+        if (isRinging) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                setShowWhenLocked(true)
+                setTurnScreenOn(true)
+            } else {
+                @Suppress("DEPRECATION")
+                window.addFlags(
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
+                )
+            }
         }
         platformAlarmId = intent.getStringExtra(AlarmIntents.EXTRA_PLATFORM_ALARM_ID)
 
@@ -38,19 +42,25 @@ class AlarmStopActivity : Activity() {
             setPadding(48, 48, 48, 48)
         }
         layout.addView(TextView(this).apply {
-            text = "Calarm"
+            text = if (isRinging) "Calarm" else "Calarm alarm scheduled"
             textSize = 28f
             gravity = Gravity.CENTER
         })
         layout.addView(Button(this).apply {
-            text = "Stop"
+            text = if (isRinging) "Stop" else "Close"
             setOnClickListener {
-                cleanupAlarm()
-                finishAndRemoveTask()
+                if (isRinging) {
+                    cleanupAlarm()
+                    finishAndRemoveTask()
+                } else {
+                    finish()
+                }
             }
         })
         setContentView(layout)
-        startAlarmSound()
+        if (isRinging) {
+            startAlarmSound()
+        }
     }
 
     override fun onDestroy() {
@@ -59,6 +69,7 @@ class AlarmStopActivity : Activity() {
     }
 
     private fun cleanupAlarm() {
+        if (!isRinging) return
         val alarmId = platformAlarmId ?: return
         if (alarmCleanedUp) return
 

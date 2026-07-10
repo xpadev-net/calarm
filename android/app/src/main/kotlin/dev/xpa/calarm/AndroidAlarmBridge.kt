@@ -485,10 +485,13 @@ object AlarmRestore {
 object AlarmIntents {
     const val EXTRA_PLATFORM_ALARM_ID = "platformAlarmId"
     const val EXTRA_OCCURRENCE_ID = "occurrenceId"
+    const val ACTION_ALARM_FIRE = "dev.xpa.calarm.ALARM_FIRE"
+    const val ACTION_ALARM_STOP = "dev.xpa.calarm.ALARM_STOP"
+    const val ACTION_ALARM_SHOW = "dev.xpa.calarm.ALARM_SHOW"
 
     fun receiver(context: Context, platformAlarmId: String): PendingIntent {
         val intent = Intent(context, AlarmReceiver::class.java)
-            .setAction("dev.xpa.calarm.ALARM_FIRE")
+            .setAction(ACTION_ALARM_FIRE)
             .setData(identityUri(platformAlarmId))
             .putExtra(EXTRA_PLATFORM_ALARM_ID, platformAlarmId)
         return PendingIntent.getBroadcast(
@@ -510,7 +513,10 @@ object AlarmIntents {
     }
 
     fun showIntent(context: Context, platformAlarmId: String): PendingIntent {
-        val intent = Intent(context, MainActivity::class.java)
+        val intent = Intent(context, AlarmStopActivity::class.java)
+            .setAction(ACTION_ALARM_SHOW)
+            .setData(identityUri(platformAlarmId))
+            .putExtra(EXTRA_PLATFORM_ALARM_ID, platformAlarmId)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         return PendingIntent.getActivity(
             context,
@@ -522,7 +528,7 @@ object AlarmIntents {
 
     fun stopActivityIntent(context: Context, platformAlarmId: String): Intent {
         return Intent(context, AlarmStopActivity::class.java)
-            .setAction("dev.xpa.calarm.ALARM_STOP")
+            .setAction(ACTION_ALARM_STOP)
             .setData(identityUri(platformAlarmId))
             .putExtra(EXTRA_PLATFORM_ALARM_ID, platformAlarmId)
             .addFlags(
