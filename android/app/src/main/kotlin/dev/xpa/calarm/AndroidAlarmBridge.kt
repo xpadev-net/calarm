@@ -192,7 +192,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             alarmManager.setAlarmClock(
                 AlarmManager.AlarmClockInfo(
                     request.scheduledAtMillis,
-                    AlarmIntents.stopActivity(appContext, platformAlarmId),
+                    AlarmIntents.showIntent(appContext, platformAlarmId),
                 ),
                 AlarmIntents.receiver(appContext, platformAlarmId),
             )
@@ -431,11 +431,24 @@ class AlarmStore(context: Context) {
         return preferences.edit().remove(platformAlarmId).commit()
     }
 
+    fun get(platformAlarmId: String): AlarmRequest? {
+        return try {
+            val value = preferences.getString(platformAlarmId, null) ?: return null
+            AlarmRequest.fromJson(JSONObject(value))
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun contains(platformAlarmId: String): Boolean {
+        return preferences.contains(platformAlarmId)
+    }
+
     fun all(): List<AlarmRequest> {
         return preferences.all.values.mapNotNull { value ->
             try {
                 AlarmRequest.fromJson(JSONObject(value as String))
-            } catch (_: RuntimeException) {
+            } catch (_: Exception) {
                 null
             }
         }
@@ -457,7 +470,7 @@ object AlarmRestore {
                     alarmManager.setAlarmClock(
                         AlarmManager.AlarmClockInfo(
                             request.scheduledAtMillis,
-                            AlarmIntents.stopActivity(context, request.platformAlarmId),
+                            AlarmIntents.showIntent(context, request.platformAlarmId),
                         ),
                         AlarmIntents.receiver(context, request.platformAlarmId),
                     )
@@ -472,10 +485,13 @@ object AlarmRestore {
 object AlarmIntents {
     const val EXTRA_PLATFORM_ALARM_ID = "platformAlarmId"
     const val EXTRA_OCCURRENCE_ID = "occurrenceId"
+    const val ACTION_ALARM_FIRE = "dev.xpa.calarm.ALARM_FIRE"
+    const val ACTION_ALARM_STOP = "dev.xpa.calarm.ALARM_STOP"
+    const val ACTION_ALARM_SHOW = "dev.xpa.calarm.ALARM_SHOW"
 
     fun receiver(context: Context, platformAlarmId: String): PendingIntent {
         val intent = Intent(context, AlarmReceiver::class.java)
-            .setAction("dev.xpa.calarm.ALARM_FIRE")
+            .setAction(ACTION_ALARM_FIRE)
             .setData(identityUri(platformAlarmId))
             .putExtra(EXTRA_PLATFORM_ALARM_ID, platformAlarmId)
         return PendingIntent.getBroadcast(
@@ -496,9 +512,23 @@ object AlarmIntents {
         )
     }
 
+    fun showIntent(context: Context, platformAlarmId: String): PendingIntent {
+        val intent = Intent(context, AlarmStopActivity::class.java)
+            .setAction(ACTION_ALARM_SHOW)
+            .setData(identityUri(platformAlarmId))
+            .putExtra(EXTRA_PLATFORM_ALARM_ID, platformAlarmId)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        return PendingIntent.getActivity(
+            context,
+            requestCode(platformAlarmId),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
     fun stopActivityIntent(context: Context, platformAlarmId: String): Intent {
         return Intent(context, AlarmStopActivity::class.java)
-            .setAction("dev.xpa.calarm.ALARM_STOP")
+            .setAction(ACTION_ALARM_STOP)
             .setData(identityUri(platformAlarmId))
             .putExtra(EXTRA_PLATFORM_ALARM_ID, platformAlarmId)
             .addFlags(
