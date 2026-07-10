@@ -164,3 +164,12 @@ Purpose:
 - fix: Read both worker histories, consume their merge-ready reports, run orchestrator gates, merge PRs #40 and #39, and archive both sessions in the same turn.
 - prevention: Before ending an orchestration turn that launched or resumed short bounded workers, perform one completion reconciliation after the expected validation window; if a worker has completed, process its report rather than describing it as active. For longer work, require a heartbeat/automation instead of relying on an orphaned TUI process.
 - promotion: Staged as `HMC-20260710-orchestration-worker-completion-reconciliation` in `docs/coding-agent/skill-candidates.md` because the failure repeated and generalizes across repositories.
+
+### 2026-07-11 - Use Codex Threads For Task PR Workers
+
+- tags: workflow/process, delegation, assumptions/interpretation, tooling/environment
+- symptom: The orchestrator launched Task_6 and Task_7 with `codex exec` CLI processes even though task-pr orchestration workers are expected to be user-visible Codex threads.
+- root cause: Missing thread-management tools in the active tool surface was treated as permission to substitute a resumable CLI session without first preserving the requested worker lifecycle semantics.
+- fix: Stop and archive both CLI sessions, verify their worktrees are clean and no PR exists, and return the ledger to a truthful thread-dispatch-waiting state.
+- prevention: Before every task-pr worker start or replacement, require an available `create_thread` capability and create a user-visible thread with the requested model/reasoning level. If thread tooling is unavailable, report that concrete blocker; never substitute `codex exec`, a terminal process, or an internal subagent.
+- promotion: Repo-local orchestration lesson; consider a harness dispatch preflight requiring the thread capability before worker branch/worktree creation.

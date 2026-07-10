@@ -181,10 +181,11 @@
 
 ### Task_6: Repair Android exact-alarm, full-screen, and Direct Boot recovery
 
-- status: in_progress
-- worker_thread: `019f4cd9-8741-75d3-9944-2fb899e496c5`
-- worker_branch: `codex/reviewfix-android-recovery`
-- worker_runtime: `gpt-5.6-luna` / `high`
+- status: blocked
+- stopped_cli_session: `019f4cd9-8741-75d3-9944-2fb899e496c5`
+- stopped_cli_session_archived: true
+- intended_worker_runtime: `gpt-5.6-luna` / `high`
+- blocker: the active orchestrator tool surface does not expose `create_thread`; the user requires a user-visible Codex thread and prohibits CLI worker startup
 - type: impl
 - owns:
   - `android/app/src/main/AndroidManifest.xml`
@@ -207,10 +208,11 @@
 
 ### Task_7: Add rolling schedule replenishment
 
-- status: in_progress
-- worker_thread: `019f4cd9-8755-7283-8189-f870a3fb92d8`
-- worker_branch: `codex/reviewfix-rolling-replenishment`
-- worker_runtime: `gpt-5.6-luna` / `high`
+- status: blocked
+- stopped_cli_session: `019f4cd9-8755-7283-8189-f870a3fb92d8`
+- stopped_cli_session_archived: true
+- intended_worker_runtime: `gpt-5.6-luna` / `high`
+- blocker: the active orchestrator tool surface does not expose `create_thread`; the user requires a user-visible Codex thread and prohibits CLI worker startup
 - type: impl
 - owns:
   - `lib/features/wake_plan/application/wake_plan_service.dart`
@@ -509,6 +511,14 @@
   - Task_7 initially stopped before work because Luna was at capacity; the same thread was resumed once with Luna High and remained active beyond turn startup.
   - No product code was changed in the orchestrator checkout; user-owned untracked `docs/coding-agent/reports/` remains untouched.
   - Next action: wait for worker PR reports, then apply the independent orchestrator review, hook, validation, merge, ledger, and archival gates in dependency order.
+
+- 2026-07-11 Wave 2 CLI dispatch corrected and archived.
+  - User clarified that workers must be launched as Codex threads, not through `codex exec` CLI processes.
+  - CLI sessions `019f4cd9-8741-75d3-9944-2fb899e496c5` and `019f4cd9-8755-7283-8189-f870a3fb92d8` were interrupted and archived.
+  - Both dedicated worktrees remained clean at base `01e69ae`; no implementation commit or PR exists.
+  - The active parent tool surface was checked for `create_thread`, `send_message_to_thread`, and related thread-management capabilities, but none are exposed.
+  - Task_6 and Task_7 are blocked pending thread-management capability; CLI and internal-subagent substitution are prohibited.
+  - Future default: task-pr workers are created only as user-visible Codex threads with the requested runtime.
 
 ## Decision Log
 
