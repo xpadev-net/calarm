@@ -209,13 +209,19 @@
 
 ### Task_7: Add rolling schedule replenishment
 
-- status: in_progress
+- status: complete
 - stopped_cli_session: `019f4cd9-8755-7283-8189-f870a3fb92d8`
 - stopped_cli_session_archived: true
 - worker_thread: `019f4d61-3a43-7a90-97f9-0f50eb5366d9`
 - branch: `codex/reviewfix-rolling-replenishment-thread`
 - worker_runtime: `gpt-5.6-luna` / `high`
 - authority_gap_follow_up: Task_13 owns native-success/database-write crash-window recovery after Task_10-12 provide stable identity and native inventory
+- pr: `#43` — https://github.com/xpadev-net/calarm/pull/43
+- final_head: `7c8432cdb25c905a0120960b90d160227d86f89d`
+- merge_commit: `dfaaf927d5b15858202f1fc6668fe32e757acef7`
+- worker_thread_archived: true
+- worker_hook: exit 0 after four invocations; the first returned two actionable findings and the final invocation explicitly captured exit 0
+- orchestrator_hook: exit 0
 - type: impl
 - owns:
   - `lib/features/wake_plan/application/wake_plan_service.dart`
@@ -538,6 +544,17 @@
   - Reviewer also confirmed the native-success/database-write crash window cannot be closed by Task_7's Dart-only ownership because iOS currently assigns an undiscoverable random native UUID on each schedule call.
   - That authority gap remains owned by the existing Task_10 stable-ID/inventory contract, Task_12 AlarmKit implementation, and Task_13 durable reconciliation/fault-injection work; Task_7 must not modify native/channel contracts or claim that crash window solved.
   - Next action: Task_7 implements a serialized dirty/follow-up pass with mutation/lifecycle tests, revalidates, and returns a new exact head for independent re-review before PR creation.
+
+- 2026-07-11 Task_7 completed and archived.
+  - PR #43 squash-merged as `dfaaf927d5b15858202f1fc6668fe32e757acef7`; final worker head `7c8432cdb25c905a0120960b90d160227d86f89d`.
+  - Worker validation: focused wake-plan/app tests passed 108/108, `flutter analyze` passed, full Flutter suite passed 215/215, and diff check passed on the final head.
+  - Review evidence: worker deep-review found no Blocker/High; independent Reviewer thread `019f4d81-31a3-7e11-95c8-eeb77bf14ee8` APPROVED the serialized follow-up design; worker hook fixed two later actionable findings and exited 0 on the final head.
+  - Orchestrator evidence: merge preflight was non-draft, CLEAN, APPROVED, base-current, and all Baseline/Greptile/Socket checks passed; parent deep-review found no Blocker/High; parent `gh-review-hook 43` exited 0; focused 108/108 tests, analyze, full 215/215 tests, and diff check passed in a clean detached PR-head worktree.
+  - Residual risk remains explicitly assigned to Tasks 10/12/13: native success followed by process/DB failure can duplicate an iOS alarm until stable identity, inventory, and durable adoption/cancellation recovery are implemented.
+  - Non-blocking coverage suggestion remains recorded: terminal drain exception recovery and a request arriving specifically during the follow-up pass do not yet have direct regression tests.
+  - Worker thread `019f4d61-3a43-7a90-97f9-0f50eb5366d9` was archived after merge.
+  - The initial merge command completed the GitHub squash merge but returned exit 1 only because detached-worktree branch deletion could not resolve a current branch; post-command GitHub verification proved the merge commit above.
+  - Next action: complete Task_6 merge gates; after Tasks 6 and 7 are both merged, dispatch dependency-ready Task_8 while respecting its shared WakePlanService ownership.
 
 ## Decision Log
 
