@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../../../core/platform/native_alarm_gateway.dart';
 import '../../../core/time/time.dart';
 import '../data/wake_plan_data.dart';
@@ -57,6 +59,7 @@ class WakePlanService {
   final WakePlanClock _clock;
   final int _rollingScheduleDays;
   Future<List<WakePlanSchedulingResult>>? _reconciliation;
+  bool _reconciliationPending = false;
 
   Future<WakePlanSchedulingResult> createPlan(WakePlan plan) async {
     final now = _clock();
@@ -70,17 +73,48 @@ class WakePlanService {
     );
   }
 
-  Future<List<WakePlanSchedulingResult>> reconcileSchedules() async {
+  Future<List<WakePlanSchedulingResult>> reconcileSchedules() {
+    _reconciliationPending = true;
     final currentReconciliation = _reconciliation;
     if (currentReconciliation != null) {
       return currentReconciliation;
     }
 
-    final reconciliation = _runReconciliation();
-    _reconciliation = reconciliation.whenComplete(() {
+    final completer = Completer<List<WakePlanSchedulingResult>>();
+    _reconciliation = completer.future;
+    unawaited(_drainReconciliations(completer));
+    return completer.future;
+  }
+
+  Future<void> _drainReconciliations(
+    Completer<List<WakePlanSchedulingResult>> completer,
+  ) async {
+    var hasError = false;
+    Object? lastError;
+    StackTrace? lastStackTrace;
+    List<WakePlanSchedulingResult> results = const [];
+
+    try {
+      do {
+        _reconciliationPending = false;
+        try {
+          results = await _runReconciliation();
+          hasError = false;
+        } catch (error, stackTrace) {
+          hasError = true;
+          lastError = error;
+          lastStackTrace = stackTrace;
+        }
+      } while (_reconciliationPending);
+
+      if (hasError) {
+        completer.completeError(lastError!, lastStackTrace!);
+      } else {
+        completer.complete(results);
+      }
+    } finally {
       _reconciliation = null;
-    });
-    return _reconciliation!;
+    }
   }
 
   Future<List<WakePlanSchedulingResult>> _runReconciliation() async {

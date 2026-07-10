@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:calarm/core/platform/fake_native_alarm_gateway.dart';
 import 'package:calarm/core/platform/native_alarm_gateway.dart';
 import 'package:calarm/core/time/time.dart';
@@ -313,6 +315,60 @@ void main() {
         expect(firstGateway.scheduledRequests, hasLength(8));
         expect(secondGateway.scheduledRequests, isEmpty);
         expect(store.storedOccurrences, hasLength(8));
+      },
+    );
+
+    test(
+      'runs one fresh non-overlapping follow-up when a request arrives in flight',
+      () async {
+        final plan = buildPlan(
+          repeatRule: RepeatRule.weekly({
+            Weekday.monday,
+            Weekday.tuesday,
+            Weekday.wednesday,
+          }),
+        );
+        final store = _LoggingWakePlanServiceStore()..wakePlans = [plan];
+        final gateway = _BlockingScheduleGateway();
+        var currentNow = now;
+        final serviceUnderTest = WakePlanService.withStore(
+          store: store,
+          nativeAlarmGateway: gateway,
+          clock: () => currentNow,
+          rollingScheduleDays: 2,
+        );
+
+        final first = serviceUnderTest.reconcileSchedules();
+        await gateway.firstScheduleStarted.future;
+
+        currentNow = DateTime(2026, 7, 7, 5, 55);
+        final followUp = serviceUnderTest.reconcileSchedules();
+        gateway.releaseFirstSchedule.complete();
+
+        final results = await Future.wait([first, followUp]);
+
+        expect(store.fetchPlanNows, [now, currentNow]);
+        expect(results, everyElement(hasLength(1)));
+        expect(gateway.scheduleCallCount, 2);
+        expect(gateway.maxConcurrentScheduleCalls, 1);
+        expect(gateway.scheduledBatches, hasLength(2));
+        expect(gateway.scheduledBatches.first, hasLength(8));
+        expect(gateway.scheduledBatches.last, hasLength(4));
+        expect(
+          gateway.scheduledBatches.last.every(
+            (request) => request.scheduledAt.weekday == DateTime.wednesday,
+          ),
+          isTrue,
+        );
+        expect(
+          gateway.scheduledRequests.map((request) => request.occurrenceId),
+          hasLength(
+            gateway.scheduledRequests
+                .map((request) => request.occurrenceId)
+                .toSet()
+                .length,
+          ),
+        );
       },
     );
 
@@ -1021,6 +1077,7 @@ class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
   List<WakePlan> wakePlans = [];
   List<AlarmOccurrence> reservedOccurrences = [];
   List<AlarmOccurrence> storedOccurrences = [];
+  final fetchPlanNows = <DateTime>[];
 
   @override
   Future<WakePlan?> fetchWakePlan(String id) async {
@@ -1031,7 +1088,8 @@ class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
   @override
   Future<List<WakePlan>> fetchWakePlans({required DateTime now}) async {
     operations.add('fetchWakePlans');
-    return wakePlans;
+    fetchPlanNows.add(now);
+    return List<WakePlan>.of(wakePlans);
   }
 
   @override
@@ -1098,6 +1156,37 @@ class _MissingScheduleRowsGateway extends FakeNativeAlarmGateway {
   ) async {
     scheduledRequests.addAll(occurrences);
     return ScheduleResult.fromOccurrences(const []);
+  }
+}
+
+class _BlockingScheduleGateway extends FakeNativeAlarmGateway {
+  final firstScheduleStarted = Completer<void>();
+  final releaseFirstSchedule = Completer<void>();
+  final scheduledBatches = <List<NativeAlarmScheduleRequest>>[];
+  var activeScheduleCalls = 0;
+  var maxConcurrentScheduleCalls = 0;
+  var scheduleCallCount = 0;
+
+  @override
+  Future<ScheduleResult> scheduleOccurrences(
+    List<NativeAlarmScheduleRequest> occurrences,
+  ) async {
+    scheduleCallCount += 1;
+    activeScheduleCalls += 1;
+    maxConcurrentScheduleCalls =
+        activeScheduleCalls > maxConcurrentScheduleCalls
+        ? activeScheduleCalls
+        : maxConcurrentScheduleCalls;
+    scheduledBatches.add(List<NativeAlarmScheduleRequest>.of(occurrences));
+    try {
+      if (scheduleCallCount == 1) {
+        firstScheduleStarted.complete();
+        await releaseFirstSchedule.future;
+      }
+      return await super.scheduleOccurrences(occurrences);
+    } finally {
+      activeScheduleCalls -= 1;
+    }
   }
 }
 

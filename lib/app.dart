@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -29,7 +31,7 @@ class CalarmApp extends ConsumerStatefulWidget {
 
 class _CalarmAppState extends ConsumerState<CalarmApp>
     with WidgetsBindingObserver {
-  Future<void>? _reconciliation;
+  var _disposed = false;
 
   @override
   void initState() {
@@ -40,6 +42,7 @@ class _CalarmAppState extends ConsumerState<CalarmApp>
 
   @override
   void dispose() {
+    _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -52,20 +55,26 @@ class _CalarmAppState extends ConsumerState<CalarmApp>
   }
 
   void _reconcileWakePlans() {
-    if (_reconciliation != null) {
+    if (_disposed) {
       return;
     }
-    _reconciliation = _runReconciliation().whenComplete(() {
-      _reconciliation = null;
-    });
+    unawaited(_runReconciliation());
   }
 
   Future<void> _runReconciliation() async {
+    if (_disposed) {
+      return;
+    }
     try {
       final service = await ref.read(appWakePlanServiceProvider.future);
+      if (_disposed) {
+        return;
+      }
       await service.reconcileSchedules();
     } catch (error) {
-      debugPrint('Could not reconcile wake plans: $error');
+      if (!_disposed) {
+        debugPrint('Could not reconcile wake plans: $error');
+      }
     }
   }
 
