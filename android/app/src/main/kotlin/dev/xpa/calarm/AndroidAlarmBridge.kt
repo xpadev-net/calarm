@@ -517,7 +517,7 @@ class AlarmStore(context: Context) {
                 val deviceRequest = parseAlarmRequest(deviceRows[key])
                 val shouldCopyCredential = deviceRequest == null ||
                     (credentialRequest != null &&
-                        credentialRequest.scheduledAtMillis > deviceRequest.scheduledAtMillis)
+                        credentialRequest.scheduledAtMillis >= deviceRequest.scheduledAtMillis)
                 if (shouldCopyCredential && putValue(editor, key, value)) {
                     copiedKeys += key
                 } else if (deviceRows[key] == value || deviceRequest != null) {
