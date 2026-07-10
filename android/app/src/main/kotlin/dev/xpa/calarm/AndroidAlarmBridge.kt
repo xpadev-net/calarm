@@ -379,6 +379,7 @@ data class AlarmRequest(
     val vibrationEnabled: Boolean,
     val isTest: Boolean = false,
     val platformAlarmIdOverride: String? = null,
+    val updatedAtMillis: Long = 0L,
 ) {
     val platformAlarmId: String
         get() = platformAlarmIdOverride ?: "android:${wakePlanId}:${occurrenceId}"
@@ -393,6 +394,7 @@ data class AlarmRequest(
             .put("vibrationEnabled", vibrationEnabled)
             .put("isTest", isTest)
             .put("platformAlarmId", platformAlarmId)
+            .put("updatedAtMillis", updatedAtMillis)
     }
 
     companion object {
@@ -428,6 +430,7 @@ data class AlarmRequest(
                 vibrationEnabled = json.getBoolean("vibrationEnabled"),
                 isTest = json.optBoolean("isTest", false),
                 platformAlarmIdOverride = json.getString("platformAlarmId"),
+                updatedAtMillis = json.optLong("updatedAtMillis", 0L),
             )
         }
     }
@@ -443,8 +446,9 @@ class AlarmStore(context: Context) {
     }
 
     fun put(request: AlarmRequest): Boolean {
+        val persistedRequest = request.copy(updatedAtMillis = System.currentTimeMillis())
         return preferences.edit()
-            .putString(request.platformAlarmId, request.toJson().toString())
+            .putString(persistedRequest.platformAlarmId, persistedRequest.toJson().toString())
             .commit()
     }
 
@@ -513,8 +517,9 @@ class AlarmStore(context: Context) {
             val copiedKeys = mutableListOf<String>()
             val deviceRows = deviceProtectedPreferences.all
             credentialPreferences.all.forEach { (key, value) ->
+                val credentialRequest = parseAlarmRequest(value)
                 val deviceRequest = parseAlarmRequest(deviceRows[key])
-                val shouldCopyCredential = deviceRequest == null
+                val shouldCopyCredential = credentialRowIsNewer(credentialRequest, deviceRequest)
                 if (shouldCopyCredential && putValue(editor, key, value)) {
                     copiedKeys += key
                 } else if (deviceRows[key] == value || deviceRequest != null) {
@@ -526,6 +531,19 @@ class AlarmStore(context: Context) {
             val cleanupEditor = credentialPreferences.edit()
             copiedKeys.forEach { key -> cleanupEditor.remove(key) }
             cleanupEditor.commit()
+        }
+
+        private fun credentialRowIsNewer(
+            credentialRequest: AlarmRequest?,
+            deviceRequest: AlarmRequest?,
+        ): Boolean {
+            if (deviceRequest == null) return true
+            if (credentialRequest == null) return false
+            return if (credentialRequest.updatedAtMillis != deviceRequest.updatedAtMillis) {
+                credentialRequest.updatedAtMillis > deviceRequest.updatedAtMillis
+            } else {
+                credentialRequest.scheduledAtMillis >= deviceRequest.scheduledAtMillis
+            }
         }
 
         private fun parseAlarmRequest(value: Any?): AlarmRequest? {

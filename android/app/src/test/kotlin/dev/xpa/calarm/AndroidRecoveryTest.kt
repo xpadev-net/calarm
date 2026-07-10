@@ -131,7 +131,7 @@ class AndroidRecoveryTest {
     }
 
     @Test
-    fun `package replacement preserves device mirror when credential row is newer`() {
+    fun `package replacement prefers a newer credential row over a stale device mirror`() {
         val platformAlarmId = "android:plan:stale-mirror"
         val staleRequest = alarmRequest(
             platformAlarmId,
@@ -152,7 +152,7 @@ class AndroidRecoveryTest {
 
         val restored = AlarmStore(context).get(platformAlarmId)
         assertNotNull(restored)
-        assertEquals(staleRequest.scheduledAtMillis, restored!!.scheduledAtMillis)
+        assertEquals(credentialRequest.scheduledAtMillis, restored!!.scheduledAtMillis)
         assertFalse(credentialPreferences().contains(platformAlarmId))
     }
 
@@ -170,9 +170,7 @@ class AndroidRecoveryTest {
         credentialPreferences().edit()
             .putString(platformAlarmId, credentialRequest.toJson().toString())
             .commit()
-        mirrorPreferences().edit()
-            .putString(platformAlarmId, mirrorRequest.toJson().toString())
-            .commit()
+        assertTrue(AlarmStore(deviceProtectedContext()).put(mirrorRequest))
 
         BootReceiver().onReceive(context, Intent(Intent.ACTION_MY_PACKAGE_REPLACED))
 
@@ -199,9 +197,7 @@ class AndroidRecoveryTest {
         credentialPreferences().edit()
             .putString(platformAlarmId, credentialRequest.toJson().toString())
             .commit()
-        mirrorPreferences().edit()
-            .putString(platformAlarmId, mirrorRequest.toJson().toString())
-            .commit()
+        assertTrue(AlarmStore(deviceProtectedContext()).put(mirrorRequest))
 
         BootReceiver().onReceive(context, Intent(Intent.ACTION_MY_PACKAGE_REPLACED))
 

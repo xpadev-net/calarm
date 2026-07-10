@@ -23,8 +23,8 @@ class BootReceiver : BroadcastReceiver() {
 
     private fun restoreContext(context: Context, action: String?): Context {
         return if (
-            (action == Intent.ACTION_LOCKED_BOOT_COMPLETED || !isUserUnlocked(context)) &&
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.N &&
+                (action == Intent.ACTION_LOCKED_BOOT_COMPLETED || !isUserUnlocked(context))
         ) {
             context.createDeviceProtectedStorageContext()
         } else {
