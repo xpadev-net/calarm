@@ -215,6 +215,7 @@
 - worker_thread: `019f4d61-3a43-7a90-97f9-0f50eb5366d9`
 - branch: `codex/reviewfix-rolling-replenishment-thread`
 - worker_runtime: `gpt-5.6-luna` / `high`
+- authority_gap_follow_up: Task_13 owns native-success/database-write crash-window recovery after Task_10-12 provide stable identity and native inventory
 - type: impl
 - owns:
   - `lib/features/wake_plan/application/wake_plan_service.dart`
@@ -227,7 +228,8 @@
 - acceptance:
   - Enabled repeating plans always maintain the configured rolling future horizon after startup/resume/reconciliation.
   - A same-weekday plan created after today's target schedules the next valid week instead of succeeding with zero requests.
-  - Repeated reconciliation is idempotent and does not duplicate existing occurrences or native requests.
+  - Repeated normal-path reconciliation is idempotent for occurrences with authoritative persisted platform IDs and does not duplicate existing occurrences or native requests.
+  - Concurrent reconciliation requests are serialized without dropping a later request whose snapshot or lifecycle admission may differ.
   - Disabled/deleted/skipped plans are not replenished incorrectly.
   - Empty schedule results cannot masquerade as successful scheduling when an enabled plan should have a future occurrence.
 - validation:
@@ -531,7 +533,20 @@
   - Independent Reviewer threads will be orchestrator-created because the repository harness forbids nested worker subagents.
   - Next action: wait for review-ready or blocker reports, dispatch independent Reviewer threads, then continue each worker through PR/hook and orchestrator merge gates.
 
+- 2026-07-11 Task_7 independent review requested changes at head `929264f777a81535cced3429515ca0140c51ef47`.
+  - Reviewer thread `019f4d70-d0fe-7921-b3da-69e141c1e82a` found that concurrent reconciliation coalesces into one stale snapshot and can drop a necessary later pass; this remains in Task_7 scope and returns to the same worker.
+  - Reviewer also confirmed the native-success/database-write crash window cannot be closed by Task_7's Dart-only ownership because iOS currently assigns an undiscoverable random native UUID on each schedule call.
+  - That authority gap remains owned by the existing Task_10 stable-ID/inventory contract, Task_12 AlarmKit implementation, and Task_13 durable reconciliation/fault-injection work; Task_7 must not modify native/channel contracts or claim that crash window solved.
+  - Next action: Task_7 implements a serialized dirty/follow-up pass with mutation/lifecycle tests, revalidates, and returns a new exact head for independent re-review before PR creation.
+
 ## Decision Log
+
+- 2026-07-11 Decision: keep Task_7 narrow and route the native crash-window authority gap through Tasks 10, 12, and 13.
+  - Trigger: independent review proved that a native schedule can succeed before the platform ID is persisted, and the unchanged iOS bridge generates a new UUID per call.
+  - Evidence: Task_13 already requires recovery from native success followed by process/DB failure, while Tasks 10 and 12 establish the stable identity and AlarmKit inventory needed to make that recovery possible.
+  - Scope effect: Task_7 remains responsible for rolling-horizon normal-path idempotency and non-dropping serialized reconciliation; it does not expand into native/channel ownership.
+  - Tradeoff: the current PR can remain bounded and reviewable, while the known crash-window duplicate risk remains explicitly unapproved until Task_13 merges.
+  - User approval: covered by the previously approved dependency-ordered remediation plan; this clarifies existing ownership rather than adding or waiving work.
 
 - 2026-07-10 Decision: split cross-platform state repair into additive contract, platform implementation, durable reconciliation, and ringing reconciliation.
   - Trigger: a single fix would span Dart, Drift, Android, iOS, lifecycle, migrations, and UI state.
