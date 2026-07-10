@@ -53,7 +53,10 @@
 
 ### Task_1: Add required iOS AlarmKit usage description
 
-- status: unstarted
+- status: in_progress
+- worker_thread: `019f4a5e-02ad-79b3-b0e3-d8c3bc7a4975`
+- worker_branch: `codex/reviewfix-ios-alarmkit-usage`
+- worker_runtime: `gpt-5.6-luna` / `xhigh`
 - type: impl
 - owns:
   - `ios/Runner/Info.plist`
@@ -70,7 +73,10 @@
 
 ### Task_2: Separate Android alarm detail and firing intents; honor vibration
 
-- status: unstarted
+- status: in_progress
+- worker_thread: `019f4a5e-02b3-7ee1-9651-24f8ba408ca8`
+- worker_branch: `codex/reviewfix-android-alarm-intents-vibration`
+- worker_runtime: `gpt-5.6-luna` / `xhigh`
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AndroidAlarmBridge.kt`
@@ -92,7 +98,10 @@
 
 ### Task_3: Make the Flutter home layout responsive after async load
 
-- status: unstarted
+- status: in_progress
+- worker_thread: `019f4a5e-055b-71a1-9303-822c6f507a14`
+- worker_branch: `codex/reviewfix-responsive-home`
+- worker_runtime: `gpt-5.6-luna` / `xhigh`
 - type: impl
 - owns:
   - `lib/app.dart`
@@ -138,7 +147,10 @@
 
 ### Task_5: Restore Flutter generated-file ignore hygiene
 
-- status: unstarted
+- status: in_progress
+- worker_thread: `019f4a5e-0636-7351-b735-bbe84d41370e`
+- worker_branch: `codex/reviewfix-flutter-gitignore`
+- worker_runtime: `gpt-5.6-luna` / `xhigh`
 - type: chore
 - owns:
   - `.gitignore`
@@ -422,6 +434,15 @@
   - Hosted gates: Baseline CI, Greptile, and both Socket checks passed; PR was non-draft, CLEAN, APPROVED, and not behind at merge.
   - Worker thread `019f4a0e-0e34-7193-b3ec-f42d6216acfb` archived.
   - Next action: dispatch Wave 1B Tasks 1, 2, 3, and 5 in parallel with Luna ExtraHigh.
+
+- 2026-07-10 Wave 1B dispatched and startup-checked.
+  - Task_1: thread `019f4a5e-02ad-79b3-b0e3-d8c3bc7a4975`, branch `codex/reviewfix-ios-alarmkit-usage`.
+  - Task_2: thread `019f4a5e-02b3-7ee1-9651-24f8ba408ca8`, branch `codex/reviewfix-android-alarm-intents-vibration`.
+  - Task_3: thread `019f4a5e-055b-71a1-9303-822c6f507a14`, branch `codex/reviewfix-responsive-home`.
+  - Task_5: thread `019f4a5e-0636-7351-b735-bbe84d41370e`, branch `codex/reviewfix-flutter-gitignore`.
+  - All four workers use `gpt-5.6-luna` / `xhigh`, separate worktrees, non-overlapping ownership, and detailed validation/review/PR contracts.
+  - Startup state: all four active beyond initial delegation; Task_1, Task_3, and Task_5 explicitly entered skill/tooling setup, and Task_2 remained active in onboarding.
+  - Next action: independently gate and merge each ready PR; Task_6 waits for Task_2, Task_7 waits for Task_3, and Task_15 waits for Task_5 plus later platform work.
 
 ## Decision Log
 
