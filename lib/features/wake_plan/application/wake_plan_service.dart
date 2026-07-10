@@ -165,20 +165,34 @@ class WakePlanService {
       usePlanCancel: false,
     );
     if (!cancelResult.isSuccess) {
+      final restoration = previousPlan == null
+          ? const _RestorationResult(scheduleResult: null, occurrences: [])
+          : await _restoreCancelledOccurrences(
+              plan: previousPlan,
+              occurrences: cancelResult.successfullyCancelledOccurrences,
+              now: now,
+            );
       if (previousPlan != null) {
         await _store.saveWakePlan(previousPlan.copyWith(updatedAt: now));
       }
-      return WakePlanSchedulingResult(
+      final restoredOccurrences = _mergeOccurrenceStates(
+        cancelResult.persistedOccurrences,
+        restoration.occurrences,
+      );
+      return _failedMutationResult(
         wakePlanId: pendingPlan.id,
-        status: WakePlanSchedulingStatus.cancelFailed,
-        changeState: WakePlanChangeState.failed,
-        scheduleResult: ScheduleResult.fromRequestResults(
-          requests: const [],
-          results: const [],
-        ),
+        status: restoration.isSuccess
+            ? WakePlanSchedulingStatus.cancelFailed
+            : WakePlanSchedulingStatus.recoveryRequired,
+        scheduleResult: null,
         cancelResult: cancelResult.cancelResult,
-        occurrences: cancelResult.persistedOccurrences,
-        warning: WakePlanSchedulingWarning._cancelFailed(cancelResult),
+        compensationScheduleResult: restoration.scheduleResult,
+        occurrences: restoredOccurrences,
+        warning: restoration.isSuccess
+            ? WakePlanSchedulingWarning._cancelFailed(cancelResult)
+            : WakePlanSchedulingWarning.recoveryRequired(
+                'Wake plan cancellation could not be fully compensated.',
+              ),
       );
     }
 
@@ -190,19 +204,51 @@ class WakePlanService {
     );
     if (scheduleResult.status == WakePlanSchedulingStatus.scheduleFailed &&
         previousPlan != null) {
-      final recoveredOccurrences = await _cancelReplacementOccurrences(
+      final replacementCancellation = await _cancelReplacementOccurrences(
         scheduleResult.occurrences,
         now: now,
       );
+      if (!replacementCancellation.isSuccess) {
+        return _failedMutationResult(
+          wakePlanId: scheduleResult.wakePlanId,
+          status: WakePlanSchedulingStatus.recoveryRequired,
+          scheduleResult: scheduleResult.scheduleResult,
+          cancelResult: scheduleResult.cancelResult,
+          compensationCancelResult: replacementCancellation.cancelResult,
+          occurrences: _mergeOccurrenceStates(
+            cancelResult.persistedOccurrences,
+            replacementCancellation.persistedOccurrences,
+          ),
+          warning: WakePlanSchedulingWarning.recoveryRequired(
+            'Replacement alarms could not be fully cancelled; recovery is required.',
+          ),
+        );
+      }
+      final restoration = await _restoreCancelledOccurrences(
+        plan: previousPlan,
+        occurrences: cancelResult.successfullyCancelledOccurrences,
+        now: now,
+      );
       await _store.saveWakePlan(previousPlan.copyWith(updatedAt: now));
-      return WakePlanSchedulingResult(
+      final recoveredOccurrences = _mergeOccurrenceStates(
+        replacementCancellation.persistedOccurrences,
+        restoration.occurrences,
+      );
+      return _failedMutationResult(
         wakePlanId: scheduleResult.wakePlanId,
-        status: scheduleResult.status,
-        changeState: scheduleResult.changeState,
+        status: restoration.isSuccess
+            ? scheduleResult.status
+            : WakePlanSchedulingStatus.recoveryRequired,
         scheduleResult: scheduleResult.scheduleResult,
         cancelResult: scheduleResult.cancelResult,
+        compensationCancelResult: replacementCancellation.cancelResult,
+        compensationScheduleResult: restoration.scheduleResult,
         occurrences: recoveredOccurrences,
-        warning: scheduleResult.warning,
+        warning: restoration.isSuccess
+            ? scheduleResult.warning!
+            : WakePlanSchedulingWarning.recoveryRequired(
+                'The previous schedule could not be fully restored.',
+              ),
       );
     }
     return scheduleResult;
@@ -210,13 +256,65 @@ class WakePlanService {
 
   Future<WakePlanSchedulingResult> deletePlan(String wakePlanId) async {
     final now = _clock();
+    final previousPlan = await _store.fetchWakePlan(wakePlanId);
     final cancelResult = await _cancelFutureReservedOccurrences(
       wakePlanId: wakePlanId,
       now: now,
       usePlanCancel: true,
     );
-    if (cancelResult.isSuccess) {
+    if (!cancelResult.isSuccess) {
+      final restoration = previousPlan == null
+          ? const _RestorationResult(scheduleResult: null, occurrences: [])
+          : await _restoreCancelledOccurrences(
+              plan: previousPlan,
+              occurrences: cancelResult.successfullyCancelledOccurrences,
+              now: now,
+            );
+      final occurrences = _mergeOccurrenceStates(
+        cancelResult.persistedOccurrences,
+        restoration.occurrences,
+      );
+      return _failedMutationResult(
+        wakePlanId: wakePlanId,
+        status: restoration.isSuccess
+            ? WakePlanSchedulingStatus.cancelFailed
+            : WakePlanSchedulingStatus.recoveryRequired,
+        scheduleResult: null,
+        cancelResult: cancelResult.cancelResult,
+        compensationScheduleResult: restoration.scheduleResult,
+        occurrences: occurrences,
+        warning: restoration.isSuccess
+            ? WakePlanSchedulingWarning._cancelFailed(cancelResult)
+            : WakePlanSchedulingWarning.recoveryRequired(
+                'Wake plan deletion cancellation could not be fully compensated.',
+              ),
+      );
+    }
+
+    try {
       await _store.softDeleteWakePlan(id: wakePlanId, updatedAt: now);
+    } catch (_) {
+      final restoration = previousPlan == null
+          ? const _RestorationResult(scheduleResult: null, occurrences: [])
+          : await _restoreCancelledOccurrences(
+              plan: previousPlan,
+              occurrences: cancelResult.successfullyCancelledOccurrences,
+              now: now,
+            );
+      return _failedMutationResult(
+        wakePlanId: wakePlanId,
+        status: WakePlanSchedulingStatus.recoveryRequired,
+        scheduleResult: null,
+        cancelResult: cancelResult.cancelResult,
+        compensationScheduleResult: restoration.scheduleResult,
+        occurrences: _mergeOccurrenceStates(
+          cancelResult.persistedOccurrences,
+          restoration.occurrences,
+        ),
+        warning: WakePlanSchedulingWarning.recoveryRequired(
+          'Wake plan deletion could not be persisted; recovery is required.',
+        ),
+      );
     }
 
     return WakePlanSchedulingResult(
@@ -632,7 +730,22 @@ class WakePlanService {
     final cancellableFutureReserved = futureReserved
         .where((occurrence) => occurrence.platformAlarmId != null)
         .toList(growable: false);
-    final requests = cancellableFutureReserved
+    return _cancelOccurrences(
+      occurrences: cancellableFutureReserved,
+      now: now,
+      usePlanCancel: usePlanCancel,
+    );
+  }
+
+  Future<_CancelFutureResult> _cancelOccurrences({
+    required List<AlarmOccurrence> occurrences,
+    required DateTime now,
+    required bool usePlanCancel,
+  }) async {
+    final cancellableOccurrences = occurrences
+        .where((occurrence) => occurrence.platformAlarmId != null)
+        .toList(growable: false);
+    final requests = cancellableOccurrences
         .map(
           (occurrence) => NativeAlarmCancelRequest(
             occurrenceId: occurrence.id,
@@ -652,7 +765,7 @@ class WakePlanService {
         .where((alarm) => !alarm.isSuccess)
         .map(_cancelKey)
         .toSet();
-    final persistedOccurrences = cancellableFutureReserved
+    final persistedOccurrences = cancellableOccurrences
         .map((occurrence) {
           final key = _cancelRequestKey(
             occurrenceId: occurrence.id,
@@ -683,62 +796,136 @@ class WakePlanService {
     return _CancelFutureResult(
       cancelResult: cancelResult,
       persistedOccurrences: persistedOccurrences,
+      successfullyCancelledOccurrences: cancellableOccurrences
+          .where((occurrence) {
+            final key = _cancelRequestKey(
+              occurrenceId: occurrence.id,
+              platformAlarmId: occurrence.platformAlarmId!,
+            );
+            return successKeys.contains(key);
+          })
+          .toList(growable: false),
     );
   }
 
-  Future<List<AlarmOccurrence>> _cancelReplacementOccurrences(
+  Future<_CancelFutureResult> _cancelReplacementOccurrences(
     List<AlarmOccurrence> occurrences, {
     required DateTime now,
   }) async {
-    final cancellableOccurrences = occurrences
-        .where((occurrence) => occurrence.platformAlarmId != null)
-        .toList(growable: false);
-    if (cancellableOccurrences.isEmpty) {
-      return occurrences;
+    final cancellation = await _cancelOccurrences(
+      occurrences: occurrences,
+      now: now,
+      usePlanCancel: false,
+    );
+    return _CancelFutureResult(
+      cancelResult: cancellation.cancelResult,
+      persistedOccurrences: _mergeOccurrenceStates(
+        occurrences,
+        cancellation.persistedOccurrences,
+      ),
+      successfullyCancelledOccurrences:
+          cancellation.successfullyCancelledOccurrences,
+    );
+  }
+
+  Future<_RestorationResult> _restoreCancelledOccurrences({
+    required WakePlan plan,
+    required List<AlarmOccurrence> occurrences,
+    required DateTime now,
+  }) async {
+    if (occurrences.isEmpty) {
+      return const _RestorationResult(scheduleResult: null, occurrences: []);
     }
 
-    final requests = cancellableOccurrences
+    final requests = _buildRestorationRequests(
+      plan: plan,
+      occurrences: occurrences,
+    );
+    final pendingOccurrences = occurrences
         .map(
-          (occurrence) => NativeAlarmCancelRequest(
-            occurrenceId: occurrence.id,
-            platformAlarmId: occurrence.platformAlarmId!,
+          (occurrence) => occurrence.copyWith(
+            status: AlarmOccurrenceStatus.scheduled,
+            platformAlarmId: null,
+            failureReason: null,
+            updatedAt: now,
           ),
         )
         .toList(growable: false);
-    final cancelResult = await _nativeAlarmGateway.cancelOccurrences(requests);
-    final successKeys = cancelResult.alarms
-        .where((alarm) => alarm.isSuccess)
-        .map(_cancelKey)
-        .toSet();
-    final failureKeys = cancelResult.alarms
-        .where((alarm) => !alarm.isSuccess)
-        .map(_cancelKey)
-        .toSet();
-    final recoveredOccurrences = occurrences
-        .map((occurrence) {
-          final platformAlarmId = occurrence.platformAlarmId;
-          if (platformAlarmId == null) {
-            return occurrence;
-          }
-          final key = _cancelRequestKey(
-            occurrenceId: occurrence.id,
-            platformAlarmId: platformAlarmId,
-          );
-          if (successKeys.contains(key)) {
-            return occurrence.copyWith(
-              status: AlarmOccurrenceStatus.cancelled,
-              platformAlarmId: null,
-              updatedAt: now,
-            );
-          }
-          if (failureKeys.contains(key)) {
-            return occurrence.copyWith(updatedAt: now);
-          }
-          return occurrence;
-        })
-        .toList(growable: false);
-    await _store.saveAlarmOccurrences(recoveredOccurrences);
-    return recoveredOccurrences;
+    final scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(
+      requests,
+    );
+    final restoredOccurrences = _applyScheduleResult(
+      occurrences: pendingOccurrences,
+      scheduleResult: scheduleResult,
+      updatedAt: now,
+    );
+    await _store.saveAlarmOccurrences(restoredOccurrences);
+    return _RestorationResult(
+      scheduleResult: scheduleResult,
+      occurrences: restoredOccurrences,
+    );
+  }
+
+  List<NativeAlarmScheduleRequest> _buildRestorationRequests({
+    required WakePlan plan,
+    required List<AlarmOccurrence> occurrences,
+  }) {
+    return [
+      for (var index = 0; index < occurrences.length; index += 1)
+        NativeAlarmScheduleRequest(
+          occurrenceId: occurrences[index].id,
+          wakePlanId: occurrences[index].wakePlanId,
+          scheduledAt: occurrences[index].scheduledAt.toDateTime(),
+          targetAt: plan.targetAt(occurrences[index].scheduledAt.day),
+          indexInPlan: index,
+          totalInPlan: occurrences.length,
+          soundId: plan.soundId,
+          vibrationEnabled: plan.vibrationEnabled,
+        ),
+    ];
+  }
+
+  List<AlarmOccurrence> _mergeOccurrenceStates(
+    List<AlarmOccurrence> base,
+    List<AlarmOccurrence> overlay,
+  ) {
+    final byId = <String, AlarmOccurrence>{
+      for (final occurrence in base) occurrence.id: occurrence,
+    };
+    for (final occurrence in overlay) {
+      byId[occurrence.id] = occurrence;
+    }
+    return byId.values.toList(growable: false);
+  }
+
+  WakePlanSchedulingResult _failedMutationResult({
+    required String wakePlanId,
+    required WakePlanSchedulingStatus status,
+    required ScheduleResult? scheduleResult,
+    required CancelResult? cancelResult,
+    required List<AlarmOccurrence> occurrences,
+    required WakePlanSchedulingWarning warning,
+    ScheduleResult? compensationScheduleResult,
+    CancelResult? compensationCancelResult,
+  }) {
+    return WakePlanSchedulingResult(
+      wakePlanId: wakePlanId,
+      status: status,
+      changeState: status == WakePlanSchedulingStatus.recoveryRequired
+          ? WakePlanChangeState.recoveryRequired
+          : WakePlanChangeState.failed,
+      scheduleResult:
+          scheduleResult ??
+          ScheduleResult.fromRequestResults(
+            requests: const [],
+            results: const [],
+          ),
+      cancelResult: cancelResult,
+      occurrences: occurrences,
+      warning: warning,
+      compensationScheduleResult: compensationScheduleResult,
+      compensationCancelResult: compensationCancelResult,
+    );
   }
 }
 
@@ -864,10 +1051,11 @@ enum WakePlanSchedulingStatus {
   scheduled,
   scheduleFailed,
   cancelFailed,
+  recoveryRequired,
   deleted,
 }
 
-enum WakePlanChangeState { pendingChange, committed, failed }
+enum WakePlanChangeState { pendingChange, committed, failed, recoveryRequired }
 
 class WakePlanSchedulingResult {
   WakePlanSchedulingResult({
@@ -878,6 +1066,8 @@ class WakePlanSchedulingResult {
     required List<AlarmOccurrence> occurrences,
     this.cancelResult,
     this.warning,
+    this.compensationScheduleResult,
+    this.compensationCancelResult,
   }) : occurrences = List.unmodifiable(occurrences);
 
   final String wakePlanId;
@@ -887,6 +1077,8 @@ class WakePlanSchedulingResult {
   final CancelResult? cancelResult;
   final List<AlarmOccurrence> occurrences;
   final WakePlanSchedulingWarning? warning;
+  final ScheduleResult? compensationScheduleResult;
+  final CancelResult? compensationCancelResult;
 
   bool get isSuccess => warning == null;
 }
@@ -933,6 +1125,13 @@ class WakePlanSchedulingWarning {
     );
   }
 
+  factory WakePlanSchedulingWarning.recoveryRequired(String message) {
+    return WakePlanSchedulingWarning(
+      kind: WakePlanSchedulingWarningKind.recoveryRequired,
+      message: message,
+    );
+  }
+
   final WakePlanSchedulingWarningKind kind;
   final String message;
   final ScheduleResultStatus? scheduleStatus;
@@ -941,7 +1140,11 @@ class WakePlanSchedulingWarning {
   final Set<CancelFailureReason> cancelFailureReasons;
 }
 
-enum WakePlanSchedulingWarningKind { scheduleFailed, cancelFailed }
+enum WakePlanSchedulingWarningKind {
+  scheduleFailed,
+  cancelFailed,
+  recoveryRequired,
+}
 
 class _OccurrenceBundle {
   const _OccurrenceBundle({required this.occurrences, required this.requests});
@@ -954,12 +1157,33 @@ class _CancelFutureResult {
   const _CancelFutureResult({
     required this.cancelResult,
     required this.persistedOccurrences,
+    required this.successfullyCancelledOccurrences,
   });
 
   final CancelResult cancelResult;
   final List<AlarmOccurrence> persistedOccurrences;
+  final List<AlarmOccurrence> successfullyCancelledOccurrences;
 
   bool get isSuccess => cancelResult.isSuccess;
+}
+
+class _RestorationResult {
+  const _RestorationResult({
+    required this.scheduleResult,
+    required this.occurrences,
+  });
+
+  final ScheduleResult? scheduleResult;
+  final List<AlarmOccurrence> occurrences;
+
+  bool get isSuccess =>
+      scheduleResult == null ||
+      scheduleResult!.isSuccess &&
+          occurrences.every(
+            (occurrence) =>
+                occurrence.status == AlarmOccurrenceStatus.scheduled &&
+                occurrence.platformAlarmId != null,
+          );
 }
 
 DateMinute _targetAtFor(

@@ -668,16 +668,17 @@ void main() {
           gateway: gateway,
         ).editPlan(editedPlan);
 
-        expect(result.status, WakePlanSchedulingStatus.scheduleFailed);
-        expect(result.changeState, WakePlanChangeState.failed);
+        expect(result.status, WakePlanSchedulingStatus.recoveryRequired);
+        expect(result.changeState, WakePlanChangeState.recoveryRequired);
         expect(
           result.warning!.kind,
-          WakePlanSchedulingWarningKind.scheduleFailed,
+          WakePlanSchedulingWarningKind.recoveryRequired,
         );
+        expect(result.warning!.scheduleStatus, isNull);
         expect(gateway.cancelledOccurrences.map((request) => request.idLabel), [
           'old-future-1/old-native-1',
         ]);
-        expect(gateway.scheduledRequests, hasLength(4));
+        expect(gateway.scheduledRequests, hasLength(5));
         expect(store.operations, [
           'fetchWakePlan:plan-1',
           'saveWakePlan:plan-1',
@@ -685,6 +686,7 @@ void main() {
           'saveAlarmOccurrences:1',
           'saveAlarmOccurrences:4',
           'saveAlarmOccurrences:4',
+          'saveAlarmOccurrences:1',
           'saveWakePlan:plan-1',
         ]);
         expect(store.savedPlans[0].targetTime, editedPlan.targetTime);
@@ -734,7 +736,7 @@ void main() {
 
         expect(result.status, WakePlanSchedulingStatus.scheduleFailed);
         expect(result.changeState, WakePlanChangeState.failed);
-        expect(gateway.scheduledRequests, hasLength(4));
+        expect(gateway.scheduledRequests, hasLength(5));
         expect(gateway.cancelledOccurrences.map((request) => request.idLabel), [
           'old-future-1/old-native-1',
           'plan-1:20640:435/platform-plan-1:20640:435',
@@ -748,28 +750,259 @@ void main() {
           'saveAlarmOccurrences:1',
           'saveAlarmOccurrences:4',
           'saveAlarmOccurrences:4',
-          'saveAlarmOccurrences:4',
+          'saveAlarmOccurrences:3',
+          'saveAlarmOccurrences:1',
           'saveWakePlan:plan-1',
         ]);
         expect(store.savedPlans[0].targetTime, editedPlan.targetTime);
         expect(store.savedPlans[1].targetTime, originalPlan.targetTime);
         expect(store.currentPlan!.targetTime, originalPlan.targetTime);
         expect(
-          store.savedOccurrences.last.map(
-            (occurrence) => '${occurrence.id}:${occurrence.status.name}',
-          ),
-          [
-            'plan-1:20640:435:cancelled',
-            'plan-1:20640:440:failed',
-            'plan-1:20640:445:cancelled',
-            'plan-1:20640:450:cancelled',
-          ],
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'old-future-1')
+              .single
+              .platformAlarmId,
+          'platform-old-future-1',
         );
         expect(
-          store.savedOccurrences.last.map(
-            (occurrence) => occurrence.platformAlarmId,
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'plan-1:20640:440')
+              .single
+              .status,
+          AlarmOccurrenceStatus.failed,
+        );
+      },
+    );
+
+    test(
+      'restores the old native reservation after replacement scheduling fails',
+      () async {
+        final originalPlan = buildPlan(
+          targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+            hour: 6,
+            minute: 45,
           ),
-          everyElement(isNull),
+        );
+        final editedPlan = buildPlan(
+          targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+            hour: 7,
+            minute: 30,
+          ),
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: originalPlan)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+          ];
+        final gateway = _SequencedFaultGateway(
+          scheduleFailuresByCall: [
+            {'plan-1:20640:440'},
+          ],
+        );
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+        ).editPlan(editedPlan);
+
+        expect(result.status, WakePlanSchedulingStatus.scheduleFailed);
+        expect(result.changeState, WakePlanChangeState.failed);
+        expect(
+          result.warning!.kind,
+          WakePlanSchedulingWarningKind.scheduleFailed,
+        );
+        expect(result.compensationScheduleResult!.isSuccess, isTrue);
+        expect(store.currentPlan!.targetTime, originalPlan.targetTime);
+        expect(
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'old-future-1')
+              .single
+              .platformAlarmId,
+          'platform-old-future-1',
+        );
+      },
+    );
+
+    test(
+      'restores successful old cancellations after a partial old cancel',
+      () async {
+        final originalPlan = buildPlan();
+        final editedPlan = buildPlan(
+          targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+            hour: 7,
+            minute: 30,
+          ),
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: originalPlan)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+            buildOccurrence(
+              id: 'old-future-2',
+              platformAlarmId: 'old-native-2',
+            ),
+          ];
+        final gateway = _SequencedFaultGateway(
+          cancelFailuresByCall: [
+            {'old-native-2'},
+          ],
+        );
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+        ).editPlan(editedPlan);
+
+        expect(result.status, WakePlanSchedulingStatus.cancelFailed);
+        expect(result.changeState, WakePlanChangeState.failed);
+        expect(
+          result.warning!.kind,
+          WakePlanSchedulingWarningKind.cancelFailed,
+        );
+        expect(result.compensationScheduleResult!.isSuccess, isTrue);
+        expect(gateway.scheduledRequests, hasLength(1));
+        expect(
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'old-future-1')
+              .single
+              .platformAlarmId,
+          'platform-old-future-1',
+        );
+        expect(
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'old-future-2')
+              .single
+              .platformAlarmId,
+          'old-native-2',
+        );
+      },
+    );
+
+    test(
+      'returns recoveryRequired when old-cancel compensation also fails',
+      () async {
+        final originalPlan = buildPlan();
+        final editedPlan = buildPlan(
+          targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+            hour: 7,
+            minute: 30,
+          ),
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: originalPlan)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+            buildOccurrence(
+              id: 'old-future-2',
+              platformAlarmId: 'old-native-2',
+            ),
+          ];
+        final gateway = _SequencedFaultGateway(
+          scheduleFailuresByCall: [
+            {'old-future-1'},
+          ],
+          cancelFailuresByCall: [
+            {'old-native-2'},
+          ],
+        );
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+        ).editPlan(editedPlan);
+
+        expect(result.status, WakePlanSchedulingStatus.recoveryRequired);
+        expect(result.changeState, WakePlanChangeState.recoveryRequired);
+        expect(
+          result.warning!.kind,
+          WakePlanSchedulingWarningKind.recoveryRequired,
+        );
+        expect(result.compensationScheduleResult!.isSuccess, isFalse);
+        expect(store.currentPlan!.targetTime, originalPlan.targetTime);
+        expect(
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'old-future-1')
+              .single
+              .platformAlarmId,
+          isNull,
+        );
+        expect(
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'old-future-2')
+              .single
+              .platformAlarmId,
+          'old-native-2',
+        );
+      },
+    );
+
+    test(
+      'keeps the edited plan recoverable when replacement cancellation is partial',
+      () async {
+        final originalPlan = buildPlan();
+        final editedPlan = buildPlan(
+          targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+            hour: 7,
+            minute: 30,
+          ),
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: originalPlan)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+          ];
+        final gateway = _SequencedFaultGateway(
+          scheduleFailuresByCall: [
+            {'plan-1:20640:440'},
+          ],
+          cancelFailuresByCall: [
+            {},
+            {'platform-plan-1:20640:435'},
+          ],
+        );
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+        ).editPlan(editedPlan);
+
+        expect(result.status, WakePlanSchedulingStatus.recoveryRequired);
+        expect(result.changeState, WakePlanChangeState.recoveryRequired);
+        expect(
+          result.warning!.kind,
+          WakePlanSchedulingWarningKind.recoveryRequired,
+        );
+        expect(result.compensationCancelResult!.isSuccess, isFalse);
+        expect(store.currentPlan!.targetTime, editedPlan.targetTime);
+        expect(gateway.scheduledRequests, hasLength(4));
+        expect(
+          result.occurrences
+              .where((occurrence) => occurrence.id == 'plan-1:20640:440')
+              .single
+              .status,
+          AlarmOccurrenceStatus.failed,
+        );
+        expect(
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'plan-1:20640:435')
+              .single
+              .platformAlarmId,
+          'platform-plan-1:20640:435',
+        );
+        expect(
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'old-future-1')
+              .single
+              .platformAlarmId,
+          isNull,
         );
       },
     );
@@ -875,6 +1108,7 @@ void main() {
 
       expect(result.status, WakePlanSchedulingStatus.deleted);
       expect(store.operations, [
+        'fetchWakePlan:plan-1',
         'fetchReservedOccurrencesForPlan:plan-1',
         'saveAlarmOccurrences:2',
         'softDeleteWakePlan:plan-1',
@@ -906,6 +1140,7 @@ void main() {
       expect(result.status, WakePlanSchedulingStatus.cancelFailed);
       expect(result.changeState, WakePlanChangeState.failed);
       expect(store.operations, [
+        'fetchWakePlan:plan-1',
         'fetchReservedOccurrencesForPlan:plan-1',
         'saveAlarmOccurrences:1',
       ]);
@@ -916,6 +1151,129 @@ void main() {
       );
       expect(store.savedOccurrences.single.single.platformAlarmId, 'native-1');
     });
+
+    test(
+      'restores successful reservations after a partial delete cancellation',
+      () async {
+        final plan = buildPlan();
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+            buildOccurrence(
+              id: 'old-future-2',
+              platformAlarmId: 'old-native-2',
+            ),
+          ];
+        final gateway = _SequencedFaultGateway(
+          cancelFailuresByCall: [
+            {'old-native-2'},
+          ],
+        );
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+        ).deletePlan('plan-1');
+
+        expect(result.status, WakePlanSchedulingStatus.cancelFailed);
+        expect(result.changeState, WakePlanChangeState.failed);
+        expect(result.compensationScheduleResult!.isSuccess, isTrue);
+        expect(store.deletedPlanIds, isEmpty);
+        expect(
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'old-future-1')
+              .single
+              .platformAlarmId,
+          'platform-old-future-1',
+        );
+        expect(
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'old-future-2')
+              .single
+              .platformAlarmId,
+          'old-native-2',
+        );
+      },
+    );
+
+    test(
+      'returns recoveryRequired when delete cancellation compensation fails',
+      () async {
+        final plan = buildPlan();
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+            buildOccurrence(
+              id: 'old-future-2',
+              platformAlarmId: 'old-native-2',
+            ),
+          ];
+        final gateway = _SequencedFaultGateway(
+          scheduleFailuresByCall: [
+            {'old-future-1'},
+          ],
+          cancelFailuresByCall: [
+            {'old-native-2'},
+          ],
+        );
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+        ).deletePlan('plan-1');
+
+        expect(result.status, WakePlanSchedulingStatus.recoveryRequired);
+        expect(result.changeState, WakePlanChangeState.recoveryRequired);
+        expect(
+          result.warning!.kind,
+          WakePlanSchedulingWarningKind.recoveryRequired,
+        );
+        expect(result.compensationScheduleResult!.isSuccess, isFalse);
+        expect(store.deletedPlanIds, isEmpty);
+      },
+    );
+
+    test(
+      'restores reservations when the delete database write fails',
+      () async {
+        final plan = buildPlan();
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..failSoftDelete = true
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+          ];
+        final gateway = _SequencedFaultGateway();
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+        ).deletePlan('plan-1');
+
+        expect(result.status, WakePlanSchedulingStatus.recoveryRequired);
+        expect(result.changeState, WakePlanChangeState.recoveryRequired);
+        expect(
+          result.warning!.kind,
+          WakePlanSchedulingWarningKind.recoveryRequired,
+        );
+        expect(store.deletedPlanIds, isEmpty);
+        expect(
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'old-future-1')
+              .single
+              .platformAlarmId,
+          'platform-old-future-1',
+        );
+      },
+    );
   });
 
   group('WakePlanService skipNextOccurrence', () {
@@ -977,6 +1335,46 @@ void main() {
     );
 
     test(
+      'skip restores the old reservation when replacement scheduling fails',
+      () async {
+        final weeklyPlan = buildPlan(
+          repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: weeklyPlan)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 45),
+              platformAlarmId: 'old-native-1',
+            ),
+          ];
+        final gateway = _SequencedFaultGateway(
+          scheduleFailuresByCall: [
+            {'plan-1:20641:405'},
+          ],
+        );
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 2,
+        ).skipNextOccurrence(weeklyPlan);
+
+        expect(result.status, WakePlanSchedulingStatus.scheduleFailed);
+        expect(result.changeState, WakePlanChangeState.failed);
+        expect(result.compensationScheduleResult!.isSuccess, isTrue);
+        expect(store.currentPlan!.skipNextDate, isNull);
+        expect(
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'old-future-1')
+              .single
+              .platformAlarmId,
+          'platform-old-future-1',
+        );
+      },
+    );
+
+    test(
       'undo clears skip date and makes the next target reservable again',
       () async {
         final skippedPlan = buildPlan(
@@ -1008,6 +1406,47 @@ void main() {
         expect(
           result.occurrences.map((occurrence) => occurrence.scheduledAt.day),
           contains(tuesday),
+        );
+      },
+    );
+
+    test(
+      'undo restores the old reservation when replacement scheduling fails',
+      () async {
+        final skippedPlan = buildPlan(
+          repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
+        ).copyWith(skipNextDate: monday);
+        final store = _LoggingWakePlanServiceStore(currentPlan: skippedPlan)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              day: tuesday,
+              time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 45),
+              platformAlarmId: 'old-native-1',
+            ),
+          ];
+        final gateway = _SequencedFaultGateway(
+          scheduleFailuresByCall: [
+            {'plan-1:20640:405'},
+          ],
+        );
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 2,
+        ).undoSkipNextOccurrence(skippedPlan);
+
+        expect(result.status, WakePlanSchedulingStatus.scheduleFailed);
+        expect(result.changeState, WakePlanChangeState.failed);
+        expect(result.compensationScheduleResult!.isSuccess, isTrue);
+        expect(store.currentPlan!.skipNextDate, monday);
+        expect(
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'old-future-1')
+              .single
+              .platformAlarmId,
+          'platform-old-future-1',
         );
       },
     );
@@ -1111,6 +1550,7 @@ class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
   final savedPlans = <WakePlan>[];
   final savedOccurrences = <List<AlarmOccurrence>>[];
   final deletedPlanIds = <String>[];
+  bool failSoftDelete = false;
   WakePlan? currentPlan;
   List<WakePlan> wakePlans = [];
   List<AlarmOccurrence> reservedOccurrences = [];
@@ -1143,6 +1583,9 @@ class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
     required DateTime updatedAt,
   }) async {
     operations.add('softDeleteWakePlan:$id');
+    if (failSoftDelete) {
+      throw StateError('injected soft-delete failure');
+    }
     deletedPlanIds.add(id);
   }
 
@@ -1194,6 +1637,71 @@ class _MissingScheduleRowsGateway extends FakeNativeAlarmGateway {
   ) async {
     scheduledRequests.addAll(occurrences);
     return ScheduleResult.fromOccurrences(const []);
+  }
+}
+
+class _SequencedFaultGateway extends FakeNativeAlarmGateway {
+  _SequencedFaultGateway({
+    this.scheduleFailuresByCall = const [],
+    this.cancelFailuresByCall = const [],
+  });
+
+  final List<Set<String>> scheduleFailuresByCall;
+  final List<Set<String>> cancelFailuresByCall;
+  var scheduleCallCount = 0;
+  var cancelCallCount = 0;
+
+  @override
+  Future<ScheduleResult> scheduleOccurrences(
+    List<NativeAlarmScheduleRequest> occurrences,
+  ) async {
+    scheduleCallCount += 1;
+    final previousFailures = Set<String>.of(scheduleFailureOccurrenceIds);
+    scheduleFailureOccurrenceIds
+      ..clear()
+      ..addAll(_at(scheduleFailuresByCall, scheduleCallCount));
+    try {
+      return await super.scheduleOccurrences(occurrences);
+    } finally {
+      scheduleFailureOccurrenceIds
+        ..clear()
+        ..addAll(previousFailures);
+    }
+  }
+
+  @override
+  Future<CancelResult> cancelOccurrences(
+    List<NativeAlarmCancelRequest> alarms,
+  ) async {
+    cancelCallCount += 1;
+    return _cancelWithSequence(alarms, () => super.cancelOccurrences(alarms));
+  }
+
+  @override
+  Future<CancelResult> cancelPlan(List<NativeAlarmCancelRequest> alarms) async {
+    cancelCallCount += 1;
+    return _cancelWithSequence(alarms, () => super.cancelPlan(alarms));
+  }
+
+  Future<CancelResult> _cancelWithSequence(
+    List<NativeAlarmCancelRequest> alarms,
+    Future<CancelResult> Function() operation,
+  ) async {
+    final previousFailures = Set<String>.of(cancelFailurePlatformAlarmIds);
+    cancelFailurePlatformAlarmIds
+      ..clear()
+      ..addAll(_at(cancelFailuresByCall, cancelCallCount));
+    try {
+      return await operation();
+    } finally {
+      cancelFailurePlatformAlarmIds
+        ..clear()
+        ..addAll(previousFailures);
+    }
+  }
+
+  Set<String> _at(List<Set<String>> values, int call) {
+    return call <= values.length ? values[call - 1] : const {};
   }
 }
 
