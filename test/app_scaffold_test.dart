@@ -46,6 +46,33 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('compact landscape keeps provider errors exception-free', (
+    tester,
+  ) async {
+    addTearDown(tester.view.reset);
+    tester.view.physicalSize = const Size(568, 320);
+    tester.view.devicePixelRatio = 1;
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          appWakePlanRepositoryProvider.overrideWith((ref) async {
+            throw StateError('database unavailable');
+          }),
+          settingsNativeAlarmGatewayProvider.overrideWith(
+            (ref) => FakeNativeAlarmGateway(),
+          ),
+        ],
+        child: const CalarmApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Could not load wake plans or defaults.'), findsOneWidget);
+    expect(find.text('Defaults could not be loaded.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   test('bootstrap exposes app identity and persistence config', () {
     final container = ProviderContainer();
     addTearDown(container.dispose);
@@ -120,13 +147,13 @@ Future<void> _dragUntilVisible(
   Rect viewport,
   String label,
 ) async {
-  for (var attempt = 0; attempt < 8; attempt++) {
+  for (var attempt = 0; attempt < 20; attempt++) {
     final rect = tester.getRect(target);
     if (rect.top >= viewport.top && rect.bottom <= viewport.bottom) {
       return;
     }
 
-    await tester.drag(scrollable, const Offset(0, -120));
+    await tester.drag(scrollable, const Offset(0, -40));
     await tester.pumpAndSettle();
   }
 
@@ -134,6 +161,8 @@ Future<void> _dragUntilVisible(
   expect(
     rect.top >= viewport.top && rect.bottom <= viewport.bottom,
     isTrue,
-    reason: 'Expected $label to become visible after drags.',
+    reason:
+        'Expected $label to become visible after drags. '
+        'viewport=$viewport rect=$rect.',
   );
 }
