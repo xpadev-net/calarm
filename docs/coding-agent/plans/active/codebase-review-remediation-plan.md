@@ -105,7 +105,7 @@
 - pr: `#41` — https://github.com/xpadev-net/calarm/pull/41
 - worker_head: `3a481d39b923798fe09ea72915636481e4297183`
 - merge_commit: `0e3b4f5df3e1eeb279e98d0f2a74db1ccfe48ac2`
-- worker_thread_archived: pending
+- worker_thread_archived: true
 - type: impl
 - owns:
   - `lib/app.dart`
@@ -448,12 +448,12 @@
   - Startup state: all four active beyond initial delegation; Task_1, Task_3, and Task_5 explicitly entered skill/tooling setup, and Task_2 remained active in onboarding.
   - Next action: independently gate and merge each ready PR; Task_6 waits for Task_2, Task_7 waits for Task_3, and Task_15 waits for Task_5 plus later platform work.
 
-- 2026-07-10 Task_3 completed; worker archival pending platform API availability.
+- 2026-07-10 Task_3 completed and archived.
   - PR #41 squash-merged as `0e3b4f5df3e1eeb279e98d0f2a74db1ccfe48ac2`; final worker head `3a481d39b923798fe09ea72915636481e4297183`.
   - Worker evidence: focused app/settings tests, full 205-test suite, format, analyze, diff check, independent UI review APPROVED, final `gh-review-hook` exit 0, and clean local/remote state.
   - Orchestrator evidence: responsive/error-state deep-review APPROVED with no Blocker/High finding; orchestrator `gh-review-hook 41` exited 0; 5/5 app scaffold tests and 5/5 settings tests passed; `flutter analyze`, diff check, hosted Baseline/Greptile/Socket checks, CLEAN merge state, and base-behind count 0 passed.
   - UI evidence: compact portrait and landscape reachability and compact provider-error behavior were proven by bounded Flutter widget tests; native/browser screenshots were unavailable and not claimed.
-  - Worker thread `019f4a5e-055b-71a1-9303-822c6f507a14` is complete; direct archive could not be executed because the current runtime does not expose the thread archival API.
+  - Worker thread `019f4a5e-055b-71a1-9303-822c6f507a14` was archived with the Codex session CLI after merge.
   - Next action: Task_7 is dependency-unblocked, but do not dispatch it until active Wave 1B ownership and available worker capacity are rechecked.
 
 ## Decision Log
