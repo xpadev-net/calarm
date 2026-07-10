@@ -2,9 +2,9 @@
 
 - status: approved
 - generated: 2026-07-10
-- last_updated: 2026-07-10
+- last_updated: 2026-07-11
 - work_type: code
-- orchestrator_model_policy: `gpt-5.6-luna` / `xhigh` for every worker start, resume, and replacement
+- orchestrator_model_policy: `gpt-5.6-luna` / `high` for every worker start, resume, and replacement
 
 ## Goal
 
@@ -181,7 +181,10 @@
 
 ### Task_6: Repair Android exact-alarm, full-screen, and Direct Boot recovery
 
-- status: unstarted
+- status: in_progress
+- worker_thread: `019f4cd9-8741-75d3-9944-2fb899e496c5`
+- worker_branch: `codex/reviewfix-android-recovery`
+- worker_runtime: `gpt-5.6-luna` / `high`
 - type: impl
 - owns:
   - `android/app/src/main/AndroidManifest.xml`
@@ -204,7 +207,10 @@
 
 ### Task_7: Add rolling schedule replenishment
 
-- status: unstarted
+- status: in_progress
+- worker_thread: `019f4cd9-8755-7283-8189-f870a3fb92d8`
+- worker_branch: `codex/reviewfix-rolling-replenishment`
+- worker_runtime: `gpt-5.6-luna` / `high`
 - type: impl
 - owns:
   - `lib/features/wake_plan/application/wake_plan_service.dart`
@@ -494,6 +500,15 @@
   - Task_5 worker evidence: positive/negative ignore probes, diff check, analyze, all 205 tests, independent/deep review approval, hosted gates, and final hook exit 0. Orchestrator deep-review found no Blocker/High issue; parent hook exit 0 and direct over-ignore/base/cleanliness checks passed.
   - Task_5 worker thread `019f4a5e-0636-7351-b735-bbe84d41370e` was archived after merge.
   - Next action: Task_6 and Task_7 are dependency-unblocked and may be delegated in parallel after the ledger update is pushed.
+
+- 2026-07-11 Wave 2 dispatched and startup-checked with Luna High.
+  - Task_6: thread `019f4cd9-8741-75d3-9944-2fb899e496c5`, branch `codex/reviewfix-android-recovery`, dedicated worktree `/Users/xpadev/IdeaProjects/calarm-worktrees/reviewfix-android-recovery`.
+  - Task_7: thread `019f4cd9-8755-7283-8189-f870a3fb92d8`, branch `codex/reviewfix-rolling-replenishment`, dedicated worktree `/Users/xpadev/IdeaProjects/calarm-worktrees/reviewfix-rolling-replenishment`.
+  - Runtime policy changed to the user's current instruction: `gpt-5.6-luna` / `high` for both workers and future resumes/replacements.
+  - Task_6 remained active beyond onboarding and entered repository/worker instruction loading.
+  - Task_7 initially stopped before work because Luna was at capacity; the same thread was resumed once with Luna High and remained active beyond turn startup.
+  - No product code was changed in the orchestrator checkout; user-owned untracked `docs/coding-agent/reports/` remains untouched.
+  - Next action: wait for worker PR reports, then apply the independent orchestrator review, hook, validation, merge, ledger, and archival gates in dependency order.
 
 ## Decision Log
 
