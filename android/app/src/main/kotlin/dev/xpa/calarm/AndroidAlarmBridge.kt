@@ -513,11 +513,8 @@ class AlarmStore(context: Context) {
             val copiedKeys = mutableListOf<String>()
             val deviceRows = deviceProtectedPreferences.all
             credentialPreferences.all.forEach { (key, value) ->
-                val credentialRequest = parseAlarmRequest(value)
                 val deviceRequest = parseAlarmRequest(deviceRows[key])
-                val shouldCopyCredential = deviceRequest == null ||
-                    (credentialRequest != null &&
-                        credentialRequest.scheduledAtMillis >= deviceRequest.scheduledAtMillis)
+                val shouldCopyCredential = deviceRequest == null
                 if (shouldCopyCredential && putValue(editor, key, value)) {
                     copiedKeys += key
                 } else if (deviceRows[key] == value || deviceRequest != null) {

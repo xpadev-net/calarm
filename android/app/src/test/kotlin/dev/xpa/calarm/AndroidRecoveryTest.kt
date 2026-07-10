@@ -131,7 +131,7 @@ class AndroidRecoveryTest {
     }
 
     @Test
-    fun `package replacement prefers a newer credential row over a stale device mirror`() {
+    fun `package replacement preserves device mirror when credential row is newer`() {
         val platformAlarmId = "android:plan:stale-mirror"
         val staleRequest = alarmRequest(
             platformAlarmId,
@@ -152,7 +152,7 @@ class AndroidRecoveryTest {
 
         val restored = AlarmStore(context).get(platformAlarmId)
         assertNotNull(restored)
-        assertEquals(credentialRequest.scheduledAtMillis, restored!!.scheduledAtMillis)
+        assertEquals(staleRequest.scheduledAtMillis, restored!!.scheduledAtMillis)
         assertFalse(credentialPreferences().contains(platformAlarmId))
     }
 
@@ -183,7 +183,7 @@ class AndroidRecoveryTest {
     }
 
     @Test
-    fun `package replacement prefers credential payload when schedule time is unchanged`() {
+    fun `package replacement preserves mirror payload when schedule time is unchanged`() {
         val platformAlarmId = "android:plan:equal-time-payload"
         val scheduledAtMillis = System.currentTimeMillis() + 120_000
         val credentialRequest = alarmRequest(
@@ -207,7 +207,7 @@ class AndroidRecoveryTest {
 
         val restored = AlarmStore(context).get(platformAlarmId)
         assertNotNull(restored)
-        assertFalse(restored!!.vibrationEnabled)
+        assertTrue(restored!!.vibrationEnabled)
         assertFalse(credentialPreferences().contains(platformAlarmId))
     }
 
