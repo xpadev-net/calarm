@@ -53,10 +53,11 @@
 
 ### Task_1: Add required iOS AlarmKit usage description
 
-- status: in_progress
+- status: blocked
 - worker_thread: `019f4a5e-02ad-79b3-b0e3-d8c3bc7a4975`
 - worker_branch: `codex/reviewfix-ios-alarmkit-usage`
 - worker_runtime: `gpt-5.6-luna` / `xhigh`
+- blocker: worker session resumed successfully, but the required Luna ExtraHigh runtime reported a usage limit until 2026-07-10 21:48 JST before it could merge the current base and refresh validation.
 - type: impl
 - owns:
   - `ios/Runner/Info.plist`
@@ -98,10 +99,14 @@
 
 ### Task_3: Make the Flutter home layout responsive after async load
 
-- status: in_progress
+- status: complete
 - worker_thread: `019f4a5e-055b-71a1-9303-822c6f507a14`
 - worker_branch: `codex/reviewfix-responsive-home`
 - worker_runtime: `gpt-5.6-luna` / `xhigh`
+- pr: `#41` — https://github.com/xpadev-net/calarm/pull/41
+- worker_head: `3a481d39b923798fe09ea72915636481e4297183`
+- merge_commit: `0e3b4f5df3e1eeb279e98d0f2a74db1ccfe48ac2`
+- worker_thread_archived: true
 - type: impl
 - owns:
   - `lib/app.dart`
@@ -147,10 +152,11 @@
 
 ### Task_5: Restore Flutter generated-file ignore hygiene
 
-- status: in_progress
+- status: blocked
 - worker_thread: `019f4a5e-0636-7351-b735-bbe84d41370e`
 - worker_branch: `codex/reviewfix-flutter-gitignore`
 - worker_runtime: `gpt-5.6-luna` / `xhigh`
+- blocker: worker session resumed successfully, but the required Luna ExtraHigh runtime reported a usage limit until 2026-07-10 21:48 JST before it could merge the current base and refresh validation.
 - type: chore
 - owns:
   - `.gitignore`
@@ -443,6 +449,20 @@
   - All four workers use `gpt-5.6-luna` / `xhigh`, separate worktrees, non-overlapping ownership, and detailed validation/review/PR contracts.
   - Startup state: all four active beyond initial delegation; Task_1, Task_3, and Task_5 explicitly entered skill/tooling setup, and Task_2 remained active in onboarding.
   - Next action: independently gate and merge each ready PR; Task_6 waits for Task_2, Task_7 waits for Task_3, and Task_15 waits for Task_5 plus later platform work.
+
+- 2026-07-10 Task_3 completed and archived.
+  - PR #41 squash-merged as `0e3b4f5df3e1eeb279e98d0f2a74db1ccfe48ac2`; final worker head `3a481d39b923798fe09ea72915636481e4297183`.
+  - Worker evidence: focused app/settings tests, full 205-test suite, format, analyze, diff check, independent UI review APPROVED, final `gh-review-hook` exit 0, and clean local/remote state.
+  - Orchestrator evidence: responsive/error-state deep-review APPROVED with no Blocker/High finding; orchestrator `gh-review-hook 41` exited 0; 5/5 app scaffold tests and 5/5 settings tests passed; `flutter analyze`, diff check, hosted Baseline/Greptile/Socket checks, CLEAN merge state, and base-behind count 0 passed.
+  - UI evidence: compact portrait and landscape reachability and compact provider-error behavior were proven by bounded Flutter widget tests; native/browser screenshots were unavailable and not claimed.
+  - Worker thread `019f4a5e-055b-71a1-9303-822c6f507a14` was archived with the Codex session CLI after merge.
+  - Next action: Task_7 is dependency-unblocked, but do not dispatch it until active Wave 1B ownership and available worker capacity are rechecked.
+
+- 2026-07-10 Task_1 and Task_5 resume attempts stopped on the required runtime usage limit.
+  - Sessions `019f4a5e-02ad-79b3-b0e3-d8c3bc7a4975` and `019f4a5e-0636-7351-b735-bbe84d41370e` were formally resumed with `gpt-5.6-luna` / `xhigh` and their existing worktrees.
+  - Both sessions reported the same usage-limit stop before performing the required normal base merge; the UI reported retry availability at 2026-07-10 21:48 JST.
+  - No model substitution, history rewrite, force push, worker replacement, or product-code change was performed.
+  - Next action: after the runtime resets, resume the same two sessions to merge `origin/master` normally, revalidate the scoped diffs, rerun final-head hooks, and return merge-ready reports.
 
 ## Decision Log
 
