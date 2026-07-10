@@ -435,9 +435,13 @@ class AlarmStore(context: Context) {
         return try {
             val value = preferences.getString(platformAlarmId, null) ?: return null
             AlarmRequest.fromJson(JSONObject(value))
-        } catch (_: RuntimeException) {
+        } catch (_: Exception) {
             null
         }
+    }
+
+    fun contains(platformAlarmId: String): Boolean {
+        return preferences.contains(platformAlarmId)
     }
 
     fun all(): List<AlarmRequest> {
@@ -507,9 +511,7 @@ object AlarmIntents {
 
     fun showIntent(context: Context, platformAlarmId: String): PendingIntent {
         val intent = Intent(context, MainActivity::class.java)
-            .setAction("dev.xpa.calarm.ALARM_DETAIL")
             .setData(identityUri(platformAlarmId))
-            .putExtra(EXTRA_PLATFORM_ALARM_ID, platformAlarmId)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         return PendingIntent.getActivity(
             context,

@@ -80,10 +80,7 @@ class AlarmReceiverTest {
         val started = Shadows.shadowOf(application).nextStartedActivity
         assertNotNull(started)
         assertEquals(MainActivity::class.java.name, started!!.component?.className)
-        assertEquals(
-            platformAlarmId,
-            started.getStringExtra(AlarmIntents.EXTRA_PLATFORM_ALARM_ID),
-        )
+        assertNull(started.action)
         assertNotNull(AlarmStore(context).get(platformAlarmId))
         assertNull(shadowVibrator().getVibrationAttributesFromLastVibration())
     }
@@ -136,6 +133,25 @@ class AlarmReceiverTest {
         )
 
         assertNull(Shadows.shadowOf(application).peekNextStartedActivity())
+        assertNull(shadowVibrator().getVibrationAttributesFromLastVibration())
+    }
+
+    @Test
+    fun `receiver still alerts for a present but corrupt persisted row without vibrating`() {
+        val platformAlarmId = "android:plan:corrupt"
+        context.getSharedPreferences("native_alarm_store", Context.MODE_PRIVATE)
+            .edit()
+            .putString(platformAlarmId, "not-json")
+            .commit()
+
+        AlarmReceiver().onReceive(
+            context,
+            Shadows.shadowOf(AlarmIntents.receiver(context, platformAlarmId)).savedIntent,
+        )
+
+        val started = Shadows.shadowOf(application).nextStartedActivity
+        assertNotNull(started)
+        assertEquals(AlarmStopActivity::class.java.name, started!!.component?.className)
         assertNull(shadowVibrator().getVibrationAttributesFromLastVibration())
     }
 
