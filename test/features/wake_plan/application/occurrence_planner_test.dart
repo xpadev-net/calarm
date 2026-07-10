@@ -231,6 +231,15 @@ void main() {
         {CalendarDay(year: 2026, month: 7, day: 13)},
       );
       expect(result.schedulingCandidateCount, 4);
+      expect(result.previewCount, 4);
+      expect(
+        result.previewOccurrences.every(
+          (occurrence) =>
+              occurrence.scheduledAt.day ==
+              CalendarDay(year: 2026, month: 7, day: 6),
+        ),
+        isTrue,
+      );
     });
 
     test('does not generate disabled, deleted, or finished plans', () {

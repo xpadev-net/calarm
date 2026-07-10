@@ -359,7 +359,7 @@ class WakePlanService {
     final pendingOccurrences = desiredBundle.occurrences
         .map((desired) {
           final existing = existingById[desired.id];
-          if (existing?.hasNativeReservation == true) {
+          if (_hasValidNativeReservation(existing, desired, now)) {
             return null;
           }
           if (existing == null) {
@@ -430,6 +430,22 @@ class WakePlanService {
           ? WakePlanSchedulingWarning.scheduleFailed(scheduleResult)
           : null,
     );
+  }
+
+  bool _hasValidNativeReservation(
+    AlarmOccurrence? existing,
+    AlarmOccurrence desired,
+    DateTime now,
+  ) {
+    if (existing == null ||
+        !existing.hasNativeReservation ||
+        (existing.status != AlarmOccurrenceStatus.scheduled &&
+            existing.status != AlarmOccurrenceStatus.ringing)) {
+      return false;
+    }
+
+    return existing.scheduledAt == desired.scheduledAt &&
+        !existing.scheduledAt.toDateTime().isBefore(now);
   }
 
   WakePlanSchedulingResult _successfulReconciliationResult({

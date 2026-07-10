@@ -55,7 +55,6 @@ class OccurrencePlanner {
       if (nextDay != null) {
         final wakeInstance = _buildWakeInstance(wakePlan, nextDay);
         wakeInstances.add(wakeInstance);
-        previewOccurrences.addAll(wakeInstance.occurrences);
         schedulingCandidates.addAll(
           wakeInstance.occurrences.where((occurrence) {
             return !occurrence.scheduledAt.toDateTime().isBefore(now);

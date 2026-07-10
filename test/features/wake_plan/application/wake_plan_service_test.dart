@@ -424,6 +424,44 @@ void main() {
       },
     );
 
+    test('retries occurrences with stale native reservation state', () async {
+      final plan = buildPlan(repeatRule: RepeatRule.weekly({Weekday.monday}));
+      final store = _LoggingWakePlanServiceStore()..wakePlans = [plan];
+      await service(
+        store: store,
+        gateway: FakeNativeAlarmGateway(),
+        rollingScheduleDays: 1,
+      ).reconcileSchedules();
+
+      store.storedOccurrences = store.storedOccurrences
+          .map(
+            (occurrence) => occurrence.copyWith(
+              status: AlarmOccurrenceStatus.failed,
+              platformAlarmId: 'stale-${occurrence.id}',
+              failureReason: ScheduleFailureReason.nativeError.name,
+            ),
+          )
+          .toList(growable: false);
+      final retryGateway = FakeNativeAlarmGateway();
+
+      final result = await service(
+        store: store,
+        gateway: retryGateway,
+        rollingScheduleDays: 1,
+      ).reconcileSchedules();
+
+      expect(result.single.status, WakePlanSchedulingStatus.scheduled);
+      expect(retryGateway.scheduledRequests, hasLength(4));
+      expect(
+        store.storedOccurrences.every(
+          (occurrence) =>
+              occurrence.status == AlarmOccurrenceStatus.scheduled &&
+              occurrence.platformAlarmId != null,
+        ),
+        isTrue,
+      );
+    });
+
     test(
       'does not replenish disabled, deleted, or skipped plans incorrectly',
       () async {
