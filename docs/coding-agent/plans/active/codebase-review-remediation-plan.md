@@ -58,7 +58,7 @@
 - owns:
   - `ios/Runner/Info.plist`
   - `ios/RunnerTests/**` only for configuration regression coverage
-- depends_on: []
+- depends_on: [Task_4]
 - acceptance:
   - `NSAlarmKitUsageDescription` is non-empty, user-facing, and consistent with Calarm's wake-alarm purpose.
   - A deterministic plist/configuration check fails when the key is missing or blank.
@@ -78,7 +78,7 @@
   - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmStopActivity.kt`
   - `android/app/src/test/**`
   - `android/app/build.gradle.kts` only if narrowly required for native tests
-- depends_on: []
+- depends_on: [Task_4]
 - acceptance:
   - `AlarmClockInfo.showIntent` opens a non-ringing detail surface and cannot start sound/vibration or mutate the scheduled alarm.
   - The operation PendingIntent remains the only time-triggered firing path.
@@ -99,7 +99,7 @@
   - `lib/features/settings/presentation/settings_placeholder.dart`
   - `test/app_scaffold_test.dart`
   - `test/features/settings/presentation/settings_placeholder_test.dart`
-- depends_on: []
+- depends_on: [Task_4]
 - acceptance:
   - The loaded home screen has no vertical RenderFlex overflow on compact portrait and landscape constraints.
   - Calendar, ringing, settings, and wake-plan surfaces remain reachable through an intentional scroll/flex structure.
@@ -116,7 +116,9 @@
 - type: test
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_placeholder.dart`
+  - `lib/features/wake_plan/ui/wake_plan_detail_sheet.dart`
   - `test/features/week_calendar/presentation/week_calendar_placeholder_test.dart`
+  - `test/features/wake_plan/ui/wake_plan_detail_sheet_test.dart`
 - depends_on: []
 - acceptance:
   - Create/edit sheets use the same injected clock as the calendar and `WakePlanService` for validation.
@@ -133,7 +135,7 @@
 - type: chore
 - owns:
   - `.gitignore`
-- depends_on: []
+- depends_on: [Task_4]
 - acceptance:
   - Standard Flutter/Dart build, tool, IDE, and platform-generated artifacts are ignored without ignoring tracked source/configuration.
   - Existing `.serena` exclusion remains.
@@ -365,7 +367,8 @@
 
 ## Task Waves
 
-- Wave 1 (parallel, disjoint): [Task_1, Task_2, Task_3, Task_4, Task_5]
+- Wave 1A (baseline repair): [Task_4]
+- Wave 1B (parallel, disjoint after the required full-test baseline is green): [Task_1, Task_2, Task_3, Task_5]
 - Wave 2 (parallel after dependencies): [Task_6, Task_7]
 - Wave 3 (sequential state mutations): [Task_8]
 - Wave 4 (sequential idempotency): [Task_9]
@@ -409,3 +412,9 @@
   - Trigger: existing release-readiness requires physical iOS 26+ and Android API 36 evidence.
   - Tradeoff: code remediation can complete while normal MVP release remains blocked.
   - User approval: inherited from existing release gate; no waiver requested.
+
+- 2026-07-10 Decision: run Task_4 before the remaining Wave 1 tasks.
+  - Trigger: the repository-wide `flutter test` baseline currently fails on the two clock-dependent tests, so parallel workers could not satisfy their required full-suite merge gate.
+  - Plan delta: Task_4 now owns the detail-sheet clock propagation path; Tasks 1, 2, 3, and 5 depend on Task_4 for validation readiness.
+  - Tradeoff: one short sequential PR before parallel work prevents every other worker from carrying and later rebasing around the same known red baseline.
+  - User approval: covered by the user's instruction to split clearly complex work and proceed autonomously.
