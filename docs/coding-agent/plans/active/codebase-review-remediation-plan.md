@@ -77,10 +77,14 @@
 
 ### Task_2: Separate Android alarm detail and firing intents; honor vibration
 
-- status: in_progress
+- status: complete
 - worker_thread: `019f4a5e-02b3-7ee1-9651-24f8ba408ca8`
 - worker_branch: `codex/reviewfix-android-alarm-intents-vibration`
 - worker_runtime: `gpt-5.6-luna` / `xhigh`
+- pr: `#40` — https://github.com/xpadev-net/calarm/pull/40
+- worker_head: `01c7380c42d00287310249dfc4508d8648c7069b`
+- merge_commit: `c3d1986321cedfecf7936d848e8ad3f5cc0abfbb`
+- worker_thread_archived: true
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AndroidAlarmBridge.kt`
@@ -155,10 +159,14 @@
 
 ### Task_5: Restore Flutter generated-file ignore hygiene
 
-- status: in_progress
+- status: complete
 - worker_thread: `019f4a5e-0636-7351-b735-bbe84d41370e`
 - worker_branch: `codex/reviewfix-flutter-gitignore`
 - worker_runtime: `gpt-5.6-luna` / `xhigh`
+- pr: `#39` — https://github.com/xpadev-net/calarm/pull/39
+- worker_head: `87c9ffd644ee05c1ff8b74180d4bb5123aca21fb`
+- merge_commit: `826628fa7324222f4fb578ab60f2a2d5c67ce46b`
+- worker_thread_archived: true
 - type: chore
 - owns:
   - `.gitignore`
@@ -477,6 +485,15 @@
   - Orchestrator evidence: privacy/configuration deep-review APPROVED with no Blocker/High finding; orchestrator hook exit 0; plist lint, analyze, full 205-test suite, diff check, CLEAN/base-current state, and clean worktree passed.
   - Local focused XCTest remained unavailable because the installed Xcode runtime lacked iOS 26.5; hosted iOS simulator smoke passed, and the deterministic XCTest source/configuration assertion was reviewed directly.
   - Worker thread `019f4a5e-02ad-79b3-b0e3-d8c3bc7a4975` was archived after merge.
+
+- 2026-07-10 Task_2 and Task_5 completed and archived.
+  - Task_2 PR #40 squash-merged as `c3d1986321cedfecf7936d848e8ad3f5cc0abfbb`; final worker head `01c7380c42d00287310249dfc4508d8648c7069b`.
+  - Task_2 worker evidence: Java 21 native tests, analyze, all 205 Flutter tests, debug APK, diff check, hosted gates, and final hook exit 0. Orchestrator deep-review found no Blocker/High issue; parent hook exit 0 and the same validation matrix passed. Corrupt-row migration/recovery remains explicitly owned by Task_6.
+  - Task_2 worker thread `019f4a5e-02b3-7ee1-9651-24f8ba408ca8` was archived after merge.
+  - Task_5 PR #39 squash-merged as `826628fa7324222f4fb578ab60f2a2d5c67ce46b`; final worker head `87c9ffd644ee05c1ff8b74180d4bb5123aca21fb`.
+  - Task_5 worker evidence: positive/negative ignore probes, diff check, analyze, all 205 tests, independent/deep review approval, hosted gates, and final hook exit 0. Orchestrator deep-review found no Blocker/High issue; parent hook exit 0 and direct over-ignore/base/cleanliness checks passed.
+  - Task_5 worker thread `019f4a5e-0636-7351-b735-bbe84d41370e` was archived after merge.
+  - Next action: Task_6 and Task_7 are dependency-unblocked and may be delegated in parallel after the ledger update is pushed.
 
 ## Decision Log
 

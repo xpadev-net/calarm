@@ -155,3 +155,12 @@ Purpose:
 - fix: Reconcile each worker from session event logs and current PR state, merge Task_1 from its completed report, and restart only workers that genuinely require more work.
 - prevention: Before reporting a worker as active, require at least one post-resume durable signal: a new session event describing concrete work, a new branch/PR head, a running validation command, or an explicit active status from the thread API. TUI animation and process existence alone never prove progress; completion reports must be consumed before attempting another resume.
 - promotion: Harness migration candidate concept: add a durable-liveness evidence gate to worker startup stability checks; staged as a repo-local lesson because this task does not authorize bundled harness edits.
+
+### 2026-07-10 - Consume Worker Completion Before Ending Orchestration Turn
+
+- tags: workflow/process, validation/verification, delegation
+- symptom: After adding a durable startup-liveness check, the orchestrator still ended the turn while both workers later produced merge-ready completion reports that were not consumed until the user reported them stopped again.
+- root cause: Startup stability was treated as sufficient closeout evidence; there was no turn-closing reconciliation of new `task_complete` events and PR heads before reporting workers as merely active.
+- fix: Read both worker histories, consume their merge-ready reports, run orchestrator gates, merge PRs #40 and #39, and archive both sessions in the same turn.
+- prevention: Before ending an orchestration turn that launched or resumed short bounded workers, perform one completion reconciliation after the expected validation window; if a worker has completed, process its report rather than describing it as active. For longer work, require a heartbeat/automation instead of relying on an orphaned TUI process.
+- promotion: Staged as `HMC-20260710-orchestration-worker-completion-reconciliation` in `docs/coding-agent/skill-candidates.md` because the failure repeated and generalizes across repositories.
