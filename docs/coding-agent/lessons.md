@@ -146,3 +146,12 @@ Purpose:
 - fix: Send the PR back to the owning Codex thread/worktree worker with concrete missing evidence and require either a refreshed merge-ready report or an exact blocker; keep parent-thread product code untouched.
 - prevention: Before asking the user to approve a hook/validation exception, check whether an active owning worker can still address or precisely classify the missing merge-readiness evidence. If yes, send it back to the worker instead of pausing on user decision.
 - promotion: Repo-local lesson only for now; no rule suite exists in this repository.
+
+### 2026-07-10 - Prove Worker Liveness Beyond TUI Animation
+
+- tags: workflow/process, validation/verification, delegation, tooling/environment
+- symptom: The orchestrator reported two resumed workers as active after observing only the Codex TUI `Working` animation; both worker turns later stopped, and one completed report was not consumed.
+- root cause: A transient terminal-rendering signal and surviving wrapper process were treated as authoritative worker liveness instead of checking new thread events, repository/PR progress, and a completed worker report.
+- fix: Reconcile each worker from session event logs and current PR state, merge Task_1 from its completed report, and restart only workers that genuinely require more work.
+- prevention: Before reporting a worker as active, require at least one post-resume durable signal: a new session event describing concrete work, a new branch/PR head, a running validation command, or an explicit active status from the thread API. TUI animation and process existence alone never prove progress; completion reports must be consumed before attempting another resume.
+- promotion: Harness migration candidate concept: add a durable-liveness evidence gate to worker startup stability checks; staged as a repo-local lesson because this task does not authorize bundled harness edits.
