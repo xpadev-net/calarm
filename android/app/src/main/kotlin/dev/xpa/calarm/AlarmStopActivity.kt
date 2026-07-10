@@ -26,13 +26,18 @@ class AlarmStopActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        isRinging = intent.action != AlarmIntents.ACTION_ALARM_SHOW
+        if (savedInstanceState != null) {
+            isRinging = savedInstanceState.getBoolean(STATE_IS_RINGING)
+            platformAlarmId = savedInstanceState.getString(STATE_PLATFORM_ALARM_ID)
+        } else {
+            isRinging = intent.action != AlarmIntents.ACTION_ALARM_SHOW
+            platformAlarmId = intent.getStringExtra(AlarmIntents.EXTRA_PLATFORM_ALARM_ID)
+        }
         if (isRinging) {
             configureRingingPresentation()
         } else {
             configureDetailPresentation()
         }
-        platformAlarmId = intent.getStringExtra(AlarmIntents.EXTRA_PLATFORM_ALARM_ID)
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -80,8 +85,16 @@ class AlarmStopActivity : Activity() {
         startAlarmSound()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean(STATE_IS_RINGING, isRinging)
+        outState.putString(STATE_PLATFORM_ALARM_ID, platformAlarmId)
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onDestroy() {
-        cleanupAlarm()
+        if (!isChangingConfigurations) {
+            cleanupAlarm()
+        }
         super.onDestroy()
     }
 
@@ -150,5 +163,10 @@ class AlarmStopActivity : Activity() {
     private fun stopAlarmSound() {
         ringtone?.stop()
         ringtone = null
+    }
+
+    private companion object {
+        const val STATE_IS_RINGING = "is_ringing"
+        const val STATE_PLATFORM_ALARM_ID = "platform_alarm_id"
     }
 }

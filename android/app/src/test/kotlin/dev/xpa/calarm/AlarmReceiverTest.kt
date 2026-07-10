@@ -239,6 +239,26 @@ class AlarmReceiverTest {
         assertNotNull(AlarmStore(context).get(secondAlarmId))
     }
 
+    @Test
+    fun `ringing activity preserves alarm state across configuration change`() {
+        val platformAlarmId = "android:plan:rotation"
+        assertTrue(AlarmStore(context).put(alarmRequest(platformAlarmId, vibrationEnabled = true)))
+
+        val controller = Robolectric.buildActivity(
+            AlarmStopActivity::class.java,
+            AlarmIntents.stopActivityIntent(context, platformAlarmId),
+        ).setup()
+        controller.configurationChange()
+
+        val recreated = controller.get()
+        assertNotNull(AlarmStore(context).get(platformAlarmId))
+        val content = recreated.findViewById<ViewGroup>(android.R.id.content)
+        val layout = content.getChildAt(0) as LinearLayout
+        assertEquals("Stop", (layout.getChildAt(1) as Button).text)
+        (layout.getChildAt(1) as Button).performClick()
+        assertNull(AlarmStore(context).get(platformAlarmId))
+    }
+
     private fun shadowVibrator(): ShadowVibrator {
         return Shadows.shadowOf(context.getSystemService(Vibrator::class.java))
     }
