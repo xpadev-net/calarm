@@ -513,9 +513,14 @@ class AlarmStore(context: Context) {
             val copiedKeys = mutableListOf<String>()
             val deviceRows = deviceProtectedPreferences.all
             credentialPreferences.all.forEach { (key, value) ->
-                if (deviceRows[key] == value) {
+                val credentialRequest = parseAlarmRequest(value)
+                val deviceRequest = parseAlarmRequest(deviceRows[key])
+                val shouldCopyCredential = deviceRequest == null ||
+                    (credentialRequest != null &&
+                        credentialRequest.scheduledAtMillis > deviceRequest.scheduledAtMillis)
+                if (shouldCopyCredential && putValue(editor, key, value)) {
                     copiedKeys += key
-                } else if (putValue(editor, key, value)) {
+                } else if (deviceRows[key] == value || deviceRequest != null) {
                     copiedKeys += key
                 }
             }
@@ -524,6 +529,14 @@ class AlarmStore(context: Context) {
             val cleanupEditor = credentialPreferences.edit()
             copiedKeys.forEach { key -> cleanupEditor.remove(key) }
             cleanupEditor.commit()
+        }
+
+        private fun parseAlarmRequest(value: Any?): AlarmRequest? {
+            return try {
+                (value as? String)?.let { AlarmRequest.fromJson(JSONObject(it)) }
+            } catch (_: Exception) {
+                null
+            }
         }
 
         private fun isUserUnlocked(context: Context): Boolean {

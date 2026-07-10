@@ -157,6 +157,32 @@ class AndroidRecoveryTest {
     }
 
     @Test
+    fun `package replacement preserves a newer device mirror over a stale credential row`() {
+        val platformAlarmId = "android:plan:stale-credential"
+        val credentialRequest = alarmRequest(
+            platformAlarmId,
+            scheduledAtMillis = System.currentTimeMillis() + 60_000,
+        )
+        val mirrorRequest = alarmRequest(
+            platformAlarmId,
+            scheduledAtMillis = System.currentTimeMillis() + 120_000,
+        )
+        credentialPreferences().edit()
+            .putString(platformAlarmId, credentialRequest.toJson().toString())
+            .commit()
+        mirrorPreferences().edit()
+            .putString(platformAlarmId, mirrorRequest.toJson().toString())
+            .commit()
+
+        BootReceiver().onReceive(context, Intent(Intent.ACTION_MY_PACKAGE_REPLACED))
+
+        val restored = AlarmStore(context).get(platformAlarmId)
+        assertNotNull(restored)
+        assertEquals(mirrorRequest.scheduledAtMillis, restored!!.scheduledAtMillis)
+        assertFalse(credentialPreferences().contains(platformAlarmId))
+    }
+
+    @Test
     fun `transient restore scheduling failure keeps future mirror row for retry`() {
         val request = alarmRequest("android:plan:transient-restore-failure")
         assertTrue(AlarmStore(context).put(request))
