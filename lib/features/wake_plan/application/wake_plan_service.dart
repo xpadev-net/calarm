@@ -840,6 +840,7 @@ class WakePlanService {
     final requests = _buildRestorationRequests(
       plan: plan,
       occurrences: occurrences,
+      now: now,
     );
     final pendingOccurrences = occurrences
         .map(
@@ -869,14 +870,24 @@ class WakePlanService {
   List<NativeAlarmScheduleRequest> _buildRestorationRequests({
     required WakePlan plan,
     required List<AlarmOccurrence> occurrences,
+    required DateTime now,
   }) {
+    final targetAtByOccurrenceId = {
+      for (final request in _buildOccurrenceBundle(
+        plan: plan,
+        now: now,
+      ).requests)
+        request.occurrenceId: request.targetAt,
+    };
     return [
       for (var index = 0; index < occurrences.length; index += 1)
         NativeAlarmScheduleRequest(
           occurrenceId: occurrences[index].id,
           wakePlanId: occurrences[index].wakePlanId,
           scheduledAt: occurrences[index].scheduledAt.toDateTime(),
-          targetAt: plan.targetAt(occurrences[index].scheduledAt.day),
+          targetAt:
+              targetAtByOccurrenceId[occurrences[index].id] ??
+              plan.targetAt(occurrences[index].scheduledAt.day),
           indexInPlan: index,
           totalInPlan: occurrences.length,
           soundId: plan.soundId,

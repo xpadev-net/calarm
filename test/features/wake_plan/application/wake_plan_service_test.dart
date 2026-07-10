@@ -826,6 +826,57 @@ void main() {
     );
 
     test(
+      'restores cross-midnight reservations with the owning next-day target',
+      () async {
+        final originalPlan = buildPlan(
+          targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+            hour: 0,
+            minute: 0,
+          ),
+          startOffset: const Duration(hours: 1),
+          repeatRule: RepeatRule.weekly({Weekday.tuesday}),
+        );
+        final editedPlan = buildPlan(
+          targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+            hour: 0,
+            minute: 30,
+          ),
+          startOffset: const Duration(hours: 1),
+          repeatRule: RepeatRule.weekly({Weekday.tuesday}),
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: originalPlan)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'plan-1:20640:1380',
+              day: monday,
+              time: TimeOfDayMinutes.fromHourMinute(hour: 23, minute: 0),
+              platformAlarmId: 'old-native-1',
+            ),
+          ];
+        final gateway = _SequencedFaultGateway(
+          scheduleFailuresByCall: [
+            {'plan-1:20640:1410'},
+          ],
+        );
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+          clockNow: DateTime(2026, 7, 6, 22),
+          rollingScheduleDays: 2,
+        ).editPlan(editedPlan);
+
+        expect(result.status, WakePlanSchedulingStatus.scheduleFailed);
+        expect(result.compensationScheduleResult!.isSuccess, isTrue);
+        expect(
+          gateway.scheduledRequests.last.scheduledAt,
+          DateTime(2026, 7, 6, 23),
+        );
+        expect(gateway.scheduledRequests.last.targetAt, DateTime(2026, 7, 7));
+      },
+    );
+
+    test(
       'restores successful old cancellations after a partial old cancel',
       () async {
         final originalPlan = buildPlan();
