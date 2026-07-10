@@ -542,7 +542,7 @@ class AlarmStore(context: Context) {
             return if (credentialRequest.updatedAtMillis != deviceRequest.updatedAtMillis) {
                 credentialRequest.updatedAtMillis > deviceRequest.updatedAtMillis
             } else {
-                credentialRequest.scheduledAtMillis >= deviceRequest.scheduledAtMillis
+                credentialRequest.scheduledAtMillis > deviceRequest.scheduledAtMillis
             }
         }
 
