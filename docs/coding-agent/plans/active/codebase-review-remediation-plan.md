@@ -112,7 +112,10 @@
 
 ### Task_4: Propagate the injected clock into wake-plan sheets
 
-- status: unstarted
+- status: in_progress
+- worker_thread: `019f4a0e-0e34-7193-b3ec-f42d6216acfb`
+- worker_branch: `codex/reviewfix-clock-injection`
+- worker_runtime: `gpt-5.6-luna` / `xhigh`
 - type: test
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_placeholder.dart`
@@ -400,6 +403,12 @@
   - Research waived using current source-grounded review evidence.
   - No open PRs were present; `master` matched `origin/master` except user-owned untracked `docs/coding-agent/reports/`.
   - Next action: merge this ledger-only plan, then dispatch Wave 1 with Luna ExtraHigh.
+
+- 2026-07-10 Task_4 dispatched and startup-checked.
+  - Worker thread: `019f4a0e-0e34-7193-b3ec-f42d6216acfb` in a separate worktree.
+  - Branch/runtime: `codex/reviewfix-clock-injection` on `gpt-5.6-luna` / `xhigh` (Luna ExtraHigh).
+  - Startup state: active; exact Task_4 goal set; skill loading and pre-edit failure reproduction in progress.
+  - Next action: review and merge Task_4 only after worker and orchestrator gates pass, then dispatch Wave 1B in parallel.
 
 ## Decision Log
 
