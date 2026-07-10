@@ -192,7 +192,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             alarmManager.setAlarmClock(
                 AlarmManager.AlarmClockInfo(
                     request.scheduledAtMillis,
-                    AlarmIntents.stopActivity(appContext, platformAlarmId),
+                    AlarmIntents.showIntent(appContext, platformAlarmId),
                 ),
                 AlarmIntents.receiver(appContext, platformAlarmId),
             )
@@ -431,6 +431,15 @@ class AlarmStore(context: Context) {
         return preferences.edit().remove(platformAlarmId).commit()
     }
 
+    fun get(platformAlarmId: String): AlarmRequest? {
+        return try {
+            val value = preferences.getString(platformAlarmId, null) ?: return null
+            AlarmRequest.fromJson(JSONObject(value))
+        } catch (_: RuntimeException) {
+            null
+        }
+    }
+
     fun all(): List<AlarmRequest> {
         return preferences.all.values.mapNotNull { value ->
             try {
@@ -457,7 +466,7 @@ object AlarmRestore {
                     alarmManager.setAlarmClock(
                         AlarmManager.AlarmClockInfo(
                             request.scheduledAtMillis,
-                            AlarmIntents.stopActivity(context, request.platformAlarmId),
+                            AlarmIntents.showIntent(context, request.platformAlarmId),
                         ),
                         AlarmIntents.receiver(context, request.platformAlarmId),
                     )
@@ -488,6 +497,20 @@ object AlarmIntents {
 
     fun stopActivity(context: Context, platformAlarmId: String): PendingIntent {
         val intent = stopActivityIntent(context, platformAlarmId)
+        return PendingIntent.getActivity(
+            context,
+            requestCode(platformAlarmId),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    fun showIntent(context: Context, platformAlarmId: String): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java)
+            .setAction("dev.xpa.calarm.ALARM_DETAIL")
+            .setData(identityUri(platformAlarmId))
+            .putExtra(EXTRA_PLATFORM_ALARM_ID, platformAlarmId)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         return PendingIntent.getActivity(
             context,
             requestCode(platformAlarmId),
