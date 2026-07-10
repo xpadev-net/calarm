@@ -39,13 +39,23 @@ class CalarmHomePage extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(child: WeekCalendarPlaceholder()),
+              Expanded(flex: 2, child: WeekCalendarPlaceholder()),
               SizedBox(height: 8),
-              AlarmRingingPlaceholder(),
-              SizedBox(height: 8),
-              SettingsPlaceholder(),
-              SizedBox(height: 8),
-              WakePlanPlaceholder(),
+              Expanded(
+                child: SingleChildScrollView(
+                  key: ValueKey<String>('home-sections-scroll'),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      AlarmRingingPlaceholder(),
+                      SizedBox(height: 8),
+                      SettingsPlaceholder(),
+                      SizedBox(height: 8),
+                      WakePlanPlaceholder(),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),
