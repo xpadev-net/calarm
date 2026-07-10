@@ -33,12 +33,14 @@
         </activity>
         <activity
             android:name=".AlarmStopActivity"
+            android:directBootAware="true"
             android:exported="false"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:theme="@style/AlarmStopTheme" />
         <receiver
             android:name=".AlarmReceiver"
+            android:directBootAware="true"
             android:exported="false" />
         <receiver
             android:name=".BootReceiver"
