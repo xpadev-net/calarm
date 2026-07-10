@@ -42,22 +42,20 @@ class _SettingsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final maxHeight = constraints.hasBoundedHeight
-            ? constraints.maxHeight
-            : 420.0;
-        return SizedBox(
-          height: maxHeight,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _AlarmHealthPanel(settings: settings, health: health),
-                const SizedBox(height: 12),
-                _SettingsDefaultsPanel(settings: settings),
-              ],
-            ),
-          ),
+        final content = Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _AlarmHealthPanel(settings: settings, health: health),
+            const SizedBox(height: 12),
+            _SettingsDefaultsPanel(settings: settings),
+          ],
         );
+
+        if (!constraints.hasBoundedHeight) {
+          return content;
+        }
+
+        return SingleChildScrollView(child: content);
       },
     );
   }

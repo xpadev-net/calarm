@@ -8,6 +8,9 @@ import 'features/settings/presentation/settings_placeholder.dart';
 import 'features/wake_plan/presentation/wake_plan_placeholder.dart';
 import 'features/week_calendar/presentation/week_calendar_placeholder.dart';
 
+const _homeSectionGap = 8.0;
+const _calendarErrorMinHeight = 180.0;
+
 class CalarmApp extends ConsumerWidget {
   const CalarmApp({super.key});
 
@@ -33,20 +36,44 @@ class CalarmHomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text(AppIdentity.defaultDisplayName)),
-      body: const SafeArea(
+      body: SafeArea(
         child: Padding(
-          padding: EdgeInsets.fromLTRB(12, 8, 12, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(child: WeekCalendarPlaceholder()),
-              SizedBox(height: 8),
-              AlarmRingingPlaceholder(),
-              SizedBox(height: 8),
-              SettingsPlaceholder(),
-              SizedBox(height: 8),
-              WakePlanPlaceholder(),
-            ],
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final availableHeight = constraints.maxHeight - _homeSectionGap;
+              final preferredCalendarHeight = availableHeight * 2 / 3;
+              final calendarHeight =
+                  preferredCalendarHeight < _calendarErrorMinHeight
+                  ? _calendarErrorMinHeight
+                  : preferredCalendarHeight;
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(
+                    height: calendarHeight,
+                    child: const WeekCalendarPlaceholder(),
+                  ),
+                  const SizedBox(height: _homeSectionGap),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      key: const ValueKey<String>('home-sections-scroll'),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const AlarmRingingPlaceholder(),
+                          const SizedBox(height: _homeSectionGap),
+                          const SettingsPlaceholder(),
+                          const SizedBox(height: _homeSectionGap),
+                          const WakePlanPlaceholder(),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
