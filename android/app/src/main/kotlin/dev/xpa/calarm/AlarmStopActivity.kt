@@ -92,7 +92,9 @@ class AlarmStopActivity : Activity() {
     }
 
     override fun onDestroy() {
-        if (!isChangingConfigurations) {
+        if (isChangingConfigurations) {
+            stopAlarmSound()
+        } else {
             cleanupAlarm()
         }
         super.onDestroy()
