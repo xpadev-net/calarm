@@ -245,7 +245,9 @@
 
 ### Task_8: Make edit/delete/skip compensation preserve the authoritative schedule
 
-- status: unstarted
+- status: in progress
+- worker_thread: `client-new-thread:12949d91-c251-44a6-9c73-e82fecda98d9` (queued; replace with resolved thread ID at startup check)
+- branch: `codex/reviewfix-wake-plan-compensation`
 - type: impl
 - owns:
   - `lib/features/wake_plan/application/wake_plan_service.dart`
@@ -565,6 +567,11 @@
   - Original worker thread `019f4d61-3a43-7a90-97f9-0f78d1a14124`, replacement worker thread `019f4dd2-951f-7551-b0a1-0995ed137340`, and independent Reviewer thread are archived after merge.
   - The merge command completed the GitHub squash merge but returned exit 1 only because the checked-out branch could not be deleted from the original sibling worktree; post-command GitHub verification proved the merge commit above.
   - Next action: dispatch dependency-ready Task_8 under the approved remediation plan.
+
+- 2026-07-11 Task_8 dispatched with Luna High.
+  - Queued Codex thread `client-new-thread:12949d91-c251-44a6-9c73-e82fecda98d9`, branch `codex/reviewfix-wake-plan-compensation`, owns only `wake_plan_service.dart` and its focused service test.
+  - Task_8 starts from current `origin/master` after Tasks 6 and 7 completed; the worker must preserve Task_7 serialization/idempotency behavior and request decomposition before expanding ownership.
+  - Next action: resolve the durable thread ID, perform the startup stability check, then wait for the review-ready exact-head handoff.
 
 ## Decision Log
 
