@@ -595,6 +595,7 @@ void main() {
           ..reservedOccurrences = [
             buildOccurrence(
               id: 'old-future-1',
+              time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 45),
               platformAlarmId: 'old-native-1',
             ),
           ];
@@ -652,6 +653,7 @@ void main() {
           ..reservedOccurrences = [
             buildOccurrence(
               id: 'old-future-1',
+              time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 45),
               platformAlarmId: 'old-native-1',
             ),
           ];
@@ -723,6 +725,7 @@ void main() {
           ..reservedOccurrences = [
             buildOccurrence(
               id: 'old-future-1',
+              time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 45),
               platformAlarmId: 'old-native-1',
             ),
           ];
@@ -793,6 +796,7 @@ void main() {
           ..reservedOccurrences = [
             buildOccurrence(
               id: 'old-future-1',
+              time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 45),
               platformAlarmId: 'old-native-1',
             ),
           ];
@@ -929,6 +933,58 @@ void main() {
               .single
               .platformAlarmId,
           'old-native-2',
+        );
+      },
+    );
+
+    test(
+      'preserves canonical native indexes when restoring a cancelled subset',
+      () async {
+        final originalPlan = buildPlan(
+          repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
+        );
+        final editedPlan = originalPlan.copyWith(
+          targetTime: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 30),
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: originalPlan)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'legacy-old-1',
+              time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 45),
+              platformAlarmId: 'old-native-1',
+            ),
+            buildOccurrence(
+              id: 'legacy-old-2',
+              time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 50),
+              platformAlarmId: 'old-native-2',
+            ),
+            buildOccurrence(
+              id: 'legacy-old-3',
+              time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 55),
+              platformAlarmId: 'old-native-3',
+            ),
+          ];
+        final gateway = _SequencedFaultGateway(
+          cancelFailuresByCall: [
+            {'old-native-1'},
+          ],
+        );
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 2,
+        ).editPlan(editedPlan);
+
+        expect(result.status, WakePlanSchedulingStatus.cancelFailed);
+        expect(result.compensationScheduleResult!.isSuccess, isTrue);
+        expect(
+          gateway.scheduledRequests.map((request) => request.indexInPlan),
+          [1, 2],
+        );
+        expect(
+          gateway.scheduledRequests.map((request) => request.totalInPlan),
+          [8, 8],
         );
       },
     );

@@ -837,11 +837,6 @@ class WakePlanService {
       return const _RestorationResult(scheduleResult: null, occurrences: []);
     }
 
-    final requests = _buildRestorationRequests(
-      plan: plan,
-      occurrences: occurrences,
-      now: now,
-    );
     final pendingOccurrences = occurrences
         .map(
           (occurrence) => occurrence.copyWith(
@@ -852,8 +847,34 @@ class WakePlanService {
           ),
         )
         .toList(growable: false);
+    final restorationRequests = _buildRestorationRequests(
+      plan: plan,
+      occurrences: occurrences,
+      now: now,
+    );
+    if (restorationRequests == null) {
+      final scheduleResult = ScheduleResult.fromOccurrences([
+        for (final occurrence in pendingOccurrences)
+          ScheduleOccurrenceResult.failure(
+            occurrenceId: occurrence.id,
+            wakePlanId: occurrence.wakePlanId,
+            reason: ScheduleFailureReason.nativeError,
+            message: 'Could not map occurrence to its owning wake instance.',
+          ),
+      ]);
+      final restoredOccurrences = _applyScheduleResult(
+        occurrences: pendingOccurrences,
+        scheduleResult: scheduleResult,
+        updatedAt: now,
+      );
+      await _store.saveAlarmOccurrences(restoredOccurrences);
+      return _RestorationResult(
+        scheduleResult: scheduleResult,
+        occurrences: restoredOccurrences,
+      );
+    }
     final scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(
-      requests,
+      restorationRequests,
     );
     final restoredOccurrences = _applyScheduleResult(
       occurrences: pendingOccurrences,
@@ -867,33 +888,43 @@ class WakePlanService {
     );
   }
 
-  List<NativeAlarmScheduleRequest> _buildRestorationRequests({
+  List<NativeAlarmScheduleRequest>? _buildRestorationRequests({
     required WakePlan plan,
     required List<AlarmOccurrence> occurrences,
     required DateTime now,
   }) {
-    final targetAtByOccurrenceId = {
-      for (final request in _buildOccurrenceBundle(
-        plan: plan,
-        now: now,
-      ).requests)
-        request.occurrenceId: request.targetAt,
+    final canonicalRequests = _buildOccurrenceBundle(
+      plan: plan,
+      now: now,
+    ).requests;
+    final canonicalById = {
+      for (final request in canonicalRequests) request.occurrenceId: request,
     };
-    return [
-      for (var index = 0; index < occurrences.length; index += 1)
+    final canonicalByScheduledAt = {
+      for (final request in canonicalRequests) request.scheduledAt: request,
+    };
+    final matchedRequests = <NativeAlarmScheduleRequest>[];
+    for (final occurrence in occurrences) {
+      final canonical =
+          canonicalById[occurrence.id] ??
+          canonicalByScheduledAt[occurrence.scheduledAt.toDateTime()];
+      if (canonical == null) {
+        return null;
+      }
+      matchedRequests.add(
         NativeAlarmScheduleRequest(
-          occurrenceId: occurrences[index].id,
-          wakePlanId: occurrences[index].wakePlanId,
-          scheduledAt: occurrences[index].scheduledAt.toDateTime(),
-          targetAt:
-              targetAtByOccurrenceId[occurrences[index].id] ??
-              plan.targetAt(occurrences[index].scheduledAt.day),
-          indexInPlan: index,
-          totalInPlan: occurrences.length,
+          occurrenceId: occurrence.id,
+          wakePlanId: occurrence.wakePlanId,
+          scheduledAt: occurrence.scheduledAt.toDateTime(),
+          targetAt: canonical.targetAt,
+          indexInPlan: canonical.indexInPlan,
+          totalInPlan: canonical.totalInPlan,
           soundId: plan.soundId,
           vibrationEnabled: plan.vibrationEnabled,
         ),
-    ];
+      );
+    }
+    return matchedRequests;
   }
 
   List<AlarmOccurrence> _mergeOccurrenceStates(
