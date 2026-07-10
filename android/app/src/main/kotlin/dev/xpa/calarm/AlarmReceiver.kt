@@ -13,9 +13,14 @@ import android.os.VibratorManager
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val platformAlarmId = intent.getStringExtra(AlarmIntents.EXTRA_PLATFORM_ALARM_ID) ?: return
+        val store = AlarmStore(context)
+        val request = store.get(platformAlarmId)
+        if (request == null && !store.contains(platformAlarmId)) return
         showAlarmNotification(context, platformAlarmId)
         openAlarmScreen(context, platformAlarmId)
-        vibrate(context)
+        if (request?.vibrationEnabled == true) {
+            vibrate(context)
+        }
     }
 
     private fun showAlarmNotification(context: Context, platformAlarmId: String) {
