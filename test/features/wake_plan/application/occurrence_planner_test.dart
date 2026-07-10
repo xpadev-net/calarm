@@ -208,6 +208,31 @@ void main() {
       expect(result.schedulingCandidateCount, 13);
     });
 
+    test('rolls a same-weekday target into the next valid week', () {
+      final result = planner.plan(
+        wakePlan: buildPlan(
+          targetTime: TimeOfDayMinutes.fromHourMinute(hour: 5, minute: 0),
+          startOffset: const Duration(minutes: 15),
+          repeatRule: RepeatRule.weekly({Weekday.monday}),
+        ),
+        startDay: monday,
+        endExclusive: monday.addDays(7),
+        now: DateTime(2026, 7, 6, 5, 5),
+      );
+
+      expect(result.wakeInstances.map((instance) => instance.targetDay), [
+        monday,
+        CalendarDay(year: 2026, month: 7, day: 13),
+      ]);
+      expect(
+        result.schedulingCandidates
+            .map((occurrence) => occurrence.scheduledAt.day)
+            .toSet(),
+        {CalendarDay(year: 2026, month: 7, day: 13)},
+      );
+      expect(result.schedulingCandidateCount, 4);
+    });
+
     test('does not generate disabled, deleted, or finished plans', () {
       for (final plan in [
         buildPlan(isEnabled: false),

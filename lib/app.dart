@@ -5,17 +5,72 @@ import 'core/bootstrap/app_bootstrap.dart';
 import 'core/identity/app_identity.dart';
 import 'features/alarm_ringing/presentation/alarm_ringing_placeholder.dart';
 import 'features/settings/presentation/settings_placeholder.dart';
+import 'features/wake_plan/application/wake_plan_service.dart';
+import 'features/wake_plan/data/src/app_wake_plan_repository_provider.dart';
 import 'features/wake_plan/presentation/wake_plan_placeholder.dart';
 import 'features/week_calendar/presentation/week_calendar_placeholder.dart';
 
 const _homeSectionGap = 8.0;
 const _calendarErrorMinHeight = 180.0;
 
-class CalarmApp extends ConsumerWidget {
+final appWakePlanServiceProvider = FutureProvider<WakePlanService>((ref) async {
+  return WakePlanService(
+    repository: await ref.watch(appWakePlanRepositoryProvider.future),
+    nativeAlarmGateway: ref.watch(appNativeAlarmGatewayProvider),
+  );
+});
+
+class CalarmApp extends ConsumerStatefulWidget {
   const CalarmApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CalarmApp> createState() => _CalarmAppState();
+}
+
+class _CalarmAppState extends ConsumerState<CalarmApp>
+    with WidgetsBindingObserver {
+  Future<void>? _reconciliation;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _reconcileWakePlans();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _reconcileWakePlans();
+    }
+  }
+
+  void _reconcileWakePlans() {
+    if (_reconciliation != null) {
+      return;
+    }
+    _reconciliation = _runReconciliation().whenComplete(() {
+      _reconciliation = null;
+    });
+  }
+
+  Future<void> _runReconciliation() async {
+    try {
+      final service = await ref.read(appWakePlanServiceProvider.future);
+      await service.reconcileSchedules();
+    } catch (error) {
+      debugPrint('Could not reconcile wake plans: $error');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final identity = ref.watch(appIdentityProvider);
 
     return MaterialApp(
