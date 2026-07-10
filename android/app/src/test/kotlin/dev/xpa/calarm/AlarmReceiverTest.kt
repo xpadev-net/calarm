@@ -11,6 +11,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.TextView
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -91,6 +92,7 @@ class AlarmReceiverTest {
             .get()
         val detailLayout = detailActivity.findViewById<ViewGroup>(android.R.id.content)
             .getChildAt(0) as LinearLayout
+        assertTrue((detailLayout.getChildAt(0) as TextView).text.toString().contains("Wake plan: plan"))
         assertEquals("Close", (detailLayout.getChildAt(1) as Button).text)
         assertFalse(
             detailActivity.window.attributes.flags and

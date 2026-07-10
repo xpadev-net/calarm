@@ -13,6 +13,8 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import java.text.DateFormat
+import java.util.Date
 
 class AlarmStopActivity : Activity() {
     private var platformAlarmId: String? = null
@@ -38,7 +40,7 @@ class AlarmStopActivity : Activity() {
             setPadding(48, 48, 48, 48)
         }
         val title = TextView(this).apply {
-            text = if (isRinging) "Calarm" else "Calarm alarm scheduled"
+            text = if (isRinging) "Calarm" else detailSummary()
             textSize = 28f
             gravity = Gravity.CENTER
         }
@@ -81,6 +83,16 @@ class AlarmStopActivity : Activity() {
     override fun onDestroy() {
         cleanupAlarm()
         super.onDestroy()
+    }
+
+    private fun detailSummary(): String {
+        val request = platformAlarmId?.let { AlarmStore(this).get(it) }
+            ?: return "Calarm alarm scheduled\nDetails unavailable"
+        val scheduledAt = DateFormat.getDateTimeInstance(
+            DateFormat.MEDIUM,
+            DateFormat.SHORT,
+        ).format(Date(request.scheduledAtMillis))
+        return "Calarm alarm scheduled\nWake plan: ${request.wakePlanId}\nScheduled: $scheduledAt"
     }
 
     private fun cleanupAlarm() {
