@@ -1,13 +1,17 @@
+import 'dart:async';
+
 import 'package:calarm/core/platform/fake_native_alarm_gateway.dart';
 import 'package:calarm/core/platform/native_alarm_gateway.dart';
 import 'package:calarm/core/time/time.dart';
 import 'package:calarm/features/wake_plan/application/wake_plan_service.dart';
+import 'package:calarm/features/wake_plan/application/occurrence_planner.dart';
 import 'package:calarm/features/wake_plan/domain/wake_plan_domain.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   final monday = CalendarDay(year: 2026, month: 7, day: 6);
   final tuesday = CalendarDay(year: 2026, month: 7, day: 7);
+  final wednesday = CalendarDay(year: 2026, month: 7, day: 8);
   final now = DateTime(2026, 7, 6, 5, 55);
   final targetTime = TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0);
 
@@ -19,6 +23,9 @@ void main() {
     RepeatRule? repeatRule,
     String soundId = 'default',
     bool vibrationEnabled = true,
+    bool isEnabled = true,
+    WakePlanStatus status = WakePlanStatus.scheduled,
+    CalendarDay? skipNextDate,
   }) {
     return WakePlan(
       id: id,
@@ -27,8 +34,9 @@ void main() {
       startOffset: startOffset,
       interval: interval,
       repeatRule: repeatRule ?? RepeatRule.oneTime(monday),
-      isEnabled: true,
-      status: WakePlanStatus.scheduled,
+      isEnabled: isEnabled,
+      status: status,
+      skipNextDate: skipNextDate,
       soundId: soundId,
       vibrationEnabled: vibrationEnabled,
       createdAt: now,
@@ -58,11 +66,14 @@ void main() {
     required _LoggingWakePlanServiceStore store,
     required FakeNativeAlarmGateway gateway,
     int rollingScheduleDays = 7,
+    DateTime? clockNow,
+    OccurrencePlanner occurrencePlanner = const OccurrencePlanner(),
   }) {
     return WakePlanService.withStore(
       store: store,
       nativeAlarmGateway: gateway,
-      clock: () => now,
+      occurrencePlanner: occurrencePlanner,
+      clock: () => clockNow ?? now,
       rollingScheduleDays: rollingScheduleDays,
     );
   }
@@ -230,6 +241,287 @@ void main() {
         result.occurrences.map((occurrence) => occurrence.scheduledAt).toSet(),
         hasLength(result.occurrences.length),
       );
+    });
+
+    test(
+      'schedules the next valid week when today has already passed',
+      () async {
+        final store = _LoggingWakePlanServiceStore();
+        final gateway = FakeNativeAlarmGateway();
+        final plan = buildPlan(
+          targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+            hour: 5,
+            minute: 0,
+          ),
+          repeatRule: RepeatRule.weekly({Weekday.monday}),
+        );
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 7,
+        ).createPlan(plan);
+
+        expect(result.status, WakePlanSchedulingStatus.scheduled);
+        expect(
+          gateway.scheduledRequests.map((request) => request.scheduledAt),
+          [
+            DateTime(2026, 7, 13, 4, 45),
+            DateTime(2026, 7, 13, 4, 50),
+            DateTime(2026, 7, 13, 4, 55),
+            DateTime(2026, 7, 13, 5),
+          ],
+        );
+      },
+    );
+  });
+
+  group('WakePlanService reconcileSchedules', () {
+    test(
+      'replenishes a horizon and is idempotent across repeated runs',
+      () async {
+        final plan = buildPlan(
+          repeatRule: RepeatRule.weekly({
+            Weekday.monday,
+            Weekday.tuesday,
+            Weekday.wednesday,
+          }),
+        );
+        final store = _LoggingWakePlanServiceStore()..wakePlans = [plan];
+        final firstGateway = FakeNativeAlarmGateway();
+        final serviceUnderTest = service(
+          store: store,
+          gateway: firstGateway,
+          rollingScheduleDays: 2,
+        );
+
+        final concurrent = await Future.wait([
+          serviceUnderTest.reconcileSchedules(),
+          serviceUnderTest.reconcileSchedules(),
+        ]);
+        final first = concurrent.first;
+        expect(concurrent.last.single.occurrences, hasLength(8));
+        final secondGateway = FakeNativeAlarmGateway();
+        final second = await service(
+          store: store,
+          gateway: secondGateway,
+          rollingScheduleDays: 2,
+        ).reconcileSchedules();
+
+        expect(first.single.status, WakePlanSchedulingStatus.scheduled);
+        expect(first.single.occurrences, hasLength(8));
+        expect(second.single.status, WakePlanSchedulingStatus.scheduled);
+        expect(second.single.occurrences, hasLength(8));
+        expect(firstGateway.scheduledRequests, hasLength(8));
+        expect(secondGateway.scheduledRequests, isEmpty);
+        expect(store.storedOccurrences, hasLength(8));
+      },
+    );
+
+    test(
+      'runs one fresh non-overlapping follow-up when a request arrives in flight',
+      () async {
+        final plan = buildPlan(
+          repeatRule: RepeatRule.weekly({
+            Weekday.monday,
+            Weekday.tuesday,
+            Weekday.wednesday,
+          }),
+        );
+        final store = _LoggingWakePlanServiceStore()..wakePlans = [plan];
+        final gateway = _BlockingScheduleGateway();
+        var currentNow = now;
+        final serviceUnderTest = WakePlanService.withStore(
+          store: store,
+          nativeAlarmGateway: gateway,
+          clock: () => currentNow,
+          rollingScheduleDays: 2,
+        );
+
+        final first = serviceUnderTest.reconcileSchedules();
+        await gateway.firstScheduleStarted.future;
+
+        currentNow = DateTime(2026, 7, 7, 5, 55);
+        final followUp = serviceUnderTest.reconcileSchedules();
+        gateway.releaseFirstSchedule.complete();
+
+        final results = await Future.wait([first, followUp]);
+
+        expect(store.fetchPlanNows, [now, currentNow]);
+        expect(results, everyElement(hasLength(1)));
+        expect(gateway.scheduleCallCount, 2);
+        expect(gateway.maxConcurrentScheduleCalls, 1);
+        expect(gateway.scheduledBatches, hasLength(2));
+        expect(gateway.scheduledBatches.first, hasLength(8));
+        expect(gateway.scheduledBatches.last, hasLength(4));
+        expect(
+          gateway.scheduledBatches.last.every(
+            (request) => request.scheduledAt.weekday == DateTime.wednesday,
+          ),
+          isTrue,
+        );
+        expect(
+          gateway.scheduledRequests.map((request) => request.occurrenceId),
+          hasLength(
+            gateway.scheduledRequests
+                .map((request) => request.occurrenceId)
+                .toSet()
+                .length,
+          ),
+        );
+      },
+    );
+
+    test(
+      'replenishes only the newly entered day after time advances',
+      () async {
+        final plan = buildPlan(
+          repeatRule: RepeatRule.weekly({
+            Weekday.monday,
+            Weekday.tuesday,
+            Weekday.wednesday,
+          }),
+        );
+        final store = _LoggingWakePlanServiceStore()..wakePlans = [plan];
+        final firstGateway = FakeNativeAlarmGateway();
+        await service(
+          store: store,
+          gateway: firstGateway,
+          rollingScheduleDays: 2,
+        ).reconcileSchedules();
+
+        final nextGateway = FakeNativeAlarmGateway();
+        final result = await service(
+          store: store,
+          gateway: nextGateway,
+          rollingScheduleDays: 2,
+          clockNow: DateTime(2026, 7, 7, 5, 55),
+        ).reconcileSchedules();
+
+        expect(result.single.status, WakePlanSchedulingStatus.scheduled);
+        expect(
+          result.single.occurrences.map(
+            (occurrence) => occurrence.scheduledAt.day,
+          ),
+          [
+            tuesday,
+            tuesday,
+            tuesday,
+            tuesday,
+            wednesday,
+            wednesday,
+            wednesday,
+            wednesday,
+          ],
+        );
+        expect(nextGateway.scheduledRequests, hasLength(4));
+        expect(
+          nextGateway.scheduledRequests.every(
+            (request) => request.scheduledAt.weekday == DateTime.wednesday,
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test('retries occurrences with stale native reservation state', () async {
+      final plan = buildPlan(repeatRule: RepeatRule.weekly({Weekday.monday}));
+      final store = _LoggingWakePlanServiceStore()..wakePlans = [plan];
+      await service(
+        store: store,
+        gateway: FakeNativeAlarmGateway(),
+        rollingScheduleDays: 1,
+      ).reconcileSchedules();
+
+      store.storedOccurrences = store.storedOccurrences
+          .map(
+            (occurrence) => occurrence.copyWith(
+              status: AlarmOccurrenceStatus.failed,
+              platformAlarmId: 'stale-${occurrence.id}',
+              failureReason: ScheduleFailureReason.nativeError.name,
+            ),
+          )
+          .toList(growable: false);
+      final retryGateway = FakeNativeAlarmGateway();
+
+      final result = await service(
+        store: store,
+        gateway: retryGateway,
+        rollingScheduleDays: 1,
+      ).reconcileSchedules();
+
+      expect(result.single.status, WakePlanSchedulingStatus.scheduled);
+      expect(retryGateway.scheduledRequests, hasLength(4));
+      expect(
+        store.storedOccurrences.every(
+          (occurrence) =>
+              occurrence.status == AlarmOccurrenceStatus.scheduled &&
+              occurrence.platformAlarmId != null,
+        ),
+        isTrue,
+      );
+    });
+
+    test(
+      'does not replenish disabled, deleted, or skipped plans incorrectly',
+      () async {
+        final skipped = buildPlan(
+          id: 'skipped',
+          repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
+          skipNextDate: monday,
+        );
+        final disabled = buildPlan(
+          id: 'disabled',
+          isEnabled: false,
+          repeatRule: RepeatRule.weekly({Weekday.monday}),
+        );
+        final deleted = buildPlan(
+          id: 'deleted',
+          isEnabled: false,
+          status: WakePlanStatus.deleted,
+          repeatRule: RepeatRule.weekly({Weekday.monday}),
+        );
+        final store = _LoggingWakePlanServiceStore()
+          ..wakePlans = [skipped, disabled, deleted];
+        final gateway = FakeNativeAlarmGateway();
+
+        final results = await service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 2,
+        ).reconcileSchedules();
+
+        expect(results.map((result) => result.wakePlanId), ['skipped']);
+        expect(
+          results.single.occurrences.every(
+            (occurrence) => occurrence.scheduledAt.day == tuesday,
+          ),
+          isTrue,
+        );
+        expect(gateway.scheduledRequests, hasLength(4));
+      },
+    );
+
+    test('reports an empty enabled repeating schedule as a failure', () async {
+      final store = _LoggingWakePlanServiceStore()
+        ..wakePlans = [
+          buildPlan(repeatRule: RepeatRule.weekly({Weekday.monday})),
+        ];
+      final gateway = FakeNativeAlarmGateway();
+
+      final result = await service(
+        store: store,
+        gateway: gateway,
+        occurrencePlanner: _EmptyOccurrencePlanner(),
+      ).reconcileSchedules();
+
+      expect(result.single.status, WakePlanSchedulingStatus.scheduleFailed);
+      expect(result.single.isSuccess, isFalse);
+      expect(
+        result.single.warning!.message,
+        'No future alarm occurrence could be scheduled.',
+      );
+      expect(gateway.scheduledRequests, isEmpty);
     });
   });
 
@@ -820,12 +1112,22 @@ class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
   final savedOccurrences = <List<AlarmOccurrence>>[];
   final deletedPlanIds = <String>[];
   WakePlan? currentPlan;
+  List<WakePlan> wakePlans = [];
   List<AlarmOccurrence> reservedOccurrences = [];
+  List<AlarmOccurrence> storedOccurrences = [];
+  final fetchPlanNows = <DateTime>[];
 
   @override
   Future<WakePlan?> fetchWakePlan(String id) async {
     operations.add('fetchWakePlan:$id');
     return currentPlan?.id == id ? currentPlan : null;
+  }
+
+  @override
+  Future<List<WakePlan>> fetchWakePlans({required DateTime now}) async {
+    operations.add('fetchWakePlans');
+    fetchPlanNows.add(now);
+    return List<WakePlan>.of(wakePlans);
   }
 
   @override
@@ -851,6 +1153,23 @@ class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
     final snapshot = occurrences.toList(growable: false);
     operations.add('saveAlarmOccurrences:${snapshot.length}');
     savedOccurrences.add(snapshot);
+    final byId = {
+      for (final occurrence in storedOccurrences) occurrence.id: occurrence,
+    };
+    for (final occurrence in snapshot) {
+      byId[occurrence.id] = occurrence;
+    }
+    storedOccurrences = byId.values.toList(growable: false);
+  }
+
+  @override
+  Future<List<AlarmOccurrence>> fetchOccurrencesForPlan(
+    String wakePlanId,
+  ) async {
+    operations.add('fetchOccurrencesForPlan:$wakePlanId');
+    return storedOccurrences
+        .where((occurrence) => occurrence.wakePlanId == wakePlanId)
+        .toList(growable: false);
   }
 
   @override
@@ -875,5 +1194,52 @@ class _MissingScheduleRowsGateway extends FakeNativeAlarmGateway {
   ) async {
     scheduledRequests.addAll(occurrences);
     return ScheduleResult.fromOccurrences(const []);
+  }
+}
+
+class _BlockingScheduleGateway extends FakeNativeAlarmGateway {
+  final firstScheduleStarted = Completer<void>();
+  final releaseFirstSchedule = Completer<void>();
+  final scheduledBatches = <List<NativeAlarmScheduleRequest>>[];
+  var activeScheduleCalls = 0;
+  var maxConcurrentScheduleCalls = 0;
+  var scheduleCallCount = 0;
+
+  @override
+  Future<ScheduleResult> scheduleOccurrences(
+    List<NativeAlarmScheduleRequest> occurrences,
+  ) async {
+    scheduleCallCount += 1;
+    activeScheduleCalls += 1;
+    maxConcurrentScheduleCalls =
+        activeScheduleCalls > maxConcurrentScheduleCalls
+        ? activeScheduleCalls
+        : maxConcurrentScheduleCalls;
+    scheduledBatches.add(List<NativeAlarmScheduleRequest>.of(occurrences));
+    try {
+      if (scheduleCallCount == 1) {
+        firstScheduleStarted.complete();
+        await releaseFirstSchedule.future;
+      }
+      return await super.scheduleOccurrences(occurrences);
+    } finally {
+      activeScheduleCalls -= 1;
+    }
+  }
+}
+
+class _EmptyOccurrencePlanner extends OccurrencePlanner {
+  @override
+  OccurrencePlan plan({
+    required WakePlan wakePlan,
+    required CalendarDay startDay,
+    required CalendarDay endExclusive,
+    required DateTime now,
+  }) {
+    return OccurrencePlan(
+      wakeInstances: const [],
+      previewOccurrences: const [],
+      schedulingCandidates: const [],
+    );
   }
 }

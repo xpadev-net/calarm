@@ -41,6 +41,28 @@ class OccurrencePlanner {
       );
     }
 
+    if (schedulingCandidates.isEmpty &&
+        wakePlan.repeatRule.type == RepeatType.weekly &&
+        wakePlan.isEnabled &&
+        !wakePlan.isDeleted &&
+        wakePlan.status != WakePlanStatus.finished &&
+        wakePlan.skipNextDate == null) {
+      final nextDay = _nextWeeklyDay(
+        wakePlan: wakePlan,
+        startDay: endExclusive,
+        now: now,
+      );
+      if (nextDay != null) {
+        final wakeInstance = _buildWakeInstance(wakePlan, nextDay);
+        wakeInstances.add(wakeInstance);
+        schedulingCandidates.addAll(
+          wakeInstance.occurrences.where((occurrence) {
+            return !occurrence.scheduledAt.toDateTime().isBefore(now);
+          }),
+        );
+      }
+    }
+
     return OccurrencePlan(
       wakeInstances: wakeInstances,
       previewOccurrences: previewOccurrences,
@@ -77,6 +99,20 @@ class OccurrencePlanner {
       targetAt: targetAt,
       occurrences: occurrences,
     );
+  }
+
+  CalendarDay? _nextWeeklyDay({
+    required WakePlan wakePlan,
+    required CalendarDay startDay,
+    required DateTime now,
+  }) {
+    for (var offset = 0; offset <= 7; offset += 1) {
+      final day = startDay.addDays(offset);
+      if (wakePlan.occursOn(day) && !wakePlan.targetAt(day).isBefore(now)) {
+        return day;
+      }
+    }
+    return null;
   }
 }
 
