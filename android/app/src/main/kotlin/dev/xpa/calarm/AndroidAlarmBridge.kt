@@ -511,7 +511,6 @@ object AlarmIntents {
 
     fun showIntent(context: Context, platformAlarmId: String): PendingIntent {
         val intent = Intent(context, MainActivity::class.java)
-            .setData(identityUri(platformAlarmId))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         return PendingIntent.getActivity(
             context,

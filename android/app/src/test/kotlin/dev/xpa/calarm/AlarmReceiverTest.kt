@@ -81,6 +81,7 @@ class AlarmReceiverTest {
         assertNotNull(started)
         assertEquals(MainActivity::class.java.name, started!!.component?.className)
         assertNull(started.action)
+        assertNull(started.data)
         assertNotNull(AlarmStore(context).get(platformAlarmId))
         assertNull(shadowVibrator().getVibrationAttributesFromLastVibration())
     }
