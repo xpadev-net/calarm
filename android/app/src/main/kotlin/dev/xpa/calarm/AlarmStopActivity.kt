@@ -2,6 +2,7 @@ package dev.xpa.calarm
 
 import android.app.Activity
 import android.app.NotificationManager
+import android.content.Intent
 import android.media.AudioAttributes
 import android.media.Ringtone
 import android.media.RingtoneManager
@@ -18,21 +19,14 @@ class AlarmStopActivity : Activity() {
     private var alarmCleanedUp = false
     private var ringtone: Ringtone? = null
     private var isRinging = true
+    private var titleView: TextView? = null
+    private var actionButton: Button? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         isRinging = intent.action != AlarmIntents.ACTION_ALARM_SHOW
         if (isRinging) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                setShowWhenLocked(true)
-                setTurnScreenOn(true)
-            } else {
-                @Suppress("DEPRECATION")
-                window.addFlags(
-                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
-                )
-            }
+            configureRingingPresentation()
         }
         platformAlarmId = intent.getStringExtra(AlarmIntents.EXTRA_PLATFORM_ALARM_ID)
 
@@ -41,12 +35,14 @@ class AlarmStopActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(48, 48, 48, 48)
         }
-        layout.addView(TextView(this).apply {
+        val title = TextView(this).apply {
             text = if (isRinging) "Calarm" else "Calarm alarm scheduled"
             textSize = 28f
             gravity = Gravity.CENTER
-        })
-        layout.addView(Button(this).apply {
+        }
+        titleView = title
+        layout.addView(title)
+        val button = Button(this).apply {
             text = if (isRinging) "Stop" else "Close"
             setOnClickListener {
                 if (isRinging) {
@@ -56,11 +52,28 @@ class AlarmStopActivity : Activity() {
                     finish()
                 }
             }
-        })
+        }
+        actionButton = button
+        layout.addView(button)
         setContentView(layout)
         if (isRinging) {
             startAlarmSound()
         }
+    }
+
+    public override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.action != AlarmIntents.ACTION_ALARM_STOP) return
+
+        setIntent(intent)
+        platformAlarmId = intent.getStringExtra(AlarmIntents.EXTRA_PLATFORM_ALARM_ID)
+        if (isRinging) return
+
+        isRinging = true
+        configureRingingPresentation()
+        titleView?.text = "Calarm"
+        actionButton?.text = "Stop"
+        startAlarmSound()
     }
 
     override fun onDestroy() {
@@ -77,6 +90,19 @@ class AlarmStopActivity : Activity() {
         stopAlarmSound()
         getSystemService(NotificationManager::class.java).cancel(alarmId.hashCode())
         AlarmStore(this).remove(alarmId)
+    }
+
+    private fun configureRingingPresentation() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
+            )
+        }
     }
 
     private fun startAlarmSound() {

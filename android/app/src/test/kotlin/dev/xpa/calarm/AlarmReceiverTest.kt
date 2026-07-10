@@ -186,6 +186,26 @@ class AlarmReceiverTest {
         assertTrue(activity.isFinishing)
     }
 
+    @Test
+    fun `stop intent upgrades an existing detail activity to ringing mode`() {
+        val platformAlarmId = "android:plan:detail-to-ring"
+        assertTrue(AlarmStore(context).put(alarmRequest(platformAlarmId, vibrationEnabled = true)))
+        val showIntent = Shadows.shadowOf(AlarmIntents.showIntent(context, platformAlarmId)).savedIntent
+
+        val activity = Robolectric.buildActivity(AlarmStopActivity::class.java, showIntent)
+            .setup()
+            .get()
+        val stopIntent = AlarmIntents.stopActivityIntent(context, platformAlarmId)
+
+        activity.onNewIntent(stopIntent)
+
+        val content = activity.findViewById<ViewGroup>(android.R.id.content)
+        val layout = content.getChildAt(0) as LinearLayout
+        assertEquals("Stop", (layout.getChildAt(1) as Button).text)
+        (layout.getChildAt(1) as Button).performClick()
+        assertNull(AlarmStore(context).get(platformAlarmId))
+    }
+
     private fun shadowVibrator(): ShadowVibrator {
         return Shadows.shadowOf(context.getSystemService(Vibrator::class.java))
     }
