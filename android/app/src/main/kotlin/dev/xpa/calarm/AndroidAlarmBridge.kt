@@ -448,7 +448,7 @@ class AlarmStore(context: Context) {
         return preferences.all.values.mapNotNull { value ->
             try {
                 AlarmRequest.fromJson(JSONObject(value as String))
-            } catch (_: RuntimeException) {
+            } catch (_: Exception) {
                 null
             }
         }

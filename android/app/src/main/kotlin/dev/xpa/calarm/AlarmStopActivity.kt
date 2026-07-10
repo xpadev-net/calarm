@@ -27,6 +27,8 @@ class AlarmStopActivity : Activity() {
         isRinging = intent.action != AlarmIntents.ACTION_ALARM_SHOW
         if (isRinging) {
             configureRingingPresentation()
+        } else {
+            configureDetailPresentation()
         }
         platformAlarmId = intent.getStringExtra(AlarmIntents.EXTRA_PLATFORM_ALARM_ID)
 
@@ -64,10 +66,10 @@ class AlarmStopActivity : Activity() {
     public override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.action != AlarmIntents.ACTION_ALARM_STOP) return
+        if (isRinging) return
 
         setIntent(intent)
         platformAlarmId = intent.getStringExtra(AlarmIntents.EXTRA_PLATFORM_ALARM_ID)
-        if (isRinging) return
 
         isRinging = true
         configureRingingPresentation()
@@ -103,6 +105,17 @@ class AlarmStopActivity : Activity() {
                     WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
             )
         }
+    }
+
+    private fun configureDetailPresentation() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(false)
+            setTurnScreenOn(false)
+        }
+        window.clearFlags(
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
+        )
     }
 
     private fun startAlarmSound() {

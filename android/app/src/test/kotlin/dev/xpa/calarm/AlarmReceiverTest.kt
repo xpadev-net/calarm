@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Vibrator
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
 import org.junit.After
@@ -91,6 +92,14 @@ class AlarmReceiverTest {
         val detailLayout = detailActivity.findViewById<ViewGroup>(android.R.id.content)
             .getChildAt(0) as LinearLayout
         assertEquals("Close", (detailLayout.getChildAt(1) as Button).text)
+        assertFalse(
+            detailActivity.window.attributes.flags and
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED != 0,
+        )
+        assertFalse(
+            detailActivity.window.attributes.flags and
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON != 0,
+        )
         detailActivity.finish()
         assertNotNull(AlarmStore(context).get(platformAlarmId))
     }
@@ -204,6 +213,28 @@ class AlarmReceiverTest {
         assertEquals("Stop", (layout.getChildAt(1) as Button).text)
         (layout.getChildAt(1) as Button).performClick()
         assertNull(AlarmStore(context).get(platformAlarmId))
+    }
+
+    @Test
+    fun `second stop intent does not retarget an already ringing activity`() {
+        val currentAlarmId = "android:plan:current-ring"
+        val secondAlarmId = "android:plan:second-ring"
+        assertTrue(AlarmStore(context).put(alarmRequest(currentAlarmId, vibrationEnabled = true)))
+        assertTrue(AlarmStore(context).put(alarmRequest(secondAlarmId, vibrationEnabled = true)))
+
+        val activity = Robolectric.buildActivity(
+            AlarmStopActivity::class.java,
+            AlarmIntents.stopActivityIntent(context, currentAlarmId),
+        ).setup().get()
+
+        activity.onNewIntent(AlarmIntents.stopActivityIntent(context, secondAlarmId))
+
+        val content = activity.findViewById<ViewGroup>(android.R.id.content)
+        val layout = content.getChildAt(0) as LinearLayout
+        (layout.getChildAt(1) as Button).performClick()
+
+        assertNull(AlarmStore(context).get(currentAlarmId))
+        assertNotNull(AlarmStore(context).get(secondAlarmId))
     }
 
     private fun shadowVibrator(): ShadowVibrator {
