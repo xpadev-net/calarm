@@ -5,6 +5,7 @@ import android.app.AlarmManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -12,6 +13,7 @@ import android.content.pm.PackageManager
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
+import android.os.UserManager
 import android.provider.Settings
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
@@ -76,7 +78,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         } else if (!notificationsAllowed() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             appContext.startActivity(appDetailsSettingsIntent())
         } else if (!canUseFullScreenIntent() && Build.VERSION.SDK_INT >= 34) {
-            appContext.startActivity(appDetailsSettingsIntent())
+            requestFullScreenIntentPermission()
         } else if (!notificationChannelReady() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             appContext.startActivity(appNotificationSettingsIntent())
         }
@@ -89,6 +91,20 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             "status" to if (canSchedule) "granted" else "denied",
             "permissionStatus" to if (canSchedule) "authorized" else "denied",
         )
+    }
+
+    private fun requestFullScreenIntentPermission() {
+        val intent = Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+            data = Uri.parse("package:${appContext.packageName}")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            appContext.startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            appContext.startActivity(appDetailsSettingsIntent())
+        } catch (_: SecurityException) {
+            appContext.startActivity(appDetailsSettingsIntent())
+        }
     }
 
     private fun scheduleOccurrences(arguments: Map<*, *>): Map<String, Any?> {
@@ -418,8 +434,13 @@ data class AlarmRequest(
 }
 
 class AlarmStore(context: Context) {
+    private val storageContext = deviceProtectedStorageContext(context)
     private val preferences: SharedPreferences =
-        context.getSharedPreferences("native_alarm_store", Context.MODE_PRIVATE)
+        storageContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+
+    init {
+        migrateCredentialProtectedRows(context)
+    }
 
     fun put(request: AlarmRequest): Boolean {
         return preferences.edit()
@@ -445,39 +466,160 @@ class AlarmStore(context: Context) {
     }
 
     fun all(): List<AlarmRequest> {
-        return preferences.all.values.mapNotNull { value ->
-            try {
-                AlarmRequest.fromJson(JSONObject(value as String))
+        val invalidKeys = mutableListOf<String>()
+        val requestsById = linkedMapOf<String, AlarmRequest>()
+        preferences.all.forEach { (key, value) ->
+            val request = try {
+                (value as? String)?.let { AlarmRequest.fromJson(JSONObject(it)) }
             } catch (_: Exception) {
                 null
+            }
+            if (request == null || request.platformAlarmId != key) {
+                invalidKeys += key
+            } else if (!requestsById.containsKey(request.platformAlarmId)) {
+                requestsById[request.platformAlarmId] = request
+            }
+        }
+        if (invalidKeys.isNotEmpty()) {
+            val editor = preferences.edit()
+            invalidKeys.forEach { key -> editor.remove(key) }
+            editor.commit()
+        }
+        return requestsById.values.toList()
+    }
+
+    private companion object {
+        const val PREFERENCES_NAME = "native_alarm_store"
+
+        fun migrateCredentialProtectedRows(context: Context) {
+            if (
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.N ||
+                context.isDeviceProtectedStorage ||
+                !isUserUnlocked(context)
+            ) {
+                return
+            }
+            val applicationContext = context.applicationContext
+            if (applicationContext.isDeviceProtectedStorage) return
+
+            val credentialPreferences = applicationContext.getSharedPreferences(
+                PREFERENCES_NAME,
+                Context.MODE_PRIVATE,
+            )
+            val deviceProtectedPreferences = applicationContext
+                .createDeviceProtectedStorageContext()
+                .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+            val editor = deviceProtectedPreferences.edit()
+            val copiedKeys = mutableListOf<String>()
+            credentialPreferences.all.forEach { (key, value) ->
+                if (!deviceProtectedPreferences.contains(key) && putValue(editor, key, value)) {
+                    copiedKeys += key
+                } else if (deviceProtectedPreferences.contains(key)) {
+                    copiedKeys += key
+                }
+            }
+            if (copiedKeys.isEmpty() || !editor.commit()) return
+
+            val cleanupEditor = credentialPreferences.edit()
+            copiedKeys.forEach { key -> cleanupEditor.remove(key) }
+            cleanupEditor.commit()
+        }
+
+        private fun isUserUnlocked(context: Context): Boolean {
+            return context.getSystemService(UserManager::class.java)?.isUserUnlocked != false
+        }
+
+        private fun putValue(
+            editor: SharedPreferences.Editor,
+            key: String,
+            value: Any?,
+        ): Boolean {
+            return when (value) {
+                is Boolean -> {
+                    editor.putBoolean(key, value)
+                    true
+                }
+                is Float -> {
+                    editor.putFloat(key, value)
+                    true
+                }
+                is Int -> {
+                    editor.putInt(key, value)
+                    true
+                }
+                is Long -> {
+                    editor.putLong(key, value)
+                    true
+                }
+                is String -> {
+                    editor.putString(key, value)
+                    true
+                }
+                is Set<*> -> {
+                    val strings = value.filterIsInstance<String>()
+                    if (strings.size != value.size) {
+                        false
+                    } else {
+                        editor.putStringSet(key, strings.toSet())
+                        true
+                    }
+                }
+                else -> false
+            }
+        }
+
+        fun deviceProtectedStorageContext(context: Context): Context {
+            val applicationContext = context.applicationContext
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                if (applicationContext.isDeviceProtectedStorage) {
+                    applicationContext
+                } else {
+                    applicationContext.createDeviceProtectedStorageContext()
+                }
+            } else {
+                applicationContext
             }
         }
     }
 }
 
 object AlarmRestore {
+    private val restoreLock = Any()
+
     fun restore(context: Context) {
-        val alarmManager = context.getSystemService(AlarmManager::class.java)
-        val store = AlarmStore(context)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
-            return
-        }
-        store.all().forEach { request ->
-            if (request.scheduledAtMillis <= System.currentTimeMillis()) {
-                store.remove(request.platformAlarmId)
-            } else {
-                try {
-                    alarmManager.setAlarmClock(
-                        AlarmManager.AlarmClockInfo(
-                            request.scheduledAtMillis,
-                            AlarmIntents.showIntent(context, request.platformAlarmId),
-                        ),
-                        AlarmIntents.receiver(context, request.platformAlarmId),
-                    )
-                } catch (_: RuntimeException) {
+        restore(context, context.applicationContext)
+    }
+
+    fun restore(storageContext: Context, serviceContext: Context) {
+        synchronized(restoreLock) {
+            val appContext = serviceContext.applicationContext
+            val alarmManager = appContext.getSystemService(AlarmManager::class.java)
+            val store = AlarmStore(storageContext)
+            val now = System.currentTimeMillis()
+            val requests = store.all()
+            requests.forEach { request ->
+                if (request.scheduledAtMillis <= now) {
                     store.remove(request.platformAlarmId)
                 }
             }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+                return
+            }
+            requests.asSequence()
+                .filter { it.scheduledAtMillis > now }
+                .forEach { request ->
+                    try {
+                        alarmManager.setAlarmClock(
+                            AlarmManager.AlarmClockInfo(
+                                request.scheduledAtMillis,
+                                AlarmIntents.showIntent(appContext, request.platformAlarmId),
+                            ),
+                            AlarmIntents.receiver(appContext, request.platformAlarmId),
+                        )
+                    } catch (_: RuntimeException) {
+                        store.remove(request.platformAlarmId)
+                    }
+                }
         }
     }
 }
