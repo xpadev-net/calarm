@@ -53,11 +53,10 @@
 
 ### Task_1: Add required iOS AlarmKit usage description
 
-- status: blocked
+- status: in_progress
 - worker_thread: `019f4a5e-02ad-79b3-b0e3-d8c3bc7a4975`
 - worker_branch: `codex/reviewfix-ios-alarmkit-usage`
 - worker_runtime: `gpt-5.6-luna` / `xhigh`
-- blocker: worker session resumed successfully, but the required Luna ExtraHigh runtime reported a usage limit until 2026-07-10 21:48 JST before it could merge the current base and refresh validation.
 - type: impl
 - owns:
   - `ios/Runner/Info.plist`
@@ -152,11 +151,10 @@
 
 ### Task_5: Restore Flutter generated-file ignore hygiene
 
-- status: blocked
+- status: in_progress
 - worker_thread: `019f4a5e-0636-7351-b735-bbe84d41370e`
 - worker_branch: `codex/reviewfix-flutter-gitignore`
 - worker_runtime: `gpt-5.6-luna` / `xhigh`
-- blocker: worker session resumed successfully, but the required Luna ExtraHigh runtime reported a usage limit until 2026-07-10 21:48 JST before it could merge the current base and refresh validation.
 - type: chore
 - owns:
   - `.gitignore`
@@ -463,6 +461,11 @@
   - Both sessions reported the same usage-limit stop before performing the required normal base merge; the UI reported retry availability at 2026-07-10 21:48 JST.
   - No model substitution, history rewrite, force push, worker replacement, or product-code change was performed.
   - Next action: after the runtime resets, resume the same two sessions to merge `origin/master` normally, revalidate the scoped diffs, rerun final-head hooks, and return merge-ready reports.
+
+- 2026-07-10 Task_1 and Task_5 runtime limit cleared; resume authorized.
+  - User confirmed the runtime limit recovered.
+  - Both tasks returned to `in_progress`; the same sessions, worktrees, branches, and `gpt-5.6-luna` / `xhigh` runtime remain authoritative.
+  - Next action: workers merge the current `origin/master` normally, refresh scoped validation and final-head hooks, and report merge-ready without merging.
 
 ## Decision Log
 
