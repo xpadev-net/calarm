@@ -14,8 +14,10 @@ Runtime approval status: BLOCKED for release until real Android API 36 device/ru
 | Cancel all resolved occurrences for a plan | BLOCKED | `cancelPlan` uses the same resolved occurrence/platform identity rows as `cancelOccurrences`; no Android API 36 runtime/device is available to verify OS alarm removal. |
 | Schedule a test alarm | BLOCKED | Implementation maps `fireAfterMillis` to a native one-off alarm, but no Android API 36 runtime/device is available to verify delivery. |
 | Alarm receiver notification and full-screen stop UI fallback | BLOCKED | `AlarmReceiver` posts a high-priority alarm notification with full-screen `AlarmStopActivity`; no Android API 36 runtime/device is available to verify lock-screen behavior. |
-| Reboot/package-replace restore | BLOCKED | `BootReceiver` restores future alarms from a native SharedPreferences mirror after boot/package replace when exact alarms are still allowed. No Android API 36 runtime/device is available to verify reboot restore. |
-| Runtime permission request flow | BLOCKED | `requestPermissionIfNeeded` opens exact alarm or app settings where needed. No Android API 36 runtime/device is available to verify user flow or post-return status. |
+| Reboot/package-replace/direct-boot restore | BLOCKED | `BootReceiver` is direct-boot aware and restores future alarms from the device-protected native mirror after boot, locked boot, and package replacement when exact alarms are allowed. No Android API 36 runtime/device is available to verify reboot restore. |
+| Exact-alarm permission re-grant restore | PASS | `BootReceiver` handles `ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED`; the synchronized restore path re-arms each stable PendingIntent identity idempotently after permission is restored. |
+| Corrupt/expired mirror cleanup | PASS | Restore removes malformed, mismatched, and expired device-protected mirror rows without scheduling them. |
+| Runtime permission request flow | BLOCKED | `requestPermissionIfNeeded` opens exact-alarm settings, the Android 14+ app-specific full-screen settings action with package URI and app-details fallback, or notification/channel settings where needed. No Android API 36 device/runtime is available to verify user flow or post-return status. |
 | Settings inline warning for denied/missing Android alarm readiness | PASS | `rtk flutter test test/features/settings test/core/platform` covers exact alarm, notification, full-screen intent, and notification-channel warnings in the settings path. |
 | Android exact alarm permission-denial runtime warning | BLOCKED | Dart/UI path has widget coverage, but no Android API 36 device/runtime is available to revoke exact alarm permission and verify the live capability response. |
 | Android notification permission-denial runtime warning | BLOCKED | Dart/UI path has widget coverage, but no Android API 36 device/runtime is available to revoke notification permission and verify the live capability response. |
@@ -25,7 +27,9 @@ Runtime approval status: BLOCKED for release until real Android API 36 device/ru
 
 Implementation limits recorded:
 
-- Native mirror state is stored in app `SharedPreferences`; clearing app data removes restore state.
+- Native mirror state is stored in device-protected app `SharedPreferences`; clearing app data removes restore state.
 - Restore only re-arms alarms whose stored `scheduledAtMillis` is still in the future.
 - If exact alarm permission is revoked at boot, restore exits without rescheduling; capability lookup surfaces the missing permission.
+- Locked boot reads only the device-protected mirror and does not require credential-protected app storage to be unlocked.
+- Duplicate boot, package-replace, and permission-state broadcasts reuse the same stable PendingIntent identities and do not create duplicate alarms.
 - Full-screen UI is a minimal native fallback for Wave 8 and does not yet integrate Flutter alarm dismissal state.

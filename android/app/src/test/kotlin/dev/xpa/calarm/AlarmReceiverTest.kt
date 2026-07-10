@@ -21,6 +21,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
@@ -28,6 +29,7 @@ import org.robolectric.Shadows
 import org.robolectric.shadows.ShadowVibrator
 
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
 class AlarmReceiverTest {
     private lateinit var context: Context
     private lateinit var application: Application
@@ -40,6 +42,7 @@ class AlarmReceiverTest {
             .edit()
             .clear()
             .commit()
+        deviceProtectedPreferences().edit().clear().commit()
         Shadows.shadowOf(application).clearNextStartedActivities()
         ShadowVibrator.reset()
     }
@@ -50,6 +53,7 @@ class AlarmReceiverTest {
             .edit()
             .clear()
             .commit()
+        deviceProtectedPreferences().edit().clear().commit()
         Shadows.shadowOf(application).clearNextStartedActivities()
         ShadowVibrator.reset()
     }
@@ -160,7 +164,7 @@ class AlarmReceiverTest {
     @Test
     fun `receiver still alerts for a present but corrupt persisted row without vibrating`() {
         val platformAlarmId = "android:plan:corrupt"
-        context.getSharedPreferences("native_alarm_store", Context.MODE_PRIVATE)
+        deviceProtectedPreferences()
             .edit()
             .putString(platformAlarmId, "not-json")
             .commit()
@@ -261,6 +265,13 @@ class AlarmReceiverTest {
 
     private fun shadowVibrator(): ShadowVibrator {
         return Shadows.shadowOf(context.getSystemService(Vibrator::class.java))
+    }
+
+    private fun deviceProtectedPreferences() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        context.createDeviceProtectedStorageContext()
+            .getSharedPreferences("native_alarm_store", Context.MODE_PRIVATE)
+    } else {
+        context.getSharedPreferences("native_alarm_store", Context.MODE_PRIVATE)
     }
 
     private fun alarmRequest(platformAlarmId: String, vibrationEnabled: Boolean): AlarmRequest {
