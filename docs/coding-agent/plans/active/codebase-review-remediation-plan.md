@@ -556,6 +556,16 @@
   - The initial merge command completed the GitHub squash merge but returned exit 1 only because detached-worktree branch deletion could not resolve a current branch; post-command GitHub verification proved the merge commit above.
   - Next action: complete Task_6 merge gates; after Tasks 6 and 7 are both merged, dispatch dependency-ready Task_8 while respecting its shared WakePlanService ownership.
 
+- 2026-07-11 Task_6 completed and archived.
+  - PR #42 squash-merged as `67df3f795879f7dabf1c820d169f7627807f24d4`; final worker head `779daec2eb288c5d0fed5e6d93c2e84d3a87f06e`.
+  - Worker validation: `flutter analyze` passed, full Flutter suite passed 215/215, debug APK build passed, manifest/source inspection and diff check passed, all seven hosted checks passed, and final `gh-review-hook 42` exited 0. Local direct Gradle unit execution was unavailable because the repository has no wrapper and no standalone Gradle; hosted Baseline reported Android unit tests 15/15 and Android native smoke passed.
+  - Review evidence: independent Reviewer thread `019f4e40-478b-7751-9113-5ebb58eee020` APPROVED exact head with no Blocker/High; the stale CodeRabbit changes-requested review was dismissed with rationale after the current-head review found only non-blocking observations.
+  - Orchestrator evidence: final preflight was non-draft, CLEAN, base-current, with no blocking review decision and all seven checks successful; parent deep-review found no Blocker/High; parent `gh-review-hook 42` exited 0; analyze, all 215 Flutter tests, debug APK build, and diff check passed in a clean detached PR-head worktree.
+  - Residual risk: conflicting dual legacy rows without `updatedAtMillis` have no recoverable writer order. The deterministic fallback is documented and is not a supported base-to-head regression; choosing either storage domain as canonical would remain speculative. Real Android API 36 reboot/locked-boot/full-screen verification remains owned by Task_16.
+  - Original worker thread `019f4d61-3a43-7a90-97f9-0f78d1a14124`, replacement worker thread `019f4dd2-951f-7551-b0a1-0995ed137340`, and independent Reviewer thread are archived after merge.
+  - The merge command completed the GitHub squash merge but returned exit 1 only because the checked-out branch could not be deleted from the original sibling worktree; post-command GitHub verification proved the merge commit above.
+  - Next action: dispatch dependency-ready Task_8 under the approved remediation plan.
+
 ## Decision Log
 
 - 2026-07-11 Decision: keep Task_7 narrow and route the native crash-window authority gap through Tasks 10, 12, and 13.
