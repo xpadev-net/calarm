@@ -112,10 +112,14 @@
 
 ### Task_4: Propagate the injected clock into wake-plan sheets
 
-- status: in_progress
+- status: complete
 - worker_thread: `019f4a0e-0e34-7193-b3ec-f42d6216acfb`
 - worker_branch: `codex/reviewfix-clock-injection`
 - worker_runtime: `gpt-5.6-luna` / `xhigh`
+- pr: `#35` — https://github.com/xpadev-net/calarm/pull/35
+- worker_head: `7681cecc3abd4c4c131e0e7d418d1a6182b8f528`
+- merge_commit: `a783c5d06d744b13ea981497e2bacfe28652575f`
+- worker_thread_archived: true
 - type: test
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_placeholder.dart`
@@ -409,6 +413,15 @@
   - Branch/runtime: `codex/reviewfix-clock-injection` on `gpt-5.6-luna` / `xhigh` (Luna ExtraHigh).
   - Startup state: active; exact Task_4 goal set; skill loading and pre-edit failure reproduction in progress.
   - Next action: review and merge Task_4 only after worker and orchestrator gates pass, then dispatch Wave 1B in parallel.
+
+- 2026-07-10 Task_4 completed and archived.
+  - PR #35 merged as `a783c5d06d744b13ea981497e2bacfe28652575f`; final worker head `7681cecc3abd4c4c131e0e7d418d1a6182b8f528`.
+  - Worker validation: both original regressions, both live-clock regressions, 11/11 week-calendar tests, 9/9 detail-sheet tests, format, analyze, full 202/202 suite, and diff check passed.
+  - Review evidence: worker deep-review and fresh independent review APPROVED; mutation checks proved create/detail snapshot regressions fail; worker `gh-review-hook` exited 0 after four cumulative invocations.
+  - Orchestrator evidence: UI/lifecycle and final test/time-boundary deep-review APPROVED; orchestrator `gh-review-hook` exited 0; both original and live-clock regressions, target files, format, analyze, full 202/202 suite, and diff check passed.
+  - Hosted gates: Baseline CI, Greptile, and both Socket checks passed; PR was non-draft, CLEAN, APPROVED, and not behind at merge.
+  - Worker thread `019f4a0e-0e34-7193-b3ec-f42d6216acfb` archived.
+  - Next action: dispatch Wave 1B Tasks 1, 2, 3, and 5 in parallel with Luna ExtraHigh.
 
 ## Decision Log
 
