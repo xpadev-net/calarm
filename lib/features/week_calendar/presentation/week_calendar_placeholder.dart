@@ -103,6 +103,7 @@ class _WeekCalendarPlaceholderState
                 _openCreateSheet(
                   context: context,
                   ref: ref,
+                  clock: clock,
                   now: clock(),
                   target: target,
                   defaults: currentDefaults,
@@ -113,6 +114,7 @@ class _WeekCalendarPlaceholderState
                 _openDetailSheet(
                   context: context,
                   ref: ref,
+                  clock: clock,
                   now: clock(),
                   target: target,
                   defaults: currentDefaults,
@@ -136,6 +138,7 @@ class _WeekCalendarPlaceholderState
   Future<void> _openCreateSheet({
     required BuildContext context,
     required WidgetRef ref,
+    required DateTime Function() clock,
     required DateTime now,
     required WeekCalendarTapTarget target,
     required AppSettings defaults,
@@ -169,6 +172,7 @@ class _WeekCalendarPlaceholderState
           return CreateWakePlanSheet(
             initialTarget: target,
             now: now,
+            clock: clock,
             defaults: defaults,
             existingWakePlans: existingWakePlans,
             onSave: (plan) async {
@@ -205,6 +209,7 @@ class _WeekCalendarPlaceholderState
   Future<void> _openDetailSheet({
     required BuildContext context,
     required WidgetRef ref,
+    required DateTime Function() clock,
     required DateTime now,
     required WeekCalendarWakePlanTapTarget target,
     required AppSettings defaults,
@@ -231,6 +236,7 @@ class _WeekCalendarPlaceholderState
           return WakePlanDetailSheet(
             target: target,
             now: now,
+            clock: clock,
             defaults: defaults,
             existingWakePlans: existingWakePlans,
             onEdit: (plan) async {

@@ -244,6 +244,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'))
+          .onPressed,
+      isNotNull,
+    );
     await tester.ensureVisible(find.text('Save'));
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
@@ -257,6 +263,80 @@ void main() {
       find.byType(WeekCalendarView),
     );
     expect(refreshedCalendar.wakePlans, hasLength(1));
+  });
+
+  testWidgets('create validation follows the live injected clock', (
+    tester,
+  ) async {
+    final initialNow = DateTime(2026, 7, 8, 5, 30);
+    var currentNow = initialNow;
+    var clockCalls = 0;
+    DateTime clock() {
+      clockCalls += 1;
+      return currentNow;
+    }
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          weekCalendarRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          wakePlanDefaultsRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          weekCalendarNativeAlarmGatewayProvider.overrideWith(
+            (ref) => FakeNativeAlarmGateway(),
+          ),
+          weekCalendarClockProvider.overrideWith((ref) => clock),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: WeekCalendarPlaceholder()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final calendar = tester.widget<WeekCalendarView>(
+      find.byType(WeekCalendarView),
+    );
+    calendar.onTargetTap!(
+      WeekCalendarTapTarget(
+        day: CalendarDay(year: 2026, month: 7, day: 9),
+        time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Create wake plan'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'))
+          .onPressed,
+      isNotNull,
+    );
+
+    currentNow = DateTime(2026, 7, 10, 5, 30);
+    await tester.tap(find.text('No repeat'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Daily').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Daily'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('No repeat').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Choose a future wake target before saving.'),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'))
+          .onPressed,
+      isNull,
+    );
+    expect(clockCalls, greaterThan(1));
   });
 
   testWidgets('opens wake plan detail and edit reschedules future alarms', (
@@ -319,6 +399,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Edit wake plan'), findsOneWidget);
 
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'))
+          .onPressed,
+      isNotNull,
+    );
     await tester.ensureVisible(find.text('Save'));
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();

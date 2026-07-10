@@ -16,6 +16,7 @@ class WakePlanDetailSheet extends StatefulWidget {
     super.key,
     required this.target,
     required this.now,
+    required this.clock,
     required this.defaults,
     required this.existingWakePlans,
     required this.onEdit,
@@ -26,6 +27,7 @@ class WakePlanDetailSheet extends StatefulWidget {
 
   final WeekCalendarWakePlanTapTarget target;
   final DateTime now;
+  final DateTime Function() clock;
   final AppSettings defaults;
   final List<WakePlan> existingWakePlans;
   final WakePlanEditSave onEdit;
@@ -170,6 +172,7 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
             time: plan.targetTime,
           ),
           now: widget.now,
+          clock: widget.clock,
           defaults: widget.defaults,
           existingWakePlans: widget.existingWakePlans,
           existingWakePlan: plan,

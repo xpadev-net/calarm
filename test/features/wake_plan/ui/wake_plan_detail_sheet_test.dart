@@ -22,6 +22,7 @@ void main() {
               targetDay: _targetDay,
             ),
             now: DateTime(2026, 7, 8, 5, 30),
+            clock: () => DateTime(2026, 7, 8, 5, 30),
             defaults: AppSettings.initial(),
             existingWakePlans: const [],
             onEdit: (_) async => _successResult(),
@@ -72,6 +73,7 @@ void main() {
               targetDay: _targetDay,
             ),
             now: DateTime(2026, 7, 8, 5, 30),
+            clock: () => DateTime(2026, 7, 8, 5, 30),
             defaults: AppSettings.initial(),
             existingWakePlans: const [],
             onEdit: (_) async => _successResult(),
@@ -107,6 +109,7 @@ void main() {
               targetDay: _targetDay,
             ),
             now: DateTime(2026, 7, 8, 5, 30),
+            clock: () => DateTime(2026, 7, 8, 5, 30),
             defaults: AppSettings.initial(),
             existingWakePlans: const [],
             onEdit: (_) async => _successResult(),
@@ -137,6 +140,7 @@ void main() {
               targetDay: _targetDay,
             ),
             now: DateTime(2026, 7, 8, 5, 30),
+            clock: () => DateTime(2026, 7, 8, 5, 30),
             defaults: AppSettings.initial(),
             existingWakePlans: const [],
             onEdit: (_) async => _successResult(),
@@ -171,6 +175,7 @@ void main() {
               targetDay: CalendarDay(year: 2026, month: 7, day: 8),
             ),
             now: DateTime(2026, 7, 8, 5, 30),
+            clock: () => DateTime(2026, 7, 8, 5, 30),
             defaults: AppSettings.initial(),
             existingWakePlans: const [],
             onEdit: (_) async => _successResult(),
@@ -211,6 +216,7 @@ void main() {
               targetDay: CalendarDay(year: 2026, month: 7, day: 9),
             ),
             now: DateTime(2026, 7, 8, 5, 30),
+            clock: () => DateTime(2026, 7, 8, 5, 30),
             defaults: AppSettings.initial(),
             existingWakePlans: const [],
             onEdit: (_) async => _successResult(),
@@ -231,6 +237,160 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(restored?.id, 'plan-1');
+  });
+
+  testWidgets('uses the injected clock for one-time edit eligibility', (
+    tester,
+  ) async {
+    var edited = false;
+    final now = DateTime(2026, 7, 8, 5, 30);
+    final targetDay = CalendarDay(year: 2026, month: 7, day: 9);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WakePlanDetailSheet(
+            target: WeekCalendarWakePlanTapTarget(
+              wakePlan: _plan(repeatRule: RepeatRule.oneTime(targetDay)),
+              targetDay: targetDay,
+            ),
+            now: now,
+            clock: () => now,
+            defaults: AppSettings.initial(),
+            existingWakePlans: const [],
+            onEdit: (_) async {
+              edited = true;
+              return _successResult();
+            },
+            onDelete: (_) async => _successResult(),
+            onSkipNext: (_) async => _successResult(),
+            onUndoSkipNext: (_) async => _successResult(),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit wake plan'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'))
+          .onPressed,
+      isNotNull,
+    );
+
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(edited, isTrue);
+  });
+
+  testWidgets('detail edit validation follows the live injected clock', (
+    tester,
+  ) async {
+    final initialNow = DateTime(2026, 7, 8, 5, 30);
+    var currentNow = initialNow;
+    var clockCalls = 0;
+    var edited = false;
+    DateTime clock() {
+      clockCalls += 1;
+      return currentNow;
+    }
+
+    final targetDay = CalendarDay(year: 2026, month: 7, day: 9);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WakePlanDetailSheet(
+            target: WeekCalendarWakePlanTapTarget(
+              wakePlan: _plan(repeatRule: RepeatRule.oneTime(targetDay)),
+              targetDay: targetDay,
+            ),
+            now: initialNow,
+            clock: clock,
+            defaults: AppSettings.initial(),
+            existingWakePlans: const [],
+            onEdit: (_) async {
+              edited = true;
+              return _successResult();
+            },
+            onDelete: (_) async => _successResult(),
+            onSkipNext: (_) async => _successResult(),
+            onUndoSkipNext: (_) async => _successResult(),
+          ),
+        ),
+      ),
+    );
+
+    currentNow = DateTime(2026, 7, 10, 5, 30);
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit wake plan'), findsOneWidget);
+    expect(
+      find.text('Choose a future wake target before saving.'),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'))
+          .onPressed,
+      isNull,
+    );
+    expect(edited, isFalse);
+    expect(clockCalls, greaterThan(0));
+  });
+
+  testWidgets('blocks one-time edit when the injected clock is past target', (
+    tester,
+  ) async {
+    var edited = false;
+    final now = DateTime(2026, 7, 10, 5, 30);
+    final targetDay = CalendarDay(year: 2026, month: 7, day: 9);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WakePlanDetailSheet(
+            target: WeekCalendarWakePlanTapTarget(
+              wakePlan: _plan(repeatRule: RepeatRule.oneTime(targetDay)),
+              targetDay: targetDay,
+            ),
+            now: now,
+            clock: () => now,
+            defaults: AppSettings.initial(),
+            existingWakePlans: const [],
+            onEdit: (_) async {
+              edited = true;
+              return _successResult();
+            },
+            onDelete: (_) async => _successResult(),
+            onSkipNext: (_) async => _successResult(),
+            onUndoSkipNext: (_) async => _successResult(),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit wake plan'), findsOneWidget);
+    expect(
+      find.text('Choose a future wake target before saving.'),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'))
+          .onPressed,
+      isNull,
+    );
+    expect(edited, isFalse);
   });
 }
 
