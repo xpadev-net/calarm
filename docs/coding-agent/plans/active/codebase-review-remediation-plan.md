@@ -276,7 +276,10 @@
 
 ### Task_9: Make create retry idempotent
 
-- status: unstarted
+- status: in progress
+- worker_thread: `019f4f15-56f9-7832-804e-01750602dfd7`
+- worker_branch: `codex/reviewfix-create-retry-idempotency`
+- worker_runtime: `gpt-5.6-luna` / `high`
 - type: impl
 - owns:
   - `lib/features/wake_plan/application/wake_plan_service.dart`
@@ -588,6 +591,11 @@
   - Worker thread `019f4e4e-3915-7e02-b823-bba4a34dd31c` and Reviewer thread `019f4f0c-14e9-7c11-9dae-84d19fbde74c` were archived after merge.
   - The merge command returned exit 1 only because the worker branch could not be deleted from its active sibling worktree; GitHub verification proved the squash merge and no open PRs remain.
   - Next action: dispatch dependency-ready Task_9 while preserving the now-merged compensation semantics.
+
+- 2026-07-11 Task_9 dispatched and startup-resumed.
+  - Worker thread `019f4f15-56f9-7832-804e-01750602dfd7`, branch `codex/reviewfix-create-retry-idempotency`, runtime `gpt-5.6-luna` / `high`, owns the create retry service/UI/calendar slice.
+  - Initial worktree startup returned a system error before onboarding; one bounded resume was sent under the startup-stability rule. No product or ledger files were changed by the worker.
+  - Next action: verify the resumed worker is active beyond setup, then await its investigation/review-ready handoff.
 
 ## Decision Log
 
