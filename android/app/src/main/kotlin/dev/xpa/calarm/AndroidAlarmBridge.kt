@@ -175,8 +175,54 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
     }
 
     private fun schedule(request: AlarmRequest): Map<String, Any?> {
-        val existing = store.get(request.platformAlarmId)
-        if (store.contains(request.platformAlarmId) && existing == null) {
+        val requestedPlatformAlarmId = request.platformAlarmId
+        val legacyPlatformAlarmId = AlarmRequest.legacyPlatformAlarmId(request)
+        val legacyRequest = if (legacyPlatformAlarmId != requestedPlatformAlarmId) {
+            store.get(legacyPlatformAlarmId)
+        } else {
+            null
+        }
+        if (
+            legacyPlatformAlarmId != requestedPlatformAlarmId &&
+            store.contains(legacyPlatformAlarmId) &&
+            legacyRequest == null
+        ) {
+            return scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "nativeError",
+                "Legacy native alarm mirror row is corrupt.",
+                request.reservationId,
+            )
+        }
+        if (
+            legacyRequest != null &&
+            (legacyRequest.reservationId != legacyRequest.occurrenceId ||
+                legacyRequest.occurrenceId != request.occurrenceId ||
+                legacyRequest.wakePlanId != request.wakePlanId)
+        ) {
+            return scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "invalidRequest",
+                "Legacy native alarm identity conflicts with the requested reservation.",
+                request.reservationId,
+            )
+        }
+
+        if (legacyRequest != null && store.contains(requestedPlatformAlarmId)) {
+            return scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "invalidRequest",
+                "Stable and legacy native alarm identities both exist for the occurrence.",
+                request.reservationId,
+            )
+        }
+
+        val platformAlarmId = legacyRequest?.platformAlarmId ?: requestedPlatformAlarmId
+        val existing = store.get(platformAlarmId)
+        if (store.contains(platformAlarmId) && existing == null) {
             return scheduleFailure(
                 request.occurrenceId,
                 request.wakePlanId,
@@ -187,6 +233,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         }
         if (
             existing != null &&
+            legacyRequest == null &&
             (existing.reservationId != request.reservationId ||
                 existing.occurrenceId != request.occurrenceId ||
                 existing.wakePlanId != request.wakePlanId)
@@ -198,6 +245,22 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 "Native alarm identity is already owned by another reservation.",
                 request.reservationId,
             )
+        }
+        if (existing?.state == AlarmState.RINGING) {
+            if (
+                existing.occurrenceId != request.occurrenceId ||
+                existing.wakePlanId != request.wakePlanId ||
+                existing.scheduledAtMillis != request.scheduledAtMillis
+            ) {
+                return scheduleFailure(
+                    request.occurrenceId,
+                    request.wakePlanId,
+                    "invalidRequest",
+                    "Cannot replace an actively ringing native alarm.",
+                    request.reservationId,
+                )
+            }
+            return scheduleSuccess(request, platformAlarmId)
         }
         if (!canScheduleExactAlarms()) {
             return scheduleFailure(
@@ -245,7 +308,6 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             )
         }
 
-        val platformAlarmId = request.platformAlarmId
         return try {
             alarmManager.setAlarmClock(
                 AlarmManager.AlarmClockInfo(
@@ -264,13 +326,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                     request.reservationId,
                 )
             }
-            mutableMapOf(
-                "occurrenceId" to request.occurrenceId,
-                "reservationId" to request.reservationId,
-                "wakePlanId" to request.wakePlanId,
-                "status" to "success",
-                "platformAlarmId" to platformAlarmId,
-            )
+            scheduleSuccess(request, platformAlarmId)
         } catch (error: RuntimeException) {
             scheduleFailure(
                 request.occurrenceId,
@@ -280,6 +336,19 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 request.reservationId,
             )
         }
+    }
+
+    private fun scheduleSuccess(
+        request: AlarmRequest,
+        platformAlarmId: String,
+    ): MutableMap<String, Any?> {
+        return mutableMapOf(
+            "occurrenceId" to request.occurrenceId,
+            "reservationId" to request.reservationId,
+            "wakePlanId" to request.wakePlanId,
+            "status" to "success",
+            "platformAlarmId" to platformAlarmId,
+        )
     }
 
     private fun cancel(arguments: Map<*, *>): Map<String, Any?> {
@@ -319,6 +388,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                         )
                     } else if (
                         stored != null &&
+                        !stored.isTest &&
                         (stored.reservationId != reservationId || stored.occurrenceId != occurrenceId)
                     ) {
                         cancelFailure(
@@ -511,7 +581,7 @@ data class AlarmRequest(
 ) {
     val platformAlarmId: String
         get() = platformAlarmIdOverride ?: if (reservationId == occurrenceId) {
-            "android:${wakePlanId}:${occurrenceId}"
+            legacyPlatformAlarmId(this)
         } else {
             "android:reservation:${reservationId}"
         }
@@ -532,6 +602,10 @@ data class AlarmRequest(
     }
 
     companion object {
+        fun legacyPlatformAlarmId(request: AlarmRequest): String {
+            return "android:${request.wakePlanId}:${request.occurrenceId}"
+        }
+
         fun fromScheduleMap(map: Map<*, *>?): AlarmRequest? {
             if (map == null) return null
             val occurrenceId = map["occurrenceId"] as? String ?: return null
@@ -889,7 +963,7 @@ object AlarmRestore {
             val now = System.currentTimeMillis()
             val requests = store.all()
             requests.forEach { request ->
-                if (request.scheduledAtMillis <= now) {
+                if (request.state != AlarmState.RINGING && request.scheduledAtMillis <= now) {
                     store.remove(request.platformAlarmId)
                 }
             }
@@ -897,7 +971,7 @@ object AlarmRestore {
                 return
             }
             requests.asSequence()
-                .filter { it.scheduledAtMillis > now }
+                .filter { it.state != AlarmState.RINGING && it.scheduledAtMillis > now }
                 .forEach { request ->
                     try {
                         schedule(request)

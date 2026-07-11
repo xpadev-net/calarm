@@ -122,26 +122,124 @@ class AndroidInventoryTest {
     }
 
     @Test
-    fun `schedule and cancel duplicate calls preserve one native reservation`() {
+    fun `restore keeps an active ringing row after its scheduled time`() {
+        val request = alarmRequest(
+            "android:plan:ringing-restore",
+            scheduledAtMillis = System.currentTimeMillis() - 1_000,
+            state = AlarmState.RINGING,
+        )
+        assertTrue(AlarmStore(context).put(request))
+
+        AlarmRestore.restoreForTest(context, context) {
+            throw AssertionError("Ringing rows must not be rearmed during restore")
+        }
+
+        assertEquals(AlarmState.RINGING, AlarmStore(context).get(request.platformAlarmId)?.state)
+    }
+
+    @Test
+    fun `test alarm cancellation accepts the synthetic test identity only`() {
+        val testRequest = alarmRequest("android:test:synthetic").copy(isTest = true)
+        assertTrue(AlarmStore(context).put(testRequest))
         val bridge = AndroidAlarmBridge(context)
-        val scheduledAt = Instant.ofEpochMilli(System.currentTimeMillis() + 60_000)
-        val arguments = mapOf<String, Any?>(
-            "schemaVersion" to 1,
-            "occurrences" to listOf(
-                mapOf<String, Any?>(
-                    "occurrenceId" to "occurrence-bridge",
-                    "reservationId" to "reservation-bridge",
-                    "wakePlanId" to "plan-bridge",
-                    "scheduledAt" to scheduledAt.toString(),
-                    "targetAt" to scheduledAt.toString(),
-                    "indexInPlan" to 0,
-                    "totalInPlan" to 1,
-                    "soundId" to "default",
-                    "vibrationEnabled" to false,
+        val result = CapturingResult()
+
+        bridge.onMethodCall(
+            MethodCall(
+                "cancelOccurrences",
+                mapOf(
+                    "schemaVersion" to 1,
+                    "alarms" to listOf(
+                        mapOf(
+                            "occurrenceId" to "ci-smoke-test-alarm",
+                            "reservationId" to "ci-smoke-test-alarm",
+                            "platformAlarmId" to testRequest.platformAlarmId,
+                        ),
+                    ),
                 ),
             ),
+            result,
         )
 
+        assertNull(result.errorCode)
+        assertEquals(
+            "success",
+            ((result.value as Map<*, *>)["alarms"] as List<*>).single()
+                .let { it as Map<*, *> }["status"],
+        )
+        assertNull(AlarmStore(context).get(testRequest.platformAlarmId))
+    }
+
+    @Test
+    fun `new stable reservation adopts a matching legacy mirror row`() {
+        val legacy = alarmRequest(
+            platformAlarmId = "android:plan:legacy-occurrence",
+            reservationId = "legacy-occurrence",
+            occurrenceId = "legacy-occurrence",
+        )
+        assertTrue(AlarmStore(context).put(legacy))
+        val bridge = AndroidAlarmBridge(context)
+        val result = CapturingResult()
+
+        bridge.onMethodCall(
+            MethodCall(
+                "scheduleOccurrences",
+                scheduleArguments(
+                    occurrenceId = legacy.occurrenceId,
+                    reservationId = "stable-reservation",
+                    wakePlanId = legacy.wakePlanId,
+                ),
+            ),
+            result,
+        )
+
+        assertNull(result.errorCode)
+        val row = ((result.value as Map<*, *>)["occurrences"] as List<*>).single() as Map<*, *>
+        assertEquals("success", row["status"])
+        assertEquals(legacy.platformAlarmId, row["platformAlarmId"])
+        val inventory = AlarmStore(context).inventory(context, System.currentTimeMillis())
+        assertEquals(1, inventory.requests.size)
+        assertEquals("stable-reservation", inventory.requests.single().reservationId)
+    }
+
+    @Test
+    fun `duplicate schedule after firing preserves the ringing state`() {
+        val bridge = AndroidAlarmBridge(context)
+        val arguments = scheduleArguments(
+            occurrenceId = "occurrence-ringing-retry",
+            reservationId = "reservation-ringing-retry",
+            wakePlanId = "plan-ringing-retry",
+        )
+        val first = CapturingResult()
+        bridge.onMethodCall(MethodCall("scheduleOccurrences", arguments), first)
+        assertNull(first.errorCode)
+        val firstRow = ((first.value as Map<*, *>)["occurrences"] as List<*>).single() as Map<*, *>
+        val platformAlarmId = firstRow["platformAlarmId"] as String
+
+        AlarmReceiver().onReceive(
+            context,
+            Shadows.shadowOf(AlarmIntents.receiver(context, platformAlarmId)).savedIntent,
+        )
+        assertEquals(
+            AlarmState.RINGING,
+            AlarmStore(context).get(platformAlarmId)?.state,
+        )
+
+        val retry = CapturingResult()
+        bridge.onMethodCall(MethodCall("scheduleOccurrences", arguments), retry)
+
+        assertNull(retry.errorCode)
+        assertEquals(AlarmState.RINGING, AlarmStore(context).get(platformAlarmId)?.state)
+    }
+
+    @Test
+    fun `schedule and cancel duplicate calls preserve one native reservation`() {
+        val bridge = AndroidAlarmBridge(context)
+        val arguments = scheduleArguments(
+            occurrenceId = "occurrence-bridge",
+            reservationId = "reservation-bridge",
+            wakePlanId = "plan-bridge",
+        )
         val first = CapturingResult()
         bridge.onMethodCall(MethodCall("scheduleOccurrences", arguments), first)
         assertNull(first.errorCode)
@@ -182,6 +280,30 @@ class AndroidInventoryTest {
         bridge.onMethodCall(MethodCall("cancelOccurrences", cancelArguments), duplicateCancel)
         assertNull(duplicateCancel.errorCode)
         assertEquals("success", ((duplicateCancel.value as Map<*, *>)["alarms"] as List<*>).single().let { it as Map<*, *> }["status"])
+    }
+
+    private fun scheduleArguments(
+        occurrenceId: String,
+        reservationId: String,
+        wakePlanId: String,
+    ): Map<String, Any?> {
+        val scheduledAt = Instant.ofEpochMilli(System.currentTimeMillis() + 60_000)
+        return mapOf<String, Any?>(
+            "schemaVersion" to 1,
+            "occurrences" to listOf(
+                mapOf<String, Any?>(
+                    "occurrenceId" to occurrenceId,
+                    "reservationId" to reservationId,
+                    "wakePlanId" to wakePlanId,
+                    "scheduledAt" to scheduledAt.toString(),
+                    "targetAt" to scheduledAt.toString(),
+                    "indexInPlan" to 0,
+                    "totalInPlan" to 1,
+                    "soundId" to "default",
+                    "vibrationEnabled" to false,
+                ),
+            ),
+        )
     }
 
     private fun mirrorPreferences() = deviceProtectedContext()
