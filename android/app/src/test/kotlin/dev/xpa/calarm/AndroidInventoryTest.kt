@@ -395,13 +395,20 @@ class AndroidInventoryTest {
         assertEquals(legacy.platformAlarmId, firstRow["platformAlarmId"])
         assertEquals(scheduledBeforeRetry, scheduledAlarms())
 
-        val firstInventory = AlarmStore(context).inventory(context, System.currentTimeMillis())
-        val firstRequest = firstInventory.requests.single()
-        assertEquals("ringing-adopted-reservation", firstRequest.reservationId)
-        assertEquals(legacy.occurrenceId, firstRequest.occurrenceId)
-        assertEquals(legacy.wakePlanId, firstRequest.wakePlanId)
-        assertEquals(legacy.platformAlarmId, firstRequest.platformAlarmId)
-        assertEquals(AlarmState.RINGING.value, firstInventory.status(firstRequest))
+        val firstInventoryResult = CapturingResult()
+        bridge.onMethodCall(
+            MethodCall("getInventory", mapOf("schemaVersion" to 1)),
+            firstInventoryResult,
+        )
+        assertNull(firstInventoryResult.errorCode)
+        val firstInventoryResponse = firstInventoryResult.value as Map<*, *>
+        val firstInventoryRow =
+            (firstInventoryResponse["reservations"] as List<*>).single() as Map<*, *>
+        assertEquals("ringing-adopted-reservation", firstInventoryRow["reservationId"])
+        assertEquals(legacy.occurrenceId, firstInventoryRow["occurrenceId"])
+        assertEquals(legacy.wakePlanId, firstInventoryRow["wakePlanId"])
+        assertEquals(legacy.platformAlarmId, firstInventoryRow["platformAlarmId"])
+        assertEquals(AlarmState.RINGING.value, firstInventoryRow["status"])
         assertFalse(mirrorPreferences().contains("android:reservation:ringing-adopted-reservation"))
 
         val duplicate = CapturingResult()
@@ -411,10 +418,25 @@ class AndroidInventoryTest {
         val duplicateRow = (duplicatePayload["occurrences"] as List<*>).single() as Map<*, *>
         assertEquals("success", duplicateRow["status"])
         assertEquals("ringing-adopted-reservation", duplicateRow["reservationId"])
+        assertEquals(legacy.occurrenceId, duplicateRow["occurrenceId"])
+        assertEquals(legacy.wakePlanId, duplicateRow["wakePlanId"])
+        assertEquals(legacy.platformAlarmId, duplicateRow["platformAlarmId"])
         assertEquals(scheduledBeforeRetry, scheduledAlarms())
-        val duplicateRequest = AlarmStore(context).inventory(context, System.currentTimeMillis()).requests.single()
-        assertEquals("ringing-adopted-reservation", duplicateRequest.reservationId)
-        assertEquals(AlarmState.RINGING, duplicateRequest.state)
+
+        val duplicateInventoryResult = CapturingResult()
+        bridge.onMethodCall(
+            MethodCall("getInventory", mapOf("schemaVersion" to 1)),
+            duplicateInventoryResult,
+        )
+        assertNull(duplicateInventoryResult.errorCode)
+        val duplicateInventoryResponse = duplicateInventoryResult.value as Map<*, *>
+        val duplicateInventoryRow =
+            (duplicateInventoryResponse["reservations"] as List<*>).single() as Map<*, *>
+        assertEquals("ringing-adopted-reservation", duplicateInventoryRow["reservationId"])
+        assertEquals(legacy.occurrenceId, duplicateInventoryRow["occurrenceId"])
+        assertEquals(legacy.wakePlanId, duplicateInventoryRow["wakePlanId"])
+        assertEquals(legacy.platformAlarmId, duplicateInventoryRow["platformAlarmId"])
+        assertEquals(AlarmState.RINGING.value, duplicateInventoryRow["status"])
     }
 
     @Test
