@@ -44,6 +44,14 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             "requestPermissionIfNeeded" -> result.success(requestPermissionResponse())
             "scheduleOccurrences" -> result.success(scheduleOccurrences(arguments))
             "cancelOccurrences", "cancelPlan" -> result.success(cancel(arguments))
+            "getInventory" -> {
+                val inventory = inventoryResponse()
+                if (inventory.failureCode != null) {
+                    result.error(inventory.failureCode, inventory.failureMessage, null)
+                } else {
+                    result.success(inventory.response)
+                }
+            }
             "scheduleTestAlarm" -> result.success(scheduleTestAlarm(arguments))
             else -> result.notImplemented()
         }
@@ -65,6 +73,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             "requiresFullScreenIntentPermission" to !fullScreenAllowed,
             "requiresNotificationChannelSetup" to !notificationChannelReady,
             "supportsTestAlarm" to true,
+            "supportsInventory" to true,
         )
     }
 
@@ -113,11 +122,15 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             val map = row as? Map<*, *>
             val request = AlarmRequest.fromScheduleMap(map)
             if (request == null) {
+                val invalidReservationId = (map?.get("reservationId") as? String)
+                    ?.takeIf { it.isNotBlank() }
+                    ?: (map?.get("occurrenceId") as? String).orEmpty()
                 scheduleFailure(
                     map?.get("occurrenceId") as? String ?: "",
                     map?.get("wakePlanId") as? String ?: "",
                     "invalidRequest",
                     "Invalid schedule occurrence.",
+                    invalidReservationId,
                 )
             } else {
                 schedule(request)
@@ -162,12 +175,37 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
     }
 
     private fun schedule(request: AlarmRequest): Map<String, Any?> {
+        val existing = store.get(request.platformAlarmId)
+        if (store.contains(request.platformAlarmId) && existing == null) {
+            return scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "nativeError",
+                "Native alarm mirror row is corrupt.",
+                request.reservationId,
+            )
+        }
+        if (
+            existing != null &&
+            (existing.reservationId != request.reservationId ||
+                existing.occurrenceId != request.occurrenceId ||
+                existing.wakePlanId != request.wakePlanId)
+        ) {
+            return scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "invalidRequest",
+                "Native alarm identity is already owned by another reservation.",
+                request.reservationId,
+            )
+        }
         if (!canScheduleExactAlarms()) {
             return scheduleFailure(
                 request.occurrenceId,
                 request.wakePlanId,
                 "permissionMissing",
                 "Exact alarm permission is not granted.",
+                request.reservationId,
             )
         }
         if (!notificationsAllowed()) {
@@ -176,6 +214,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 request.wakePlanId,
                 "permissionMissing",
                 "Notification permission is not granted.",
+                request.reservationId,
             )
         }
         if (!canUseFullScreenIntent()) {
@@ -184,6 +223,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 request.wakePlanId,
                 "permissionMissing",
                 "Full-screen intent permission is not granted.",
+                request.reservationId,
             )
         }
         if (!notificationChannelReady()) {
@@ -192,6 +232,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 request.wakePlanId,
                 "osConstraint",
                 "Wake alarm notification channel is disabled.",
+                request.reservationId,
             )
         }
         if (request.scheduledAtMillis <= System.currentTimeMillis()) {
@@ -200,6 +241,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 request.wakePlanId,
                 "invalidRequest",
                 "scheduledAt must be in the future.",
+                request.reservationId,
             )
         }
 
@@ -212,17 +254,19 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 ),
                 AlarmIntents.receiver(appContext, platformAlarmId),
             )
-            if (!store.put(request.copy(platformAlarmIdOverride = platformAlarmId))) {
+            if (!store.put(request.copy(platformAlarmIdOverride = platformAlarmId, state = AlarmState.SCHEDULED))) {
                 alarmManager.cancel(AlarmIntents.receiver(appContext, platformAlarmId))
                 return scheduleFailure(
                     request.occurrenceId,
                     request.wakePlanId,
                     "nativeError",
                     "Failed to persist native alarm mirror state.",
+                    request.reservationId,
                 )
             }
             mutableMapOf(
                 "occurrenceId" to request.occurrenceId,
+                "reservationId" to request.reservationId,
                 "wakePlanId" to request.wakePlanId,
                 "status" to "success",
                 "platformAlarmId" to platformAlarmId,
@@ -233,6 +277,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 request.wakePlanId,
                 "nativeError",
                 error.message ?: "AlarmManager rejected the alarm.",
+                request.reservationId,
             )
         }
     }
@@ -242,23 +287,62 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         val results = rows.map { row ->
             val map = row as? Map<*, *>
             val occurrenceId = map?.get("occurrenceId") as? String ?: ""
+            val rawReservationId = map?.get("reservationId")
+            val reservationId = when (rawReservationId) {
+                null -> occurrenceId
+                is String -> rawReservationId
+                else -> ""
+            }
             val platformAlarmId = map?.get("platformAlarmId") as? String ?: ""
-            if (occurrenceId.isBlank() || platformAlarmId.isBlank()) {
-                cancelFailure(occurrenceId, platformAlarmId, "missingPlatformAlarmId", "Missing platformAlarmId.")
+            if (occurrenceId.isBlank() || reservationId.isBlank() || platformAlarmId.isBlank()) {
+                cancelFailure(
+                    occurrenceId,
+                    platformAlarmId,
+                    if (platformAlarmId.isBlank()) "missingPlatformAlarmId" else "invalidRequest",
+                    if (platformAlarmId.isBlank()) {
+                        "Missing platformAlarmId."
+                    } else {
+                        "Invalid cancel identity."
+                    },
+                    reservationId,
+                )
             } else {
                 try {
-                    alarmManager.cancel(AlarmIntents.receiver(appContext, platformAlarmId))
-                    if (!store.remove(platformAlarmId)) {
+                    val stored = store.get(platformAlarmId)
+                    if (store.contains(platformAlarmId) && stored == null) {
                         cancelFailure(
                             occurrenceId,
                             platformAlarmId,
                             "nativeError",
-                            "Failed to persist native alarm mirror removal.",
+                            "Native alarm mirror row is corrupt.",
+                            reservationId,
+                        )
+                    } else if (
+                        stored != null &&
+                        (stored.reservationId != reservationId || stored.occurrenceId != occurrenceId)
+                    ) {
+                        cancelFailure(
+                            occurrenceId,
+                            platformAlarmId,
+                            "invalidRequest",
+                            "Native alarm identity does not match the requested reservation.",
+                            reservationId,
                         )
                     } else {
+                        alarmManager.cancel(AlarmIntents.receiver(appContext, platformAlarmId))
+                        if (!store.remove(platformAlarmId)) {
+                            return@map cancelFailure(
+                                occurrenceId,
+                                platformAlarmId,
+                                "nativeError",
+                                "Failed to persist native alarm mirror removal.",
+                                reservationId,
+                            )
+                        }
                         notificationManager.cancel(platformAlarmId.hashCode())
                         mutableMapOf(
                             "occurrenceId" to occurrenceId,
+                            "reservationId" to reservationId,
                             "platformAlarmId" to platformAlarmId,
                             "status" to "success",
                         )
@@ -269,6 +353,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                         platformAlarmId,
                         "nativeError",
                         error.message ?: "AlarmManager cancel failed.",
+                        reservationId,
                     )
                 }
             }
@@ -323,9 +408,11 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         wakePlanId: String,
         reason: String,
         message: String,
+        reservationId: String = occurrenceId,
     ): MutableMap<String, Any?> {
         return mutableMapOf(
             "occurrenceId" to occurrenceId,
+            "reservationId" to reservationId,
             "wakePlanId" to wakePlanId,
             "status" to "failure",
             "failureReason" to reason,
@@ -338,15 +425,54 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         platformAlarmId: String,
         reason: String,
         message: String,
+        reservationId: String = occurrenceId,
     ): MutableMap<String, Any?> {
         return mutableMapOf(
             "occurrenceId" to occurrenceId,
+            "reservationId" to reservationId,
             "platformAlarmId" to platformAlarmId,
             "status" to "failure",
             "failureReason" to reason,
             "failureMessage" to message,
         )
     }
+
+    private fun inventoryResponse(): InventoryResponse {
+        val snapshot = store.inventory(appContext, System.currentTimeMillis())
+        if (snapshot.corruptKeys.isNotEmpty()) {
+            return InventoryResponse(
+                response = null,
+                failureCode = "CORRUPT",
+                failureMessage = "Removed corrupt native alarm mirror rows: ${snapshot.corruptKeys.joinToString()}.",
+            )
+        }
+        if (snapshot.duplicateIdentity != null) {
+            return InventoryResponse(
+                response = null,
+                failureCode = "CORRUPT",
+                failureMessage = snapshot.duplicateIdentity,
+            )
+        }
+        return InventoryResponse(
+            response = mutableResponse(
+                "reservations" to snapshot.requests.map { request ->
+                    mutableMapOf(
+                        "reservationId" to request.reservationId,
+                        "occurrenceId" to request.occurrenceId,
+                        "wakePlanId" to request.wakePlanId,
+                        "platformAlarmId" to request.platformAlarmId,
+                        "status" to snapshot.status(request),
+                    )
+                },
+            ),
+        )
+    }
+
+    private data class InventoryResponse(
+        val response: Map<String, Any?>?,
+        val failureCode: String? = null,
+        val failureMessage: String? = null,
+    )
 
     companion object {
         const val CHANNEL_NAME = "net.xpadev.calarm/native_alarm"
@@ -372,6 +498,7 @@ object AlarmNotificationChannel {
 
 data class AlarmRequest(
     val occurrenceId: String,
+    val reservationId: String = occurrenceId,
     val wakePlanId: String,
     val scheduledAtMillis: Long,
     val targetAtMillis: Long,
@@ -380,13 +507,19 @@ data class AlarmRequest(
     val isTest: Boolean = false,
     val platformAlarmIdOverride: String? = null,
     val updatedAtMillis: Long = 0L,
+    val state: AlarmState = AlarmState.SCHEDULED,
 ) {
     val platformAlarmId: String
-        get() = platformAlarmIdOverride ?: "android:${wakePlanId}:${occurrenceId}"
+        get() = platformAlarmIdOverride ?: if (reservationId == occurrenceId) {
+            "android:${wakePlanId}:${occurrenceId}"
+        } else {
+            "android:reservation:${reservationId}"
+        }
 
     fun toJson(): JSONObject {
         return JSONObject()
             .put("occurrenceId", occurrenceId)
+            .put("reservationId", reservationId)
             .put("wakePlanId", wakePlanId)
             .put("scheduledAtMillis", scheduledAtMillis)
             .put("targetAtMillis", targetAtMillis)
@@ -395,6 +528,7 @@ data class AlarmRequest(
             .put("isTest", isTest)
             .put("platformAlarmId", platformAlarmId)
             .put("updatedAtMillis", updatedAtMillis)
+            .put("state", state.value)
     }
 
     companion object {
@@ -406,9 +540,16 @@ data class AlarmRequest(
             val targetAt = map["targetAt"] as? String ?: return null
             val soundId = map["soundId"] as? String ?: return null
             val vibrationEnabled = map["vibrationEnabled"] as? Boolean ?: return null
+            val reservationValue = map["reservationId"]
+            val reservationId = when (reservationValue) {
+                null -> occurrenceId
+                is String -> reservationValue.takeIf { it.isNotBlank() } ?: return null
+                else -> return null
+            }
             return try {
                 AlarmRequest(
                     occurrenceId = occurrenceId,
+                    reservationId = reservationId,
                     wakePlanId = wakePlanId,
                     scheduledAtMillis = Instant.parse(scheduledAt).toEpochMilli(),
                     targetAtMillis = Instant.parse(targetAt).toEpochMilli(),
@@ -423,6 +564,9 @@ data class AlarmRequest(
         fun fromJson(json: JSONObject): AlarmRequest {
             return AlarmRequest(
                 occurrenceId = json.getString("occurrenceId"),
+                reservationId = json.optString("reservationId", json.getString("occurrenceId"))
+                    .takeIf { it.isNotBlank() }
+                    ?: throw IllegalArgumentException("reservationId must not be blank"),
                 wakePlanId = json.getString("wakePlanId"),
                 scheduledAtMillis = json.getLong("scheduledAtMillis"),
                 targetAtMillis = json.getLong("targetAtMillis"),
@@ -431,7 +575,20 @@ data class AlarmRequest(
                 isTest = json.optBoolean("isTest", false),
                 platformAlarmIdOverride = json.getString("platformAlarmId"),
                 updatedAtMillis = json.optLong("updatedAtMillis", 0L),
+                state = AlarmState.fromValue(json.optString("state", AlarmState.SCHEDULED.value)),
             )
+        }
+    }
+}
+
+enum class AlarmState(val value: String) {
+    SCHEDULED("scheduled"),
+    RINGING("ringing");
+
+    companion object {
+        fun fromValue(value: String): AlarmState {
+            return entries.firstOrNull { it.value == value }
+                ?: throw IllegalArgumentException("Unknown native alarm state: $value")
         }
     }
 }
@@ -467,6 +624,70 @@ class AlarmStore(context: Context) {
 
     fun contains(platformAlarmId: String): Boolean {
         return preferences.contains(platformAlarmId)
+    }
+
+    fun markRinging(platformAlarmId: String): Boolean {
+        val request = get(platformAlarmId) ?: return false
+        return put(request.copy(state = AlarmState.RINGING))
+    }
+
+    fun inventory(context: Context, nowMillis: Long): AlarmInventorySnapshot {
+        val corruptKeys = mutableListOf<String>()
+        val expiredKeys = mutableListOf<String>()
+        val requests = mutableListOf<AlarmRequest>()
+        preferences.all.forEach { (key, value) ->
+            val request = try {
+                (value as? String)?.let { AlarmRequest.fromJson(JSONObject(it)) }
+            } catch (_: Exception) {
+                null
+            }
+            if (request == null || request.platformAlarmId != key) {
+                corruptKeys += key
+            } else if (request.state != AlarmState.RINGING && request.scheduledAtMillis <= nowMillis) {
+                expiredKeys += key
+            } else {
+                requests += request
+            }
+        }
+        val cleanupKeys = corruptKeys + expiredKeys
+        if (cleanupKeys.isNotEmpty()) {
+            val editor = preferences.edit()
+            cleanupKeys.forEach { key -> editor.remove(key) }
+            if (!editor.commit()) {
+                return AlarmInventorySnapshot(
+                    requests = emptyList(),
+                    corruptKeys = cleanupKeys,
+                    duplicateIdentity = "Failed to clean native alarm mirror rows.",
+                    context = context,
+                )
+            }
+        }
+
+        val duplicateReservation = requests.groupBy { it.reservationId }
+            .values.firstOrNull { it.size > 1 }
+        if (duplicateReservation != null) {
+            return AlarmInventorySnapshot(
+                requests = emptyList(),
+                corruptKeys = corruptKeys,
+                duplicateIdentity = "Duplicate native reservation identity: ${duplicateReservation.first().reservationId}.",
+                context = context,
+            )
+        }
+        val duplicateOccurrence = requests.groupBy { it.occurrenceId }
+            .values.firstOrNull { it.size > 1 }
+        if (duplicateOccurrence != null) {
+            return AlarmInventorySnapshot(
+                requests = emptyList(),
+                corruptKeys = corruptKeys,
+                duplicateIdentity = "Duplicate native occurrence identity: ${duplicateOccurrence.first().occurrenceId}.",
+                context = context,
+            )
+        }
+        return AlarmInventorySnapshot(
+            requests = requests,
+            corruptKeys = corruptKeys,
+            context = context,
+        )
     }
 
     fun all(): List<AlarmRequest> {
@@ -612,6 +833,22 @@ class AlarmStore(context: Context) {
     }
 }
 
+data class AlarmInventorySnapshot(
+    val requests: List<AlarmRequest>,
+    val corruptKeys: List<String> = emptyList(),
+    val duplicateIdentity: String? = null,
+    private val context: Context,
+) {
+    fun status(request: AlarmRequest): String {
+        if (request.state == AlarmState.RINGING) return AlarmState.RINGING.value
+        return if (AlarmIntents.existingReceiver(context, request.platformAlarmId) == null) {
+            "unknown"
+        } else {
+            AlarmState.SCHEDULED.value
+        }
+    }
+}
+
 object AlarmRestore {
     private val restoreLock = Any()
 
@@ -689,6 +926,19 @@ object AlarmIntents {
             requestCode(platformAlarmId),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    fun existingReceiver(context: Context, platformAlarmId: String): PendingIntent? {
+        val intent = Intent(context, AlarmReceiver::class.java)
+            .setAction(ACTION_ALARM_FIRE)
+            .setData(identityUri(platformAlarmId))
+            .putExtra(EXTRA_PLATFORM_ALARM_ID, platformAlarmId)
+        return PendingIntent.getBroadcast(
+            context,
+            requestCode(platformAlarmId),
+            intent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
         )
     }
 

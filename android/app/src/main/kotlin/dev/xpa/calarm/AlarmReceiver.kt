@@ -16,6 +16,9 @@ class AlarmReceiver : BroadcastReceiver() {
         val store = AlarmStore(context)
         val request = store.get(platformAlarmId)
         if (request == null && !store.contains(platformAlarmId)) return
+        if (request != null) {
+            store.markRinging(platformAlarmId)
+        }
         showAlarmNotification(context, platformAlarmId)
         openAlarmScreen(context, platformAlarmId)
         if (request?.vibrationEnabled == true) {
