@@ -220,7 +220,10 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
     String platformAlarmId,
   ) {
     inventoryRows.removeWhere(
-      (row) => row.reservationId == request.reservationId,
+      (row) =>
+          row.reservationId == request.reservationId &&
+          row.occurrenceId == request.occurrenceId &&
+          row.platformAlarmId == platformAlarmId,
     );
     inventoryRows.add(
       NativeAlarmInventoryRow.create(

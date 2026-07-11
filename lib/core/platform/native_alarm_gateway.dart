@@ -912,12 +912,14 @@ class NativeAlarmInventoryResult {
     final expectedById = <String, NativeAlarmInventoryExpectedReservation>{};
     final issues = <NativeAlarmInventoryIssue>[...this.issues];
     if (!isSuccess) {
-      issues.add(
-        NativeAlarmInventoryIssue(
-          type: NativeAlarmInventoryIssueType.readFailure,
-          message: failureMessage ?? 'Native inventory is not authoritative.',
-        ),
-      );
+      if (issues.isEmpty) {
+        issues.add(
+          NativeAlarmInventoryIssue(
+            type: NativeAlarmInventoryIssueType.readFailure,
+            message: failureMessage ?? 'Native inventory is not authoritative.',
+          ),
+        );
+      }
       return NativeAlarmInventoryReconciliation(
         rows: rows,
         issues: issues,

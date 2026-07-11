@@ -410,6 +410,31 @@ void main() {
         NativeAlarmInventoryIssueType.readFailure,
       );
     });
+
+    test('corrupt inventory issues are not relabeled as read failures', () {
+      final result = NativeAlarmInventoryResult.success(
+        rows: [
+          _inventoryRow('reservation-1', occurrenceId: 'occ-1'),
+          _inventoryRow('reservation-1', occurrenceId: 'occ-2'),
+        ],
+      );
+
+      final reconciliation = result.reconcile(expected: const []);
+
+      expect(reconciliation.isAuthoritative, isFalse);
+      expect(
+        reconciliation.issues.every(
+          (issue) => issue.type != NativeAlarmInventoryIssueType.readFailure,
+        ),
+        isTrue,
+      );
+      expect(
+        reconciliation.issues.any(
+          (issue) => issue.type == NativeAlarmInventoryIssueType.duplicate,
+        ),
+        isTrue,
+      );
+    });
   });
 
   group('FakeNativeAlarmGateway', () {
@@ -468,6 +493,43 @@ void main() {
         expect(inventory.rows, hasLength(1));
         expect(inventory.rows.single.reservationId, 'reservation-1');
         expect(inventory.rows.single.platformAlarmId, 'platform-occ-1');
+      },
+    );
+
+    test(
+      'fake retry preserves a stale row with changed occurrence identity',
+      () async {
+        final gateway = FakeNativeAlarmGateway();
+        final original = _requests().first;
+        final retried = NativeAlarmScheduleRequest(
+          occurrenceId: 'occ-2',
+          reservationId: original.reservationId,
+          wakePlanId: original.wakePlanId,
+          scheduledAt: original.scheduledAt,
+          targetAt: original.targetAt,
+          indexInPlan: original.indexInPlan,
+          totalInPlan: original.totalInPlan,
+          soundId: original.soundId,
+          vibrationEnabled: original.vibrationEnabled,
+        );
+
+        await gateway.scheduleOccurrences([original]);
+        await gateway.scheduleOccurrences([retried]);
+
+        expect((await gateway.getInventory()).rows, hasLength(2));
+        final cancel = await gateway.cancelOccurrences([
+          NativeAlarmCancelRequest(
+            occurrenceId: original.occurrenceId,
+            reservationId: original.reservationId,
+            platformAlarmId: 'platform-occ-1',
+          ),
+        ]);
+        expect(cancel.status, CancelResultStatus.failure);
+        expect(
+          cancel.alarms.single.failureReason,
+          CancelFailureReason.invalidRequest,
+        );
+        expect((await gateway.getInventory()).rows, hasLength(2));
       },
     );
 
