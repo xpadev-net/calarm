@@ -263,6 +263,17 @@ void main() {
       find.byType(WeekCalendarView),
     );
     expect(refreshedCalendar.wakePlans, hasLength(1));
+
+    gateway.scheduleFailureReason = null;
+    await tester.ensureVisible(find.text('Retry'));
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+
+    expect(gateway.scheduledRequests, hasLength(26));
+    final retriedCalendar = tester.widget<WeekCalendarView>(
+      find.byType(WeekCalendarView),
+    );
+    expect(retriedCalendar.wakePlans, hasLength(1));
   });
 
   testWidgets('create validation follows the live injected clock', (

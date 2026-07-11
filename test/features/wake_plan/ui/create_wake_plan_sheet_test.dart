@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:calarm/core/platform/native_alarm_gateway.dart';
 import 'package:calarm/core/time/time.dart';
 import 'package:calarm/features/wake_plan/application/wake_plan_service.dart';
@@ -234,6 +236,224 @@ void main() {
     expect(find.text('Create wake plan'), findsOneWidget);
   });
 
+  testWidgets('retries with one session identity and ignores a double tap', (
+    tester,
+  ) async {
+    final firstCompletion = Completer<WakePlanSchedulingResult>();
+    final savedPlans = <WakePlan>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CreateWakePlanSheet(
+            initialTarget: _target(),
+            now: DateTime(2026, 7, 8, 5, 30),
+            clock: () => DateTime(2026, 7, 8, 5, 30),
+            defaults: AppSettings.initial(),
+            existingWakePlans: const [],
+            onSave: (plan) {
+              savedPlans.add(plan);
+              if (savedPlans.length == 1) {
+                return firstCompletion.future;
+              }
+              return Future.value(_successResult());
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pump();
+    await tester.ensureVisible(find.byType(FilledButton));
+    await tester.tap(find.text('Save'));
+    await tester.pump();
+
+    expect(savedPlans, hasLength(1));
+    firstCompletion.complete(_failureResult());
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Retry'));
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+
+    expect(savedPlans, hasLength(2));
+    expect(savedPlans[1].id, savedPlans[0].id);
+  });
+
+  testWidgets('locks create draft metadata after partial failure before retry', (
+    tester,
+  ) async {
+    final savedPlans = <WakePlan>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CreateWakePlanSheet(
+            initialTarget: _target(),
+            now: DateTime(2026, 7, 8, 5, 30),
+            clock: () => DateTime(2026, 7, 8, 5, 30),
+            defaults: AppSettings.initial(),
+            existingWakePlans: const [],
+            onSave: (plan) async {
+              savedPlans.add(plan);
+              return savedPlans.length == 1
+                  ? _partialFailureResult()
+                  : _successResult();
+            },
+          ),
+        ),
+      ),
+    );
+
+    await _configureCustomRepeat(tester);
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Some alarms could not be scheduled.'), findsOneWidget);
+    expect(
+      find.text(
+        'Draft locked after submission. Retry this request or close and reopen to edit it.',
+      ),
+      findsOneWidget,
+    );
+    await _expectCreateDraftControlsLocked(tester);
+
+    await tester.ensureVisible(find.text('Retry'));
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+
+    expect(savedPlans, hasLength(2));
+    expect(savedPlans[1].id, savedPlans[0].id);
+    expect(savedPlans[1].targetTime, savedPlans[0].targetTime);
+    expect(savedPlans[1].startOffset, savedPlans[0].startOffset);
+    expect(savedPlans[1].interval, savedPlans[0].interval);
+    expect(savedPlans[1].repeatRule, savedPlans[0].repeatRule);
+    expect(savedPlans[1].soundId, savedPlans[0].soundId);
+    expect(savedPlans[1].vibrationEnabled, savedPlans[0].vibrationEnabled);
+  });
+
+  testWidgets('locks create draft controls after save throws before retry', (
+    tester,
+  ) async {
+    final savedPlans = <WakePlan>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CreateWakePlanSheet(
+            initialTarget: _target(),
+            now: DateTime(2026, 7, 8, 5, 30),
+            clock: () => DateTime(2026, 7, 8, 5, 30),
+            defaults: AppSettings.initial(),
+            existingWakePlans: const [],
+            onSave: (plan) async {
+              savedPlans.add(plan);
+              if (savedPlans.length == 1) {
+                throw StateError('native save failed');
+              }
+              return _successResult();
+            },
+          ),
+        ),
+      ),
+    );
+
+    await _configureCustomRepeat(tester);
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Wake plan could not be saved.'), findsOneWidget);
+    await _expectCreateDraftControlsLocked(tester);
+
+    await tester.ensureVisible(find.text('Retry'));
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+
+    expect(savedPlans, hasLength(2));
+    expect(savedPlans[1].id, savedPlans[0].id);
+    expect(savedPlans[1].targetTime, savedPlans[0].targetTime);
+    expect(savedPlans[1].startOffset, savedPlans[0].startOffset);
+    expect(savedPlans[1].interval, savedPlans[0].interval);
+    expect(savedPlans[1].repeatRule, savedPlans[0].repeatRule);
+    expect(savedPlans[1].soundId, savedPlans[0].soundId);
+    expect(savedPlans[1].vibrationEnabled, savedPlans[0].vibrationEnabled);
+  });
+
+  testWidgets(
+    'uses collision-safe identities across independent sheet sessions',
+    (tester) async {
+      final savedPlans = <WakePlan>[];
+
+      Widget buildSheet(List<WakePlan> existingWakePlans) {
+        return MaterialApp(
+          home: Scaffold(
+            body: CreateWakePlanSheet(
+              key: UniqueKey(),
+              initialTarget: _target(),
+              now: DateTime(2026, 7, 8, 5, 30),
+              clock: () => DateTime(2026, 7, 8, 5, 30),
+              defaults: AppSettings.initial(),
+              existingWakePlans: existingWakePlans,
+              onSave: (plan) {
+                savedPlans.add(plan);
+                return Future.value(_failureResult());
+              },
+            ),
+          ),
+        );
+      }
+
+      await tester.pumpWidget(buildSheet(const []));
+      await tester.ensureVisible(find.text('Save'));
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      await tester.pumpWidget(buildSheet([savedPlans.single]));
+      await tester.ensureVisible(find.text('Save'));
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(savedPlans, hasLength(2));
+      expect(savedPlans[0].id, startsWith('wake-session-'));
+      expect(savedPlans[1].id, startsWith('wake-session-'));
+      expect(savedPlans[1].id, isNot(savedPlans[0].id));
+    },
+  );
+
+  testWidgets('ignores a delayed save completion after disposal', (
+    tester,
+  ) async {
+    final completion = Completer<WakePlanSchedulingResult>();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CreateWakePlanSheet(
+            initialTarget: _target(),
+            now: DateTime(2026, 7, 8, 5, 30),
+            clock: () => DateTime(2026, 7, 8, 5, 30),
+            defaults: AppSettings.initial(),
+            existingWakePlans: const [],
+            onSave: (_) => completion.future,
+          ),
+        ),
+      ),
+    );
+
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pump();
+    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+    completion.complete(_successResult());
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('shows an inline warning for overlapping wake windows', (
     tester,
   ) async {
@@ -355,6 +575,85 @@ void main() {
   });
 }
 
+Future<void> _configureCustomRepeat(WidgetTester tester) async {
+  await tester.tap(find.text('No repeat'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Choose weekdays').last);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _expectCreateDraftControlsLocked(WidgetTester tester) async {
+  final targetFinder = find.byWidgetPredicate(
+    (widget) =>
+        widget is IconButton && widget.tooltip == 'Change wake target time',
+  );
+  await tester.ensureVisible(targetFinder);
+  expect(tester.widget<IconButton>(targetFinder).onPressed, isNull);
+  await tester.tap(targetFinder, warnIfMissed: false);
+
+  final durationFinder = find.byType(DropdownButtonFormField<Duration>);
+  expect(durationFinder, findsNWidgets(2));
+  for (var index = 0; index < 2; index++) {
+    final finder = durationFinder.at(index);
+    await tester.ensureVisible(finder);
+    expect(
+      tester.widget<DropdownButtonFormField<Duration>>(finder).onChanged,
+      isNull,
+    );
+    await tester.tap(finder, warnIfMissed: false);
+  }
+
+  final repeatFinder = find.byWidgetPredicate((widget) {
+    if (widget is! DropdownButtonFormField) {
+      return false;
+    }
+    return (widget as dynamic).decoration.labelText == 'Repeat';
+  });
+  expect(repeatFinder, findsOneWidget);
+  await tester.ensureVisible(repeatFinder);
+  expect((tester.widget(repeatFinder) as dynamic).onChanged, isNull);
+  await tester.tap(repeatFinder, warnIfMissed: false);
+
+  final weekdayFinder = find.byType(FilterChip);
+  expect(weekdayFinder, findsNWidgets(7));
+  for (final chip in tester.widgetList<FilterChip>(weekdayFinder)) {
+    expect(chip.onSelected, isNull);
+  }
+  await tester.ensureVisible(weekdayFinder.first);
+  await tester.tap(weekdayFinder.first, warnIfMissed: false);
+
+  await tester.ensureVisible(find.text('Sound and vibration'));
+  await tester.tap(find.text('Sound and vibration'));
+  await tester.pumpAndSettle();
+
+  final soundFinder = find.byType(DropdownButtonFormField<String>);
+  expect(soundFinder, findsOneWidget);
+  await tester.ensureVisible(soundFinder);
+  expect(
+    tester.widget<DropdownButtonFormField<String>>(soundFinder).onChanged,
+    isNull,
+  );
+  await tester.tap(soundFinder, warnIfMissed: false);
+
+  final vibrationFinder = find.byType(SwitchListTile);
+  expect(vibrationFinder, findsOneWidget);
+  await tester.ensureVisible(vibrationFinder);
+  expect(tester.widget<SwitchListTile>(vibrationFinder).onChanged, isNull);
+  await tester.tap(vibrationFinder, warnIfMissed: false);
+
+  expect(find.text('Retry'), findsOneWidget);
+  expect(
+    tester
+        .widget<IconButton>(
+          find.byWidgetPredicate(
+            (widget) => widget is IconButton && widget.tooltip == 'Close',
+          ),
+        )
+        .onPressed,
+    isNotNull,
+  );
+}
+
 class _FlowHarness extends StatefulWidget {
   const _FlowHarness();
 
@@ -442,6 +741,29 @@ WakePlanSchedulingResult _failureResult() {
     status: ScheduleResultStatus.permissionMissing,
     occurrences: const [],
   );
+  return WakePlanSchedulingResult(
+    wakePlanId: 'created',
+    status: WakePlanSchedulingStatus.scheduleFailed,
+    changeState: WakePlanChangeState.failed,
+    scheduleResult: scheduleResult,
+    occurrences: const [],
+    warning: WakePlanSchedulingWarning.scheduleFailed(scheduleResult),
+  );
+}
+
+WakePlanSchedulingResult _partialFailureResult() {
+  final scheduleResult = ScheduleResult.fromOccurrences([
+    ScheduleOccurrenceResult.success(
+      occurrenceId: 'occurrence-one',
+      wakePlanId: 'created',
+      platformAlarmId: 'native-one',
+    ),
+    ScheduleOccurrenceResult.failure(
+      occurrenceId: 'occurrence-two',
+      wakePlanId: 'created',
+      reason: ScheduleFailureReason.nativeError,
+    ),
+  ]);
   return WakePlanSchedulingResult(
     wakePlanId: 'created',
     status: WakePlanSchedulingStatus.scheduleFailed,

@@ -176,9 +176,13 @@ class _WeekCalendarPlaceholderState
             defaults: defaults,
             existingWakePlans: existingWakePlans,
             onSave: (plan) async {
-              final result = await service.createPlan(plan);
-              ref.invalidate(weekCalendarWakePlansProvider);
-              return result;
+              try {
+                return await service.createPlan(plan);
+              } finally {
+                if (mounted) {
+                  ref.invalidate(weekCalendarWakePlansProvider);
+                }
+              }
             },
           );
         },
