@@ -172,23 +172,38 @@ class WakePlanService {
               occurrences: cancelResult.successfullyCancelledOccurrences,
               now: now,
             );
-      if (previousPlan != null) {
-        await _store.saveWakePlan(previousPlan.copyWith(updatedAt: now));
-      }
+      final planPersistenceError = previousPlan == null
+          ? null
+          : await _trySaveWakePlan(previousPlan.copyWith(updatedAt: now));
+      final persistenceError = _firstPersistenceError([
+        cancelResult.persistenceError,
+        restoration.persistenceError,
+        planPersistenceError,
+      ]);
       final restoredOccurrences = _mergeOccurrenceStates(
         cancelResult.persistedOccurrences,
         restoration.occurrences,
       );
+      final isRecoveryRequired =
+          persistenceError != null || !restoration.isSuccess;
       return _failedMutationResult(
         wakePlanId: pendingPlan.id,
-        status: restoration.isSuccess
-            ? WakePlanSchedulingStatus.cancelFailed
-            : WakePlanSchedulingStatus.recoveryRequired,
+        status: isRecoveryRequired
+            ? WakePlanSchedulingStatus.recoveryRequired
+            : WakePlanSchedulingStatus.cancelFailed,
         scheduleResult: null,
         cancelResult: cancelResult.cancelResult,
         compensationScheduleResult: restoration.scheduleResult,
         occurrences: restoredOccurrences,
-        warning: restoration.isSuccess
+        databaseState:
+            restoration.databaseStateKnown &&
+                (cancelResult.persistenceError == null ||
+                    cancelResult.successfullyCancelledOccurrences.isNotEmpty) &&
+                planPersistenceError == null
+            ? WakePlanDatabaseState.persisted
+            : WakePlanDatabaseState.unknown,
+        persistenceError: persistenceError,
+        warning: !isRecoveryRequired
             ? WakePlanSchedulingWarning._cancelFailed(cancelResult)
             : WakePlanSchedulingWarning.recoveryRequired(
                 'Wake plan cancellation could not be fully compensated.',
@@ -202,13 +217,15 @@ class WakePlanService {
       changeState: WakePlanChangeState.committed,
       cancelResult: cancelResult.cancelResult,
     );
-    if (scheduleResult.status == WakePlanSchedulingStatus.scheduleFailed &&
+    if ((scheduleResult.status == WakePlanSchedulingStatus.scheduleFailed ||
+            scheduleResult.status ==
+                WakePlanSchedulingStatus.recoveryRequired) &&
         previousPlan != null) {
       final replacementCancellation = await _cancelReplacementOccurrences(
         scheduleResult.occurrences,
         now: now,
       );
-      if (!replacementCancellation.isSuccess) {
+      if (!replacementCancellation.nativeCancellationComplete) {
         return _failedMutationResult(
           wakePlanId: scheduleResult.wakePlanId,
           status: WakePlanSchedulingStatus.recoveryRequired,
@@ -219,6 +236,13 @@ class WakePlanService {
             cancelResult.persistedOccurrences,
             replacementCancellation.persistedOccurrences,
           ),
+          databaseState: replacementCancellation.databaseStateKnown
+              ? scheduleResult.databaseState
+              : WakePlanDatabaseState.unknown,
+          persistenceError: _firstPersistenceError([
+            scheduleResult.persistenceError,
+            replacementCancellation.persistenceError,
+          ]),
           warning: WakePlanSchedulingWarning.recoveryRequired(
             'Replacement alarms could not be fully cancelled; recovery is required.',
           ),
@@ -229,22 +253,39 @@ class WakePlanService {
         occurrences: cancelResult.successfullyCancelledOccurrences,
         now: now,
       );
-      await _store.saveWakePlan(previousPlan.copyWith(updatedAt: now));
+      final planPersistenceError = await _trySaveWakePlan(
+        previousPlan.copyWith(updatedAt: now),
+      );
+      final persistenceError = _firstPersistenceError([
+        scheduleResult.persistenceError,
+        replacementCancellation.persistenceError,
+        restoration.persistenceError,
+        planPersistenceError,
+      ]);
+      final isRecoveryRequired =
+          persistenceError != null || !restoration.isSuccess;
       final recoveredOccurrences = _mergeOccurrenceStates(
         replacementCancellation.persistedOccurrences,
         restoration.occurrences,
       );
       return _failedMutationResult(
         wakePlanId: scheduleResult.wakePlanId,
-        status: restoration.isSuccess
-            ? scheduleResult.status
-            : WakePlanSchedulingStatus.recoveryRequired,
+        status: isRecoveryRequired
+            ? WakePlanSchedulingStatus.recoveryRequired
+            : scheduleResult.status,
         scheduleResult: scheduleResult.scheduleResult,
         cancelResult: scheduleResult.cancelResult,
         compensationCancelResult: replacementCancellation.cancelResult,
         compensationScheduleResult: restoration.scheduleResult,
         occurrences: recoveredOccurrences,
-        warning: restoration.isSuccess
+        databaseState:
+            replacementCancellation.databaseStateKnown &&
+                restoration.databaseStateKnown &&
+                planPersistenceError == null
+            ? WakePlanDatabaseState.persisted
+            : WakePlanDatabaseState.unknown,
+        persistenceError: persistenceError,
+        warning: !isRecoveryRequired
             ? scheduleResult.warning!
             : WakePlanSchedulingWarning.recoveryRequired(
                 'The previous schedule could not be fully restored.',
@@ -274,16 +315,29 @@ class WakePlanService {
         cancelResult.persistedOccurrences,
         restoration.occurrences,
       );
+      final persistenceError = _firstPersistenceError([
+        cancelResult.persistenceError,
+        restoration.persistenceError,
+      ]);
+      final isRecoveryRequired =
+          persistenceError != null || !restoration.isSuccess;
       return _failedMutationResult(
         wakePlanId: wakePlanId,
-        status: restoration.isSuccess
-            ? WakePlanSchedulingStatus.cancelFailed
-            : WakePlanSchedulingStatus.recoveryRequired,
+        status: isRecoveryRequired
+            ? WakePlanSchedulingStatus.recoveryRequired
+            : WakePlanSchedulingStatus.cancelFailed,
         scheduleResult: null,
         cancelResult: cancelResult.cancelResult,
         compensationScheduleResult: restoration.scheduleResult,
         occurrences: occurrences,
-        warning: restoration.isSuccess
+        databaseState:
+            restoration.databaseStateKnown &&
+                (cancelResult.persistenceError == null ||
+                    cancelResult.successfullyCancelledOccurrences.isNotEmpty)
+            ? WakePlanDatabaseState.persisted
+            : WakePlanDatabaseState.unknown,
+        persistenceError: persistenceError,
+        warning: !isRecoveryRequired
             ? WakePlanSchedulingWarning._cancelFailed(cancelResult)
             : WakePlanSchedulingWarning.recoveryRequired(
                 'Wake plan deletion cancellation could not be fully compensated.',
@@ -293,7 +347,7 @@ class WakePlanService {
 
     try {
       await _store.softDeleteWakePlan(id: wakePlanId, updatedAt: now);
-    } catch (_) {
+    } catch (error) {
       final restoration = previousPlan == null
           ? const _RestorationResult(scheduleResult: null, occurrences: [])
           : await _restoreCancelledOccurrences(
@@ -311,6 +365,11 @@ class WakePlanService {
           cancelResult.persistedOccurrences,
           restoration.occurrences,
         ),
+        databaseState: WakePlanDatabaseState.unknown,
+        persistenceError: _firstPersistenceError([
+          'Wake plan persistence failed: $error',
+          restoration.persistenceError,
+        ]),
         warning: WakePlanSchedulingWarning.recoveryRequired(
           'Wake plan deletion could not be persisted; recovery is required.',
         ),
@@ -410,26 +469,40 @@ class WakePlanService {
       scheduleResult: scheduleResult,
       updatedAt: now,
     );
-    await _store.saveAlarmOccurrences(completedOccurrences);
+    final persistenceError = await _trySaveAlarmOccurrences(
+      completedOccurrences,
+    );
 
     final hasFailedOccurrences = completedOccurrences.any(
       (occurrence) => occurrence.status == AlarmOccurrenceStatus.failed,
     );
     final hasScheduleFailure =
         !scheduleResult.isSuccess || hasFailedOccurrences;
-    final status = hasScheduleFailure
+    final status = persistenceError != null
+        ? WakePlanSchedulingStatus.recoveryRequired
+        : hasScheduleFailure
         ? WakePlanSchedulingStatus.scheduleFailed
         : WakePlanSchedulingStatus.scheduled;
     return WakePlanSchedulingResult(
       wakePlanId: plan.id,
       status: status,
-      changeState: !hasScheduleFailure
+      changeState: persistenceError != null
+          ? WakePlanChangeState.recoveryRequired
+          : !hasScheduleFailure
           ? changeState
           : WakePlanChangeState.failed,
       scheduleResult: scheduleResult,
       cancelResult: cancelResult,
       occurrences: completedOccurrences,
-      warning: !hasScheduleFailure
+      databaseState: persistenceError == null
+          ? WakePlanDatabaseState.persisted
+          : WakePlanDatabaseState.unknown,
+      persistenceError: persistenceError,
+      warning: persistenceError != null
+          ? WakePlanSchedulingWarning.recoveryRequired(
+              'Scheduled alarm results could not be persisted; recovery is required.',
+            )
+          : !hasScheduleFailure
           ? null
           : WakePlanSchedulingWarning.scheduleFailed(scheduleResult),
     );
@@ -498,7 +571,9 @@ class WakePlanService {
       scheduleResult: scheduleResult,
       updatedAt: now,
     );
-    await _store.saveAlarmOccurrences(completedOccurrences);
+    final persistenceError = await _trySaveAlarmOccurrences(
+      completedOccurrences,
+    );
 
     final completedById = {
       for (final occurrence in completedOccurrences) occurrence.id: occurrence,
@@ -516,15 +591,27 @@ class WakePlanService {
         !scheduleResult.isSuccess || hasFailedOccurrences;
     return WakePlanSchedulingResult(
       wakePlanId: plan.id,
-      status: hasScheduleFailure
+      status: persistenceError != null
+          ? WakePlanSchedulingStatus.recoveryRequired
+          : hasScheduleFailure
           ? WakePlanSchedulingStatus.scheduleFailed
           : WakePlanSchedulingStatus.scheduled,
-      changeState: hasScheduleFailure
+      changeState: persistenceError != null
+          ? WakePlanChangeState.recoveryRequired
+          : hasScheduleFailure
           ? WakePlanChangeState.failed
           : WakePlanChangeState.committed,
       scheduleResult: scheduleResult,
       occurrences: reconciledOccurrences,
-      warning: hasScheduleFailure
+      databaseState: persistenceError == null
+          ? WakePlanDatabaseState.persisted
+          : WakePlanDatabaseState.unknown,
+      persistenceError: persistenceError,
+      warning: persistenceError != null
+          ? WakePlanSchedulingWarning.recoveryRequired(
+              'Reconciled alarm results could not be persisted; recovery is required.',
+            )
+          : hasScheduleFailure
           ? WakePlanSchedulingWarning.scheduleFailed(scheduleResult)
           : null,
     );
@@ -789,13 +876,15 @@ class WakePlanService {
         })
         .toList(growable: false);
 
-    if (persistedOccurrences.isNotEmpty) {
-      await _store.saveAlarmOccurrences(persistedOccurrences);
-    }
+    final persistenceError = persistedOccurrences.isEmpty
+        ? null
+        : await _trySaveAlarmOccurrences(persistedOccurrences);
 
     return _CancelFutureResult(
       cancelResult: cancelResult,
       persistedOccurrences: persistedOccurrences,
+      databaseStateKnown: persistenceError == null,
+      persistenceError: persistenceError,
       successfullyCancelledOccurrences: cancellableOccurrences
           .where((occurrence) {
             final key = _cancelRequestKey(
@@ -823,6 +912,8 @@ class WakePlanService {
         occurrences,
         cancellation.persistedOccurrences,
       ),
+      databaseStateKnown: cancellation.databaseStateKnown,
+      persistenceError: cancellation.persistenceError,
       successfullyCancelledOccurrences:
           cancellation.successfullyCancelledOccurrences,
     );
@@ -867,10 +958,14 @@ class WakePlanService {
         scheduleResult: scheduleResult,
         updatedAt: now,
       );
-      await _store.saveAlarmOccurrences(restoredOccurrences);
+      final persistenceError = await _trySaveAlarmOccurrences(
+        restoredOccurrences,
+      );
       return _RestorationResult(
         scheduleResult: scheduleResult,
         occurrences: restoredOccurrences,
+        databaseStateKnown: persistenceError == null,
+        persistenceError: persistenceError,
       );
     }
     final scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(
@@ -881,11 +976,44 @@ class WakePlanService {
       scheduleResult: scheduleResult,
       updatedAt: now,
     );
-    await _store.saveAlarmOccurrences(restoredOccurrences);
+    final persistenceError = await _trySaveAlarmOccurrences(
+      restoredOccurrences,
+    );
     return _RestorationResult(
       scheduleResult: scheduleResult,
       occurrences: restoredOccurrences,
+      databaseStateKnown: persistenceError == null,
+      persistenceError: persistenceError,
     );
+  }
+
+  Future<String?> _trySaveAlarmOccurrences(
+    Iterable<AlarmOccurrence> occurrences,
+  ) async {
+    try {
+      await _store.saveAlarmOccurrences(occurrences);
+      return null;
+    } catch (error) {
+      return 'Alarm occurrence persistence failed: $error';
+    }
+  }
+
+  Future<String?> _trySaveWakePlan(WakePlan plan) async {
+    try {
+      await _store.saveWakePlan(plan);
+      return null;
+    } catch (error) {
+      return 'Wake plan persistence failed: $error';
+    }
+  }
+
+  String? _firstPersistenceError(Iterable<String?> errors) {
+    for (final error in errors) {
+      if (error != null) {
+        return error;
+      }
+    }
+    return null;
   }
 
   List<NativeAlarmScheduleRequest>? _buildRestorationRequests({
@@ -949,6 +1077,8 @@ class WakePlanService {
     required WakePlanSchedulingWarning warning,
     ScheduleResult? compensationScheduleResult,
     CancelResult? compensationCancelResult,
+    WakePlanDatabaseState databaseState = WakePlanDatabaseState.persisted,
+    String? persistenceError,
   }) {
     return WakePlanSchedulingResult(
       wakePlanId: wakePlanId,
@@ -967,6 +1097,8 @@ class WakePlanService {
       warning: warning,
       compensationScheduleResult: compensationScheduleResult,
       compensationCancelResult: compensationCancelResult,
+      databaseState: databaseState,
+      persistenceError: persistenceError,
     );
   }
 }
@@ -1099,6 +1231,8 @@ enum WakePlanSchedulingStatus {
 
 enum WakePlanChangeState { pendingChange, committed, failed, recoveryRequired }
 
+enum WakePlanDatabaseState { persisted, unknown }
+
 class WakePlanSchedulingResult {
   WakePlanSchedulingResult({
     required this.wakePlanId,
@@ -1110,6 +1244,8 @@ class WakePlanSchedulingResult {
     this.warning,
     this.compensationScheduleResult,
     this.compensationCancelResult,
+    this.databaseState = WakePlanDatabaseState.persisted,
+    this.persistenceError,
   }) : occurrences = List.unmodifiable(occurrences);
 
   final String wakePlanId;
@@ -1121,6 +1257,8 @@ class WakePlanSchedulingResult {
   final WakePlanSchedulingWarning? warning;
   final ScheduleResult? compensationScheduleResult;
   final CancelResult? compensationCancelResult;
+  final WakePlanDatabaseState databaseState;
+  final String? persistenceError;
 
   bool get isSuccess => warning == null;
 }
@@ -1200,32 +1338,43 @@ class _CancelFutureResult {
     required this.cancelResult,
     required this.persistedOccurrences,
     required this.successfullyCancelledOccurrences,
+    this.databaseStateKnown = true,
+    this.persistenceError,
   });
 
   final CancelResult cancelResult;
   final List<AlarmOccurrence> persistedOccurrences;
   final List<AlarmOccurrence> successfullyCancelledOccurrences;
+  final bool databaseStateKnown;
+  final String? persistenceError;
 
-  bool get isSuccess => cancelResult.isSuccess;
+  bool get isSuccess => cancelResult.isSuccess && persistenceError == null;
+
+  bool get nativeCancellationComplete => cancelResult.isSuccess;
 }
 
 class _RestorationResult {
   const _RestorationResult({
     required this.scheduleResult,
     required this.occurrences,
+    this.databaseStateKnown = true,
+    this.persistenceError,
   });
 
   final ScheduleResult? scheduleResult;
   final List<AlarmOccurrence> occurrences;
+  final bool databaseStateKnown;
+  final String? persistenceError;
 
   bool get isSuccess =>
-      scheduleResult == null ||
-      scheduleResult!.isSuccess &&
-          occurrences.every(
-            (occurrence) =>
-                occurrence.status == AlarmOccurrenceStatus.scheduled &&
-                occurrence.platformAlarmId != null,
-          );
+      persistenceError == null &&
+      (scheduleResult == null ||
+          scheduleResult!.isSuccess &&
+              occurrences.every(
+                (occurrence) =>
+                    occurrence.status == AlarmOccurrenceStatus.scheduled &&
+                    occurrence.platformAlarmId != null,
+              ));
 }
 
 DateMinute _targetAtFor(

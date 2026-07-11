@@ -881,6 +881,255 @@ void main() {
     );
 
     test(
+      'returns recoveryRequired when a full old cancel save fails',
+      () async {
+        final originalPlan = buildPlan();
+        final store = _LoggingWakePlanServiceStore(currentPlan: originalPlan)
+          ..failSaveAlarmOccurrencesAtCalls.add(1)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+          ]
+          ..storedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+          ];
+
+        final result =
+            await service(
+              store: store,
+              gateway: FakeNativeAlarmGateway(),
+            ).editPlan(
+              buildPlan(
+                targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+                  hour: 7,
+                  minute: 30,
+                ),
+              ),
+            );
+
+        expect(result.status, WakePlanSchedulingStatus.recoveryRequired);
+        expect(result.changeState, WakePlanChangeState.recoveryRequired);
+        expect(result.databaseState, WakePlanDatabaseState.persisted);
+        expect(result.persistenceError, isNotNull);
+        expect(
+          result.warning!.kind,
+          WakePlanSchedulingWarningKind.recoveryRequired,
+        );
+        expect(store.currentPlan!.targetTime, originalPlan.targetTime);
+        expect(
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'old-future-1')
+              .single
+              .platformAlarmId,
+          'platform-old-future-1',
+        );
+      },
+    );
+
+    test(
+      'returns recoveryRequired when a partial old cancel save fails',
+      () async {
+        final originalPlan = buildPlan();
+        final store = _LoggingWakePlanServiceStore(currentPlan: originalPlan)
+          ..failSaveAlarmOccurrencesAtCalls.add(1)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+            buildOccurrence(
+              id: 'old-future-2',
+              platformAlarmId: 'old-native-2',
+            ),
+          ]
+          ..storedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+            buildOccurrence(
+              id: 'old-future-2',
+              platformAlarmId: 'old-native-2',
+            ),
+          ];
+        final gateway = _SequencedFaultGateway(
+          cancelFailuresByCall: [
+            {'old-native-2'},
+          ],
+        );
+
+        final result = await service(store: store, gateway: gateway).editPlan(
+          buildPlan(
+            targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+              hour: 7,
+              minute: 30,
+            ),
+          ),
+        );
+
+        expect(result.status, WakePlanSchedulingStatus.recoveryRequired);
+        expect(result.persistenceError, isNotNull);
+        expect(gateway.scheduledRequests, hasLength(1));
+        expect(
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'old-future-1')
+              .single
+              .platformAlarmId,
+          'platform-old-future-1',
+        );
+        expect(
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'old-future-2')
+              .single
+              .platformAlarmId,
+          'old-native-2',
+        );
+      },
+    );
+
+    test(
+      'returns recoveryRequired when completed schedule persistence fails',
+      () async {
+        final originalPlan = buildPlan();
+        final store = _LoggingWakePlanServiceStore(currentPlan: originalPlan)
+          ..failSaveAlarmOccurrencesAtCalls.add(3)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+          ]
+          ..storedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+          ];
+        final gateway = _SequencedFaultGateway();
+
+        final result = await service(store: store, gateway: gateway).editPlan(
+          buildPlan(
+            targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+              hour: 7,
+              minute: 30,
+            ),
+          ),
+        );
+
+        expect(result.status, WakePlanSchedulingStatus.recoveryRequired);
+        expect(result.changeState, WakePlanChangeState.recoveryRequired);
+        expect(result.persistenceError, isNotNull);
+        expect(result.databaseState, WakePlanDatabaseState.persisted);
+        expect(gateway.cancelledOccurrences, hasLength(5));
+        expect(
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'old-future-1')
+              .single
+              .platformAlarmId,
+          'platform-old-future-1',
+        );
+      },
+    );
+
+    test(
+      'returns recoveryRequired when partial schedule persistence fails',
+      () async {
+        final originalPlan = buildPlan();
+        final store = _LoggingWakePlanServiceStore(currentPlan: originalPlan)
+          ..failSaveAlarmOccurrencesAtCalls.add(3)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+          ]
+          ..storedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+          ];
+        final gateway = _SequencedFaultGateway(
+          scheduleFailuresByCall: [
+            {'plan-1:20640:440'},
+          ],
+        );
+
+        final result = await service(store: store, gateway: gateway).editPlan(
+          buildPlan(
+            targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+              hour: 7,
+              minute: 30,
+            ),
+          ),
+        );
+
+        expect(result.status, WakePlanSchedulingStatus.recoveryRequired);
+        expect(result.persistenceError, isNotNull);
+        expect(gateway.cancelledOccurrences, hasLength(4));
+        expect(
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'old-future-1')
+              .single
+              .platformAlarmId,
+          'platform-old-future-1',
+        );
+      },
+    );
+
+    test(
+      'returns recoveryRequired when restoration persistence fails',
+      () async {
+        final originalPlan = buildPlan();
+        final store = _LoggingWakePlanServiceStore(currentPlan: originalPlan)
+          ..failSaveAlarmOccurrencesAtCalls.add(5)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+          ]
+          ..storedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+          ];
+        final gateway = _SequencedFaultGateway(
+          scheduleFailuresByCall: [
+            {'plan-1:20640:440'},
+          ],
+        );
+
+        final result = await service(store: store, gateway: gateway).editPlan(
+          buildPlan(
+            targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+              hour: 7,
+              minute: 30,
+            ),
+          ),
+        );
+
+        expect(result.status, WakePlanSchedulingStatus.recoveryRequired);
+        expect(result.databaseState, WakePlanDatabaseState.unknown);
+        expect(result.persistenceError, isNotNull);
+        expect(gateway.scheduledRequests.last.occurrenceId, 'old-future-1');
+        expect(
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'old-future-1')
+              .single
+              .platformAlarmId,
+          isNull,
+        );
+      },
+    );
+
+    test(
       'restores successful old cancellations after a partial old cancel',
       () async {
         final originalPlan = buildPlan();
@@ -1381,6 +1630,44 @@ void main() {
         );
       },
     );
+
+    test(
+      'returns recoveryRequired when delete cancellation persistence fails',
+      () async {
+        final plan = buildPlan();
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..failSaveAlarmOccurrencesAtCalls.add(1)
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+          ]
+          ..storedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              platformAlarmId: 'old-native-1',
+            ),
+          ];
+
+        final result = await service(
+          store: store,
+          gateway: FakeNativeAlarmGateway(),
+        ).deletePlan('plan-1');
+
+        expect(result.status, WakePlanSchedulingStatus.recoveryRequired);
+        expect(result.databaseState, WakePlanDatabaseState.persisted);
+        expect(result.persistenceError, isNotNull);
+        expect(store.deletedPlanIds, isEmpty);
+        expect(
+          store.storedOccurrences
+              .where((occurrence) => occurrence.id == 'old-future-1')
+              .single
+              .platformAlarmId,
+          'platform-old-future-1',
+        );
+      },
+    );
   });
 
   group('WakePlanService skipNextOccurrence', () {
@@ -1658,6 +1945,8 @@ class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
   final savedOccurrences = <List<AlarmOccurrence>>[];
   final deletedPlanIds = <String>[];
   bool failSoftDelete = false;
+  final failSaveAlarmOccurrencesAtCalls = <int>{};
+  var saveAlarmOccurrencesCallCount = 0;
   WakePlan? currentPlan;
   List<WakePlan> wakePlans = [];
   List<AlarmOccurrence> reservedOccurrences = [];
@@ -1700,8 +1989,17 @@ class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
   Future<void> saveAlarmOccurrences(
     Iterable<AlarmOccurrence> occurrences,
   ) async {
+    saveAlarmOccurrencesCallCount += 1;
     final snapshot = occurrences.toList(growable: false);
     operations.add('saveAlarmOccurrences:${snapshot.length}');
+    if (failSaveAlarmOccurrencesAtCalls.contains(
+      saveAlarmOccurrencesCallCount,
+    )) {
+      throw StateError(
+        'injected alarm occurrence persistence failure at call '
+        '$saveAlarmOccurrencesCallCount',
+      );
+    }
     savedOccurrences.add(snapshot);
     final byId = {
       for (final occurrence in storedOccurrences) occurrence.id: occurrence,
