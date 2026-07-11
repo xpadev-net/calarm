@@ -265,8 +265,8 @@ void main() {
     expect(refreshedCalendar.wakePlans, hasLength(1));
 
     gateway.scheduleFailureReason = null;
-    await tester.ensureVisible(find.text('Save'));
-    await tester.tap(find.text('Save'));
+    await tester.ensureVisible(find.text('Retry'));
+    await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
 
     expect(gateway.scheduledRequests, hasLength(26));

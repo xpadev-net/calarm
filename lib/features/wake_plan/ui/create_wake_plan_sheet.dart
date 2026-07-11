@@ -45,6 +45,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
   late String _soundId;
   late bool _vibrationEnabled;
   bool _saving = false;
+  bool _submissionAttempted = false;
   bool _advancedExpanded = false;
   String? _scheduleWarning;
   late final String _sessionWakePlanId;
@@ -62,6 +63,9 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
     }
     return _targetAt.isAfter(_currentNow);
   }
+
+  bool get _draftLocked =>
+      widget.existingWakePlan == null && _submissionAttempted;
 
   @override
   void initState() {
@@ -131,7 +135,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
               _EditableInfoRow(
                 label: 'Wake target',
                 value: _dateTimeLabel(_targetAt),
-                onPressed: _saving ? null : _pickTargetTime,
+                onPressed: _saving || _draftLocked ? null : _pickTargetTime,
               ),
               const SizedBox(height: 12),
               _DurationMenu(
@@ -145,6 +149,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
                   Duration(hours: 2),
                   Duration(hours: 3),
                 ],
+                enabled: !_saving && !_draftLocked,
                 onChanged: (value) => setState(() => _startOffset = value),
               ),
               const SizedBox(height: 12),
@@ -158,6 +163,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
                   Duration(minutes: 20),
                   Duration(minutes: 30),
                 ],
+                enabled: !_saving && !_draftLocked,
                 onChanged: (value) => setState(() => _interval = value),
               ),
               const SizedBox(height: 12),
@@ -187,26 +193,29 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
                     child: Text('Choose weekdays'),
                   ),
                 ],
-                onChanged: (value) {
-                  if (value == null) {
-                    return;
-                  }
-                  setState(() {
-                    _repeatOption = value;
-                    if (value != _RepeatOption.custom) {
-                      _selectedWeekdays = _weekdaysForOption(value);
-                    } else if (_selectedWeekdays.isEmpty) {
-                      _selectedWeekdays = {
-                        Weekday.fromDateTimeValue(_targetDay.weekday),
-                      };
-                    }
-                  });
-                },
+                onChanged: !_saving && !_draftLocked
+                    ? (value) {
+                        if (value == null) {
+                          return;
+                        }
+                        setState(() {
+                          _repeatOption = value;
+                          if (value != _RepeatOption.custom) {
+                            _selectedWeekdays = _weekdaysForOption(value);
+                          } else if (_selectedWeekdays.isEmpty) {
+                            _selectedWeekdays = {
+                              Weekday.fromDateTimeValue(_targetDay.weekday),
+                            };
+                          }
+                        });
+                      }
+                    : null,
               ),
               if (_repeatOption == _RepeatOption.custom) ...[
                 const SizedBox(height: 8),
                 _WeekdayChips(
                   selected: _selectedWeekdays,
+                  enabled: !_saving && !_draftLocked,
                   onChanged: (weekdays) {
                     setState(() => _selectedWeekdays = weekdays);
                   },
@@ -228,6 +237,13 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
                 const SizedBox(height: 12),
                 _InlineWarning(text: _scheduleWarning!),
               ],
+              if (_draftLocked) ...[
+                const SizedBox(height: 12),
+                const _InlineWarning(
+                  text:
+                      'Draft locked after submission. Retry this request or close and reopen to edit it.',
+                ),
+              ],
               const SizedBox(height: 4),
               ExpansionTile(
                 tilePadding: EdgeInsets.zero,
@@ -248,20 +264,24 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
                         child: Text('Default sound'),
                       ),
                     ],
-                    onChanged: (value) {
-                      if (value == null) {
-                        return;
-                      }
-                      setState(() => _soundId = value);
-                    },
+                    onChanged: !_saving && !_draftLocked
+                        ? (value) {
+                            if (value == null) {
+                              return;
+                            }
+                            setState(() => _soundId = value);
+                          }
+                        : null,
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Vibration'),
                     value: _vibrationEnabled,
-                    onChanged: (value) {
-                      setState(() => _vibrationEnabled = value);
-                    },
+                    onChanged: !_saving && !_draftLocked
+                        ? (value) {
+                            setState(() => _vibrationEnabled = value);
+                          }
+                        : null,
                   ),
                 ],
               ),
@@ -274,7 +294,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.alarm_add),
-                label: const Text('Save'),
+                label: Text(_saving || !_draftLocked ? 'Save' : 'Retry'),
               ),
             ],
           ),
@@ -337,6 +357,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
     final saveAttempt = ++_saveAttempt;
     setState(() {
       _saving = true;
+      _submissionAttempted = true;
       _scheduleWarning = null;
     });
 
@@ -525,10 +546,15 @@ bool _setEquals(Set<Weekday> left, Set<Weekday> right) {
 }
 
 class _WeekdayChips extends StatelessWidget {
-  const _WeekdayChips({required this.selected, required this.onChanged});
+  const _WeekdayChips({
+    required this.selected,
+    required this.onChanged,
+    this.enabled = true,
+  });
 
   final Set<Weekday> selected;
   final ValueChanged<Set<Weekday>> onChanged;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -540,15 +566,17 @@ class _WeekdayChips extends StatelessWidget {
           FilterChip(
             label: Text(_weekdayLabel(weekday)),
             selected: selected.contains(weekday),
-            onSelected: (isSelected) {
-              final next = Set<Weekday>.of(selected);
-              if (isSelected) {
-                next.add(weekday);
-              } else if (next.length > 1) {
-                next.remove(weekday);
-              }
-              onChanged(next);
-            },
+            onSelected: enabled
+                ? (isSelected) {
+                    final next = Set<Weekday>.of(selected);
+                    if (isSelected) {
+                      next.add(weekday);
+                    } else if (next.length > 1) {
+                      next.remove(weekday);
+                    }
+                    onChanged(next);
+                  }
+                : null,
           ),
       ],
     );
@@ -696,12 +724,14 @@ class _DurationMenu extends StatelessWidget {
     required this.value,
     required this.values,
     required this.onChanged,
+    this.enabled = true,
   });
 
   final String label;
   final Duration value;
   final List<Duration> values;
   final ValueChanged<Duration> onChanged;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -713,11 +743,13 @@ class _DurationMenu extends StatelessWidget {
         for (final option in values)
           DropdownMenuItem(value: option, child: Text(_durationLabel(option))),
       ],
-      onChanged: (value) {
-        if (value != null) {
-          onChanged(value);
-        }
-      },
+      onChanged: enabled
+          ? (value) {
+              if (value != null) {
+                onChanged(value);
+              }
+            }
+          : null,
     );
   }
 }

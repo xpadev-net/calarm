@@ -266,6 +266,7 @@ void main() {
     await tester.ensureVisible(find.text('Save'));
     await tester.tap(find.text('Save'));
     await tester.pump();
+    await tester.ensureVisible(find.byType(FilledButton));
     await tester.tap(find.text('Save'));
     await tester.pump();
 
@@ -273,12 +274,86 @@ void main() {
     firstCompletion.complete(_failureResult());
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('Save'));
-    await tester.tap(find.text('Save'));
+    await tester.ensureVisible(find.text('Retry'));
+    await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
 
     expect(savedPlans, hasLength(2));
     expect(savedPlans[1].id, savedPlans[0].id);
+  });
+
+  testWidgets('locks create draft metadata after partial failure before retry', (
+    tester,
+  ) async {
+    final savedPlans = <WakePlan>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CreateWakePlanSheet(
+            initialTarget: _target(),
+            now: DateTime(2026, 7, 8, 5, 30),
+            clock: () => DateTime(2026, 7, 8, 5, 30),
+            defaults: AppSettings.initial(),
+            existingWakePlans: const [],
+            onSave: (plan) async {
+              savedPlans.add(plan);
+              return savedPlans.length == 1
+                  ? _partialFailureResult()
+                  : _successResult();
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Some alarms could not be scheduled.'), findsOneWidget);
+    expect(
+      find.text(
+        'Draft locked after submission. Retry this request or close and reopen to edit it.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byWidgetPredicate(
+              (widget) =>
+                  widget is IconButton &&
+                  widget.tooltip == 'Change wake target time',
+            ),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(find.text('Retry'), findsOneWidget);
+
+    await tester.tap(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is IconButton && widget.tooltip == 'Change wake target time',
+      ),
+      warnIfMissed: false,
+    );
+    await tester.pump();
+    expect(find.text('2026-07-08 07:00'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Retry'));
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+
+    expect(savedPlans, hasLength(2));
+    expect(savedPlans[1].id, savedPlans[0].id);
+    expect(savedPlans[1].targetTime, savedPlans[0].targetTime);
+    expect(savedPlans[1].startOffset, savedPlans[0].startOffset);
+    expect(savedPlans[1].interval, savedPlans[0].interval);
+    expect(savedPlans[1].repeatRule, savedPlans[0].repeatRule);
+    expect(savedPlans[1].soundId, savedPlans[0].soundId);
+    expect(savedPlans[1].vibrationEnabled, savedPlans[0].vibrationEnabled);
   });
 
   testWidgets(
@@ -560,6 +635,29 @@ WakePlanSchedulingResult _failureResult() {
     status: ScheduleResultStatus.permissionMissing,
     occurrences: const [],
   );
+  return WakePlanSchedulingResult(
+    wakePlanId: 'created',
+    status: WakePlanSchedulingStatus.scheduleFailed,
+    changeState: WakePlanChangeState.failed,
+    scheduleResult: scheduleResult,
+    occurrences: const [],
+    warning: WakePlanSchedulingWarning.scheduleFailed(scheduleResult),
+  );
+}
+
+WakePlanSchedulingResult _partialFailureResult() {
+  final scheduleResult = ScheduleResult.fromOccurrences([
+    ScheduleOccurrenceResult.success(
+      occurrenceId: 'occurrence-one',
+      wakePlanId: 'created',
+      platformAlarmId: 'native-one',
+    ),
+    ScheduleOccurrenceResult.failure(
+      occurrenceId: 'occurrence-two',
+      wakePlanId: 'created',
+      reason: ScheduleFailureReason.nativeError,
+    ),
+  ]);
   return WakePlanSchedulingResult(
     wakePlanId: 'created',
     status: WakePlanSchedulingStatus.scheduleFailed,
