@@ -228,6 +228,11 @@ class ScheduleResult {
       requests.map((request) => request.reservationId),
       'requests',
     );
+    _validateUniqueValues(
+      requests.map((request) => request.occurrenceId),
+      'occurrenceId',
+      'requests',
+    );
     final correlatedResults = _correlateRequestResults(
       requests: requests,
       results: results,
@@ -268,6 +273,16 @@ class ScheduleResult {
     }
     _validateUniqueReservationIds(
       correlatedResults.map((result) => result.reservationId),
+      'schedule result',
+    );
+    _validateUniqueValues(
+      correlatedResults.map((result) => result.occurrenceId),
+      'occurrenceId',
+      'schedule result',
+    );
+    _validateUniqueValues(
+      correlatedResults.map((result) => result.platformAlarmId),
+      'platformAlarmId',
       'schedule result',
     );
 
@@ -424,6 +439,16 @@ class CancelResult {
       requests.map((request) => request.reservationId),
       'requests',
     );
+    _validateUniqueValues(
+      requests.map((request) => request.occurrenceId),
+      'occurrenceId',
+      'requests',
+    );
+    _validateUniqueValues(
+      requests.map((request) => request.platformAlarmId),
+      'platformAlarmId',
+      'requests',
+    );
     final correlatedResults = _correlateRequestResults(
       requests: requests,
       results: results,
@@ -464,6 +489,16 @@ class CancelResult {
     }
     _validateUniqueReservationIds(
       correlatedResults.map((result) => result.reservationId),
+      'cancel result',
+    );
+    _validateUniqueValues(
+      correlatedResults.map((result) => result.occurrenceId),
+      'occurrenceId',
+      'cancel result',
+    );
+    _validateUniqueValues(
+      correlatedResults.map((result) => result.platformAlarmId),
+      'platformAlarmId',
       'cancel result',
     );
 
@@ -620,6 +655,7 @@ enum NativeAlarmInventoryIssueType {
   duplicate,
   corrupt,
   extra,
+  readFailure,
 }
 
 class NativeAlarmInventoryRow {
@@ -868,9 +904,7 @@ class NativeAlarmInventoryResult {
     if (!isSuccess) {
       issues.add(
         NativeAlarmInventoryIssue(
-          type: failureReason == NativeAlarmInventoryFailureReason.corrupt
-              ? NativeAlarmInventoryIssueType.corrupt
-              : NativeAlarmInventoryIssueType.unknown,
+          type: NativeAlarmInventoryIssueType.readFailure,
           message: failureMessage ?? 'Native inventory is not authoritative.',
         ),
       );
@@ -991,13 +1025,21 @@ void _validateUniqueReservationIds(
   Iterable<String> reservationIds,
   String name,
 ) {
+  _validateUniqueValues(reservationIds, 'reservationId', name);
+}
+
+void _validateUniqueValues(
+  Iterable<String?> values,
+  String fieldName,
+  String collectionName,
+) {
   final seenIds = <String>{};
-  for (final reservationId in reservationIds) {
-    if (!seenIds.add(reservationId)) {
+  for (final value in values) {
+    if (value != null && !seenIds.add(value)) {
       throw ArgumentError.value(
-        reservationId,
-        name,
-        'contains a duplicate reservationId',
+        value,
+        collectionName,
+        'contains a duplicate $fieldName',
       );
     }
   }

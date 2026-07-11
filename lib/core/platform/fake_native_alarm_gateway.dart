@@ -150,6 +150,12 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
 
   @override
   Future<NativeAlarmInventoryResult> getInventory() async {
+    if (!capability.supportsInventory) {
+      return NativeAlarmInventoryResult.failure(
+        reason: NativeAlarmInventoryFailureReason.unavailable,
+        message: 'Native inventory is not supported by this fake.',
+      );
+    }
     final failureReason = inventoryFailureReason;
     if (failureReason != null) {
       return NativeAlarmInventoryResult.failure(reason: failureReason);
@@ -180,7 +186,7 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
             row.occurrenceId == alarm.occurrenceId &&
             row.platformAlarmId == alarm.platformAlarmId,
       );
-      if (relatedRows.isNotEmpty && !hasExactRow) {
+      if (relatedRows.isNotEmpty && (relatedRows.length != 1 || !hasExactRow)) {
         return CancelAlarmResult.failure(
           occurrenceId: alarm.occurrenceId,
           platformAlarmId: alarm.platformAlarmId,

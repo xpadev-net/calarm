@@ -265,6 +265,60 @@ void main() {
 
       expect(result.occurrences.single.reservationId, 'reservation-1');
     });
+
+    test('rejects duplicate logical or native result identities', () {
+      final first = _requests().first;
+      final second = NativeAlarmScheduleRequest(
+        occurrenceId: first.occurrenceId,
+        reservationId: 'reservation-2',
+        wakePlanId: 'plan-2',
+        scheduledAt: first.scheduledAt,
+        targetAt: first.targetAt,
+        indexInPlan: 0,
+        totalInPlan: 1,
+        soundId: first.soundId,
+        vibrationEnabled: first.vibrationEnabled,
+      );
+
+      expect(
+        () => ScheduleResult.fromRequestResults(
+          requests: [first, second],
+          results: [
+            ScheduleOccurrenceResult.success(
+              occurrenceId: first.occurrenceId,
+              wakePlanId: first.wakePlanId,
+              platformAlarmId: 'platform-1',
+            ),
+            ScheduleOccurrenceResult.success(
+              occurrenceId: second.occurrenceId,
+              wakePlanId: second.wakePlanId,
+              platformAlarmId: 'platform-2',
+              reservationId: second.reservationId,
+            ),
+          ],
+        ),
+        throwsArgumentError,
+      );
+
+      expect(
+        () => ScheduleResult.fromRequestResults(
+          requests: _requests(),
+          results: [
+            ScheduleOccurrenceResult.success(
+              occurrenceId: 'occ-1',
+              wakePlanId: 'plan-1',
+              platformAlarmId: 'shared-platform',
+            ),
+            ScheduleOccurrenceResult.success(
+              occurrenceId: 'occ-2',
+              wakePlanId: 'plan-1',
+              platformAlarmId: 'shared-platform',
+            ),
+          ],
+        ),
+        throwsArgumentError,
+      );
+    });
   });
 
   group('NativeAlarmInventoryResult', () {
@@ -349,7 +403,12 @@ void main() {
       expect(result.status, NativeAlarmInventoryResultStatus.unavailable);
       expect(result.isSuccess, isFalse);
       expect(result.rows, isEmpty);
-      expect(result.reconcile(expected: const []).isAuthoritative, isFalse);
+      final reconciliation = result.reconcile(expected: const []);
+      expect(reconciliation.isAuthoritative, isFalse);
+      expect(
+        reconciliation.issues.single.type,
+        NativeAlarmInventoryIssueType.readFailure,
+      );
     });
   });
 
@@ -421,6 +480,48 @@ void main() {
         expect((await gateway.getInventory()).rows, hasLength(1));
       },
     );
+
+    test(
+      'rejects cancellation when the inventory has a conflicting duplicate',
+      () async {
+        final gateway = FakeNativeAlarmGateway();
+        await gateway.scheduleOccurrences([_requests().first]);
+        gateway.inventoryRows.add(
+          NativeAlarmInventoryRow.create(
+            reservationId: 'occ-1',
+            occurrenceId: 'occ-1',
+            wakePlanId: 'plan-1',
+            platformAlarmId: 'conflicting-platform-id',
+            status: NativeAlarmReservationStatus.scheduled,
+          ),
+        );
+
+        final result = await gateway.cancelOccurrences([
+          NativeAlarmCancelRequest(
+            occurrenceId: 'occ-1',
+            platformAlarmId: 'platform-occ-1',
+          ),
+        ]);
+
+        expect(result.status, CancelResultStatus.failure);
+        expect((await gateway.getInventory()).rows, hasLength(2));
+      },
+    );
+
+    test('fake inventory honors unsupported capability', () async {
+      final gateway = FakeNativeAlarmGateway(
+        capability: const NativeAlarmCapability(
+          permissionStatus: NativeAlarmPermissionStatus.authorized,
+          canScheduleAlarms: true,
+          canRequestPermission: true,
+          supportsInventory: false,
+        ),
+      );
+
+      final result = await gateway.getInventory();
+
+      expect(result.status, NativeAlarmInventoryResultStatus.unavailable);
+    });
 
     test('fails every schedule when permission is missing', () async {
       final gateway = FakeNativeAlarmGateway(

@@ -178,6 +178,10 @@ Response:
 
 The response must include one row per native result. Dart correlates rows back to the original request by `(occurrenceId, wakePlanId)`. Missing rows become per-occurrence `nativeError` failures. Extra rows or rows for the wrong wake plan are invalid.
 
+Dart also rejects a batch that reuses any stable reservation, logical
+occurrence, or non-null native platform identity. A native platform identity
+must never be reported as belonging to two logical reservations.
+
 `reservationId` is the stable logical identity that native implementations
 must preserve across duplicate schedule calls, process restarts, and inventory
 reads. A successful response should echo it. Omitting it is accepted only for
@@ -308,13 +312,16 @@ Reconciliation is deliberately conservative:
 
 - `missing`: an expected `reservationId` is absent from the native rows.
 - `duplicate`: the same stable identity appears more than once in native rows
-  or in the expected set.
+  or in the expected set, or distinct rows reuse a platform alarm or logical
+  occurrence identity.
 - `unknown`: a native row has a new stable identity for an occurrence Dart
   already knows, so it must not be adopted automatically.
 - `extra`: a well-formed native row is unrelated to the expected set and must
   not be treated as a Flutter reservation.
 - `corrupt`: a row is malformed or its occurrence/plan metadata conflicts with
   Dart's expected identity.
+- `readFailure`: the inventory read itself was unavailable or failed; this is
+  not evidence that any expected reservation is missing.
 
 Any issue makes the reconciliation non-authoritative. Callers may display or
 repair the issue, but must not convert it into a successful schedule/cancel
