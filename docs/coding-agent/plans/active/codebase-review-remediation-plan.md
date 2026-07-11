@@ -181,12 +181,17 @@
 
 ### Task_6: Repair Android exact-alarm, full-screen, and Direct Boot recovery
 
-- status: in_progress
+- status: complete
 - stopped_cli_session: `019f4cd9-8741-75d3-9944-2fb899e496c5`
 - stopped_cli_session_archived: true
 - worker_thread: `019f4d61-3a43-7a90-97f9-0f78d1a14124`
+- replacement_worker_thread: `019f4dd2-951f-7551-b0a1-0995ed137340`
 - branch: `codex/reviewfix-android-recovery-thread`
 - worker_runtime: `gpt-5.6-luna` / `high`
+- pr: `#42` — https://github.com/xpadev-net/calarm/pull/42
+- final_head: `779daec2eb288c5d0fed5e6d93c2e84d3a87f06e`
+- merge_commit: `67df3f795879f7dabf1c820d169f7627807f24d4`
+- worker_thread_archived: true
 - type: impl
 - owns:
   - `android/app/src/main/AndroidManifest.xml`
@@ -276,13 +281,14 @@
 
 ### Task_9: Make create retry idempotent
 
-- status: blocked
+- status: in_progress
 - worker_thread: `019f4f15-56f9-7832-804e-01750602dfd7` (startup systemError; archived)
 - replacement_worker_thread: `019f4f16-f94f-7d22-89d1-566e6293690d` (startup systemError; archived)
 - final_startup_retry_thread: `019f4f18-4966-73e3-a353-c70c656da829` (startup systemError; archived)
-- worker_branch: `codex/reviewfix-create-retry-idempotency`
+- active_worker_thread: `019f5016-9021-7cf1-a44b-582db456009f`
+- worker_branch: `codex/reviewfix-create-retry-idempotency-retry`
 - worker_runtime: `gpt-5.6-luna` / `high`
-- blocker: three user-visible Codex worktree threads failed with systemError before onboarding; one bounded resume and two replacement/startup retries were attempted, with no worker edits or product changes.
+- prior_blocker_resolved: the new user-visible Codex worktree thread started successfully and remained active beyond initial worktree setup; the three earlier startup failures made no product changes.
 - type: impl
 - owns:
   - `lib/features/wake_plan/application/wake_plan_service.dart`
