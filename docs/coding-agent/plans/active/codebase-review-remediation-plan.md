@@ -321,11 +321,13 @@
 
 ### Task_10: Define an additive stable-ID and native inventory contract
 
-- status: blocked
-- blocker:
-  - Three user-visible Codex worktree creation requests were accepted only as queued client IDs (`client-new-thread:0316f1cb-f181-418c-baf5-2c2d2816021e`, `client-new-thread:4935e7a6-cc54-4d09-ac48-d11e9601480f`, and `client-new-thread:12a7498c-7881-4a98-a595-d0f4a693d855`) but never produced a real thread, worktree, or branch.
-  - Repeated thread-list inspection timed out; direct `git worktree list`, branch inspection, and `rtk gh pr list` confirm that no Task_10 implementation worktree, branch, or PR exists.
-  - No product files, commits, pushes, or PR state were changed by these failed starts. User action is required to restore Codex worktree-thread creation or explicitly create/resume a Task_10 user-visible worktree task.
+- status: in_progress
+- worker:
+  - thread: `019f5163-90ad-73b1-bf48-682e01d52962`
+  - worktree: `/Users/xpadev/.codex/worktrees/481c/calarm`
+  - branch: `codex/reviewfix-native-inventory-contract`
+  - runtime: `gpt-5.6-luna` / `high`
+  - startup: active beyond instruction loading; bounded gateway/channel contract investigation in progress.
 - type: design
 - owns:
   - `lib/core/platform/native_alarm_gateway.dart`
