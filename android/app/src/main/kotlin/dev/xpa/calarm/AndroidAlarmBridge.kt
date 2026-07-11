@@ -200,6 +200,15 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             legacyRequest.wakePlanId == request.wakePlanId &&
             (legacyRequest.reservationId == legacyRequest.occurrenceId ||
                 legacyRequest.reservationId == request.reservationId)
+        if (legacyRequest != null && legacyRequest.platformAlarmId != legacyPlatformAlarmId) {
+            return scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "nativeError",
+                "Legacy native alarm mirror row is corrupt.",
+                request.reservationId,
+            )
+        }
         if (legacyRequest != null && !legacyIdentityMatches) {
             return scheduleFailure(
                 request.occurrenceId,
@@ -220,7 +229,11 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             )
         }
 
-        val platformAlarmId = legacyRequest?.platformAlarmId ?: requestedPlatformAlarmId
+        val platformAlarmId = if (legacyRequest != null) {
+            legacyPlatformAlarmId
+        } else {
+            requestedPlatformAlarmId
+        }
         val existing = store.get(platformAlarmId)
         if (store.contains(platformAlarmId) && existing == null) {
             return scheduleFailure(
@@ -379,6 +392,17 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 try {
                     val stored = store.get(platformAlarmId)
                     if (store.contains(platformAlarmId) && stored == null) {
+                        cancelFailure(
+                            occurrenceId,
+                            platformAlarmId,
+                            "nativeError",
+                            "Native alarm mirror row is corrupt.",
+                            reservationId,
+                        )
+                    } else if (
+                        stored != null &&
+                        stored.platformAlarmId != platformAlarmId
+                    ) {
                         cancelFailure(
                             occurrenceId,
                             platformAlarmId,

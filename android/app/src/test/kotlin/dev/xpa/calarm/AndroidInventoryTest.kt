@@ -239,10 +239,98 @@ class AndroidInventoryTest {
         )
         assertEquals(AlarmState.RINGING, AlarmStore(context).get(legacy.platformAlarmId)?.state)
 
+        val scheduledBeforeRetry = scheduledAlarms()
+        ShadowAlarmManager.setCanScheduleExactAlarms(false)
         val ringingRetry = CapturingResult()
         bridge.onMethodCall(MethodCall("scheduleOccurrences", arguments), ringingRetry)
         assertNull(ringingRetry.errorCode)
+        val ringingRetryPayload = ringingRetry.value as Map<*, *>
+        val ringingRetryRow = (ringingRetryPayload["occurrences"] as List<*>).single() as Map<*, *>
+        assertEquals("success", ringingRetryRow["status"])
+        assertEquals("adopted-reservation", ringingRetryRow["reservationId"])
+        assertEquals("adopted-occurrence", ringingRetryRow["occurrenceId"])
+        assertEquals(legacy.platformAlarmId, ringingRetryRow["platformAlarmId"])
+        assertEquals(scheduledBeforeRetry, scheduledAlarms())
         assertEquals(AlarmState.RINGING, AlarmStore(context).get(legacy.platformAlarmId)?.state)
+    }
+
+    @Test
+    fun `legacy adoption rejects a foreign platform key without mutation`() {
+        val legacy = alarmRequest(
+            platformAlarmId = "android:plan:corrupt-occurrence",
+            reservationId = "corrupt-occurrence",
+            occurrenceId = "corrupt-occurrence",
+        )
+        val foreign = legacy.copy(platformAlarmIdOverride = "android:reservation:foreign")
+        mirrorPreferences().edit()
+            .putString(legacy.platformAlarmId, foreign.toJson().toString())
+            .commit()
+        val bridge = AndroidAlarmBridge(context)
+        val result = CapturingResult()
+
+        bridge.onMethodCall(
+            MethodCall(
+                "scheduleOccurrences",
+                scheduleArguments(
+                    occurrenceId = legacy.occurrenceId,
+                    reservationId = "stable-corrupt",
+                    wakePlanId = legacy.wakePlanId,
+                ),
+            ),
+            result,
+        )
+
+        assertNull(result.errorCode)
+        val response = result.value as Map<*, *>
+        val row = (response["occurrences"] as List<*>).single() as Map<*, *>
+        assertEquals("failure", row["status"])
+        assertEquals("nativeError", row["failureReason"])
+        assertTrue(scheduledAlarms().isEmpty())
+        assertEquals(
+            foreign.toJson().toString(),
+            mirrorPreferences().getString(legacy.platformAlarmId, null),
+        )
+        assertFalse(mirrorPreferences().contains("android:reservation:stable-corrupt"))
+    }
+
+    @Test
+    fun `cancel rejects a row whose payload platform key differs`() {
+        val platformAlarmId = "android:reservation:cancel-corrupt"
+        val foreign = alarmRequest(
+            platformAlarmId = "android:reservation:foreign-cancel",
+            reservationId = "cancel-reservation",
+            occurrenceId = "cancel-occurrence",
+        )
+        mirrorPreferences().edit()
+            .putString(platformAlarmId, foreign.toJson().toString())
+            .commit()
+        val bridge = AndroidAlarmBridge(context)
+        val result = CapturingResult()
+
+        bridge.onMethodCall(
+            MethodCall(
+                "cancelOccurrences",
+                mapOf(
+                    "schemaVersion" to 1,
+                    "alarms" to listOf(
+                        mapOf(
+                            "occurrenceId" to foreign.occurrenceId,
+                            "reservationId" to foreign.reservationId,
+                            "platformAlarmId" to platformAlarmId,
+                        ),
+                    ),
+                ),
+            ),
+            result,
+        )
+
+        assertNull(result.errorCode)
+        val response = result.value as Map<*, *>
+        val row = (response["alarms"] as List<*>).single() as Map<*, *>
+        assertEquals("failure", row["status"])
+        assertEquals("nativeError", row["failureReason"])
+        assertTrue(mirrorPreferences().contains(platformAlarmId))
+        assertTrue(scheduledAlarms().isEmpty())
     }
 
     @Test
