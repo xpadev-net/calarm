@@ -273,6 +273,21 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                     request.reservationId,
                 )
             }
+            if (legacyRequest != null && existing.reservationId != request.reservationId) {
+                val adoptedRingingRequest = existing.copy(
+                    reservationId = request.reservationId,
+                    platformAlarmIdOverride = platformAlarmId,
+                )
+                if (!store.put(adoptedRingingRequest)) {
+                    return scheduleFailure(
+                        request.occurrenceId,
+                        request.wakePlanId,
+                        "nativeError",
+                        "Failed to persist native alarm mirror state.",
+                        request.reservationId,
+                    )
+                }
+            }
             return scheduleSuccess(request, platformAlarmId)
         }
         if (!canScheduleExactAlarms()) {

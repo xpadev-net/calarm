@@ -365,6 +365,59 @@ class AndroidInventoryTest {
     }
 
     @Test
+    fun `ringing legacy adoption persists stable inventory without rearming`() {
+        val scheduledAtMillis = System.currentTimeMillis() + 60_000
+        val legacy = alarmRequest(
+            platformAlarmId = "android:plan:ringing-adopted-occurrence",
+            reservationId = "ringing-adopted-occurrence",
+            occurrenceId = "ringing-adopted-occurrence",
+            state = AlarmState.RINGING,
+            scheduledAtMillis = scheduledAtMillis,
+        )
+        assertTrue(AlarmStore(context).put(legacy))
+        val bridge = AndroidAlarmBridge(context)
+        val arguments = scheduleArguments(
+            occurrenceId = legacy.occurrenceId,
+            reservationId = "ringing-adopted-reservation",
+            wakePlanId = legacy.wakePlanId,
+            scheduledAtMillis = scheduledAtMillis,
+        )
+        val scheduledBeforeRetry = scheduledAlarms()
+
+        val first = CapturingResult()
+        bridge.onMethodCall(MethodCall("scheduleOccurrences", arguments), first)
+        assertNull(first.errorCode)
+        val firstPayload = first.value as Map<*, *>
+        val firstRow = (firstPayload["occurrences"] as List<*>).single() as Map<*, *>
+        assertEquals("success", firstRow["status"])
+        assertEquals("ringing-adopted-reservation", firstRow["reservationId"])
+        assertEquals(legacy.occurrenceId, firstRow["occurrenceId"])
+        assertEquals(legacy.platformAlarmId, firstRow["platformAlarmId"])
+        assertEquals(scheduledBeforeRetry, scheduledAlarms())
+
+        val firstInventory = AlarmStore(context).inventory(context, System.currentTimeMillis())
+        val firstRequest = firstInventory.requests.single()
+        assertEquals("ringing-adopted-reservation", firstRequest.reservationId)
+        assertEquals(legacy.occurrenceId, firstRequest.occurrenceId)
+        assertEquals(legacy.wakePlanId, firstRequest.wakePlanId)
+        assertEquals(legacy.platformAlarmId, firstRequest.platformAlarmId)
+        assertEquals(AlarmState.RINGING.value, firstInventory.status(firstRequest))
+        assertFalse(mirrorPreferences().contains("android:reservation:ringing-adopted-reservation"))
+
+        val duplicate = CapturingResult()
+        bridge.onMethodCall(MethodCall("scheduleOccurrences", arguments), duplicate)
+        assertNull(duplicate.errorCode)
+        val duplicatePayload = duplicate.value as Map<*, *>
+        val duplicateRow = (duplicatePayload["occurrences"] as List<*>).single() as Map<*, *>
+        assertEquals("success", duplicateRow["status"])
+        assertEquals("ringing-adopted-reservation", duplicateRow["reservationId"])
+        assertEquals(scheduledBeforeRetry, scheduledAlarms())
+        val duplicateRequest = AlarmStore(context).inventory(context, System.currentTimeMillis()).requests.single()
+        assertEquals("ringing-adopted-reservation", duplicateRequest.reservationId)
+        assertEquals(AlarmState.RINGING, duplicateRequest.state)
+    }
+
+    @Test
     fun `legacy adoption rejects a foreign platform key without mutation`() {
         val legacy = alarmRequest(
             platformAlarmId = "android:plan:corrupt-occurrence",
@@ -527,8 +580,9 @@ class AndroidInventoryTest {
         occurrenceId: String,
         reservationId: String,
         wakePlanId: String,
+        scheduledAtMillis: Long = System.currentTimeMillis() + 60_000,
     ): Map<String, Any?> {
-        val scheduledAt = Instant.ofEpochMilli(System.currentTimeMillis() + 60_000)
+        val scheduledAt = Instant.ofEpochMilli(scheduledAtMillis)
         return mapOf<String, Any?>(
             "schemaVersion" to 1,
             "occurrences" to listOf(
