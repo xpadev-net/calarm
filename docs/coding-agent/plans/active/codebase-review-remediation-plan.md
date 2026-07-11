@@ -245,9 +245,13 @@
 
 ### Task_8: Make edit/delete/skip compensation preserve the authoritative schedule
 
-- status: in progress
-- worker_thread: `client-new-thread:12949d91-c251-44a6-9c73-e82fecda98d9` (queued; replace with resolved thread ID at startup check)
+- status: complete
+- worker_thread: `019f4e4e-3915-7e02-b823-bba4a34dd31c`
 - branch: `codex/reviewfix-wake-plan-compensation`
+- worker_head: `9b6058440e15999b24bd00ba95b71fe1cd1282ba`
+- pr: `#44` — https://github.com/xpadev-net/calarm/pull/44
+- merge_commit: `bbea05ef1c9b9df75a76f48c3d1815760cde81df`
+- worker_thread_archived: true
 - type: impl
 - owns:
   - `lib/features/wake_plan/application/wake_plan_service.dart`
@@ -262,6 +266,13 @@
   - kind: command; required: true; owner: worker; detail: focused fault-injection tests for each cancel/schedule/compensation boundary.
   - kind: command; required: true; owner: worker; detail: `flutter analyze` and `flutter test`.
   - kind: review; required: true; owner: reviewer; detail: failure-state-machine and retry review.
+- review_evidence:
+  - independent Reviewer `019f4f0c-14e9-7c11-9dae-84d19fbde74c` APPROVED exact head with no Blocker/High findings.
+  - worker validation: 43 focused service tests, `flutter analyze`, full 232-test suite, and diff check passed.
+  - orchestrator validation: exact-head 43 focused tests, analyze, full 232-test suite, and diff check passed in a clean temporary worktree.
+  - orchestrator `$deep-review`: no Blocker/High findings; persistence, compensation, concurrency, cross-midnight metadata, and shared mutation paths reviewed.
+  - final-head `gh-review-hook 44`: exit 0 in a clean temporary worktree; hosted checks 5/5 passed and review decision APPROVED.
+  - residual risk: adapter-specific partial writes are not modeled by in-memory fault injection; stable native identity/inventory crash-window recovery remains owned by Tasks 10/12/13.
 
 ### Task_9: Make create retry idempotent
 
@@ -568,10 +579,15 @@
   - The merge command completed the GitHub squash merge but returned exit 1 only because the checked-out branch could not be deleted from the original sibling worktree; post-command GitHub verification proved the merge commit above.
   - Next action: dispatch dependency-ready Task_8 under the approved remediation plan.
 
-- 2026-07-11 Task_8 dispatched with Luna High.
-  - Queued Codex thread `client-new-thread:12949d91-c251-44a6-9c73-e82fecda98d9`, branch `codex/reviewfix-wake-plan-compensation`, owns only `wake_plan_service.dart` and its focused service test.
-  - Task_8 starts from current `origin/master` after Tasks 6 and 7 completed; the worker must preserve Task_7 serialization/idempotency behavior and request decomposition before expanding ownership.
-  - Next action: resolve the durable thread ID, perform the startup stability check, then wait for the review-ready exact-head handoff.
+- 2026-07-11 Task_8 completed and archived.
+  - PR #44 squash-merged as `bbea05ef1c9b9df75a76f48c3d1815760cde81df`; final worker head `9b6058440e15999b24bd00ba95b71fe1cd1282ba`.
+  - Worker validation: focused wake-plan service tests passed 43/43, `flutter analyze` passed, full Flutter suite passed 232/232, and diff check passed; scope remained the two owned files.
+  - Review evidence: independent Reviewer `019f4f0c-14e9-7c11-9dae-84d19fbde74c` APPROVED exact head with no Blocker/High; the reviewer verified post-native persistence failures, truthful recovery state, compensation, cross-midnight metadata, canonical indexes, unmapped rows, and shared edit/delete/skip/undo behavior.
+  - Orchestrator evidence: final preflight was non-draft, CLEAN, APPROVED, base-current, and all five hosted checks passed; parent deep-review found no Blocker/High; final-head `gh-review-hook 44` exited 0 in a clean temporary PR-head worktree; exact-head focused 43 tests, analyze, full 232 tests, and diff check passed.
+  - Residual risk remains explicitly recorded: adapter-specific partial writes are not modeled by in-memory fault injection, and native-success/database-write crash-window recovery remains owned by Tasks 10/12/13.
+  - Worker thread `019f4e4e-3915-7e02-b823-bba4a34dd31c` and Reviewer thread `019f4f0c-14e9-7c11-9dae-84d19fbde74c` were archived after merge.
+  - The merge command returned exit 1 only because the worker branch could not be deleted from its active sibling worktree; GitHub verification proved the squash merge and no open PRs remain.
+  - Next action: dispatch dependency-ready Task_9 while preserving the now-merged compensation semantics.
 
 ## Decision Log
 
