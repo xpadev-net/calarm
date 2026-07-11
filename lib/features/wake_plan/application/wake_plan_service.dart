@@ -60,16 +60,46 @@ class WakePlanService {
   final int _rollingScheduleDays;
   Future<List<WakePlanSchedulingResult>>? _reconciliation;
   bool _reconciliationPending = false;
+  final Map<String, Future<WakePlanSchedulingResult>> _createOperations = {};
 
-  Future<WakePlanSchedulingResult> createPlan(WakePlan plan) async {
+  Future<WakePlanSchedulingResult> createPlan(WakePlan plan) {
+    final currentOperation = _createOperations[plan.id];
+    if (currentOperation != null) {
+      return currentOperation;
+    }
+
+    final completer = Completer<WakePlanSchedulingResult>();
+    final operation = completer.future;
+    _createOperations[plan.id] = operation;
+    unawaited(_completeCreatePlan(plan: plan, completer: completer));
+    return operation;
+  }
+
+  Future<void> _completeCreatePlan({
+    required WakePlan plan,
+    required Completer<WakePlanSchedulingResult> completer,
+  }) async {
+    try {
+      final result = await _createPlan(plan);
+      _createOperations.remove(plan.id);
+      completer.complete(result);
+    } catch (error, stackTrace) {
+      _createOperations.remove(plan.id);
+      completer.completeError(error, stackTrace);
+    }
+  }
+
+  Future<WakePlanSchedulingResult> _createPlan(WakePlan plan) async {
     final now = _clock();
     final persistedPlan = plan.copyWith(updatedAt: now);
     await _store.saveWakePlan(persistedPlan);
+    final existingOccurrences = await _store.fetchOccurrencesForPlan(plan.id);
 
     return _generateAndSchedule(
       plan: persistedPlan,
       now: now,
       changeState: WakePlanChangeState.committed,
+      existingOccurrences: existingOccurrences,
     );
   }
 
@@ -450,6 +480,7 @@ class WakePlanService {
     required DateTime now,
     required WakePlanChangeState changeState,
     CancelResult? cancelResult,
+    List<AlarmOccurrence>? existingOccurrences,
   }) async {
     final occurrenceBundle = _buildOccurrenceBundle(plan: plan, now: now);
     if (_requiresFutureOccurrence(plan) &&
@@ -459,13 +490,56 @@ class WakePlanService {
         cancelResult: cancelResult,
       );
     }
-    await _store.saveAlarmOccurrences(occurrenceBundle.occurrences);
+
+    final existingById = {
+      for (final occurrence in existingOccurrences ?? const <AlarmOccurrence>[])
+        occurrence.id: occurrence,
+    };
+    final preparedOccurrences = <AlarmOccurrence>[];
+    final pendingOccurrences = <AlarmOccurrence>[];
+    for (final desired in occurrenceBundle.occurrences) {
+      final existing = existingById[desired.id];
+      if (_hasUsableCreateReservation(
+        existing: existing,
+        desired: desired,
+        now: now,
+      )) {
+        preparedOccurrences.add(
+          existing!.copyWith(
+            status: AlarmOccurrenceStatus.scheduled,
+            failureReason: null,
+            updatedAt: now,
+          ),
+        );
+      } else {
+        preparedOccurrences.add(desired);
+        pendingOccurrences.add(desired);
+      }
+    }
+
+    if (pendingOccurrences.isEmpty) {
+      return _successfulReconciliationResult(
+        plan: plan,
+        occurrences: preparedOccurrences,
+      );
+    }
+
+    final pendingIds = pendingOccurrences.map((occurrence) => occurrence.id);
+    final pendingIdSet = pendingIds.toSet();
+    final pendingRequests = existingOccurrences == null
+        ? occurrenceBundle.requests
+        : _reindexRequests(
+            occurrenceBundle.requests
+                .where((request) => pendingIdSet.contains(request.occurrenceId))
+                .toList(growable: false),
+          );
+    await _store.saveAlarmOccurrences(pendingOccurrences);
 
     final scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(
-      occurrenceBundle.requests,
+      pendingRequests,
     );
     final completedOccurrences = _applyScheduleResult(
-      occurrences: occurrenceBundle.occurrences,
+      occurrences: pendingOccurrences,
       scheduleResult: scheduleResult,
       updatedAt: now,
     );
@@ -473,7 +547,14 @@ class WakePlanService {
       completedOccurrences,
     );
 
-    final hasFailedOccurrences = completedOccurrences.any(
+    final completedById = {
+      for (final occurrence in completedOccurrences) occurrence.id: occurrence,
+    };
+    final reconciledOccurrences = preparedOccurrences
+        .map((occurrence) => completedById[occurrence.id] ?? occurrence)
+        .toList(growable: false);
+
+    final hasFailedOccurrences = reconciledOccurrences.any(
       (occurrence) => occurrence.status == AlarmOccurrenceStatus.failed,
     );
     final hasScheduleFailure =
@@ -493,7 +574,7 @@ class WakePlanService {
           : WakePlanChangeState.failed,
       scheduleResult: scheduleResult,
       cancelResult: cancelResult,
-      occurrences: completedOccurrences,
+      occurrences: reconciledOccurrences,
       databaseState: persistenceError == null
           ? WakePlanDatabaseState.persisted
           : WakePlanDatabaseState.unknown,
@@ -506,6 +587,18 @@ class WakePlanService {
           ? null
           : WakePlanSchedulingWarning.scheduleFailed(scheduleResult),
     );
+  }
+
+  bool _hasUsableCreateReservation({
+    required AlarmOccurrence? existing,
+    required AlarmOccurrence desired,
+    required DateTime now,
+  }) {
+    return existing != null &&
+        existing.wakePlanId == desired.wakePlanId &&
+        existing.scheduledAt == desired.scheduledAt &&
+        existing.hasNativeReservation &&
+        !existing.scheduledAt.toDateTime().isBefore(now);
   }
 
   Future<WakePlanSchedulingResult> _reconcilePlan({

@@ -97,6 +97,7 @@ void main() {
         expect(result.warning, isNull);
         expect(store.operations, [
           'saveWakePlan:plan-1',
+          'fetchOccurrencesForPlan:plan-1',
           'saveAlarmOccurrences:4',
           'saveAlarmOccurrences:4',
         ]);
@@ -214,6 +215,94 @@ void main() {
         expect(failedWithPlatform.failureReason, isNull);
       },
     );
+
+    test('retries a full failure without creating a second plan', () async {
+      final store = _LoggingWakePlanServiceStore();
+      final gateway = FakeNativeAlarmGateway(
+        capability: const NativeAlarmCapability(
+          permissionStatus: NativeAlarmPermissionStatus.denied,
+          canScheduleAlarms: false,
+          canRequestPermission: true,
+        ),
+      );
+      final serviceUnderTest = service(store: store, gateway: gateway);
+
+      final first = await serviceUnderTest.createPlan(buildPlan());
+      gateway.capability = const NativeAlarmCapability(
+        permissionStatus: NativeAlarmPermissionStatus.authorized,
+        canScheduleAlarms: true,
+        canRequestPermission: true,
+      );
+      final retry = await serviceUnderTest.createPlan(buildPlan());
+
+      expect(first.status, WakePlanSchedulingStatus.scheduleFailed);
+      expect(retry.status, WakePlanSchedulingStatus.scheduled);
+      expect(store.savedPlans.map((plan) => plan.id).toSet(), {'plan-1'});
+      expect(store.storedOccurrences, hasLength(4));
+      expect(
+        store.storedOccurrences.every(
+          (occurrence) => occurrence.status == AlarmOccurrenceStatus.scheduled,
+        ),
+        isTrue,
+      );
+      expect(gateway.scheduledRequests, hasLength(8));
+    });
+
+    test(
+      'retries only missing occurrences after a partial native failure',
+      () async {
+        final store = _LoggingWakePlanServiceStore();
+        final gateway = FakeNativeAlarmGateway()
+          ..scheduleFailureOccurrenceIds.add('plan-1:20640:410');
+        final serviceUnderTest = service(store: store, gateway: gateway);
+
+        final first = await serviceUnderTest.createPlan(buildPlan());
+        expect(
+          store.storedOccurrences
+              .singleWhere((occurrence) => occurrence.id == 'plan-1:20640:410')
+              .platformAlarmId,
+          isNull,
+        );
+        gateway.scheduleFailureOccurrenceIds.clear();
+        gateway.scheduleFailureOccurrenceIdsWithPlatformAlarmIds.clear();
+        final retry = await serviceUnderTest.createPlan(buildPlan());
+
+        expect(first.status, WakePlanSchedulingStatus.scheduleFailed);
+        expect(retry.status, WakePlanSchedulingStatus.scheduled);
+        expect(gateway.scheduledRequests, hasLength(5));
+        expect(
+          gateway.scheduledRequests
+              .skip(4)
+              .map((request) => request.occurrenceId),
+          ['plan-1:20640:410'],
+        );
+        expect(store.storedOccurrences, hasLength(4));
+        expect(
+          store.storedOccurrences.every(
+            (occurrence) => occurrence.platformAlarmId != null,
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test('coalesces concurrent creates for the same plan identity', () async {
+      final store = _LoggingWakePlanServiceStore();
+      final gateway = _BlockingScheduleGateway();
+      final serviceUnderTest = service(store: store, gateway: gateway);
+
+      final first = serviceUnderTest.createPlan(buildPlan());
+      await gateway.firstScheduleStarted.future;
+      final duplicate = serviceUnderTest.createPlan(buildPlan());
+
+      expect(identical(first, duplicate), isTrue);
+      gateway.releaseFirstSchedule.complete();
+      await Future.wait([first, duplicate]);
+
+      expect(gateway.scheduleCallCount, 1);
+      expect(store.savedPlans, hasLength(1));
+      expect(store.storedOccurrences, hasLength(4));
+    });
 
     test('does not create duplicate occurrences within a WakePlan', () async {
       final store = _LoggingWakePlanServiceStore();

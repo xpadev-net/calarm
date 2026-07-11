@@ -33,6 +33,8 @@ class CreateWakePlanSheet extends StatefulWidget {
 }
 
 class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
+  static var _nextCreateSessionId = 0;
+
   late Duration _startOffset;
   late Duration _interval;
   late _RepeatOption _repeatOption;
@@ -43,6 +45,8 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
   bool _saving = false;
   bool _advancedExpanded = false;
   String? _scheduleWarning;
+  late final String _sessionWakePlanId;
+  var _saveAttempt = 0;
 
   CalendarDay get _targetDay => widget.initialTarget.day;
 
@@ -61,6 +65,8 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
   void initState() {
     super.initState();
     final existingWakePlan = widget.existingWakePlan;
+    _sessionWakePlanId =
+        existingWakePlan?.id ?? 'wake-session-${++_nextCreateSessionId}';
     _startOffset =
         existingWakePlan?.startOffset ?? widget.defaults.defaultStartOffset;
     _interval = existingWakePlan?.interval ?? widget.defaults.defaultInterval;
@@ -327,6 +333,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
     }
 
     final now = _currentNow;
+    final saveAttempt = ++_saveAttempt;
     setState(() {
       _saving = true;
       _scheduleWarning = null;
@@ -335,7 +342,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
     final plan = _buildWakePlan(createdAt: now);
     try {
       final result = await widget.onSave(plan);
-      if (!mounted) {
+      if (!mounted || saveAttempt != _saveAttempt) {
         return;
       }
       if (result.isSuccess) {
@@ -349,7 +356,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
       });
     } catch (error, stackTrace) {
       debugPrint('CreateWakePlanSheet save failed: $error\n$stackTrace');
-      if (!mounted) {
+      if (!mounted || saveAttempt != _saveAttempt) {
         return;
       }
       setState(() {
@@ -364,7 +371,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
     final existingWakePlan = widget.existingWakePlan;
 
     return WakePlan(
-      id: existingWakePlan?.id ?? _wakePlanId(createdAt),
+      id: existingWakePlan?.id ?? _sessionWakePlanId,
       title: 'Wake $_targetTime',
       targetTime: _targetTime,
       startOffset: _startOffset,
@@ -431,10 +438,6 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
         minute: selected.minute,
       );
     });
-  }
-
-  String _wakePlanId(DateTime createdAt) {
-    return 'wake-${createdAt.microsecondsSinceEpoch}-${_targetAt.microsecondsSinceEpoch}';
   }
 }
 

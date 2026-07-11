@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:calarm/core/platform/native_alarm_gateway.dart';
 import 'package:calarm/core/time/time.dart';
 import 'package:calarm/features/wake_plan/application/wake_plan_service.dart';
@@ -232,6 +234,81 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Create wake plan'), findsOneWidget);
+  });
+
+  testWidgets('retries with one session identity and ignores a double tap', (
+    tester,
+  ) async {
+    final firstCompletion = Completer<WakePlanSchedulingResult>();
+    final savedPlans = <WakePlan>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CreateWakePlanSheet(
+            initialTarget: _target(),
+            now: DateTime(2026, 7, 8, 5, 30),
+            clock: () => DateTime(2026, 7, 8, 5, 30),
+            defaults: AppSettings.initial(),
+            existingWakePlans: const [],
+            onSave: (plan) {
+              savedPlans.add(plan);
+              if (savedPlans.length == 1) {
+                return firstCompletion.future;
+              }
+              return Future.value(_successResult());
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pump();
+    await tester.tap(find.text('Save'));
+    await tester.pump();
+
+    expect(savedPlans, hasLength(1));
+    firstCompletion.complete(_failureResult());
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(savedPlans, hasLength(2));
+    expect(savedPlans[1].id, savedPlans[0].id);
+  });
+
+  testWidgets('ignores a delayed save completion after disposal', (
+    tester,
+  ) async {
+    final completion = Completer<WakePlanSchedulingResult>();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CreateWakePlanSheet(
+            initialTarget: _target(),
+            now: DateTime(2026, 7, 8, 5, 30),
+            clock: () => DateTime(2026, 7, 8, 5, 30),
+            defaults: AppSettings.initial(),
+            existingWakePlans: const [],
+            onSave: (_) => completion.future,
+          ),
+        ),
+      ),
+    );
+
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pump();
+    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+    completion.complete(_successResult());
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('shows an inline warning for overlapping wake windows', (
