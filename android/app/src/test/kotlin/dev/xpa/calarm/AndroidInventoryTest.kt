@@ -1,6 +1,7 @@
 package dev.xpa.calarm
 
 import android.app.AlarmManager
+import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
 import io.flutter.plugin.common.MethodCall
@@ -22,7 +23,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowAlarmManager
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35])
+@Config(sdk = [32])
 class AndroidInventoryTest {
     private lateinit var context: Context
 
@@ -33,6 +34,8 @@ class AndroidInventoryTest {
         credentialPreferences().edit().clear().commit()
         ShadowAlarmManager.reset()
         ShadowAlarmManager.setCanScheduleExactAlarms(true)
+        context.getSystemService(NotificationManager::class.java)
+            .createNotificationChannel(AlarmNotificationChannel.create())
     }
 
     @After
@@ -139,7 +142,12 @@ class AndroidInventoryTest {
 
     @Test
     fun `test alarm cancellation accepts the synthetic test identity only`() {
-        val testRequest = alarmRequest("android:test:synthetic").copy(isTest = true)
+        val testRequest = alarmRequest(
+            platformAlarmId = "android:test:test-123",
+            reservationId = "test-123",
+            occurrenceId = "test-123",
+            wakePlanId = "test",
+        ).copy(isTest = true, platformAlarmIdOverride = "android:test:test-123")
         assertTrue(AlarmStore(context).put(testRequest))
         val bridge = AndroidAlarmBridge(context)
         val result = CapturingResult()
@@ -168,6 +176,67 @@ class AndroidInventoryTest {
                 .let { it as Map<*, *> }["status"],
         )
         assertNull(AlarmStore(context).get(testRequest.platformAlarmId))
+    }
+
+    @Test
+    fun `misclassified test row cannot bypass cancellation identity`() {
+        val request = alarmRequest(
+            platformAlarmId = "android:reservation:misclassified",
+            reservationId = "real-reservation",
+            occurrenceId = "real-occurrence",
+        ).copy(isTest = true)
+        assertTrue(AlarmStore(context).put(request))
+        val bridge = AndroidAlarmBridge(context)
+        val result = CapturingResult()
+
+        bridge.onMethodCall(
+            MethodCall(
+                "cancelOccurrences",
+                mapOf(
+                    "schemaVersion" to 1,
+                    "alarms" to listOf(
+                        mapOf(
+                            "occurrenceId" to "wrong-occurrence",
+                            "reservationId" to "wrong-reservation",
+                            "platformAlarmId" to request.platformAlarmId,
+                        ),
+                    ),
+                ),
+            ),
+            result,
+        )
+
+        assertNull(result.errorCode)
+        val response = result.value as Map<*, *>
+        val row = (response["alarms"] as List<*>).single() as Map<*, *>
+        assertEquals("failure", row["status"])
+        assertEquals("invalidRequest", row["failureReason"])
+        assertNotNull(AlarmStore(context).get(request.platformAlarmId))
+    }
+
+    @Test
+    fun `receiver rejects a corrupt mirror payload without mutation`() {
+        val lookupPlatformAlarmId = "android:plan:receiver-corrupt"
+        val foreign = alarmRequest(
+            platformAlarmId = "android:reservation:foreign-ringing",
+            reservationId = "receiver-reservation",
+            occurrenceId = "receiver-occurrence",
+        )
+        mirrorPreferences().edit()
+            .putString(lookupPlatformAlarmId, foreign.toJson().toString())
+            .commit()
+
+        AlarmReceiver().onReceive(
+            context,
+            Shadows.shadowOf(AlarmIntents.receiver(context, lookupPlatformAlarmId)).savedIntent,
+        )
+
+        assertEquals(
+            AlarmState.SCHEDULED,
+            AlarmStore(context).get(lookupPlatformAlarmId)?.state,
+        )
+        assertEquals(foreign.toJson().toString(), mirrorPreferences().getString(lookupPlatformAlarmId, null))
+        assertFalse(mirrorPreferences().contains(foreign.platformAlarmId))
     }
 
     @Test
@@ -459,13 +528,14 @@ class AndroidInventoryTest {
         platformAlarmId: String,
         reservationId: String = "occurrence",
         occurrenceId: String = "occurrence",
+        wakePlanId: String = "plan",
         scheduledAtMillis: Long = System.currentTimeMillis() + 60_000,
         state: AlarmState = AlarmState.SCHEDULED,
     ): AlarmRequest {
         return AlarmRequest(
             occurrenceId = occurrenceId,
             reservationId = reservationId,
-            wakePlanId = "plan",
+            wakePlanId = wakePlanId,
             scheduledAtMillis = scheduledAtMillis,
             targetAtMillis = scheduledAtMillis,
             soundId = "default",

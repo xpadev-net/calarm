@@ -412,7 +412,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                         )
                     } else if (
                         stored != null &&
-                        !stored.isTest &&
+                        !isSyntheticTestAlarm(stored) &&
                         (stored.reservationId != reservationId || stored.occurrenceId != occurrenceId)
                     ) {
                         cancelFailure(
@@ -529,6 +529,14 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             "failureReason" to reason,
             "failureMessage" to message,
         )
+    }
+
+    private fun isSyntheticTestAlarm(request: AlarmRequest): Boolean {
+        return request.isTest &&
+            request.wakePlanId == "test" &&
+            request.reservationId == request.occurrenceId &&
+            request.occurrenceId.startsWith("test-") &&
+            request.platformAlarmId == "android:test:${request.occurrenceId}"
     }
 
     private fun inventoryResponse(): InventoryResponse {
@@ -726,6 +734,7 @@ class AlarmStore(context: Context) {
 
     fun markRinging(platformAlarmId: String): Boolean {
         val request = get(platformAlarmId) ?: return false
+        if (request.platformAlarmId != platformAlarmId) return false
         return put(request.copy(state = AlarmState.RINGING))
     }
 

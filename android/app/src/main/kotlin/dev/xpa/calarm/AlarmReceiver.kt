@@ -16,6 +16,7 @@ class AlarmReceiver : BroadcastReceiver() {
         val store = AlarmStore(context)
         val request = store.get(platformAlarmId)
         if (request == null && !store.contains(platformAlarmId)) return
+        if (request != null && request.platformAlarmId != platformAlarmId) return
         if (request != null) {
             store.markRinging(platformAlarmId)
         }
