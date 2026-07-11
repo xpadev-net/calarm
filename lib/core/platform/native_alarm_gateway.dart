@@ -224,15 +224,7 @@ class ScheduleResult {
     required List<NativeAlarmScheduleRequest> requests,
     required List<ScheduleOccurrenceResult> results,
   }) {
-    _validateUniqueReservationIds(
-      requests.map((request) => request.reservationId),
-      'requests',
-    );
-    _validateUniqueValues(
-      requests.map((request) => request.occurrenceId),
-      'occurrenceId',
-      'requests',
-    );
+    validateRequests(requests);
     final correlatedResults = _correlateRequestResults(
       requests: requests,
       results: results,
@@ -318,6 +310,19 @@ class ScheduleResult {
 
   final ScheduleResultStatus status;
   final List<ScheduleOccurrenceResult> occurrences;
+
+  /// Validates a schedule batch before any native side effect is attempted.
+  static void validateRequests(List<NativeAlarmScheduleRequest> requests) {
+    _validateUniqueReservationIds(
+      requests.map((request) => request.reservationId),
+      'requests',
+    );
+    _validateUniqueValues(
+      requests.map((request) => request.occurrenceId),
+      'occurrenceId',
+      'requests',
+    );
+  }
 
   bool get isSuccess => status == ScheduleResultStatus.success;
 
@@ -435,20 +440,7 @@ class CancelResult {
     required List<NativeAlarmCancelRequest> requests,
     required List<CancelAlarmResult> results,
   }) {
-    _validateUniqueReservationIds(
-      requests.map((request) => request.reservationId),
-      'requests',
-    );
-    _validateUniqueValues(
-      requests.map((request) => request.occurrenceId),
-      'occurrenceId',
-      'requests',
-    );
-    _validateUniqueValues(
-      requests.map((request) => request.platformAlarmId),
-      'platformAlarmId',
-      'requests',
-    );
+    validateRequests(requests);
     final correlatedResults = _correlateRequestResults(
       requests: requests,
       results: results,
@@ -521,6 +513,24 @@ class CancelResult {
 
   final CancelResultStatus status;
   final List<CancelAlarmResult> alarms;
+
+  /// Validates a cancellation batch before any native side effect is attempted.
+  static void validateRequests(List<NativeAlarmCancelRequest> requests) {
+    _validateUniqueReservationIds(
+      requests.map((request) => request.reservationId),
+      'requests',
+    );
+    _validateUniqueValues(
+      requests.map((request) => request.occurrenceId),
+      'occurrenceId',
+      'requests',
+    );
+    _validateUniqueValues(
+      requests.map((request) => request.platformAlarmId),
+      'platformAlarmId',
+      'requests',
+    );
+  }
 
   bool get isSuccess => status == CancelResultStatus.success;
 }

@@ -431,6 +431,19 @@ void main() {
       );
     });
 
+    test('rejects duplicate schedule requests before fake mutation', () async {
+      final gateway = FakeNativeAlarmGateway();
+      final duplicateRequests = [_requests().first, _requests().first];
+
+      await expectLater(
+        gateway.scheduleOccurrences(duplicateRequests),
+        throwsArgumentError,
+      );
+
+      expect(gateway.scheduledRequests, isEmpty);
+      expect(gateway.inventoryRows, isEmpty);
+    });
+
     test(
       'keeps stable inventory identity across duplicate schedule calls',
       () async {
@@ -617,6 +630,28 @@ void main() {
         'platform-occ-1',
         'platform-occ-2',
       ]);
+    });
+
+    test('rejects duplicate cancel requests before fake mutation', () async {
+      final gateway = FakeNativeAlarmGateway();
+      final duplicateRequests = [
+        NativeAlarmCancelRequest(
+          occurrenceId: 'occ-1',
+          platformAlarmId: 'platform-occ-1',
+        ),
+        NativeAlarmCancelRequest(
+          occurrenceId: 'occ-1',
+          platformAlarmId: 'platform-occ-1',
+        ),
+      ];
+
+      await expectLater(
+        gateway.cancelOccurrences(duplicateRequests),
+        throwsArgumentError,
+      );
+
+      expect(gateway.cancelledOccurrences, isEmpty);
+      expect(gateway.inventoryRows, isEmpty);
     });
 
     test('reports cancel partial failures per platform alarm id', () async {

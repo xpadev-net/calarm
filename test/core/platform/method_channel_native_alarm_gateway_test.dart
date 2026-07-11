@@ -267,6 +267,22 @@ void main() {
   );
 
   test(
+    'scheduleOccurrences rejects duplicate requests before native call',
+    () async {
+      final duplicateRequests = [_requests().first, _requests().first];
+      _setHandler(channel, calls, (_) {
+        fail('duplicate schedule batch reached the native channel');
+      });
+
+      await expectLater(
+        gateway.scheduleOccurrences(duplicateRequests),
+        throwsArgumentError,
+      );
+      expect(calls, isEmpty);
+    },
+  );
+
+  test(
     'cancelOccurrences sends occurrence to platform id correspondence',
     () async {
       _setHandler(channel, calls, (call) {
@@ -354,6 +370,25 @@ void main() {
 
     expect(result.status, CancelResultStatus.success);
   });
+
+  test(
+    'cancelOccurrences rejects duplicate requests before native call',
+    () async {
+      final duplicateRequests = [
+        _cancelRequests().first,
+        _cancelRequests().first,
+      ];
+      _setHandler(channel, calls, (_) {
+        fail('duplicate cancel batch reached the native channel');
+      });
+
+      await expectLater(
+        gateway.cancelOccurrences(duplicateRequests),
+        throwsArgumentError,
+      );
+      expect(calls, isEmpty);
+    },
+  );
 
   test(
     'cancelPlan maps native method error per requested platform id',

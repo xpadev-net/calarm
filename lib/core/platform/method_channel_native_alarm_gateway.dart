@@ -69,6 +69,7 @@ class MethodChannelNativeAlarmGateway implements NativeAlarmGateway {
   Future<ScheduleResult> scheduleOccurrences(
     List<NativeAlarmScheduleRequest> occurrences,
   ) async {
+    ScheduleResult.validateRequests(occurrences);
     try {
       final response = await _invokeMap('scheduleOccurrences', {
         ..._basePayload(),
@@ -187,6 +188,7 @@ class MethodChannelNativeAlarmGateway implements NativeAlarmGateway {
     String method,
     List<NativeAlarmCancelRequest> alarms,
   ) async {
+    CancelResult.validateRequests(alarms);
     try {
       final response = await _invokeMap(method, {
         ..._basePayload(),

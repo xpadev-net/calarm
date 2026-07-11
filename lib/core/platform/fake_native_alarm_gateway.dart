@@ -61,6 +61,7 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
   Future<ScheduleResult> scheduleOccurrences(
     List<NativeAlarmScheduleRequest> occurrences,
   ) async {
+    ScheduleResult.validateRequests(occurrences);
     scheduledRequests.addAll(occurrences);
 
     final permissionMissing =
@@ -115,12 +116,14 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
   Future<CancelResult> cancelOccurrences(
     List<NativeAlarmCancelRequest> alarms,
   ) async {
+    CancelResult.validateRequests(alarms);
     cancelledOccurrences.addAll(alarms);
     return _cancel(alarms);
   }
 
   @override
   Future<CancelResult> cancelPlan(List<NativeAlarmCancelRequest> alarms) async {
+    CancelResult.validateRequests(alarms);
     cancelledPlans.addAll(alarms);
     return _cancel(alarms);
   }
