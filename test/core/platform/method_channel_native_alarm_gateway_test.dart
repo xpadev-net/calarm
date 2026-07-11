@@ -140,6 +140,31 @@ void main() {
     },
   );
 
+  test(
+    'getInventory classifies unknown native errors as read failures',
+    () async {
+      _setHandler(channel, calls, (_) {
+        throw PlatformException(
+          code: 'UNKNOWN',
+          message: 'Native read failed.',
+        );
+      });
+
+      final result = await gateway.getInventory();
+      final reconciliation = result.reconcile(expected: const []);
+
+      expect(
+        result.failureReason,
+        NativeAlarmInventoryFailureReason.nativeError,
+      );
+      expect(reconciliation.isAuthoritative, isFalse);
+      expect(
+        reconciliation.issues.single.type,
+        NativeAlarmInventoryIssueType.readFailure,
+      );
+    },
+  );
+
   test('requestPermission uses requestPermissionIfNeeded method', () async {
     _setHandler(channel, calls, (call) {
       expect(call.arguments, {'schemaVersion': 1});

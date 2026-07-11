@@ -473,7 +473,10 @@ NativeAlarmInventoryFailureReason _inventoryFailureReason(String value) {
     'unavailable' ||
     'UNAVAILABLE' => NativeAlarmInventoryFailureReason.unavailable,
     'corrupt' || 'CORRUPT' => NativeAlarmInventoryFailureReason.corrupt,
-    'unknown' || 'UNKNOWN' => NativeAlarmInventoryFailureReason.unknown,
+    // `unknown` is a row/status classification, not a read outcome. Keep
+    // native read failures on the failure path so reconciliation emits the
+    // explicit `readFailure` issue rather than conflating the two.
+    'unknown' || 'UNKNOWN' => NativeAlarmInventoryFailureReason.nativeError,
     _ => NativeAlarmInventoryFailureReason.nativeError,
   };
 }
