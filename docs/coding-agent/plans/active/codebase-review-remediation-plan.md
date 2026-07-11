@@ -281,7 +281,7 @@
 
 ### Task_9: Make create retry idempotent
 
-- status: in_progress
+- status: complete
 - worker_thread: `019f4f15-56f9-7832-804e-01750602dfd7` (startup systemError; archived)
 - replacement_worker_thread: `019f4f16-f94f-7d22-89d1-566e6293690d` (startup systemError; archived)
 - final_startup_retry_thread: `019f4f18-4966-73e3-a353-c70c656da829` (startup systemError; archived)
@@ -289,6 +289,12 @@
 - worker_branch: `codex/reviewfix-create-retry-idempotency-retry`
 - worker_runtime: `gpt-5.6-luna` / `high`
 - prior_blocker_resolved: the new user-visible Codex worktree thread started successfully and remained active beyond initial worktree setup; the three earlier startup failures made no product changes.
+- pr: `#45` — https://github.com/xpadev-net/calarm/pull/45
+- final_head: `c3c3a5ccd369b33cfcefc776d0eb417b91f32ca8`
+- merge_commit: `5c02fa3a10aeb23bf9480460b3e60adb8cfa0fb1`
+- worker_thread_archived: true
+- worker_hook: 30 invocations exited 2; after two in-scope ringing fixes, invocations 3-30 repeated only the native-success/DB-persistence crash window owned by Tasks 10-13.
+- orchestrator_hook: exit 0 in a clean exact-head worktree.
 - type: impl
 - owns:
   - `lib/features/wake_plan/application/wake_plan_service.dart`
@@ -305,6 +311,13 @@
   - kind: command; required: true; owner: worker; detail: full/partial failure retry, double-submit, and stale-completion widget/service tests.
   - kind: command; required: true; owner: worker; detail: `flutter analyze` and `flutter test`.
   - kind: review; required: true; owner: reviewer; detail: idempotency and UI lifecycle review.
+- review_evidence:
+  - independent Reviewer `019f5036-1d03-7dd0-adaa-17b57ce64f36` APPROVED exact final head with no Blocker/High findings.
+  - worker validation: 76 focused service/UI/calendar tests, `flutter analyze`, full 244-test suite, and diff check passed.
+  - orchestrator validation: exact-head focused 76 tests, analyze, full 244 tests, and diff check passed in a clean temporary worktree.
+  - orchestrator `$deep-review`: no Task_9 Blocker/High findings; retry identity, persisted reservation status, ringing state, concurrent create cleanup, locked-draft UI, lifecycle invalidation, and Task_8 compensation paths reviewed.
+  - hosted Baseline CI, CodeRabbit, Greptile, and Socket checks passed; PR was non-draft, CLEAN, APPROVED, and base-current.
+  - residual risk: native success followed by platform-ID persistence failure remains explicitly owned by Tasks 10-13 and was not expanded into Task_9.
 
 ### Task_10: Define an additive stable-ID and native inventory contract
 
