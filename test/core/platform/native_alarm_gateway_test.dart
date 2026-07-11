@@ -19,6 +19,28 @@ void main() {
         throwsArgumentError,
       );
     });
+
+    test('defaults the stable reservation id to occurrence id', () {
+      final request = _requests().first;
+
+      expect(request.reservationId, request.occurrenceId);
+    });
+
+    test('accepts a caller-persisted stable reservation id', () {
+      final request = NativeAlarmScheduleRequest(
+        occurrenceId: 'occ-1',
+        reservationId: 'reservation-1',
+        wakePlanId: 'plan-1',
+        scheduledAt: DateTime(2026, 7, 7, 6),
+        targetAt: DateTime(2026, 7, 7, 7),
+        indexInPlan: 0,
+        totalInPlan: 1,
+        soundId: 'default',
+        vibrationEnabled: true,
+      );
+
+      expect(request.reservationId, 'reservation-1');
+    });
   });
 
   group('ScheduleResult', () {
@@ -215,6 +237,91 @@ void main() {
         throwsArgumentError,
       );
     });
+
+    test('restores the requested reservation id from a legacy native row', () {
+      final request = _requests().first;
+      final customRequest = NativeAlarmScheduleRequest(
+        occurrenceId: request.occurrenceId,
+        reservationId: 'reservation-1',
+        wakePlanId: request.wakePlanId,
+        scheduledAt: request.scheduledAt,
+        targetAt: request.targetAt,
+        indexInPlan: request.indexInPlan,
+        totalInPlan: request.totalInPlan,
+        soundId: request.soundId,
+        vibrationEnabled: request.vibrationEnabled,
+      );
+
+      final result = ScheduleResult.fromRequestResults(
+        requests: [customRequest],
+        results: [
+          ScheduleOccurrenceResult.success(
+            occurrenceId: customRequest.occurrenceId,
+            wakePlanId: customRequest.wakePlanId,
+            platformAlarmId: 'platform-occ-1',
+          ),
+        ],
+      );
+
+      expect(result.occurrences.single.reservationId, 'reservation-1');
+    });
+  });
+
+  group('NativeAlarmInventoryResult', () {
+    test('reports duplicate, unknown, missing, extra, and corrupt rows', () {
+      final result = NativeAlarmInventoryResult.success(
+        rows: [
+          _inventoryRow('reservation-1', occurrenceId: 'occ-1'),
+          _inventoryRow('reservation-1', occurrenceId: 'occ-1'),
+          _inventoryRow('unknown-reservation', occurrenceId: 'occ-1'),
+          _inventoryRow('extra-reservation', occurrenceId: 'other-occ'),
+          _inventoryRow('reservation-2', occurrenceId: 'wrong-occ'),
+        ],
+      );
+
+      final reconciliation = result.reconcile(
+        expected: [
+          NativeAlarmInventoryExpectedReservation(
+            reservationId: 'reservation-1',
+            occurrenceId: 'occ-1',
+            wakePlanId: 'plan-1',
+          ),
+          NativeAlarmInventoryExpectedReservation(
+            reservationId: 'missing-reservation',
+            occurrenceId: 'missing-occ',
+            wakePlanId: 'plan-1',
+          ),
+          NativeAlarmInventoryExpectedReservation(
+            reservationId: 'reservation-2',
+            occurrenceId: 'occ-2',
+            wakePlanId: 'plan-1',
+          ),
+        ],
+      );
+
+      expect(reconciliation.isAuthoritative, isFalse);
+      expect(
+        reconciliation.issues.map((issue) => issue.type),
+        containsAll(<NativeAlarmInventoryIssueType>[
+          NativeAlarmInventoryIssueType.duplicate,
+          NativeAlarmInventoryIssueType.unknown,
+          NativeAlarmInventoryIssueType.extra,
+          NativeAlarmInventoryIssueType.missing,
+          NativeAlarmInventoryIssueType.corrupt,
+        ]),
+      );
+    });
+
+    test('unavailable inventory is not an empty successful snapshot', () {
+      final result = NativeAlarmInventoryResult.failure(
+        reason: NativeAlarmInventoryFailureReason.unavailable,
+      );
+
+      expect(result.status, NativeAlarmInventoryResultStatus.unavailable);
+      expect(result.isSuccess, isFalse);
+      expect(result.rows, isEmpty);
+      expect(result.reconcile(expected: const []).isAuthoritative, isFalse);
+    });
   });
 
   group('FakeNativeAlarmGateway', () {
@@ -235,6 +342,33 @@ void main() {
         ['native-occ-1', 'native-occ-2'],
       );
     });
+
+    test(
+      'keeps stable inventory identity across duplicate schedule calls',
+      () async {
+        final gateway = FakeNativeAlarmGateway();
+        final request = NativeAlarmScheduleRequest(
+          occurrenceId: 'occ-1',
+          reservationId: 'reservation-1',
+          wakePlanId: 'plan-1',
+          scheduledAt: DateTime(2026, 7, 7, 6),
+          targetAt: DateTime(2026, 7, 7, 7),
+          indexInPlan: 0,
+          totalInPlan: 1,
+          soundId: 'default',
+          vibrationEnabled: true,
+        );
+
+        await gateway.scheduleOccurrences([request]);
+        await gateway.scheduleOccurrences([request]);
+        final inventory = await gateway.getInventory();
+
+        expect(inventory.isSuccess, isTrue);
+        expect(inventory.rows, hasLength(1));
+        expect(inventory.rows.single.reservationId, 'reservation-1');
+        expect(inventory.rows.single.platformAlarmId, 'platform-occ-1');
+      },
+    );
 
     test('fails every schedule when permission is missing', () async {
       final gateway = FakeNativeAlarmGateway(
@@ -490,4 +624,17 @@ List<NativeAlarmScheduleRequest> _requests() {
       vibrationEnabled: true,
     ),
   ];
+}
+
+NativeAlarmInventoryRow _inventoryRow(
+  String reservationId, {
+  required String occurrenceId,
+}) {
+  return NativeAlarmInventoryRow.create(
+    reservationId: reservationId,
+    occurrenceId: occurrenceId,
+    wakePlanId: 'plan-1',
+    platformAlarmId: 'platform-$reservationId',
+    status: NativeAlarmReservationStatus.scheduled,
+  );
 }
