@@ -1,9 +1,11 @@
 package dev.xpa.calarm
 
 import android.app.AlarmManager
+import android.app.Application
 import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
+import android.os.Vibrator
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.time.Instant
@@ -21,6 +23,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowAlarmManager
+import org.robolectric.shadows.ShadowVibrator
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [32])
@@ -34,6 +37,8 @@ class AndroidInventoryTest {
         credentialPreferences().edit().clear().commit()
         ShadowAlarmManager.reset()
         ShadowAlarmManager.setCanScheduleExactAlarms(true)
+        Shadows.shadowOf(context.applicationContext as Application).clearNextStartedActivities()
+        ShadowVibrator.reset()
         context.getSystemService(NotificationManager::class.java)
             .createNotificationChannel(AlarmNotificationChannel.create())
     }
@@ -44,6 +49,8 @@ class AndroidInventoryTest {
         credentialPreferences().edit().clear().commit()
         ShadowAlarmManager.reset()
         ShadowAlarmManager.setCanScheduleExactAlarms(true)
+        Shadows.shadowOf(context.applicationContext as Application).clearNextStartedActivities()
+        ShadowVibrator.reset()
     }
 
     @Test
@@ -221,6 +228,7 @@ class AndroidInventoryTest {
             platformAlarmId = "android:reservation:foreign-ringing",
             reservationId = "receiver-reservation",
             occurrenceId = "receiver-occurrence",
+            vibrationEnabled = true,
         )
         mirrorPreferences().edit()
             .putString(lookupPlatformAlarmId, foreign.toJson().toString())
@@ -237,6 +245,39 @@ class AndroidInventoryTest {
         )
         assertEquals(foreign.toJson().toString(), mirrorPreferences().getString(lookupPlatformAlarmId, null))
         assertFalse(mirrorPreferences().contains(foreign.platformAlarmId))
+        assertTrue(
+            context.getSystemService(NotificationManager::class.java)
+                .activeNotifications
+                .isEmpty(),
+        )
+        assertNull(Shadows.shadowOf(context.applicationContext as Application).peekNextStartedActivity())
+        assertNull(shadowVibrator().getVibrationAttributesFromLastVibration())
+    }
+
+    @Test
+    fun `mark ringing rejects a corrupt mirror payload without mutation`() {
+        val lookupPlatformAlarmId = "android:plan:mark-ringing-corrupt"
+        val foreign = alarmRequest(
+            platformAlarmId = "android:reservation:foreign-mark-ringing",
+            reservationId = "mark-ringing-reservation",
+            occurrenceId = "mark-ringing-occurrence",
+        )
+        mirrorPreferences().edit()
+            .putString(lookupPlatformAlarmId, foreign.toJson().toString())
+            .commit()
+
+        val store = AlarmStore(context)
+
+        assertFalse(store.markRinging(lookupPlatformAlarmId))
+        assertEquals(
+            foreign.toJson().toString(),
+            mirrorPreferences().getString(lookupPlatformAlarmId, null),
+        )
+        assertFalse(mirrorPreferences().contains(foreign.platformAlarmId))
+        assertEquals(
+            AlarmState.SCHEDULED,
+            store.get(lookupPlatformAlarmId)?.state,
+        )
     }
 
     @Test
@@ -524,6 +565,10 @@ class AndroidInventoryTest {
         return Shadows.shadowOf(context.getSystemService(AlarmManager::class.java)).scheduledAlarms
     }
 
+    private fun shadowVibrator(): ShadowVibrator {
+        return Shadows.shadowOf(context.getSystemService(Vibrator::class.java))
+    }
+
     private fun alarmRequest(
         platformAlarmId: String,
         reservationId: String = "occurrence",
@@ -531,6 +576,7 @@ class AndroidInventoryTest {
         wakePlanId: String = "plan",
         scheduledAtMillis: Long = System.currentTimeMillis() + 60_000,
         state: AlarmState = AlarmState.SCHEDULED,
+        vibrationEnabled: Boolean = false,
     ): AlarmRequest {
         return AlarmRequest(
             occurrenceId = occurrenceId,
@@ -539,7 +585,7 @@ class AndroidInventoryTest {
             scheduledAtMillis = scheduledAtMillis,
             targetAtMillis = scheduledAtMillis,
             soundId = "default",
-            vibrationEnabled = false,
+            vibrationEnabled = vibrationEnabled,
             platformAlarmIdOverride = platformAlarmId,
             state = state,
         )
