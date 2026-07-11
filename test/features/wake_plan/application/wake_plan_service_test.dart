@@ -680,6 +680,46 @@ void main() {
     });
 
     test(
+      'reconciliation preserves ringing reservations without rescheduling',
+      () async {
+        final plan = buildPlan(repeatRule: RepeatRule.weekly({Weekday.monday}));
+        final store = _LoggingWakePlanServiceStore()..wakePlans = [plan];
+        await service(
+          store: store,
+          gateway: FakeNativeAlarmGateway(),
+          rollingScheduleDays: 1,
+        ).reconcileSchedules();
+
+        final ringingId = store.storedOccurrences.first.id;
+        final firedAt = now;
+        store.storedOccurrences = store.storedOccurrences
+            .map(
+              (occurrence) => occurrence.id == ringingId
+                  ? occurrence.copyWith(
+                      status: AlarmOccurrenceStatus.ringing,
+                      firedAt: firedAt,
+                    )
+                  : occurrence,
+            )
+            .toList(growable: false);
+        final retryGateway = FakeNativeAlarmGateway();
+
+        final result = await service(
+          store: store,
+          gateway: retryGateway,
+          rollingScheduleDays: 1,
+        ).reconcileSchedules();
+
+        final ringing = result.single.occurrences.singleWhere(
+          (occurrence) => occurrence.id == ringingId,
+        );
+        expect(retryGateway.scheduledRequests, isEmpty);
+        expect(ringing.status, AlarmOccurrenceStatus.ringing);
+        expect(ringing.firedAt, firedAt);
+      },
+    );
+
+    test(
       'does not replenish disabled, deleted, or skipped plans incorrectly',
       () async {
         final skipped = buildPlan(

@@ -720,7 +720,8 @@ class WakePlanService {
     }
 
     return existing.scheduledAt == desired.scheduledAt &&
-        !existing.scheduledAt.toDateTime().isBefore(now);
+        (existing.status == AlarmOccurrenceStatus.ringing ||
+            !existing.scheduledAt.toDateTime().isBefore(now));
   }
 
   WakePlanSchedulingResult _successfulReconciliationResult({
