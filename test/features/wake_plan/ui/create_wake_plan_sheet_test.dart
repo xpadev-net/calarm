@@ -307,6 +307,7 @@ void main() {
       ),
     );
 
+    await _configureCustomRepeat(tester);
     await tester.ensureVisible(find.text('Save'));
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
@@ -318,29 +319,55 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(
-      tester
-          .widget<IconButton>(
-            find.byWidgetPredicate(
-              (widget) =>
-                  widget is IconButton &&
-                  widget.tooltip == 'Change wake target time',
-            ),
-          )
-          .onPressed,
-      isNull,
-    );
-    expect(find.text('Retry'), findsOneWidget);
+    await _expectCreateDraftControlsLocked(tester);
 
-    await tester.tap(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is IconButton && widget.tooltip == 'Change wake target time',
+    await tester.ensureVisible(find.text('Retry'));
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+
+    expect(savedPlans, hasLength(2));
+    expect(savedPlans[1].id, savedPlans[0].id);
+    expect(savedPlans[1].targetTime, savedPlans[0].targetTime);
+    expect(savedPlans[1].startOffset, savedPlans[0].startOffset);
+    expect(savedPlans[1].interval, savedPlans[0].interval);
+    expect(savedPlans[1].repeatRule, savedPlans[0].repeatRule);
+    expect(savedPlans[1].soundId, savedPlans[0].soundId);
+    expect(savedPlans[1].vibrationEnabled, savedPlans[0].vibrationEnabled);
+  });
+
+  testWidgets('locks create draft controls after save throws before retry', (
+    tester,
+  ) async {
+    final savedPlans = <WakePlan>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CreateWakePlanSheet(
+            initialTarget: _target(),
+            now: DateTime(2026, 7, 8, 5, 30),
+            clock: () => DateTime(2026, 7, 8, 5, 30),
+            defaults: AppSettings.initial(),
+            existingWakePlans: const [],
+            onSave: (plan) async {
+              savedPlans.add(plan);
+              if (savedPlans.length == 1) {
+                throw StateError('native save failed');
+              }
+              return _successResult();
+            },
+          ),
+        ),
       ),
-      warnIfMissed: false,
     );
-    await tester.pump();
-    expect(find.text('2026-07-08 07:00'), findsOneWidget);
+
+    await _configureCustomRepeat(tester);
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Wake plan could not be saved.'), findsOneWidget);
+    await _expectCreateDraftControlsLocked(tester);
 
     await tester.ensureVisible(find.text('Retry'));
     await tester.tap(find.text('Retry'));
@@ -546,6 +573,85 @@ void main() {
       findsOneWidget,
     );
   });
+}
+
+Future<void> _configureCustomRepeat(WidgetTester tester) async {
+  await tester.tap(find.text('No repeat'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Choose weekdays').last);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _expectCreateDraftControlsLocked(WidgetTester tester) async {
+  final targetFinder = find.byWidgetPredicate(
+    (widget) =>
+        widget is IconButton && widget.tooltip == 'Change wake target time',
+  );
+  await tester.ensureVisible(targetFinder);
+  expect(tester.widget<IconButton>(targetFinder).onPressed, isNull);
+  await tester.tap(targetFinder, warnIfMissed: false);
+
+  final durationFinder = find.byType(DropdownButtonFormField<Duration>);
+  expect(durationFinder, findsNWidgets(2));
+  for (var index = 0; index < 2; index++) {
+    final finder = durationFinder.at(index);
+    await tester.ensureVisible(finder);
+    expect(
+      tester.widget<DropdownButtonFormField<Duration>>(finder).onChanged,
+      isNull,
+    );
+    await tester.tap(finder, warnIfMissed: false);
+  }
+
+  final repeatFinder = find.byWidgetPredicate((widget) {
+    if (widget is! DropdownButtonFormField) {
+      return false;
+    }
+    return (widget as dynamic).decoration.labelText == 'Repeat';
+  });
+  expect(repeatFinder, findsOneWidget);
+  await tester.ensureVisible(repeatFinder);
+  expect((tester.widget(repeatFinder) as dynamic).onChanged, isNull);
+  await tester.tap(repeatFinder, warnIfMissed: false);
+
+  final weekdayFinder = find.byType(FilterChip);
+  expect(weekdayFinder, findsNWidgets(7));
+  for (final chip in tester.widgetList<FilterChip>(weekdayFinder)) {
+    expect(chip.onSelected, isNull);
+  }
+  await tester.ensureVisible(weekdayFinder.first);
+  await tester.tap(weekdayFinder.first, warnIfMissed: false);
+
+  await tester.ensureVisible(find.text('Sound and vibration'));
+  await tester.tap(find.text('Sound and vibration'));
+  await tester.pumpAndSettle();
+
+  final soundFinder = find.byType(DropdownButtonFormField<String>);
+  expect(soundFinder, findsOneWidget);
+  await tester.ensureVisible(soundFinder);
+  expect(
+    tester.widget<DropdownButtonFormField<String>>(soundFinder).onChanged,
+    isNull,
+  );
+  await tester.tap(soundFinder, warnIfMissed: false);
+
+  final vibrationFinder = find.byType(SwitchListTile);
+  expect(vibrationFinder, findsOneWidget);
+  await tester.ensureVisible(vibrationFinder);
+  expect(tester.widget<SwitchListTile>(vibrationFinder).onChanged, isNull);
+  await tester.tap(vibrationFinder, warnIfMissed: false);
+
+  expect(find.text('Retry'), findsOneWidget);
+  expect(
+    tester
+        .widget<IconButton>(
+          find.byWidgetPredicate(
+            (widget) => widget is IconButton && widget.tooltip == 'Close',
+          ),
+        )
+        .onPressed,
+    isNotNull,
+  );
 }
 
 class _FlowHarness extends StatefulWidget {
