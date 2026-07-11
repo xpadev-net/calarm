@@ -504,13 +504,7 @@ class WakePlanService {
         desired: desired,
         now: now,
       )) {
-        preparedOccurrences.add(
-          existing!.copyWith(
-            status: AlarmOccurrenceStatus.scheduled,
-            failureReason: null,
-            updatedAt: now,
-          ),
-        );
+        preparedOccurrences.add(existing!.copyWith(updatedAt: now));
       } else {
         preparedOccurrences.add(desired);
         pendingOccurrences.add(desired);
@@ -597,6 +591,8 @@ class WakePlanService {
     return existing != null &&
         existing.wakePlanId == desired.wakePlanId &&
         existing.scheduledAt == desired.scheduledAt &&
+        (existing.status == AlarmOccurrenceStatus.scheduled ||
+            existing.status == AlarmOccurrenceStatus.ringing) &&
         existing.hasNativeReservation &&
         !existing.scheduledAt.toDateTime().isBefore(now);
   }

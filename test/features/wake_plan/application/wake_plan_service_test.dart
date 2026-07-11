@@ -50,6 +50,9 @@ void main() {
     TimeOfDayMinutes? time,
     String platformAlarmId = 'native-old',
     AlarmOccurrenceStatus status = AlarmOccurrenceStatus.scheduled,
+    DateTime? firedAt,
+    DateTime? dismissedAt,
+    String? failureReason,
   }) {
     return AlarmOccurrence(
       id: id,
@@ -57,6 +60,9 @@ void main() {
       scheduledAt: DateMinute(day: day ?? monday, time: time ?? targetTime),
       status: status,
       platformAlarmId: platformAlarmId,
+      firedAt: firedAt,
+      dismissedAt: dismissedAt,
+      failureReason: failureReason,
       createdAt: now.subtract(const Duration(days: 1)),
       updatedAt: now.subtract(const Duration(days: 1)),
     );
@@ -280,6 +286,128 @@ void main() {
         expect(
           store.storedOccurrences.every(
             (occurrence) => occurrence.platformAlarmId != null,
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'does not trust inactive persisted occurrence reservations on retry',
+      () async {
+        for (final status in [
+          AlarmOccurrenceStatus.failed,
+          AlarmOccurrenceStatus.cancelled,
+          AlarmOccurrenceStatus.expired,
+        ]) {
+          final store = _LoggingWakePlanServiceStore();
+          final plan = buildPlan();
+          await service(
+            store: store,
+            gateway: FakeNativeAlarmGateway(),
+          ).createPlan(plan);
+          store.storedOccurrences = store.storedOccurrences
+              .map(
+                (occurrence) => occurrence.copyWith(
+                  status: status,
+                  failureReason: status == AlarmOccurrenceStatus.failed
+                      ? ScheduleFailureReason.nativeError.name
+                      : null,
+                ),
+              )
+              .toList(growable: false);
+          final retryGateway = FakeNativeAlarmGateway();
+
+          final result = await service(
+            store: store,
+            gateway: retryGateway,
+          ).createPlan(plan);
+
+          expect(result.status, WakePlanSchedulingStatus.scheduled);
+          expect(
+            retryGateway.scheduledRequests,
+            hasLength(4),
+            reason: status.name,
+          );
+          expect(
+            result.occurrences,
+            everyElement(
+              predicate<AlarmOccurrence>(
+                (occurrence) =>
+                    occurrence.status == AlarmOccurrenceStatus.scheduled &&
+                    occurrence.platformAlarmId != null,
+              ),
+            ),
+          );
+        }
+      },
+    );
+
+    test(
+      'preserves a ringing reservation without coercing its state',
+      () async {
+        final store = _LoggingWakePlanServiceStore();
+        final plan = buildPlan();
+        await service(
+          store: store,
+          gateway: FakeNativeAlarmGateway(),
+        ).createPlan(plan);
+        final ringingId = 'plan-1:20640:405';
+        final firedAt = now;
+        store.storedOccurrences = store.storedOccurrences
+            .map(
+              (occurrence) => occurrence.id == ringingId
+                  ? occurrence.copyWith(
+                      status: AlarmOccurrenceStatus.ringing,
+                      firedAt: firedAt,
+                    )
+                  : occurrence,
+            )
+            .toList(growable: false);
+        final retryGateway = FakeNativeAlarmGateway();
+
+        final result = await service(
+          store: store,
+          gateway: retryGateway,
+        ).createPlan(plan);
+
+        final ringing = result.occurrences.singleWhere(
+          (occurrence) => occurrence.id == ringingId,
+        );
+        expect(result.status, WakePlanSchedulingStatus.scheduled);
+        expect(retryGateway.scheduledRequests, isEmpty);
+        expect(ringing.status, AlarmOccurrenceStatus.ringing);
+        expect(ringing.firedAt, firedAt);
+      },
+    );
+
+    test(
+      'does not reuse a reservation for a skipped target on retry',
+      () async {
+        final store = _LoggingWakePlanServiceStore();
+        final plan = buildPlan(repeatRule: RepeatRule.weekly({Weekday.monday}));
+        await service(
+          store: store,
+          gateway: FakeNativeAlarmGateway(),
+          rollingScheduleDays: 7,
+        ).createPlan(plan);
+        final retryGateway = FakeNativeAlarmGateway();
+
+        final result = await service(
+          store: store,
+          gateway: retryGateway,
+          rollingScheduleDays: 8,
+        ).createPlan(plan.copyWith(skipNextDate: monday));
+
+        expect(result.status, WakePlanSchedulingStatus.scheduled);
+        expect(retryGateway.scheduledRequests, hasLength(4));
+        expect(
+          retryGateway.scheduledRequests.every(
+            (request) =>
+                request.scheduledAt == DateTime(2026, 7, 13, 6, 45) ||
+                request.scheduledAt == DateTime(2026, 7, 13, 6, 50) ||
+                request.scheduledAt == DateTime(2026, 7, 13, 6, 55) ||
+                request.scheduledAt == DateTime(2026, 7, 13, 7),
           ),
           isTrue,
         );

@@ -173,3 +173,12 @@ Purpose:
 - fix: Stop and archive both CLI sessions, verify their worktrees are clean and no PR exists, and return the ledger to a truthful thread-dispatch-waiting state.
 - prevention: Before every task-pr worker start or replacement, require an available `create_thread` capability and create a user-visible thread with the requested model/reasoning level. If thread tooling is unavailable, report that concrete blocker; never substitute `codex exec`, a terminal process, or an internal subagent.
 - promotion: Repo-local orchestration lesson; consider a harness dispatch preflight requiring the thread capability before worker branch/worktree creation.
+
+### 2026-07-11 - Review Persisted Identity And Active Reservation State
+
+- tags: review, state-transitions, idempotency, validation
+- symptom: Independent review found that a process-local create-session counter could reuse a persisted plan ID after restart, and that any future occurrence with a platform ID was treated as reusable even when its status was failed, cancelled, expired, or ringing.
+- root cause: The first implementation treated in-process uniqueness as durable identity and used native-ID presence without checking the AlarmOccurrence state invariant; the ringing branch also coerced fired metadata into an invalid scheduled state.
+- fix: Use secure random session identities with avoidance of IDs already supplied from persisted plans; reuse only scheduled/ringing occurrences; preserve ringing status and firedAt; add regression tests for independent sessions, inactive statuses, skipped targets, and ringing rows.
+- prevention: During idempotency review, require both a persisted-state collision analysis and an exhaustive status/metadata matrix for every dedupe predicate before reporting review-ready.
+- promotion: Repo-local lesson only for now; no rule suite exists in this repository.

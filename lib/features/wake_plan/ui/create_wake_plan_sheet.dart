@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/time/time.dart';
@@ -33,7 +35,7 @@ class CreateWakePlanSheet extends StatefulWidget {
 }
 
 class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
-  static var _nextCreateSessionId = 0;
+  static final _sessionRandom = Random.secure();
 
   late Duration _startOffset;
   late Duration _interval;
@@ -65,8 +67,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
   void initState() {
     super.initState();
     final existingWakePlan = widget.existingWakePlan;
-    _sessionWakePlanId =
-        existingWakePlan?.id ?? 'wake-session-${++_nextCreateSessionId}';
+    _sessionWakePlanId = existingWakePlan?.id ?? _newSessionWakePlanId();
     _startOffset =
         existingWakePlan?.startOffset ?? widget.defaults.defaultStartOffset;
     _interval = existingWakePlan?.interval ?? widget.defaults.defaultInterval;
@@ -438,6 +439,20 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
         minute: selected.minute,
       );
     });
+  }
+
+  String _newSessionWakePlanId() {
+    final existingIds = widget.existingWakePlans.map((plan) => plan.id).toSet();
+    String id;
+    do {
+      final token = List.generate(
+        4,
+        (_) =>
+            _sessionRandom.nextInt(1 << 32).toRadixString(16).padLeft(8, '0'),
+      ).join();
+      id = 'wake-session-$token';
+    } while (existingIds.contains(id));
+    return id;
   }
 }
 

@@ -281,6 +281,47 @@ void main() {
     expect(savedPlans[1].id, savedPlans[0].id);
   });
 
+  testWidgets(
+    'uses collision-safe identities across independent sheet sessions',
+    (tester) async {
+      final savedPlans = <WakePlan>[];
+
+      Widget buildSheet(List<WakePlan> existingWakePlans) {
+        return MaterialApp(
+          home: Scaffold(
+            body: CreateWakePlanSheet(
+              key: UniqueKey(),
+              initialTarget: _target(),
+              now: DateTime(2026, 7, 8, 5, 30),
+              clock: () => DateTime(2026, 7, 8, 5, 30),
+              defaults: AppSettings.initial(),
+              existingWakePlans: existingWakePlans,
+              onSave: (plan) {
+                savedPlans.add(plan);
+                return Future.value(_failureResult());
+              },
+            ),
+          ),
+        );
+      }
+
+      await tester.pumpWidget(buildSheet(const []));
+      await tester.ensureVisible(find.text('Save'));
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      await tester.pumpWidget(buildSheet([savedPlans.single]));
+      await tester.ensureVisible(find.text('Save'));
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(savedPlans, hasLength(2));
+      expect(savedPlans[0].id, startsWith('wake-session-'));
+      expect(savedPlans[1].id, startsWith('wake-session-'));
+      expect(savedPlans[1].id, isNot(savedPlans[0].id));
+    },
+  );
+
   testWidgets('ignores a delayed save completion after disposal', (
     tester,
   ) async {
