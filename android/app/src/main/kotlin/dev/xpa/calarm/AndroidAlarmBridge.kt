@@ -195,12 +195,12 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 request.reservationId,
             )
         }
-        if (
-            legacyRequest != null &&
-            (legacyRequest.reservationId != legacyRequest.occurrenceId ||
-                legacyRequest.occurrenceId != request.occurrenceId ||
-                legacyRequest.wakePlanId != request.wakePlanId)
-        ) {
+        val legacyIdentityMatches = legacyRequest != null &&
+            legacyRequest.occurrenceId == request.occurrenceId &&
+            legacyRequest.wakePlanId == request.wakePlanId &&
+            (legacyRequest.reservationId == legacyRequest.occurrenceId ||
+                legacyRequest.reservationId == request.reservationId)
+        if (legacyRequest != null && !legacyIdentityMatches) {
             return scheduleFailure(
                 request.occurrenceId,
                 request.wakePlanId,

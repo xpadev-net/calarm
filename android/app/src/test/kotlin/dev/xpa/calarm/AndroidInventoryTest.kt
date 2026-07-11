@@ -203,6 +203,49 @@ class AndroidInventoryTest {
     }
 
     @Test
+    fun `adopted legacy reservation is idempotent through ringing retry`() {
+        val legacy = alarmRequest(
+            platformAlarmId = "android:plan:adopted-occurrence",
+            reservationId = "adopted-occurrence",
+            occurrenceId = "adopted-occurrence",
+        )
+        assertTrue(AlarmStore(context).put(legacy))
+        val bridge = AndroidAlarmBridge(context)
+        val arguments = scheduleArguments(
+            occurrenceId = legacy.occurrenceId,
+            reservationId = "adopted-reservation",
+            wakePlanId = legacy.wakePlanId,
+        )
+
+        val first = CapturingResult()
+        bridge.onMethodCall(MethodCall("scheduleOccurrences", arguments), first)
+        assertNull(first.errorCode)
+        val firstPayload = first.value as Map<*, *>
+        val firstOccurrence = firstPayload["occurrences"] as List<*>
+        val firstRow = firstOccurrence.single() as Map<*, *>
+        assertEquals("success", firstRow["status"])
+        assertEquals(legacy.platformAlarmId, firstRow["platformAlarmId"])
+
+        val duplicate = CapturingResult()
+        bridge.onMethodCall(MethodCall("scheduleOccurrences", arguments), duplicate)
+        assertNull(duplicate.errorCode)
+        val duplicatePayload = duplicate.value as Map<*, *>
+        val duplicateRow = (duplicatePayload["occurrences"] as List<*>).single() as Map<*, *>
+        assertEquals("success", duplicateRow["status"])
+
+        AlarmReceiver().onReceive(
+            context,
+            Shadows.shadowOf(AlarmIntents.receiver(context, legacy.platformAlarmId)).savedIntent,
+        )
+        assertEquals(AlarmState.RINGING, AlarmStore(context).get(legacy.platformAlarmId)?.state)
+
+        val ringingRetry = CapturingResult()
+        bridge.onMethodCall(MethodCall("scheduleOccurrences", arguments), ringingRetry)
+        assertNull(ringingRetry.errorCode)
+        assertEquals(AlarmState.RINGING, AlarmStore(context).get(legacy.platformAlarmId)?.state)
+    }
+
+    @Test
     fun `duplicate schedule after firing preserves the ringing state`() {
         val bridge = AndroidAlarmBridge(context)
         val arguments = scheduleArguments(
