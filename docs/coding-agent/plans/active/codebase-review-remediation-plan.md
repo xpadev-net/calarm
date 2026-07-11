@@ -321,13 +321,16 @@
 
 ### Task_10: Define an additive stable-ID and native inventory contract
 
-- status: in_progress
+- status: complete
 - worker:
   - thread: `019f5163-90ad-73b1-bf48-682e01d52962`
   - worktree: `/Users/xpadev/.codex/worktrees/481c/calarm`
   - branch: `codex/reviewfix-native-inventory-contract`
   - runtime: `gpt-5.6-luna` / `high`
-  - startup: active beyond instruction loading; bounded gateway/channel contract investigation in progress.
+  - startup: completed and archived after merge.
+  - pull_request: `#46`
+  - final_head: `eb6f9bd737e717da8d2b6fca62d1f9901aeef024`
+  - merge_commit: `18dfba3ae6eac6211040e12308c7f3d426d6f58e`
 - type: design
 - owns:
   - `lib/core/platform/native_alarm_gateway.dart`
@@ -346,6 +349,13 @@
   - kind: command; required: true; owner: worker; detail: focused gateway contract tests and `flutter test test/core/platform`.
   - kind: command; required: true; owner: worker; detail: `flutter analyze` and full `flutter test`.
   - kind: review; required: true; owner: reviewer; detail: cross-version contract and boundary validation review.
+- review_evidence:
+  - independent Reviewer APPROVED exact final head `eb6f9bd737e717da8d2b6fca62d1f9901aeef024` with no findings after the base-current merge.
+  - worker validation: 56 focused platform tests, `flutter analyze`, full 265-test suite, format, and diff check passed.
+  - orchestrator validation: exact-head focused 56 tests, analyze, full 265 tests, format, and diff check passed in a clean temporary worktree.
+  - worker and orchestrator `gh-review-hook` runs exited 0; hosted Baseline CI, Android/iOS native smoke, CodeRabbit, Greptile, and Socket checks passed.
+  - orchestrator `$deep-review`: no Blocker/High findings; additive rolling compatibility, boundary validation, duplicate/corrupt/unknown/missing/extra semantics, failure classification, pre-side-effect validation, and fake/MethodChannel parity were reviewed.
+  - PR `#46` was non-draft, CLEAN, APPROVED, base-current, and squash-merged as `18dfba3ae6eac6211040e12308c7f3d426d6f58e`.
 
 ### Task_11: Implement native inventory/stable identity on Android
 
