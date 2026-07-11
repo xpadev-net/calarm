@@ -15,6 +15,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -79,6 +80,16 @@ class AndroidInventoryTest {
     }
 
     @Test
+    fun `persisted reservation identity rejects non-string JSON values`() {
+        val json = alarmRequest("android:plan:typed-reservation").toJson()
+            .put("reservationId", 42)
+
+        assertThrows(IllegalArgumentException::class.java) {
+            AlarmRequest.fromJson(json)
+        }
+    }
+
+    @Test
     fun `inventory removes expired and corrupt rows and does not return them as success`() {
         val expired = alarmRequest(
             platformAlarmId = "android:plan:expired-inventory",
@@ -122,8 +133,13 @@ class AndroidInventoryTest {
 
     @Test
     fun `ringing state remains inventoried after one-shot pending intent is consumed`() {
-        val request = alarmRequest("android:plan:ringing", state = AlarmState.RINGING)
+        val request = alarmRequest("android:plan:ringing", vibrationEnabled = false)
         assertTrue(AlarmStore(context).put(request))
+
+        AlarmReceiver().onReceive(
+            context,
+            Shadows.shadowOf(AlarmIntents.receiver(context, request.platformAlarmId)).savedIntent,
+        )
 
         val snapshot = AlarmStore(context).inventory(context, System.currentTimeMillis())
 
@@ -362,6 +378,54 @@ class AndroidInventoryTest {
         assertEquals(legacy.platformAlarmId, ringingRetryRow["platformAlarmId"])
         assertEquals(scheduledBeforeRetry, scheduledAlarms())
         assertEquals(AlarmState.RINGING, AlarmStore(context).get(legacy.platformAlarmId)?.state)
+    }
+
+    @Test
+    fun `adopted legacy reservation accepts occurrence-compatible cancel`() {
+        val legacy = alarmRequest(
+            platformAlarmId = "android:plan:cancel-adopted-occurrence",
+            reservationId = "cancel-adopted-occurrence",
+            occurrenceId = "cancel-adopted-occurrence",
+        )
+        assertTrue(AlarmStore(context).put(legacy))
+        val bridge = AndroidAlarmBridge(context)
+        val scheduleResult = CapturingResult()
+        bridge.onMethodCall(
+            MethodCall(
+                "scheduleOccurrences",
+                scheduleArguments(
+                    occurrenceId = legacy.occurrenceId,
+                    reservationId = "cancel-adopted-reservation",
+                    wakePlanId = legacy.wakePlanId,
+                ),
+            ),
+            scheduleResult,
+        )
+
+        val cancelResult = CapturingResult()
+        bridge.onMethodCall(
+            MethodCall(
+                "cancelOccurrences",
+                mapOf(
+                    "schemaVersion" to 1,
+                    "alarms" to listOf(
+                        mapOf(
+                            "occurrenceId" to legacy.occurrenceId,
+                            "platformAlarmId" to legacy.platformAlarmId,
+                        ),
+                    ),
+                ),
+            ),
+            cancelResult,
+        )
+
+        assertNull(scheduleResult.errorCode)
+        assertNull(cancelResult.errorCode)
+        val row = (cancelResult.value as Map<*, *>)
+            .let { it["alarms"] as List<*> }
+            .single() as Map<*, *>
+        assertEquals("success", row["status"])
+        assertNull(AlarmStore(context).get(legacy.platformAlarmId))
     }
 
     @Test

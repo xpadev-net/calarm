@@ -247,9 +247,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         if (
             existing != null &&
             legacyRequest == null &&
-            (existing.reservationId != request.reservationId ||
-                existing.occurrenceId != request.occurrenceId ||
-                existing.wakePlanId != request.wakePlanId)
+            !sameIdentity(existing, request)
         ) {
             return scheduleFailure(
                 request.occurrenceId,
@@ -355,7 +353,8 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 )
             }
             scheduleSuccess(request, platformAlarmId)
-        } catch (error: RuntimeException) {
+        } catch (error: Exception) {
+            alarmManager.cancel(AlarmIntents.receiver(appContext, platformAlarmId))
             scheduleFailure(
                 request.occurrenceId,
                 request.wakePlanId,
@@ -379,6 +378,12 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         )
     }
 
+    private fun sameIdentity(left: AlarmRequest, right: AlarmRequest): Boolean {
+        return left.reservationId == right.reservationId &&
+            left.occurrenceId == right.occurrenceId &&
+            left.wakePlanId == right.wakePlanId
+    }
+
     private fun cancel(arguments: Map<*, *>): Map<String, Any?> {
         val rows = arguments["alarms"] as? List<*> ?: emptyList<Any?>()
         val results = rows.map { row ->
@@ -391,63 +396,62 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 else -> ""
             }
             val platformAlarmId = map?.get("platformAlarmId") as? String ?: ""
-            if (occurrenceId.isBlank() || reservationId.isBlank() || platformAlarmId.isBlank()) {
-                cancelFailure(
+            cancelOne(occurrenceId, reservationId, platformAlarmId)
+        }
+        return mutableResponse("alarms" to results)
+    }
+
+    private fun cancelOne(
+        occurrenceId: String,
+        reservationId: String,
+        platformAlarmId: String,
+    ): MutableMap<String, Any?> {
+        if (occurrenceId.isBlank() || reservationId.isBlank() || platformAlarmId.isBlank()) {
+            return cancelFailure(
+                occurrenceId,
+                platformAlarmId,
+                if (platformAlarmId.isBlank()) "missingPlatformAlarmId" else "invalidRequest",
+                if (platformAlarmId.isBlank()) "Missing platformAlarmId." else "Invalid cancel identity.",
+                reservationId,
+            )
+        }
+        return try {
+            val stored = store.get(platformAlarmId)
+            when {
+                store.contains(platformAlarmId) && stored == null -> cancelFailure(
                     occurrenceId,
                     platformAlarmId,
-                    if (platformAlarmId.isBlank()) "missingPlatformAlarmId" else "invalidRequest",
-                    if (platformAlarmId.isBlank()) {
-                        "Missing platformAlarmId."
-                    } else {
-                        "Invalid cancel identity."
-                    },
+                    "nativeError",
+                    "Native alarm mirror row is corrupt.",
                     reservationId,
                 )
-            } else {
-                try {
-                    val stored = store.get(platformAlarmId)
-                    if (store.contains(platformAlarmId) && stored == null) {
+                stored != null && stored.platformAlarmId != platformAlarmId -> cancelFailure(
+                    occurrenceId,
+                    platformAlarmId,
+                    "nativeError",
+                    "Native alarm mirror row is corrupt.",
+                    reservationId,
+                )
+                stored != null &&
+                    !cancelIdentityMatches(stored, occurrenceId, reservationId) ->
+                    cancelFailure(
+                        occurrenceId,
+                        platformAlarmId,
+                        "invalidRequest",
+                        "Native alarm identity does not match the requested reservation.",
+                        reservationId,
+                    )
+                else -> {
+                    alarmManager.cancel(AlarmIntents.receiver(appContext, platformAlarmId))
+                    if (!store.remove(platformAlarmId)) {
                         cancelFailure(
                             occurrenceId,
                             platformAlarmId,
                             "nativeError",
-                            "Native alarm mirror row is corrupt.",
-                            reservationId,
-                        )
-                    } else if (
-                        stored != null &&
-                        stored.platformAlarmId != platformAlarmId
-                    ) {
-                        cancelFailure(
-                            occurrenceId,
-                            platformAlarmId,
-                            "nativeError",
-                            "Native alarm mirror row is corrupt.",
-                            reservationId,
-                        )
-                    } else if (
-                        stored != null &&
-                        !isSyntheticTestAlarm(stored) &&
-                        (stored.reservationId != reservationId || stored.occurrenceId != occurrenceId)
-                    ) {
-                        cancelFailure(
-                            occurrenceId,
-                            platformAlarmId,
-                            "invalidRequest",
-                            "Native alarm identity does not match the requested reservation.",
+                            "Failed to persist native alarm mirror removal.",
                             reservationId,
                         )
                     } else {
-                        alarmManager.cancel(AlarmIntents.receiver(appContext, platformAlarmId))
-                        if (!store.remove(platformAlarmId)) {
-                            return@map cancelFailure(
-                                occurrenceId,
-                                platformAlarmId,
-                                "nativeError",
-                                "Failed to persist native alarm mirror removal.",
-                                reservationId,
-                            )
-                        }
                         notificationManager.cancel(platformAlarmId.hashCode())
                         mutableMapOf(
                             "occurrenceId" to occurrenceId,
@@ -456,18 +460,30 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                             "status" to "success",
                         )
                     }
-                } catch (error: RuntimeException) {
-                    cancelFailure(
-                        occurrenceId,
-                        platformAlarmId,
-                        "nativeError",
-                        error.message ?: "AlarmManager cancel failed.",
-                        reservationId,
-                    )
                 }
             }
+        } catch (error: RuntimeException) {
+            cancelFailure(
+                occurrenceId,
+                platformAlarmId,
+                "nativeError",
+                error.message ?: "AlarmManager cancel failed.",
+                reservationId,
+            )
         }
-        return mutableResponse("alarms" to results)
+    }
+
+    private fun cancelIdentityMatches(
+        stored: AlarmRequest,
+        occurrenceId: String,
+        reservationId: String,
+    ): Boolean {
+        if (isSyntheticTestAlarm(stored)) return true
+        if (stored.occurrenceId != occurrenceId) return false
+        if (stored.reservationId == reservationId) return true
+        return reservationId == occurrenceId &&
+            stored.reservationId != stored.occurrenceId &&
+            stored.platformAlarmId == AlarmRequest.legacyPlatformAlarmId(stored)
     }
 
     private fun canScheduleExactAlarms(): Boolean {
@@ -630,7 +646,7 @@ data class AlarmRequest(
         get() = platformAlarmIdOverride ?: if (reservationId == occurrenceId) {
             legacyPlatformAlarmId(this)
         } else {
-            "android:reservation:${reservationId}"
+            stablePlatformAlarmId(this)
         }
 
     fun toJson(): JSONObject {
@@ -653,10 +669,18 @@ data class AlarmRequest(
             return "android:${request.wakePlanId}:${request.occurrenceId}"
         }
 
+        fun stablePlatformAlarmId(request: AlarmRequest): String {
+            return "android:reservation:${request.reservationId}"
+        }
+
         fun fromScheduleMap(map: Map<*, *>?): AlarmRequest? {
             if (map == null) return null
-            val occurrenceId = map["occurrenceId"] as? String ?: return null
-            val wakePlanId = map["wakePlanId"] as? String ?: return null
+            val occurrenceId = (map["occurrenceId"] as? String)
+                ?.takeIf { it.isNotBlank() }
+                ?: return null
+            val wakePlanId = (map["wakePlanId"] as? String)
+                ?.takeIf { it.isNotBlank() }
+                ?: return null
             val scheduledAt = map["scheduledAt"] as? String ?: return null
             val targetAt = map["targetAt"] as? String ?: return null
             val soundId = map["soundId"] as? String ?: return null
@@ -683,12 +707,23 @@ data class AlarmRequest(
         }
 
         fun fromJson(json: JSONObject): AlarmRequest {
-            return AlarmRequest(
-                occurrenceId = json.getString("occurrenceId"),
-                reservationId = json.optString("reservationId", json.getString("occurrenceId"))
+            val occurrenceId = json.getString("occurrenceId")
+                .takeIf { it.isNotBlank() }
+                ?: throw IllegalArgumentException("occurrenceId must not be blank")
+            val wakePlanId = json.getString("wakePlanId")
+                .takeIf { it.isNotBlank() }
+                ?: throw IllegalArgumentException("wakePlanId must not be blank")
+            val reservationId = when {
+                !json.has("reservationId") -> occurrenceId
+                json.opt("reservationId") is String -> json.getString("reservationId")
                     .takeIf { it.isNotBlank() }
-                    ?: throw IllegalArgumentException("reservationId must not be blank"),
-                wakePlanId = json.getString("wakePlanId"),
+                    ?: throw IllegalArgumentException("reservationId must not be blank")
+                else -> throw IllegalArgumentException("reservationId must be a string")
+            }
+            return AlarmRequest(
+                occurrenceId = occurrenceId,
+                reservationId = reservationId,
+                wakePlanId = wakePlanId,
                 scheduledAtMillis = json.getLong("scheduledAtMillis"),
                 targetAtMillis = json.getLong("targetAtMillis"),
                 soundId = json.getString("soundId"),

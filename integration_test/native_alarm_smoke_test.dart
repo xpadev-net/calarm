@@ -63,7 +63,21 @@ void main() {
     });
     expect(scheduleResult.occurrences, hasLength(1));
 
-    if (platform.toLowerCase().contains('android') && scheduleSucceeded) {
+    final isAndroidRuntime = defaultTargetPlatform == TargetPlatform.android;
+    if (isAndroidRuntime) {
+      expect(
+        platform.toLowerCase(),
+        contains('android'),
+        reason: 'Android smoke must declare an Android smoke platform.',
+      );
+    } else {
+      expect(
+        platform.toLowerCase(),
+        isNot(contains('android')),
+        reason: 'Non-Android smoke must not declare Android.',
+      );
+    }
+    if (isAndroidRuntime && scheduleSucceeded) {
       final inventory = await gateway.getInventory().nativeSmokeTimeout(
         'getInventory',
       );
@@ -74,13 +88,17 @@ void main() {
         'reservations': inventory.rows.map(_inventoryEvidence).toList(),
       });
       expect(inventory.isSuccess, isTrue);
+      final matchingRows = inventory.rows
+          .where(
+            (row) =>
+                row.reservationId == scheduleRequest.reservationId &&
+                row.occurrenceId == scheduleRequest.occurrenceId,
+          )
+          .toList();
+      expect(matchingRows, hasLength(1));
       expect(
-        inventory.rows.any(
-          (row) =>
-              row.reservationId == scheduleRequest.reservationId &&
-              row.occurrenceId == scheduleRequest.occurrenceId,
-        ),
-        isTrue,
+        matchingRows.single.status,
+        NativeAlarmReservationStatus.scheduled,
       );
     }
 
