@@ -759,9 +759,19 @@ class NativeAlarmInventoryResult {
   }) {
     final duplicateIds = <String>{};
     final seenIds = <String>{};
+    final duplicatePlatformAlarmIds = <String>{};
+    final seenPlatformAlarmIds = <String>{};
+    final duplicateOccurrenceIds = <String>{};
+    final seenOccurrenceIds = <String>{};
     for (final row in rows) {
       if (!seenIds.add(row.reservationId)) {
         duplicateIds.add(row.reservationId);
+      }
+      if (!seenPlatformAlarmIds.add(row.platformAlarmId)) {
+        duplicatePlatformAlarmIds.add(row.platformAlarmId);
+      }
+      if (!seenOccurrenceIds.add(row.occurrenceId)) {
+        duplicateOccurrenceIds.add(row.occurrenceId);
       }
     }
     final unknownStatusRows = rows
@@ -781,6 +791,20 @@ class NativeAlarmInventoryResult {
           reservationId: reservationId,
           message: 'Native inventory row has an unknown status.',
         ),
+      for (final row in rows)
+        if (duplicatePlatformAlarmIds.contains(row.platformAlarmId))
+          NativeAlarmInventoryIssue(
+            type: NativeAlarmInventoryIssueType.duplicate,
+            reservationId: row.reservationId,
+            message: 'Duplicate native platform alarm identity.',
+          ),
+      for (final row in rows)
+        if (duplicateOccurrenceIds.contains(row.occurrenceId))
+          NativeAlarmInventoryIssue(
+            type: NativeAlarmInventoryIssueType.duplicate,
+            reservationId: row.reservationId,
+            message: 'Duplicate logical occurrence identity.',
+          ),
     ];
     return NativeAlarmInventoryResult(
       status: issues.isEmpty
@@ -788,7 +812,10 @@ class NativeAlarmInventoryResult {
           : NativeAlarmInventoryResultStatus.failure,
       rows: rows,
       issues: issues,
-      failureReason: duplicateIds.isNotEmpty
+      failureReason:
+          duplicateIds.isNotEmpty ||
+              duplicatePlatformAlarmIds.isNotEmpty ||
+              duplicateOccurrenceIds.isNotEmpty
           ? NativeAlarmInventoryFailureReason.corrupt
           : unknownStatusRows.isNotEmpty
           ? NativeAlarmInventoryFailureReason.unknown
@@ -838,6 +865,21 @@ class NativeAlarmInventoryResult {
   }) {
     final expectedById = <String, NativeAlarmInventoryExpectedReservation>{};
     final issues = <NativeAlarmInventoryIssue>[...this.issues];
+    if (!isSuccess) {
+      issues.add(
+        NativeAlarmInventoryIssue(
+          type: failureReason == NativeAlarmInventoryFailureReason.corrupt
+              ? NativeAlarmInventoryIssueType.corrupt
+              : NativeAlarmInventoryIssueType.unknown,
+          message: failureMessage ?? 'Native inventory is not authoritative.',
+        ),
+      );
+      return NativeAlarmInventoryReconciliation(
+        rows: rows,
+        issues: issues,
+        sourceWasSuccessful: false,
+      );
+    }
     for (final item in expected) {
       if (expectedById.containsKey(item.reservationId)) {
         issues.add(

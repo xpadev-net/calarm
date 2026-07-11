@@ -168,8 +168,33 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
         );
       }
 
+      final relatedRows = inventoryRows.where(
+        (row) =>
+            row.reservationId == alarm.reservationId ||
+            row.occurrenceId == alarm.occurrenceId ||
+            row.platformAlarmId == alarm.platformAlarmId,
+      );
+      final hasExactRow = relatedRows.any(
+        (row) =>
+            row.reservationId == alarm.reservationId &&
+            row.occurrenceId == alarm.occurrenceId &&
+            row.platformAlarmId == alarm.platformAlarmId,
+      );
+      if (relatedRows.isNotEmpty && !hasExactRow) {
+        return CancelAlarmResult.failure(
+          occurrenceId: alarm.occurrenceId,
+          platformAlarmId: alarm.platformAlarmId,
+          reservationId: alarm.reservationId,
+          reason: CancelFailureReason.invalidRequest,
+          message: 'Cancel identity does not match fake inventory.',
+        );
+      }
+
       inventoryRows.removeWhere(
-        (row) => row.reservationId == alarm.reservationId,
+        (row) =>
+            row.reservationId == alarm.reservationId &&
+            row.occurrenceId == alarm.occurrenceId &&
+            row.platformAlarmId == alarm.platformAlarmId,
       );
       return CancelAlarmResult.success(
         occurrenceId: alarm.occurrenceId,

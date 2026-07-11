@@ -271,8 +271,6 @@ void main() {
     test('reports duplicate, unknown, missing, extra, and corrupt rows', () {
       final result = NativeAlarmInventoryResult.success(
         rows: [
-          _inventoryRow('reservation-1', occurrenceId: 'occ-1'),
-          _inventoryRow('reservation-1', occurrenceId: 'occ-1'),
           _inventoryRow('unknown-reservation', occurrenceId: 'occ-1'),
           _inventoryRow('extra-reservation', occurrenceId: 'other-occ'),
           _inventoryRow('reservation-2', occurrenceId: 'wrong-occ'),
@@ -303,12 +301,43 @@ void main() {
       expect(
         reconciliation.issues.map((issue) => issue.type),
         containsAll(<NativeAlarmInventoryIssueType>[
-          NativeAlarmInventoryIssueType.duplicate,
           NativeAlarmInventoryIssueType.unknown,
           NativeAlarmInventoryIssueType.extra,
           NativeAlarmInventoryIssueType.missing,
           NativeAlarmInventoryIssueType.corrupt,
         ]),
+      );
+    });
+
+    test('rejects distinct rows that reuse native or logical identities', () {
+      final result = NativeAlarmInventoryResult.success(
+        rows: [
+          _inventoryRow('reservation-1', occurrenceId: 'occ-1'),
+          NativeAlarmInventoryRow.create(
+            reservationId: 'reservation-2',
+            occurrenceId: 'occ-2',
+            wakePlanId: 'plan-1',
+            platformAlarmId: 'platform-reservation-1',
+            status: NativeAlarmReservationStatus.scheduled,
+          ),
+          NativeAlarmInventoryRow.create(
+            reservationId: 'reservation-3',
+            occurrenceId: 'occ-1',
+            wakePlanId: 'plan-1',
+            platformAlarmId: 'platform-reservation-3',
+            status: NativeAlarmReservationStatus.scheduled,
+          ),
+        ],
+      );
+
+      expect(result.isSuccess, isFalse);
+      expect(
+        result.issues
+            .where(
+              (issue) => issue.type == NativeAlarmInventoryIssueType.duplicate,
+            )
+            .length,
+        greaterThanOrEqualTo(2),
       );
     });
 
@@ -367,6 +396,29 @@ void main() {
         expect(inventory.rows, hasLength(1));
         expect(inventory.rows.single.reservationId, 'reservation-1');
         expect(inventory.rows.single.platformAlarmId, 'platform-occ-1');
+      },
+    );
+
+    test(
+      'rejects a stale platform id while the reservation is inventoried',
+      () async {
+        final gateway = FakeNativeAlarmGateway();
+        await gateway.scheduleOccurrences([_requests().first]);
+
+        final result = await gateway.cancelOccurrences([
+          NativeAlarmCancelRequest(
+            occurrenceId: 'occ-1',
+            reservationId: 'occ-1',
+            platformAlarmId: 'stale-platform-id',
+          ),
+        ]);
+
+        expect(result.status, CancelResultStatus.failure);
+        expect(
+          result.alarms.single.failureReason,
+          CancelFailureReason.invalidRequest,
+        );
+        expect((await gateway.getInventory()).rows, hasLength(1));
       },
     );
 
