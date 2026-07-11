@@ -594,7 +594,8 @@ class WakePlanService {
         (existing.status == AlarmOccurrenceStatus.scheduled ||
             existing.status == AlarmOccurrenceStatus.ringing) &&
         existing.hasNativeReservation &&
-        !existing.scheduledAt.toDateTime().isBefore(now);
+        (existing.status == AlarmOccurrenceStatus.ringing ||
+            !existing.scheduledAt.toDateTime().isBefore(now));
   }
 
   Future<WakePlanSchedulingResult> _reconcilePlan({
