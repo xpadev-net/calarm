@@ -359,7 +359,13 @@
 
 ### Task_11: Implement native inventory/stable identity on Android
 
-- status: unstarted
+- status: in_progress
+- worker:
+  - thread: `019f5239-66a3-7ec0-af34-8f7442c4a58d`
+  - worktree: `/Users/xpadev/.codex/worktrees/5d23/calarm`
+  - branch: `codex/reviewfix-android-native-inventory`
+  - runtime: `gpt-5.6-luna` / `high`
+  - review_candidate: `a3520433430db3fa220fd21068dc281f991b98a5`
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/**`
