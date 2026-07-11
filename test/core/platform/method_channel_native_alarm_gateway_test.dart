@@ -68,6 +68,100 @@ void main() {
       final capability = await gateway.getCapability();
 
       expect(capability.supportsTestAlarm, isTrue);
+      expect(capability.supportsInventory, isFalse);
+    },
+  );
+
+  test('getInventory reads stable identities and native status', () async {
+    _setHandler(channel, calls, (call) {
+      expect(call.method, 'getInventory');
+      expect(call.arguments, {'schemaVersion': 1});
+      return {
+        'schemaVersion': 1,
+        'reservations': [
+          {
+            'reservationId': 'reservation-1',
+            'occurrenceId': 'occ-1',
+            'wakePlanId': 'plan-1',
+            'platformAlarmId': 'platform-occ-1',
+            'status': 'ringing',
+          },
+        ],
+      };
+    });
+
+    final result = await gateway.getInventory();
+
+    expect(result.status, NativeAlarmInventoryResultStatus.success);
+    expect(result.rows.single.reservationId, 'reservation-1');
+    expect(result.rows.single.status, NativeAlarmReservationStatus.ringing);
+  });
+
+  test(
+    'getInventory treats old native implementations as unavailable',
+    () async {
+      _setHandler(channel, calls, (_) {
+        throw MissingPluginException('getInventory is not implemented');
+      });
+
+      final result = await gateway.getInventory();
+
+      expect(result.status, NativeAlarmInventoryResultStatus.unavailable);
+      expect(
+        result.failureReason,
+        NativeAlarmInventoryFailureReason.unavailable,
+      );
+    },
+  );
+
+  test(
+    'getInventory turns malformed rows into an explicit corrupt failure',
+    () async {
+      _setHandler(channel, calls, (_) {
+        return {
+          'schemaVersion': 1,
+          'reservations': [
+            {
+              'reservationId': 'reservation-1',
+              'occurrenceId': 'occ-1',
+              'wakePlanId': 'plan-1',
+              'platformAlarmId': 'platform-occ-1',
+              'status': 'not-a-status',
+            },
+          ],
+        };
+      });
+
+      final result = await gateway.getInventory();
+
+      expect(result.status, NativeAlarmInventoryResultStatus.failure);
+      expect(result.failureReason, NativeAlarmInventoryFailureReason.corrupt);
+      expect(result.issues.single.type, NativeAlarmInventoryIssueType.corrupt);
+    },
+  );
+
+  test(
+    'getInventory classifies unknown native errors as read failures',
+    () async {
+      _setHandler(channel, calls, (_) {
+        throw PlatformException(
+          code: 'UNKNOWN',
+          message: 'Native read failed.',
+        );
+      });
+
+      final result = await gateway.getInventory();
+      final reconciliation = result.reconcile(expected: const []);
+
+      expect(
+        result.failureReason,
+        NativeAlarmInventoryFailureReason.nativeError,
+      );
+      expect(reconciliation.isAuthoritative, isFalse);
+      expect(
+        reconciliation.issues.single.type,
+        NativeAlarmInventoryIssueType.readFailure,
+      );
     },
   );
 
@@ -98,6 +192,7 @@ void main() {
           'occurrences': [
             {
               'occurrenceId': 'occ-1',
+              'reservationId': 'occ-1',
               'wakePlanId': 'plan-1',
               'scheduledAt': '2026-07-06T21:00:00.000Z',
               'targetAt': '2026-07-06T22:00:00.000Z',
@@ -108,6 +203,7 @@ void main() {
             },
             {
               'occurrenceId': 'occ-2',
+              'reservationId': 'occ-2',
               'wakePlanId': 'plan-1',
               'scheduledAt': '2026-07-06T21:05:00.000Z',
               'targetAt': '2026-07-06T22:00:00.000Z',
@@ -171,6 +267,22 @@ void main() {
   );
 
   test(
+    'scheduleOccurrences rejects duplicate requests before native call',
+    () async {
+      final duplicateRequests = [_requests().first, _requests().first];
+      _setHandler(channel, calls, (_) {
+        fail('duplicate schedule batch reached the native channel');
+      });
+
+      await expectLater(
+        gateway.scheduleOccurrences(duplicateRequests),
+        throwsArgumentError,
+      );
+      expect(calls, isEmpty);
+    },
+  );
+
+  test(
     'cancelOccurrences sends occurrence to platform id correspondence',
     () async {
       _setHandler(channel, calls, (call) {
@@ -178,8 +290,16 @@ void main() {
         expect(call.arguments, {
           'schemaVersion': 1,
           'alarms': [
-            {'occurrenceId': 'occ-1', 'platformAlarmId': 'platform-occ-1'},
-            {'occurrenceId': 'occ-2', 'platformAlarmId': 'platform-occ-2'},
+            {
+              'occurrenceId': 'occ-1',
+              'reservationId': 'occ-1',
+              'platformAlarmId': 'platform-occ-1',
+            },
+            {
+              'occurrenceId': 'occ-2',
+              'reservationId': 'occ-2',
+              'platformAlarmId': 'platform-occ-2',
+            },
           ],
         });
         return {
@@ -217,8 +337,16 @@ void main() {
       expect(arguments, {
         'schemaVersion': 1,
         'alarms': [
-          {'occurrenceId': 'occ-1', 'platformAlarmId': 'platform-occ-1'},
-          {'occurrenceId': 'occ-2', 'platformAlarmId': 'platform-occ-2'},
+          {
+            'occurrenceId': 'occ-1',
+            'reservationId': 'occ-1',
+            'platformAlarmId': 'platform-occ-1',
+          },
+          {
+            'occurrenceId': 'occ-2',
+            'reservationId': 'occ-2',
+            'platformAlarmId': 'platform-occ-2',
+          },
         ],
       });
       return {
@@ -242,6 +370,25 @@ void main() {
 
     expect(result.status, CancelResultStatus.success);
   });
+
+  test(
+    'cancelOccurrences rejects duplicate requests before native call',
+    () async {
+      final duplicateRequests = [
+        _cancelRequests().first,
+        _cancelRequests().first,
+      ];
+      _setHandler(channel, calls, (_) {
+        fail('duplicate cancel batch reached the native channel');
+      });
+
+      await expectLater(
+        gateway.cancelOccurrences(duplicateRequests),
+        throwsArgumentError,
+      );
+      expect(calls, isEmpty);
+    },
+  );
 
   test(
     'cancelPlan maps native method error per requested platform id',

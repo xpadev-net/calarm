@@ -5,6 +5,14 @@ This document fixes the Dart/native contract for the wake alarm gateway.
 - Channel name: `net.xpadev.calarm/native_alarm`
 - Schema version: `1`
 - Every request and response Map includes `schemaVersion: 1`.
+- The stable logical reservation identity is `reservationId`. It is additive
+  and defaults to `occurrenceId` in Dart, so older native implementations can
+  ignore it while newer implementations use it as their durable idempotency
+  key. Native responses may omit it during rollout; Dart then correlates the
+  legacy row by `occurrenceId` and restores the requested `reservationId`.
+- `getInventory` is an additive read method. Older native implementations may
+  report `unavailable`; callers must not infer that the native inventory is
+  empty from an unavailable or failed read.
 - Native implementations must not schedule production alarms from this document alone; Wave 8 owns production native scheduling.
 - `cancelPlan` receives repository-resolved occurrence/platform alarm identities. Native code must not receive only a logical `wakePlanId` and must not query Flutter persistence.
 
@@ -91,7 +99,8 @@ Response:
   "requiresNotificationPermission": false,
   "requiresFullScreenIntentPermission": false,
   "requiresNotificationChannelSetup": false,
-  "supportsTestAlarm": true
+  "supportsTestAlarm": true,
+  "supportsInventory": true
 }
 ```
 
@@ -127,6 +136,7 @@ Request:
   "occurrences": [
     {
       "occurrenceId": "occ-1",
+      "reservationId": "reservation-occ-1",
       "wakePlanId": "plan-1",
       "scheduledAt": "2026-07-06T21:00:00.000Z",
       "targetAt": "2026-07-06T22:00:00.000Z",
@@ -149,12 +159,14 @@ Response:
   "occurrences": [
     {
       "occurrenceId": "occ-1",
+      "reservationId": "reservation-occ-1",
       "wakePlanId": "plan-1",
       "status": "success",
       "platformAlarmId": "platform-occ-1"
     },
     {
       "occurrenceId": "occ-2",
+      "reservationId": "reservation-occ-2",
       "wakePlanId": "plan-1",
       "status": "failure",
       "failureReason": "osConstraint",
@@ -165,6 +177,16 @@ Response:
 ```
 
 The response must include one row per native result. Dart correlates rows back to the original request by `(occurrenceId, wakePlanId)`. Missing rows become per-occurrence `nativeError` failures. Extra rows or rows for the wrong wake plan are invalid.
+
+Dart also rejects a batch that reuses any stable reservation, logical
+occurrence, or non-null native platform identity. A native platform identity
+must never be reported as belonging to two logical reservations.
+
+`reservationId` is the stable logical identity that native implementations
+must preserve across duplicate schedule calls, process restarts, and inventory
+reads. A successful response should echo it. Omitting it is accepted only for
+rolling compatibility with the original schema, and Dart treats the row as a
+legacy response for the requested occurrence.
 
 On method-level `PlatformException`, Dart converts the error to one failed `ScheduleOccurrenceResult` for each requested occurrence.
 
@@ -178,6 +200,7 @@ Request:
   "alarms": [
     {
       "occurrenceId": "occ-1",
+      "reservationId": "reservation-occ-1",
       "platformAlarmId": "platform-occ-1"
     }
   ]
@@ -192,6 +215,7 @@ Response:
   "alarms": [
     {
       "occurrenceId": "occ-1",
+      "reservationId": "reservation-occ-1",
       "platformAlarmId": "platform-occ-1",
       "status": "success"
     }
@@ -213,10 +237,12 @@ Request:
   "alarms": [
     {
       "occurrenceId": "occ-1",
+      "reservationId": "reservation-occ-1",
       "platformAlarmId": "platform-occ-1"
     },
     {
       "occurrenceId": "occ-2",
+      "reservationId": "reservation-occ-2",
       "platformAlarmId": "platform-occ-2"
     }
   ]
@@ -231,11 +257,13 @@ Response:
   "alarms": [
     {
       "occurrenceId": "occ-1",
+      "reservationId": "reservation-occ-1",
       "platformAlarmId": "platform-occ-1",
       "status": "success"
     },
     {
       "occurrenceId": "occ-2",
+      "reservationId": "reservation-occ-2",
       "platformAlarmId": "platform-occ-2",
       "status": "failure",
       "failureReason": "nativeError",
@@ -246,6 +274,58 @@ Response:
 ```
 
 `cancelPlan` uses the same cancel row schema as `cancelOccurrences`. The only semantic difference is caller intent: the repository resolves all stored native alarm identities for a plan before crossing the native boundary.
+
+## `getInventory`
+
+Request:
+
+```json
+{
+  "schemaVersion": 1
+}
+```
+
+Success response:
+
+```json
+{
+  "schemaVersion": 1,
+  "reservations": [
+    {
+      "reservationId": "reservation-occ-1",
+      "occurrenceId": "occ-1",
+      "wakePlanId": "plan-1",
+      "platformAlarmId": "platform-occ-1",
+      "status": "scheduled"
+    }
+  ]
+}
+```
+
+Inventory statuses are `scheduled`, `ringing`, `stopped`, and `unknown`.
+Every row must contain non-empty stable, logical, and native identities. Dart
+returns a failed `corrupt` inventory result for malformed rows or an
+unsupported schema, and a failed `unavailable` result when an older native
+binary does not expose the method.
+
+Reconciliation is deliberately conservative:
+
+- `missing`: an expected `reservationId` is absent from the native rows.
+- `duplicate`: the same stable identity appears more than once in native rows
+  or in the expected set, or distinct rows reuse a platform alarm or logical
+  occurrence identity.
+- `unknown`: a native row has a new stable identity for an occurrence Dart
+  already knows, so it must not be adopted automatically.
+- `extra`: a well-formed native row is unrelated to the expected set and must
+  not be treated as a Flutter reservation.
+- `corrupt`: a row is malformed or its occurrence/plan metadata conflicts with
+  Dart's expected identity.
+- `readFailure`: the inventory read itself was unavailable or failed; this is
+  not evidence that any expected reservation is missing.
+
+Any issue makes the reconciliation non-authoritative. Callers may display or
+repair the issue, but must not convert it into a successful schedule/cancel
+operation.
 
 ## `scheduleTestAlarm`
 

@@ -46,6 +46,7 @@ class MethodChannelNativeAlarmGateway implements NativeAlarmGateway {
         'supportsTestAlarm',
         defaultValue: true,
       ),
+      supportsInventory: _optionalBool(response, 'supportsInventory'),
     );
   }
 
@@ -68,6 +69,7 @@ class MethodChannelNativeAlarmGateway implements NativeAlarmGateway {
   Future<ScheduleResult> scheduleOccurrences(
     List<NativeAlarmScheduleRequest> occurrences,
   ) async {
+    ScheduleResult.validateRequests(occurrences);
     try {
       final response = await _invokeMap('scheduleOccurrences', {
         ..._basePayload(),
@@ -92,6 +94,7 @@ class MethodChannelNativeAlarmGateway implements NativeAlarmGateway {
                 wakePlanId: request.wakePlanId,
                 reason: _scheduleFailureReason(error.code),
                 message: error.message,
+                reservationId: request.reservationId,
               ),
             )
             .toList(),
@@ -143,10 +146,49 @@ class MethodChannelNativeAlarmGateway implements NativeAlarmGateway {
     }
   }
 
+  @override
+  Future<NativeAlarmInventoryResult> getInventory() async {
+    try {
+      final response = await _invokeMap('getInventory', _basePayload());
+      _verifySchemaVersion(response);
+      final rows = _requiredList(
+        response,
+        'reservations',
+      ).map(_inventoryRow).toList();
+      return NativeAlarmInventoryResult.success(rows: rows);
+    } on MissingPluginException catch (error) {
+      return NativeAlarmInventoryResult.failure(
+        reason: NativeAlarmInventoryFailureReason.unavailable,
+        message: error.message,
+      );
+    } on PlatformException catch (error) {
+      return NativeAlarmInventoryResult.failure(
+        reason: _inventoryFailureReason(error.code),
+        message: error.message,
+      );
+    } on FormatException catch (error) {
+      return NativeAlarmInventoryResult.failure(
+        reason: NativeAlarmInventoryFailureReason.corrupt,
+        message: error.message,
+      );
+    } on ArgumentError catch (error) {
+      return NativeAlarmInventoryResult.failure(
+        reason: NativeAlarmInventoryFailureReason.corrupt,
+        message: error.message,
+      );
+    } on TypeError catch (error) {
+      return NativeAlarmInventoryResult.failure(
+        reason: NativeAlarmInventoryFailureReason.corrupt,
+        message: error.toString(),
+      );
+    }
+  }
+
   Future<CancelResult> _cancel(
     String method,
     List<NativeAlarmCancelRequest> alarms,
   ) async {
+    CancelResult.validateRequests(alarms);
     try {
       final response = await _invokeMap(method, {
         ..._basePayload(),
@@ -171,6 +213,7 @@ class MethodChannelNativeAlarmGateway implements NativeAlarmGateway {
                 platformAlarmId: alarm.platformAlarmId,
                 reason: _cancelFailureReason(error.code),
                 message: error.message,
+                reservationId: alarm.reservationId,
               ),
             )
             .toList(),
@@ -196,6 +239,7 @@ Map<String, Object?> _scheduleRequestPayload(
 ) {
   return <String, Object?>{
     'occurrenceId': request.occurrenceId,
+    'reservationId': request.reservationId,
     'wakePlanId': request.wakePlanId,
     'scheduledAt': request.scheduledAt.toUtc().toIso8601String(),
     'targetAt': request.targetAt.toUtc().toIso8601String(),
@@ -209,6 +253,7 @@ Map<String, Object?> _scheduleRequestPayload(
 Map<String, Object?> _cancelRequestPayload(NativeAlarmCancelRequest request) {
   return <String, Object?>{
     'occurrenceId': request.occurrenceId,
+    'reservationId': request.reservationId,
     'platformAlarmId': request.platformAlarmId,
   };
 }
@@ -221,6 +266,7 @@ ScheduleOccurrenceResult _scheduleOccurrenceResult(Object? value) {
       occurrenceId: _requiredString(map, 'occurrenceId'),
       wakePlanId: _requiredString(map, 'wakePlanId'),
       platformAlarmId: _requiredString(map, 'platformAlarmId'),
+      reservationId: _optionalString(map, 'reservationId'),
     );
   }
   return ScheduleOccurrenceResult.failure(
@@ -229,6 +275,7 @@ ScheduleOccurrenceResult _scheduleOccurrenceResult(Object? value) {
     reason: _scheduleFailureReason(_requiredString(map, 'failureReason')),
     message: _optionalString(map, 'failureMessage'),
     platformAlarmId: _optionalString(map, 'platformAlarmId'),
+    reservationId: _optionalString(map, 'reservationId'),
   );
 }
 
@@ -239,6 +286,7 @@ CancelAlarmResult _cancelAlarmResult(Object? value) {
     return CancelAlarmResult.success(
       occurrenceId: _requiredString(map, 'occurrenceId'),
       platformAlarmId: _requiredString(map, 'platformAlarmId'),
+      reservationId: _optionalString(map, 'reservationId'),
     );
   }
   return CancelAlarmResult.failure(
@@ -246,6 +294,18 @@ CancelAlarmResult _cancelAlarmResult(Object? value) {
     platformAlarmId: _requiredString(map, 'platformAlarmId'),
     reason: _cancelFailureReason(_requiredString(map, 'failureReason')),
     message: _optionalString(map, 'failureMessage'),
+    reservationId: _optionalString(map, 'reservationId'),
+  );
+}
+
+NativeAlarmInventoryRow _inventoryRow(Object? value) {
+  final map = _asMap(value, 'native inventory row');
+  return NativeAlarmInventoryRow.create(
+    reservationId: _requiredString(map, 'reservationId'),
+    occurrenceId: _requiredString(map, 'occurrenceId'),
+    wakePlanId: _requiredString(map, 'wakePlanId'),
+    platformAlarmId: _requiredString(map, 'platformAlarmId'),
+    status: _inventoryReservationStatus(_requiredString(map, 'status')),
   );
 }
 
@@ -397,5 +457,28 @@ CancelFailureReason _cancelFailureReason(String value) {
     'unavailable' || 'UNAVAILABLE' => CancelFailureReason.unavailable,
     'unknown' || 'UNKNOWN' => CancelFailureReason.unknown,
     _ => CancelFailureReason.nativeError,
+  };
+}
+
+NativeAlarmReservationStatus _inventoryReservationStatus(String value) {
+  return switch (value) {
+    'scheduled' => NativeAlarmReservationStatus.scheduled,
+    'ringing' => NativeAlarmReservationStatus.ringing,
+    'stopped' => NativeAlarmReservationStatus.stopped,
+    'unknown' => NativeAlarmReservationStatus.unknown,
+    _ => throw FormatException('Unknown native inventory status: $value'),
+  };
+}
+
+NativeAlarmInventoryFailureReason _inventoryFailureReason(String value) {
+  return switch (value) {
+    'unavailable' ||
+    'UNAVAILABLE' => NativeAlarmInventoryFailureReason.unavailable,
+    'corrupt' || 'CORRUPT' => NativeAlarmInventoryFailureReason.corrupt,
+    // `unknown` is a row/status classification, not a read outcome. Keep
+    // native read failures on the failure path so reconciliation emits the
+    // explicit `readFailure` issue rather than conflating the two.
+    'unknown' || 'UNKNOWN' => NativeAlarmInventoryFailureReason.nativeError,
+    _ => NativeAlarmInventoryFailureReason.nativeError,
   };
 }
