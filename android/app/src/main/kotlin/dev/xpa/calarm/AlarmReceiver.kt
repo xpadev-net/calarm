@@ -15,10 +15,15 @@ class AlarmReceiver : BroadcastReceiver() {
         val platformAlarmId = intent.getStringExtra(AlarmIntents.EXTRA_PLATFORM_ALARM_ID) ?: return
         val store = AlarmStore(context)
         val request = store.get(platformAlarmId)
-        if (request == null && !store.contains(platformAlarmId)) return
+        if (request == null) return
+        if (
+            request.platformAlarmId != platformAlarmId ||
+            !request.hasCanonicalPlatformAlarmId()
+        ) return
+        if (!store.markRinging(platformAlarmId)) return
         showAlarmNotification(context, platformAlarmId)
         openAlarmScreen(context, platformAlarmId)
-        if (request?.vibrationEnabled == true) {
+        if (request.vibrationEnabled) {
             vibrate(context)
         }
     }

@@ -40,6 +40,7 @@ void main() {
 
     final scheduleRequest = NativeAlarmScheduleRequest(
       occurrenceId: 'ci-smoke-occurrence',
+      reservationId: 'ci-smoke-reservation',
       wakePlanId: 'ci-smoke-plan',
       scheduledAt: DateTime.now().toUtc().add(const Duration(hours: 6)),
       targetAt: DateTime.now().toUtc().add(const Duration(hours: 6)),
@@ -62,6 +63,45 @@ void main() {
     });
     expect(scheduleResult.occurrences, hasLength(1));
 
+    final isAndroidRuntime = defaultTargetPlatform == TargetPlatform.android;
+    if (isAndroidRuntime) {
+      expect(
+        platform.toLowerCase(),
+        contains('android'),
+        reason: 'Android smoke must declare an Android smoke platform.',
+      );
+    } else {
+      expect(
+        platform.toLowerCase(),
+        isNot(contains('android')),
+        reason: 'Non-Android smoke must not declare Android.',
+      );
+    }
+    if (isAndroidRuntime && scheduleSucceeded) {
+      final inventory = await gateway.getInventory().nativeSmokeTimeout(
+        'getInventory',
+      );
+      _emitEvidence('getInventory', {
+        'platform': platform,
+        'evidenceLabel': evidenceLabel,
+        'status': inventory.status.name,
+        'reservations': inventory.rows.map(_inventoryEvidence).toList(),
+      });
+      expect(inventory.isSuccess, isTrue);
+      final matchingRows = inventory.rows
+          .where(
+            (row) =>
+                row.reservationId == scheduleRequest.reservationId &&
+                row.occurrenceId == scheduleRequest.occurrenceId,
+          )
+          .toList();
+      expect(matchingRows, hasLength(1));
+      expect(
+        matchingRows.single.status,
+        NativeAlarmReservationStatus.scheduled,
+      );
+    }
+
     final scheduledPlatformAlarmId =
         scheduleResult.occurrences.single.platformAlarmId;
     var scheduleCancelSucceeded = false;
@@ -70,6 +110,7 @@ void main() {
           .cancelOccurrences([
             NativeAlarmCancelRequest(
               occurrenceId: scheduleRequest.occurrenceId,
+              reservationId: scheduleRequest.reservationId,
               platformAlarmId: scheduledPlatformAlarmId,
             ),
           ])
@@ -181,6 +222,7 @@ Map<String, Object?> _scheduleOccurrenceEvidence(
 ) {
   return {
     'occurrenceId': result.occurrenceId,
+    'reservationId': result.reservationId,
     'wakePlanId': result.wakePlanId,
     'status': result.status.name,
     'platformAlarmId': result.platformAlarmId,
@@ -192,9 +234,20 @@ Map<String, Object?> _scheduleOccurrenceEvidence(
 Map<String, Object?> _cancelAlarmEvidence(CancelAlarmResult result) {
   return {
     'occurrenceId': result.occurrenceId,
+    'reservationId': result.reservationId,
     'platformAlarmId': result.platformAlarmId,
     'status': result.status.name,
     'failureReason': result.failureReason?.name,
     'failureMessage': result.failureMessage,
+  };
+}
+
+Map<String, Object?> _inventoryEvidence(NativeAlarmInventoryRow row) {
+  return {
+    'reservationId': row.reservationId,
+    'occurrenceId': row.occurrenceId,
+    'wakePlanId': row.wakePlanId,
+    'platformAlarmId': row.platformAlarmId,
+    'status': row.status.name,
   };
 }
