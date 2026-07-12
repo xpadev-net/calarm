@@ -717,7 +717,7 @@ class AndroidInventoryTest {
     }
 
     @Test
-    fun `schedule persistence failure cancels the same receiver and preserves prior mirror`() {
+    fun `schedule persistence failure control flow cancels the same receiver and preserves prior mirror`() {
         val request = alarmRequest(
             platformAlarmId = "android:plan:rollback",
             occurrenceId = "rollback",
@@ -854,26 +854,25 @@ class AndroidInventoryTest {
 
     private fun alarmRequest(
         platformAlarmId: String,
-        reservationId: String = "occurrence",
-        occurrenceId: String = "occurrence",
-        wakePlanId: String = "plan",
+        reservationId: String? = null,
+        occurrenceId: String? = null,
+        wakePlanId: String? = null,
         scheduledAtMillis: Long = System.currentTimeMillis() + 60_000,
         state: AlarmState = AlarmState.SCHEDULED,
         vibrationEnabled: Boolean = false,
     ): AlarmRequest {
-        val inferredOccurrenceId = if (
-            occurrenceId == "occurrence" &&
-            reservationId == "occurrence" &&
-            wakePlanId == "plan"
-        ) {
+        val identifiersOmitted = occurrenceId == null && reservationId == null && wakePlanId == null
+        val resolvedOccurrenceId = if (identifiersOmitted) {
             platformAlarmId.substringAfterLast(':')
         } else {
-            occurrenceId
+            occurrenceId ?: "occurrence"
         }
+        val resolvedReservationId = reservationId ?: "occurrence"
+        val resolvedWakePlanId = wakePlanId ?: "plan"
         return AlarmRequest(
-            occurrenceId = inferredOccurrenceId,
-            reservationId = reservationId,
-            wakePlanId = wakePlanId,
+            occurrenceId = resolvedOccurrenceId,
+            reservationId = resolvedReservationId,
+            wakePlanId = resolvedWakePlanId,
             scheduledAtMillis = scheduledAtMillis,
             targetAtMillis = scheduledAtMillis,
             soundId = "default",
