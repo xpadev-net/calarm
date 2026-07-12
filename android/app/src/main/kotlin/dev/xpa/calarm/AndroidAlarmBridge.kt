@@ -19,6 +19,7 @@ import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.time.Instant
+import org.json.JSONException
 import org.json.JSONObject
 
 class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCallHandler {
@@ -209,6 +210,15 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 request.reservationId,
             )
         }
+        if (legacyRequest != null && !legacyRequest.hasCanonicalPlatformAlarmId()) {
+            return scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "nativeError",
+                "Legacy native alarm mirror row is corrupt.",
+                request.reservationId,
+            )
+        }
         if (legacyRequest != null && !legacyIdentityMatches) {
             return scheduleFailure(
                 request.occurrenceId,
@@ -236,6 +246,15 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         }
         val existing = store.get(platformAlarmId)
         if (store.contains(platformAlarmId) && existing == null) {
+            return scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "nativeError",
+                "Native alarm mirror row is corrupt.",
+                request.reservationId,
+            )
+        }
+        if (existing != null && !existing.hasCanonicalPlatformAlarmId()) {
             return scheduleFailure(
                 request.occurrenceId,
                 request.wakePlanId,
@@ -334,7 +353,13 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             )
         }
 
-        return try {
+        return armAndPersist(request, platformAlarmId)
+    }
+
+    private fun armAndPersist(
+        request: AlarmRequest,
+        platformAlarmId: String,
+        arm: () -> Unit = {
             alarmManager.setAlarmClock(
                 AlarmManager.AlarmClockInfo(
                     request.scheduledAtMillis,
@@ -342,8 +367,16 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 ),
                 AlarmIntents.receiver(appContext, platformAlarmId),
             )
-            if (!store.put(request.copy(platformAlarmIdOverride = platformAlarmId, state = AlarmState.SCHEDULED))) {
-                alarmManager.cancel(AlarmIntents.receiver(appContext, platformAlarmId))
+        },
+        persist: () -> Boolean = {
+            store.put(request.copy(platformAlarmIdOverride = platformAlarmId, state = AlarmState.SCHEDULED))
+        },
+        cancel: () -> Unit = { cancelReceiver(platformAlarmId) },
+    ): MutableMap<String, Any?> {
+        return try {
+            arm()
+            if (!persist()) {
+                cancel()
                 return scheduleFailure(
                     request.occurrenceId,
                     request.wakePlanId,
@@ -353,8 +386,17 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 )
             }
             scheduleSuccess(request, platformAlarmId)
-        } catch (error: Exception) {
-            alarmManager.cancel(AlarmIntents.receiver(appContext, platformAlarmId))
+        } catch (error: JSONException) {
+            cancel()
+            scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "nativeError",
+                error.message ?: "Failed to persist native alarm mirror state.",
+                request.reservationId,
+            )
+        } catch (error: RuntimeException) {
+            cancel()
             scheduleFailure(
                 request.occurrenceId,
                 request.wakePlanId,
@@ -362,6 +404,24 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 error.message ?: "AlarmManager rejected the alarm.",
                 request.reservationId,
             )
+        }
+    }
+
+    internal fun armAndPersistForTest(
+        request: AlarmRequest,
+        platformAlarmId: String,
+        arm: () -> Unit,
+        persist: () -> Boolean,
+        cancel: () -> Unit,
+    ): Map<String, Any?> {
+        return armAndPersist(request, platformAlarmId, arm, persist, cancel)
+    }
+
+    private fun cancelReceiver(platformAlarmId: String) {
+        try {
+            alarmManager.cancel(AlarmIntents.receiver(appContext, platformAlarmId))
+        } catch (_: RuntimeException) {
+            // Preserve the original schedule failure if cleanup is rejected.
         }
     }
 
@@ -425,7 +485,9 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                     "Native alarm mirror row is corrupt.",
                     reservationId,
                 )
-                stored != null && stored.platformAlarmId != platformAlarmId -> cancelFailure(
+                stored != null &&
+                    (stored.platformAlarmId != platformAlarmId ||
+                        !stored.hasCanonicalPlatformAlarmId()) -> cancelFailure(
                     occurrenceId,
                     platformAlarmId,
                     "nativeError",
@@ -649,6 +711,14 @@ data class AlarmRequest(
             stablePlatformAlarmId(this)
         }
 
+    fun hasCanonicalPlatformAlarmId(): Boolean {
+        return occurrenceId.isNotBlank() &&
+            wakePlanId.isNotBlank() &&
+            (platformAlarmId == stablePlatformAlarmId(this) ||
+                platformAlarmId == legacyPlatformAlarmId(this) ||
+                (isTest && platformAlarmId == "android:test:$occurrenceId"))
+    }
+
     fun toJson(): JSONObject {
         return JSONObject()
             .put("occurrenceId", occurrenceId)
@@ -784,7 +854,10 @@ class AlarmStore(context: Context) {
 
     fun markRinging(platformAlarmId: String): Boolean {
         val request = get(platformAlarmId) ?: return false
-        if (request.platformAlarmId != platformAlarmId) return false
+        if (
+            request.platformAlarmId != platformAlarmId ||
+            !request.hasCanonicalPlatformAlarmId()
+        ) return false
         return put(request.copy(state = AlarmState.RINGING))
     }
 
@@ -798,7 +871,11 @@ class AlarmStore(context: Context) {
             } catch (_: Exception) {
                 null
             }
-            if (request == null || request.platformAlarmId != key) {
+            if (
+                request == null ||
+                request.platformAlarmId != key ||
+                !request.hasCanonicalPlatformAlarmId()
+            ) {
                 corruptKeys += key
             } else if (request.state != AlarmState.RINGING && request.scheduledAtMillis <= nowMillis) {
                 expiredKeys += key
@@ -856,7 +933,11 @@ class AlarmStore(context: Context) {
             } catch (_: Exception) {
                 null
             }
-            if (request == null || request.platformAlarmId != key) {
+            if (
+                request == null ||
+                request.platformAlarmId != key ||
+                !request.hasCanonicalPlatformAlarmId()
+            ) {
                 invalidKeys += key
             } else if (!requestsById.containsKey(request.platformAlarmId)) {
                 requestsById[request.platformAlarmId] = request

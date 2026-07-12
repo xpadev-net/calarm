@@ -299,8 +299,9 @@ class AndroidRecoveryTest {
         scheduledAtMillis: Long = System.currentTimeMillis() + 60_000,
         vibrationEnabled: Boolean = true,
     ): AlarmRequest {
+        val occurrenceId = platformAlarmId.substringAfterLast(':')
         return AlarmRequest(
-            occurrenceId = "occurrence",
+            occurrenceId = occurrenceId,
             wakePlanId = "plan",
             scheduledAtMillis = scheduledAtMillis,
             targetAtMillis = scheduledAtMillis,

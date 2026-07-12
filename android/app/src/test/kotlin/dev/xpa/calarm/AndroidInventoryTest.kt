@@ -9,6 +9,8 @@ import android.os.Vibrator
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.time.Instant
+import org.json.JSONException
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -90,6 +92,17 @@ class AndroidInventoryTest {
     }
 
     @Test
+    fun `persisted reservation identity rejects null object and blank values`() {
+        listOf<Any?>(JSONObject.NULL, JSONObject(), "").forEach { value ->
+            val json = alarmRequest("android:plan:typed-reservation").toJson()
+                .put("reservationId", value)
+            assertThrows(IllegalArgumentException::class.java) {
+                AlarmRequest.fromJson(json)
+            }
+        }
+    }
+
+    @Test
     fun `inventory removes expired and corrupt rows and does not return them as success`() {
         val expired = alarmRequest(
             platformAlarmId = "android:plan:expired-inventory",
@@ -109,14 +122,93 @@ class AndroidInventoryTest {
     }
 
     @Test
+    fun `inventory reports a matching-key noncanonical platform override as corrupt`() {
+        val platformAlarmId = "android:corrupt:override"
+        val request = alarmRequest(
+            platformAlarmId = platformAlarmId,
+            reservationId = "canonical-reservation",
+            occurrenceId = "canonical-occurrence",
+            wakePlanId = "canonical-plan",
+        )
+        mirrorPreferences().edit()
+            .putString(platformAlarmId, request.toJson().toString())
+            .commit()
+
+        val result = CapturingResult()
+        AndroidAlarmBridge(context).onMethodCall(
+            MethodCall("getInventory", mapOf("schemaVersion" to 1)),
+            result,
+        )
+
+        assertEquals("CORRUPT", result.errorCode)
+        assertFalse(mirrorPreferences().contains(platformAlarmId))
+    }
+
+    @Test
+    fun `noncanonical matching-key rows have no receiver or cancel side effects and are not restored`() {
+        val platformAlarmId = "android:corrupt:override-lifecycle"
+        val request = alarmRequest(
+            platformAlarmId = platformAlarmId,
+            reservationId = "lifecycle-reservation",
+            occurrenceId = "lifecycle-occurrence",
+            wakePlanId = "lifecycle-plan",
+            vibrationEnabled = true,
+        )
+        mirrorPreferences().edit()
+            .putString(platformAlarmId, request.toJson().toString())
+            .commit()
+
+        AlarmReceiver().onReceive(
+            context,
+            Shadows.shadowOf(AlarmIntents.receiver(context, platformAlarmId)).savedIntent,
+        )
+        assertTrue(
+            context.getSystemService(NotificationManager::class.java)
+                .activeNotifications
+                .isEmpty(),
+        )
+        assertNull(Shadows.shadowOf(context.applicationContext as Application).peekNextStartedActivity())
+        assertNull(shadowVibrator().getVibrationAttributesFromLastVibration())
+
+        val cancelResult = CapturingResult()
+        AndroidAlarmBridge(context).onMethodCall(
+            MethodCall(
+                "cancelOccurrences",
+                mapOf(
+                    "schemaVersion" to 1,
+                    "alarms" to listOf(
+                        mapOf(
+                            "occurrenceId" to request.occurrenceId,
+                            "reservationId" to request.reservationId,
+                            "platformAlarmId" to platformAlarmId,
+                        ),
+                    ),
+                ),
+            ),
+            cancelResult,
+        )
+        val cancelRow = (cancelResult.value as Map<*, *>)
+            .let { it["alarms"] as List<*> }
+            .single() as Map<*, *>
+        assertEquals("failure", cancelRow["status"])
+        assertEquals("nativeError", cancelRow["failureReason"])
+        assertTrue(mirrorPreferences().contains(platformAlarmId))
+
+        AlarmRestore.restoreForTest(context, context) {
+            throw AssertionError("Noncanonical rows must not be restored")
+        }
+        assertFalse(mirrorPreferences().contains(platformAlarmId))
+    }
+
+    @Test
     fun `inventory reports duplicate stable identities without inventing rows`() {
         val first = alarmRequest(
-            platformAlarmId = "android:reservation:duplicate-1",
+            platformAlarmId = "android:plan:occurrence-1",
             reservationId = "duplicate",
             occurrenceId = "occurrence-1",
         )
         val second = alarmRequest(
-            platformAlarmId = "android:reservation:duplicate-2",
+            platformAlarmId = "android:plan:occurrence-2",
             reservationId = "duplicate",
             occurrenceId = "occurrence-2",
         )
@@ -133,18 +225,30 @@ class AndroidInventoryTest {
 
     @Test
     fun `ringing state remains inventoried after one-shot pending intent is consumed`() {
-        val request = alarmRequest("android:plan:ringing", vibrationEnabled = false)
-        assertTrue(AlarmStore(context).put(request))
-
-        AlarmReceiver().onReceive(
-            context,
-            Shadows.shadowOf(AlarmIntents.receiver(context, request.platformAlarmId)).savedIntent,
+        val bridge = AndroidAlarmBridge(context)
+        val result = CapturingResult()
+        bridge.onMethodCall(
+            MethodCall(
+                "scheduleOccurrences",
+                scheduleArguments(
+                    occurrenceId = "ringing-pending-intent",
+                    reservationId = "ringing-pending-reservation",
+                    wakePlanId = "ringing-pending-plan",
+                ),
+            ),
+            result,
         )
+        assertNull(result.errorCode)
+        val operation = scheduledAlarms().single().operation!!
+        operation.send()
+        val firedIntent = Shadows.shadowOf(operation).savedIntent
+        context.sendBroadcast(firedIntent)
+        AlarmReceiver().onReceive(context, firedIntent)
 
         val snapshot = AlarmStore(context).inventory(context, System.currentTimeMillis())
 
         assertEquals(AlarmState.RINGING.value, snapshot.status(snapshot.requests.single()))
-        assertNotNull(AlarmStore(context).get(request.platformAlarmId))
+        assertNotNull(AlarmStore(context).get("android:reservation:ringing-pending-reservation"))
     }
 
     @Test
@@ -204,7 +308,7 @@ class AndroidInventoryTest {
     @Test
     fun `misclassified test row cannot bypass cancellation identity`() {
         val request = alarmRequest(
-            platformAlarmId = "android:reservation:misclassified",
+            platformAlarmId = "android:reservation:real-reservation",
             reservationId = "real-reservation",
             occurrenceId = "real-occurrence",
         ).copy(isTest = true)
@@ -613,6 +717,45 @@ class AndroidInventoryTest {
     }
 
     @Test
+    fun `schedule persistence failure cancels the same receiver and preserves prior mirror`() {
+        val request = alarmRequest(
+            platformAlarmId = "android:plan:rollback",
+            occurrenceId = "rollback",
+        )
+        assertTrue(AlarmStore(context).put(request))
+        val priorJson = mirrorPreferences().getString(request.platformAlarmId, null)
+        var armCount = 0
+        var cancelCount = 0
+        val bridge = AndroidAlarmBridge(context)
+
+        val failed = bridge.armAndPersistForTest(
+            request = request,
+            platformAlarmId = request.platformAlarmId,
+            arm = { armCount += 1 },
+            persist = { false },
+            cancel = { cancelCount += 1 },
+        )
+        assertEquals("failure", failed["status"])
+        assertEquals("nativeError", failed["failureReason"])
+        assertEquals(1, armCount)
+        assertEquals(1, cancelCount)
+        assertEquals(priorJson, mirrorPreferences().getString(request.platformAlarmId, null))
+
+        val exceptionFailure = bridge.armAndPersistForTest(
+            request = request,
+            platformAlarmId = request.platformAlarmId,
+            arm = { armCount += 1 },
+            persist = { throw JSONException("toJson failure") },
+            cancel = { cancelCount += 1 },
+        )
+        assertEquals("failure", exceptionFailure["status"])
+        assertEquals("nativeError", exceptionFailure["failureReason"])
+        assertEquals(2, armCount)
+        assertEquals(2, cancelCount)
+        assertEquals(priorJson, mirrorPreferences().getString(request.platformAlarmId, null))
+    }
+
+    @Test
     fun `schedule and cancel duplicate calls preserve one native reservation`() {
         val bridge = AndroidAlarmBridge(context)
         val arguments = scheduleArguments(
@@ -718,8 +861,17 @@ class AndroidInventoryTest {
         state: AlarmState = AlarmState.SCHEDULED,
         vibrationEnabled: Boolean = false,
     ): AlarmRequest {
+        val inferredOccurrenceId = if (
+            occurrenceId == "occurrence" &&
+            reservationId == "occurrence" &&
+            wakePlanId == "plan"
+        ) {
+            platformAlarmId.substringAfterLast(':')
+        } else {
+            occurrenceId
+        }
         return AlarmRequest(
-            occurrenceId = occurrenceId,
+            occurrenceId = inferredOccurrenceId,
             reservationId = reservationId,
             wakePlanId = wakePlanId,
             scheduledAtMillis = scheduledAtMillis,
