@@ -359,13 +359,16 @@
 
 ### Task_11: Implement native inventory/stable identity on Android
 
-- status: in_progress
+- status: complete
 - worker:
   - thread: `019f5239-66a3-7ec0-af34-8f7442c4a58d`
   - worktree: `/Users/xpadev/.codex/worktrees/5d23/calarm`
   - branch: `codex/reviewfix-android-native-inventory`
   - runtime: `gpt-5.6-luna` / `high`
-  - review_candidate: `a3520433430db3fa220fd21068dc281f991b98a5`
+  - final_head: `cd6b129f86387b6ed0dbc23c8f01290e417c4ede`
+  - pr: `#47` — https://github.com/xpadev-net/calarm/pull/47
+  - merge_commit: `f3c6a880f2d8d44d6709c4b121918a17d8283d15`
+  - thread_archived: true
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/**`
@@ -382,6 +385,13 @@
   - kind: command; required: true; owner: worker; detail: focused native contract/recovery tests.
   - kind: command; required: true; owner: worker; detail: `flutter build apk --debug`, Android native smoke where environment permits, `flutter analyze`, `flutter test`.
   - kind: review; required: true; owner: reviewer; detail: Android integration and mirror-authority review.
+- review_evidence:
+  - independent Reviewer `019f543e-07e8-73a1-95b3-4a5bf0eb9d82` APPROVED exact final head with no findings.
+  - worker validation: native JVM 42 tests, focused 56 platform tests, full 265-test suite, `flutter analyze`, debug APK build, format, and diff check passed.
+  - orchestrator validation: exact-head native JVM, focused 55 platform tests, full 265-test suite, `flutter analyze`, debug APK build, format, and diff check passed.
+  - worker and orchestrator `gh-review-hook` runs exited 0; hosted Baseline CI, Android/iOS native smoke, CodeRabbit, Greptile, and Socket checks passed.
+  - orchestrator `$deep-review`: no Blocker/High findings; stable/legacy/synthetic identity, persisted-data validation, inventory authority, retry/cancel/receiver/restore lifecycle, rollback cleanup, and regression coverage were reviewed.
+  - PR `#47` was non-draft, CLEAN, APPROVED, base-current, and squash-merged as `f3c6a880f2d8d44d6709c4b121918a17d8283d15`.
 
 ### Task_12: Implement AlarmKit inventory and stop-state observation on iOS
 
