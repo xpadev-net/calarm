@@ -116,6 +116,37 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
+  func testBridgeSameOccurrenceRetryUpdatesNativeConfiguration() async {
+    let fake = FakeAlarmKitNativeClient()
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let original = makeScheduleRequest("reservation-config-retry")
+    let updated = ScheduleRequest(
+      occurrenceId: original.occurrenceId,
+      reservationId: original.reservationId,
+      wakePlanId: original.wakePlanId,
+      scheduledAt: original.scheduledAt.addingTimeInterval(60),
+      targetAt: original.targetAt.addingTimeInterval(60),
+      soundId: "updated",
+      vibrationEnabled: false
+    )
+    clearMirror()
+    defer { clearMirror() }
+
+    XCTAssertEqual((await bridge.scheduleAlarm(original)).status, "success")
+    XCTAssertEqual((await bridge.scheduleAlarm(updated)).status, "success")
+    XCTAssertEqual(fake.scheduleAttempts, 2)
+    XCTAssertEqual(fake.cancelCalls, 1)
+
+    let platformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
+    let stored = fake.scheduledRequests[platformAlarmId]
+    XCTAssertEqual(stored?.scheduledAt, updated.scheduledAt)
+    XCTAssertEqual(stored?.targetAt, updated.targetAt)
+    XCTAssertEqual(stored?.soundId, updated.soundId)
+    XCTAssertEqual(stored?.vibrationEnabled, updated.vibrationEnabled)
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
   func testBridgeConcurrentDifferentSchedulesPreserveBothMirrorRows() async {
     let fake = FakeAlarmKitNativeClient()
     fake.gatedScheduleAttempts = [1]
@@ -1687,6 +1718,7 @@ private final class FakeAlarmKitNativeClient: AlarmKitNativeClient {
   var failFirstSchedule = false
   var insertBeforeFailFirstSchedule = false
   var cancelCalls = 0
+  var scheduledRequests: [String: ScheduleRequest] = [:]
   var inventoryCalls = 0
   var inventoryError = false
   var inventoryErrorOnCall: Int?
@@ -1734,12 +1766,14 @@ private final class FakeAlarmKitNativeClient: AlarmKitNativeClient {
       throw FakeError.scheduleFailed
     }
     nativeAlarmIds.insert(id.uuidString)
+    scheduledRequests[id.uuidString.lowercased()] = request
     return id.uuidString
   }
 
   func cancel(id: UUID) throws {
     cancelCalls += 1
     nativeAlarmIds.remove(id.uuidString)
+    scheduledRequests.removeValue(forKey: id.uuidString.lowercased())
   }
 }
 

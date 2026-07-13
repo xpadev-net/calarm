@@ -201,6 +201,7 @@ void main() {
     String? reportedTestPlatformAlarmId;
     String? testPlatformAlarmId;
     var testIdentityCorrelated = false;
+    var testCorrelationRejected = false;
     var testAlarmSucceeded = false;
     var testCancelSucceeded = false;
     var testCleanupVerified = false;
@@ -275,6 +276,7 @@ void main() {
             !testAlarmResult.isSuccess &&
             baselinePlatformAlarmIds.contains(reportedTestPlatformAlarmId);
         if (staleFailureId) {
+          testCorrelationRejected = true;
           _emitEvidence('testAlarmIdentityFailure', {
             'platform': platform,
             'evidenceLabel': evidenceLabel,
@@ -283,6 +285,7 @@ void main() {
             'platformAlarmId': reportedTestPlatformAlarmId,
           });
         } else {
+          if (platformRows.length != 1) testCorrelationRejected = true;
           expect(
             platformRows,
             hasLength(1),
@@ -290,6 +293,7 @@ void main() {
                 'A returned test-alarm platform ID must map to exactly one inventory row.',
           );
           final row = platformRows.single;
+          if (row.wakePlanId != 'test') testCorrelationRejected = true;
           expect(
             row.wakePlanId,
             'test',
@@ -302,6 +306,9 @@ void main() {
           testIdentityCorrelated = true;
         }
       } else if (fallbackTestRows.isNotEmpty) {
+        if (fallbackTestRows.length != 1 || matchingTestRows.length != 1) {
+          testCorrelationRejected = true;
+        }
         expect(
           fallbackTestRows,
           hasLength(1),
@@ -314,6 +321,7 @@ void main() {
             !testAlarmResult.isSuccess &&
             baselinePlatformAlarmIds.contains(row.platformAlarmId);
         if (staleFailureFallback) {
+          testCorrelationRejected = true;
           _emitEvidence('testAlarmIdentityFailure', {
             'platform': platform,
             'evidenceLabel': evidenceLabel,
@@ -359,6 +367,7 @@ void main() {
             expectedWakePlanId: 'test',
             fallbackOccurrenceId: testAlarmIdentity,
             fallbackReservationId: testAlarmIdentity,
+            allowTupleFallback: !testCorrelationRejected,
             platformAlarmIdAlreadyCorrelated: true,
             cancelBeforeVerification: false,
             platform: platform,
@@ -389,6 +398,7 @@ void main() {
           expectedWakePlanId: 'test',
           fallbackOccurrenceId: testAlarmIdentity,
           fallbackReservationId: testAlarmIdentity,
+          allowTupleFallback: !testCorrelationRejected,
           platform: platform,
           evidenceLabel: evidenceLabel,
           cleanupLabel: 'testAlarm',
@@ -433,6 +443,7 @@ Future<bool> _bestEffortCleanupTestAlarm({
   required String expectedWakePlanId,
   String? fallbackOccurrenceId,
   String? fallbackReservationId,
+  bool allowTupleFallback = true,
   bool platformAlarmIdAlreadyCorrelated = false,
   bool cancelBeforeVerification = true,
   required String platform,
@@ -446,7 +457,8 @@ Future<bool> _bestEffortCleanupTestAlarm({
       platformAlarmId == null || platformAlarmIdAlreadyCorrelated;
 
   bool isExactRow(NativeAlarmInventoryRow row) {
-    return (recoveredPlatformAlarmId == null ||
+    return allowTupleFallback &&
+        (recoveredPlatformAlarmId == null ||
             row.platformAlarmId == recoveredPlatformAlarmId) &&
         row.occurrenceId == recoveredOccurrenceId &&
         row.reservationId == recoveredReservationId &&
@@ -459,7 +471,8 @@ Future<bool> _bestEffortCleanupTestAlarm({
             row.platformAlarmId == recoveredPlatformAlarmId) ||
         (row.occurrenceId == recoveredOccurrenceId &&
             row.reservationId == recoveredReservationId) ||
-        (fallbackOccurrenceId != null &&
+        (allowTupleFallback &&
+            fallbackOccurrenceId != null &&
             fallbackReservationId != null &&
             row.occurrenceId == fallbackOccurrenceId &&
             row.reservationId == fallbackReservationId);

@@ -1271,12 +1271,21 @@ final class AlarmKitBridge {
     var normalizedMirror = [String: AlarmMirrorRecord]()
 
     for (key, record) in mirror {
+      let hasLegacyConfiguration = record.scheduledAt == nil &&
+        record.targetAt == nil &&
+        record.soundId == nil &&
+        record.vibrationEnabled == nil
+      let hasCompleteConfiguration = record.scheduledAt != nil &&
+        record.targetAt != nil &&
+        record.soundId?.isEmpty == false &&
+        record.vibrationEnabled != nil
       guard let normalizedKey = try? canonicalPlatformAlarmId(key),
         let normalizedRecordId = try? canonicalPlatformAlarmId(record.platformAlarmId),
         normalizedKey == normalizedRecordId,
         !record.reservationId.isEmpty,
         !record.occurrenceId.isEmpty,
         !record.wakePlanId.isEmpty,
+        hasLegacyConfiguration || hasCompleteConfiguration,
         reservationIds.insert(record.reservationId).inserted,
         occurrenceIds.insert(record.occurrenceId).inserted,
         platformAlarmIds.insert(normalizedKey).inserted,
@@ -1288,7 +1297,11 @@ final class AlarmKitBridge {
         reservationId: record.reservationId,
         occurrenceId: record.occurrenceId,
         wakePlanId: record.wakePlanId,
-        platformAlarmId: normalizedKey
+        platformAlarmId: normalizedKey,
+        scheduledAt: record.scheduledAt,
+        targetAt: record.targetAt,
+        soundId: record.soundId,
+        vibrationEnabled: record.vibrationEnabled
       )
     }
     return normalizedMirror
@@ -1436,30 +1449,61 @@ private struct AlarmMirrorRecord: Codable, Equatable {
   let occurrenceId: String
   let wakePlanId: String
   let platformAlarmId: String
+  // These fields were added after the initial mirror schema. They remain
+  // optional so older committed rows can be read and safely replaced on the
+  // next retry, rather than being treated as corrupt solely because they do
+  // not contain native configuration metadata.
+  let scheduledAt: Date?
+  let targetAt: Date?
+  let soundId: String?
+  let vibrationEnabled: Bool?
 
   init(request: ScheduleRequest, platformAlarmId: String) {
     reservationId = request.reservationId
     occurrenceId = request.occurrenceId
     wakePlanId = request.wakePlanId
     self.platformAlarmId = platformAlarmId
+    scheduledAt = request.scheduledAt
+    targetAt = request.targetAt
+    soundId = request.soundId
+    vibrationEnabled = request.vibrationEnabled
   }
 
   init(
     reservationId: String,
     occurrenceId: String,
     wakePlanId: String,
-    platformAlarmId: String
+    platformAlarmId: String,
+    scheduledAt: Date? = nil,
+    targetAt: Date? = nil,
+    soundId: String? = nil,
+    vibrationEnabled: Bool? = nil
   ) {
     self.reservationId = reservationId
     self.occurrenceId = occurrenceId
     self.wakePlanId = wakePlanId
     self.platformAlarmId = platformAlarmId
+    self.scheduledAt = scheduledAt
+    self.targetAt = targetAt
+    self.soundId = soundId
+    self.vibrationEnabled = vibrationEnabled
   }
 
   func matches(_ request: ScheduleRequest) -> Bool {
-    reservationId == request.reservationId &&
+    guard reservationId == request.reservationId &&
       occurrenceId == request.occurrenceId &&
-      wakePlanId == request.wakePlanId
+      wakePlanId == request.wakePlanId,
+      let scheduledAt,
+      let targetAt,
+      let soundId,
+      let vibrationEnabled
+    else {
+      return false
+    }
+    return scheduledAt == request.scheduledAt &&
+      targetAt == request.targetAt &&
+      soundId == request.soundId &&
+      vibrationEnabled == request.vibrationEnabled
   }
 
   func matchesStableReservation(_ request: ScheduleRequest) -> Bool {
