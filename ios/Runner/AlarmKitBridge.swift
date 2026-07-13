@@ -136,7 +136,7 @@ final class AlarmKitBridge {
     Task { @MainActor in
       let mirror: [String: AlarmMirrorRecord]
       do {
-        mirror = try validatedMirror(try loadMirror())
+        mirror = try loadValidatedMirror()
       } catch {
         complete(
           result,
@@ -151,14 +151,37 @@ final class AlarmKitBridge {
 
       do {
         let alarms = try nativeClientForAlarmKit().inventory()
-        let currentIds = Set(alarms.map { $0.platformAlarmId })
+        let currentIds: Set<String>
+        do {
+          currentIds = try Set(alarms.map { try canonicalPlatformAlarmId($0.platformAlarmId) })
+        } catch {
+          complete(
+            result,
+            FlutterError(
+              code: "corrupt",
+              message: "AlarmKit returned an invalid platform identity.",
+              details: nil
+            )
+          )
+          return
+        }
         var seenReservationIds = Set<String>()
         var seenOccurrenceIds = Set<String>()
         var seenPlatformIds = Set<String>()
         var rows = [[String: Any?]]()
 
         for alarm in alarms {
-          let platformAlarmId = alarm.platformAlarmId
+          guard let platformAlarmId = try? canonicalPlatformAlarmId(alarm.platformAlarmId) else {
+            complete(
+              result,
+              FlutterError(
+                code: "corrupt",
+                message: "AlarmKit returned an invalid platform identity.",
+                details: nil
+              )
+            )
+            return
+          }
           guard let record = mirror[platformAlarmId] else {
             complete(
               result,
@@ -359,9 +382,31 @@ final class AlarmKitBridge {
         message: "occurrenceId is required."
       )
     }
-    let requestedReservationId = nonEmptyString(payloadValue(payload, "reservationId"))
+    let requestedReservationId: String?
+    if payload.keys.contains("reservationId") {
+      guard let suppliedReservationId = stringValue(payloadValue(payload, "reservationId")),
+        !suppliedReservationId.isEmpty
+      else {
+        return cancelFailureRow(
+          occurrenceId: occurrenceId,
+          reservationId: occurrenceId,
+          platformAlarmId: stringValue(payloadValue(payload, "platformAlarmId")) ?? "",
+          reason: "invalidRequest",
+          message: "reservationId must be a non-empty string when supplied."
+        )
+      }
+      requestedReservationId = suppliedReservationId
+    } else {
+      requestedReservationId = nil
+    }
     let responseReservationId = requestedReservationId ?? occurrenceId
-    guard let platformAlarmId = nonEmptyString(payloadValue(payload, "platformAlarmId")) else {
+    // Cancel rows are correlated by the caller's exact (occurrenceId,
+    // platformAlarmId) tuple in Dart. Keep the accepted caller spelling in
+    // the response while using the canonical UUID text for native ownership
+    // and coordinator admission.
+    guard let responsePlatformAlarmId = nonEmptyString(
+      payloadValue(payload, "platformAlarmId")
+    ) else {
       return cancelFailureRow(
         occurrenceId: occurrenceId,
         reservationId: responseReservationId,
@@ -370,11 +415,13 @@ final class AlarmKitBridge {
         message: "platformAlarmId is required."
       )
     }
-    guard let alarmId = UUID(uuidString: platformAlarmId) else {
+    guard let alarmId = UUID(uuidString: responsePlatformAlarmId),
+      let platformAlarmId = try? canonicalPlatformAlarmId(responsePlatformAlarmId)
+    else {
       return cancelFailureRow(
         occurrenceId: occurrenceId,
         reservationId: responseReservationId,
-        platformAlarmId: platformAlarmId,
+        platformAlarmId: responsePlatformAlarmId,
         reason: "invalidRequest",
         message: "platformAlarmId must be an AlarmKit UUID."
       )
@@ -383,7 +430,7 @@ final class AlarmKitBridge {
       return cancelFailureRow(
         occurrenceId: occurrenceId,
         reservationId: responseReservationId,
-        platformAlarmId: platformAlarmId,
+        platformAlarmId: responsePlatformAlarmId,
         reason: "unavailable",
         message: "AlarmKit requires iOS 26.0 or newer."
       )
@@ -395,6 +442,7 @@ final class AlarmKitBridge {
         requestedReservationId: requestedReservationId,
         responseReservationId: responseReservationId,
         platformAlarmId: platformAlarmId,
+        responsePlatformAlarmId: responsePlatformAlarmId,
         alarmId: alarmId
       )
     }
@@ -406,10 +454,11 @@ final class AlarmKitBridge {
     requestedReservationId: String?,
     responseReservationId: String,
     platformAlarmId: String,
+    responsePlatformAlarmId: String,
     alarmId: UUID
   ) async -> [String: Any?] {
     do {
-      var mirror = try loadMirror()
+      var mirror = try loadValidatedMirror()
       if let record = mirror[platformAlarmId],
         record.occurrenceId != occurrenceId
           || (requestedReservationId != nil
@@ -418,7 +467,7 @@ final class AlarmKitBridge {
         return cancelFailureRow(
           occurrenceId: occurrenceId,
           reservationId: responseReservationId,
-          platformAlarmId: platformAlarmId,
+          platformAlarmId: responsePlatformAlarmId,
           reason: "invalidRequest",
           message: "AlarmKit identity does not match the requested reservation."
         )
@@ -429,13 +478,13 @@ final class AlarmKitBridge {
       return cancelSuccessRow(
         occurrenceId: occurrenceId,
         reservationId: responseReservationId,
-        platformAlarmId: platformAlarmId
+        platformAlarmId: responsePlatformAlarmId
       )
     } catch {
       return cancelFailureRow(
         occurrenceId: occurrenceId,
         reservationId: responseReservationId,
-        platformAlarmId: platformAlarmId,
+        platformAlarmId: responsePlatformAlarmId,
         reason: "nativeError",
         message: error.localizedDescription
       )
@@ -481,7 +530,7 @@ final class AlarmKitBridge {
 
     var mirrorEntryWritten = false
     do {
-      var mirror = try loadMirror()
+      var mirror = try loadValidatedMirror()
       if let existing = mirror[platformAlarmId], !existing.matches(request) {
         return ScheduleRow(
           status: "failure",
@@ -492,7 +541,9 @@ final class AlarmKitBridge {
       }
 
       let currentIds = Set(
-        try nativeClientForAlarmKit().inventory().map { $0.platformAlarmId }
+        try nativeClientForAlarmKit().inventory().map {
+          try canonicalPlatformAlarmId($0.platformAlarmId)
+        }
       )
       if currentIds.contains(platformAlarmId) {
         guard mirror[platformAlarmId] != nil else {
@@ -527,9 +578,12 @@ final class AlarmKitBridge {
         id: alarmId,
         request: request
       )
+      guard try canonicalPlatformAlarmId(scheduledPlatformAlarmId) == platformAlarmId else {
+        throw MirrorValidationError.invalid
+      }
       return ScheduleRow(
         status: "success",
-        platformAlarmId: scheduledPlatformAlarmId,
+        platformAlarmId: platformAlarmId,
         failureReason: nil,
         failureMessage: nil
       )
@@ -570,8 +624,14 @@ final class AlarmKitBridge {
 
   @available(iOS 26.0, *)
   private func reconcileMirror(with alarms: [Alarm]) {
-    guard let mirror = try? validatedMirror(try loadMirror()) else { return }
-    let currentIds = Set(alarms.map { $0.id.uuidString })
+    reconcileMirror(withNativeAlarmIds: alarms.map { $0.id.uuidString })
+  }
+
+  func reconcileMirror(withNativeAlarmIds nativeAlarmIds: [String]) {
+    guard let mirror = try? loadValidatedMirror() else { return }
+    guard let currentIds = try? Set(
+      nativeAlarmIds.map { try canonicalPlatformAlarmId($0) }
+    ) else { return }
     let prunedMirror = mirror.filter {
       currentIds.contains($0.key) || pendingNativeAlarmIds.contains($0.key)
     }
@@ -587,27 +647,45 @@ final class AlarmKitBridge {
     return try JSONDecoder().decode([String: AlarmMirrorRecord].self, from: data)
   }
 
+  private func loadValidatedMirror() throws -> [String: AlarmMirrorRecord] {
+    let mirror = try loadMirror()
+    let normalizedMirror = try validatedMirror(mirror)
+    if normalizedMirror != mirror {
+      try saveMirror(normalizedMirror)
+    }
+    return normalizedMirror
+  }
+
   private func validatedMirror(
     _ mirror: [String: AlarmMirrorRecord]
   ) throws -> [String: AlarmMirrorRecord] {
     var reservationIds = Set<String>()
     var occurrenceIds = Set<String>()
     var platformAlarmIds = Set<String>()
+    var normalizedMirror = [String: AlarmMirrorRecord]()
 
     for (key, record) in mirror {
-      guard UUID(uuidString: key) != nil,
-        key == record.platformAlarmId,
+      guard let normalizedKey = try? canonicalPlatformAlarmId(key),
+        let normalizedRecordId = try? canonicalPlatformAlarmId(record.platformAlarmId),
+        normalizedKey == normalizedRecordId,
         !record.reservationId.isEmpty,
         !record.occurrenceId.isEmpty,
         !record.wakePlanId.isEmpty,
         reservationIds.insert(record.reservationId).inserted,
         occurrenceIds.insert(record.occurrenceId).inserted,
-        platformAlarmIds.insert(record.platformAlarmId).inserted
+        platformAlarmIds.insert(normalizedKey).inserted,
+        normalizedMirror[normalizedKey] == nil
       else {
         throw MirrorValidationError.invalid
       }
+      normalizedMirror[normalizedKey] = AlarmMirrorRecord(
+        reservationId: record.reservationId,
+        occurrenceId: record.occurrenceId,
+        wakePlanId: record.wakePlanId,
+        platformAlarmId: normalizedKey
+      )
     }
-    return mirror
+    return normalizedMirror
   }
 
   private func saveMirror(_ mirror: [String: AlarmMirrorRecord]) throws {
@@ -621,14 +699,16 @@ final class AlarmKitBridge {
   ) {
     do {
       let currentNativeAlarmIds = Set(
-        try nativeClientForAlarmKit().inventory().map { $0.platformAlarmId }
+        try nativeClientForAlarmKit().inventory().map {
+          try canonicalPlatformAlarmId($0.platformAlarmId)
+        }
       )
       guard calarmShouldRemoveMirrorAfterScheduleFailure(
         currentNativeAlarmIds: currentNativeAlarmIds,
         platformAlarmId: platformAlarmId
       ) else { return }
 
-      var mirror = try loadMirror()
+      var mirror = try loadValidatedMirror()
       guard mirror[platformAlarmId]?.matches(request) == true else { return }
       mirror.removeValue(forKey: platformAlarmId)
       try saveMirror(mirror)
@@ -693,6 +773,18 @@ private struct AlarmMirrorRecord: Codable, Equatable {
     reservationId = request.reservationId
     occurrenceId = request.occurrenceId
     wakePlanId = request.wakePlanId
+    self.platformAlarmId = platformAlarmId
+  }
+
+  init(
+    reservationId: String,
+    occurrenceId: String,
+    wakePlanId: String,
+    platformAlarmId: String
+  ) {
+    self.reservationId = reservationId
+    self.occurrenceId = occurrenceId
+    self.wakePlanId = wakePlanId
     self.platformAlarmId = platformAlarmId
   }
 
@@ -911,12 +1003,24 @@ func calarmPlatformAlarmId(for reservationId: String) -> String {
   return "\(hex[0])\(hex[1])\(hex[2])\(hex[3])-\(hex[4])\(hex[5])-\(hex[6])\(hex[7])-\(hex[8])\(hex[9])-\(hex[10])\(hex[11])\(hex[12])\(hex[13])\(hex[14])\(hex[15])"
 }
 
+private func canonicalPlatformAlarmId(_ platformAlarmId: String) throws -> String {
+  guard let uuid = UUID(uuidString: platformAlarmId) else {
+    throw MirrorValidationError.invalid
+  }
+  return uuid.uuidString.lowercased()
+}
+
 func calarmShouldRemoveMirrorAfterScheduleFailure(
   currentNativeAlarmIds: Set<String>?,
   platformAlarmId: String
 ) -> Bool {
-  guard let currentNativeAlarmIds else { return false }
-  return !currentNativeAlarmIds.contains(platformAlarmId)
+  guard let currentNativeAlarmIds,
+    let normalizedPlatformAlarmId = try? canonicalPlatformAlarmId(platformAlarmId)
+  else { return false }
+  let normalizedCurrentIds = Set(
+    currentNativeAlarmIds.compactMap { try? canonicalPlatformAlarmId($0) }
+  )
+  return !normalizedCurrentIds.contains(normalizedPlatformAlarmId)
 }
 
 @available(iOS 26.0, *)
