@@ -1275,26 +1275,40 @@ class RunnerTests: XCTestCase {
     // mutation rather than resurrecting stale envelope fields.
     let legacyUpdatedRecord: [String: String] = [
       "reservationId": request.reservationId,
-      "occurrenceId": "legacy-updated-occurrence",
-      "wakePlanId": "legacy-updated-wake-plan",
+      "occurrenceId": request.occurrenceId,
+      "wakePlanId": request.wakePlanId,
       "platformAlarmId": id,
     ]
     UserDefaults.standard.set(
       mirrorData([id: legacyUpdatedRecord]),
       forKey: mirrorKey
     )
-    let updatedInventory = await inventoryValue(bridge)
+    let restartedAfterLegacyRewrite = AlarmKitBridge(nativeClient: fake)
+    let updatedInventory = await inventoryValue(restartedAfterLegacyRewrite)
     let updatedRows = (updatedInventory as? [String: Any?])?["reservations"]
       as? [[String: Any?]]
     XCTAssertEqual(
       updatedRows?.first?["occurrenceId"] as? String,
-      "legacy-updated-occurrence"
+      request.occurrenceId
     )
 
-    // Simulate an older binary cancelling the committed projection. The new
-    // reader must honor that mutation rather than resurrecting the stale row.
-    try! fake.cancel(id: UUID(uuidString: id)!)
-    UserDefaults.standard.set(mirrorData([:]), forKey: mirrorKey)
+    let migratedEnvelope = try! XCTUnwrap(mirrorEnvelopeObject())
+    let migratedRecord = try! XCTUnwrap(
+      (migratedEnvelope["committed"] as? [String: Any])?[id] as? [String: Any]
+    )
+    XCTAssertNotNil(migratedRecord["scheduledAt"])
+    XCTAssertNotNil(migratedRecord["targetAt"])
+    XCTAssertEqual(migratedRecord["soundId"] as? String, request.soundId)
+    XCTAssertEqual(migratedRecord["vibrationEnabled"] as? Bool, request.vibrationEnabled)
+
+    // A legacy caller omits reservationId. The recovered identity remains
+    // cancellable, and a restart must not resurrect it after native removal.
+    let cancelResult = await restartedAfterLegacyRewrite.cancelAlarm([
+      "occurrenceId": request.occurrenceId,
+      "platformAlarmId": id.uppercased(),
+    ])
+    XCTAssertEqual(cancelResult["status"] as? String, "success")
+    XCTAssertTrue(fake.nativeAlarmIds.isEmpty)
     let restarted = AlarmKitBridge(nativeClient: fake)
     let inventory = await inventoryValue(restarted)
     let rows = (inventory as? [String: Any?])?["reservations"] as? [[String: Any?]]

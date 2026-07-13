@@ -1151,7 +1151,7 @@ final class AlarmKitBridge {
   ) throws {
     for (key, record) in source {
       if let existing = target[key] {
-        guard existing == record else { throw MirrorValidationError.invalid }
+        target[key] = try existing.mergedRecoveryRecord(with: record)
       } else {
         target[key] = record
       }
@@ -1510,6 +1510,26 @@ private struct AlarmMirrorRecord: Codable, Equatable {
     reservationId == request.reservationId &&
       wakePlanId == request.wakePlanId
   }
+
+  func mergedRecoveryRecord(with other: AlarmMirrorRecord) throws -> AlarmMirrorRecord {
+    guard reservationId == other.reservationId,
+      occurrenceId == other.occurrenceId,
+      wakePlanId == other.wakePlanId,
+      platformAlarmId == other.platformAlarmId
+    else {
+      throw MirrorValidationError.invalid
+    }
+    return AlarmMirrorRecord(
+      reservationId: reservationId,
+      occurrenceId: occurrenceId,
+      wakePlanId: wakePlanId,
+      platformAlarmId: platformAlarmId,
+      scheduledAt: try mergeRecoveryValue(scheduledAt, other.scheduledAt),
+      targetAt: try mergeRecoveryValue(targetAt, other.targetAt),
+      soundId: try mergeRecoveryValue(soundId, other.soundId),
+      vibrationEnabled: try mergeRecoveryValue(vibrationEnabled, other.vibrationEnabled)
+    )
+  }
 }
 
 private enum MirrorValidationError: Error {
@@ -1519,6 +1539,13 @@ private enum MirrorValidationError: Error {
 private enum NativeSnapshotValidationError: Error {
   case invalidOrDuplicate
   case unknownIdentity
+}
+
+private func mergeRecoveryValue<T: Equatable>(_ first: T?, _ second: T?) throws -> T? {
+  guard let first else { return second }
+  guard let second else { return first }
+  guard first == second else { throw MirrorValidationError.invalid }
+  return first
 }
 
 private struct MirrorEnvelope: Codable {
