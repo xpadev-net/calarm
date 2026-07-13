@@ -783,45 +783,53 @@ final class AlarmKitBridge {
     if let envelopeData {
       do {
         let envelope = try decodeMirrorEnvelope(envelopeData)
-        let envelopeCommitted = try validatedMirror(envelope.committed)
-        let envelopePending = try validatedMirror(envelope.pending)
-        if let legacyCommittedData = committedData {
-          do {
-            let projection = try validatedMirror(decodeMirrorMap(legacyCommittedData))
-            let pendingProjection = try validatedMirror(decodeMirrorMap(legacyPendingData))
-            var pending = envelopePending
-            for (key, record) in pendingProjection {
-              if let existing = pending[key] {
-                guard existing == record else { throw MirrorValidationError.invalid }
-              } else {
-                pending[key] = record
-              }
+        let currentEnvelopeState = try validatedMirrorEnvelopeState(envelope)
+        if let legacyCommittedData, isMirrorEnvelope(legacyCommittedData) {
+          // The prior implementation wrote its complete envelope to the
+          // legacy key. A current writer always replaces that key with a
+          // plain committed projection before publishing the new envelope,
+          // so a valid prior envelope here proves that an older reader wrote
+          // after the current envelope. It is the deterministic latest state.
+          // If it is malformed, do not silently fall back and resurrect rows.
+          let priorEnvelope = try decodeMirrorEnvelope(legacyCommittedData)
+          let priorEnvelopeState = try validatedMirrorEnvelopeState(priorEnvelope)
+          state = StoredMirrorState(
+            committed: priorEnvelopeState.committed,
+            pending: priorEnvelopeState.pending,
+            isEnvelope: true,
+            legacyPendingPresent: legacyPendingData != nil,
+            needsProjectionRewrite: true
+          )
+        } else if let legacyCommittedData {
+          // A present legacy key must be fully decodable and semantically
+          // valid. Treating malformed prior-envelope/projection bytes as
+          // absent would silently discard rollback evidence.
+          let projection = try validatedMirror(decodeMirrorMap(legacyCommittedData))
+          let pendingProjection = try validatedMirror(decodeMirrorMap(legacyPendingData))
+          var pending = currentEnvelopeState.pending
+          for (key, record) in pendingProjection {
+            if let existing = pending[key] {
+              guard existing == record else { throw MirrorValidationError.invalid }
+            } else {
+              pending[key] = record
             }
-            // A valid legacy projection may have been changed by an older
-            // binary after this envelope was written. It is therefore the
-            // committed authority; never resurrect envelope-only committed
-            // rows from a stale rollback projection.
-            state = StoredMirrorState(
-              committed: projection,
-              pending: pending.filter { projection[$0.key] == nil },
-              isEnvelope: true,
-              legacyPendingPresent: legacyPendingData != nil,
-              needsProjectionRewrite: projection != envelopeCommitted
-                || pending != envelopePending
-            )
-          } catch {
-            state = StoredMirrorState(
-              committed: envelopeCommitted,
-              pending: envelopePending,
-              isEnvelope: true,
-              legacyPendingPresent: true,
-              needsProjectionRewrite: true
-            )
           }
+          // A valid legacy projection may have been changed by an older
+          // binary after this envelope was written. It is therefore the
+          // committed authority; never resurrect envelope-only committed
+          // rows from a stale rollback projection.
+          state = StoredMirrorState(
+            committed: projection,
+            pending: pending.filter { projection[$0.key] == nil },
+            isEnvelope: true,
+            legacyPendingPresent: legacyPendingData != nil,
+            needsProjectionRewrite: projection != currentEnvelopeState.committed
+              || pending != currentEnvelopeState.pending
+          )
         } else {
           state = StoredMirrorState(
-            committed: envelopeCommitted,
-            pending: envelopePending,
+            committed: currentEnvelopeState.committed,
+            pending: currentEnvelopeState.pending,
             isEnvelope: true,
             legacyPendingPresent: false,
             needsProjectionRewrite: true
@@ -832,19 +840,34 @@ final class AlarmKitBridge {
         // legacy projection, which is deliberately written before the new
         // envelope. If that projection is not readable, the state is truly
         // unrecoverable and must remain corrupt.
-        guard committedData != nil || legacyPendingData != nil else {
-          throw MirrorValidationError.invalid
+        if let committedData, isMirrorEnvelope(committedData) {
+          // If the current envelope write is interrupted but the prior
+          // reader's legacy envelope is complete, retain that recoverable
+          // state. Decode and validate it fully before any reconciliation.
+          let priorEnvelope = try decodeMirrorEnvelope(committedData)
+          let priorEnvelopeState = try validatedMirrorEnvelopeState(priorEnvelope)
+          state = StoredMirrorState(
+            committed: priorEnvelopeState.committed,
+            pending: priorEnvelopeState.pending,
+            isEnvelope: false,
+            legacyPendingPresent: legacyPendingData != nil,
+            needsProjectionRewrite: true
+          )
+        } else {
+          guard committedData != nil || legacyPendingData != nil else {
+            throw MirrorValidationError.invalid
+          }
+          let committed = try validatedMirror(decodeMirrorMap(committedData))
+          let pending = try validatedMirror(decodeMirrorMap(legacyPendingData))
+          let merged = try mergeLegacyMirrorState(committed: committed, pending: pending)
+          state = StoredMirrorState(
+            committed: merged.committed,
+            pending: merged.pending,
+            isEnvelope: false,
+            legacyPendingPresent: legacyPendingData != nil,
+            needsProjectionRewrite: true
+          )
         }
-        let committed = try validatedMirror(decodeMirrorMap(committedData))
-        let pending = try validatedMirror(decodeMirrorMap(legacyPendingData))
-        let merged = try mergeLegacyMirrorState(committed: committed, pending: pending)
-        state = StoredMirrorState(
-          committed: merged.committed,
-          pending: merged.pending,
-          isEnvelope: false,
-          legacyPendingPresent: legacyPendingData != nil,
-          needsProjectionRewrite: true
-        )
       }
     } else if let committedData, isMirrorEnvelope(committedData) {
       // Compatibility with the short-lived envelope-at-legacy-key layout
@@ -897,6 +920,20 @@ final class AlarmKitBridge {
       throw MirrorValidationError.invalid
     }
     return envelope
+  }
+
+  private func validatedMirrorEnvelopeState(
+    _ envelope: MirrorEnvelope
+  ) throws -> (committed: [String: AlarmMirrorRecord], pending: [String: AlarmMirrorRecord]) {
+    let committed = try validatedMirror(envelope.committed)
+    let pending = try validatedMirror(envelope.pending)
+    var combined = committed
+    for (key, record) in pending {
+      guard combined[key] == nil else { throw MirrorValidationError.invalid }
+      combined[key] = record
+    }
+    _ = try validatedMirror(combined)
+    return (committed, pending)
   }
 
   private func decodeMirrorMap(_ data: Data?) throws -> [String: AlarmMirrorRecord] {

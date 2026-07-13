@@ -50,117 +50,139 @@ void main() {
       soundId: 'default',
       vibrationEnabled: false,
     );
-    final scheduleResult = await gateway
-        .scheduleOccurrences([scheduleRequest])
-        .nativeSmokeTimeout('scheduleOccurrences');
-    final scheduleSucceeded = scheduleResult.isSuccess;
-    _emitEvidence('scheduleOccurrences', {
-      'platform': platform,
-      'evidenceLabel': evidenceLabel,
-      'status': scheduleResult.status.name,
-      'occurrences': scheduleResult.occurrences
-          .map(_scheduleOccurrenceEvidence)
-          .toList(),
-    });
-    expect(scheduleResult.occurrences, hasLength(1));
-
-    final isAndroidRuntime = defaultTargetPlatform == TargetPlatform.android;
-    if (isAndroidRuntime) {
-      expect(
-        platform.toLowerCase(),
-        contains('android'),
-        reason: 'Android smoke must declare an Android smoke platform.',
-      );
-    } else {
-      expect(
-        platform.toLowerCase(),
-        isNot(contains('android')),
-        reason: 'Non-Android smoke must not declare Android.',
-      );
-    }
-    if (scheduleSucceeded) {
-      final inventory = await gateway.getInventory().nativeSmokeTimeout(
-        'getInventory',
-      );
-      _emitEvidence('getInventory', {
-        'platform': platform,
-        'evidenceLabel': evidenceLabel,
-        'status': inventory.status.name,
-        'reservations': inventory.rows.map(_inventoryEvidence).toList(),
-      });
-      expect(
-        inventory.isSuccess,
-        isTrue,
-        reason:
-            'Successful native scheduling must expose authoritative inventory.',
-      );
-      final matchingRows = inventory.rows
-          .where(
-            (row) =>
-                row.reservationId == scheduleRequest.reservationId &&
-                row.occurrenceId == scheduleRequest.occurrenceId,
-          )
-          .toList();
-      expect(matchingRows, hasLength(1));
-      expect(
-        matchingRows.single.status,
-        anyOf(
-          NativeAlarmReservationStatus.scheduled,
-          NativeAlarmReservationStatus.ringing,
-        ),
-      );
-    }
-
-    final scheduledPlatformAlarmId =
-        scheduleResult.occurrences.single.platformAlarmId;
+    var scheduleSucceeded = false;
     var scheduleCancelSucceeded = false;
-    if (scheduledPlatformAlarmId != null) {
-      final cancelResult = await gateway
-          .cancelOccurrences([
-            NativeAlarmCancelRequest(
-              occurrenceId: scheduleRequest.occurrenceId,
-              reservationId: scheduleRequest.reservationId,
-              platformAlarmId: scheduledPlatformAlarmId,
-            ),
-          ])
-          .nativeSmokeTimeout('cancelOccurrences');
-      _emitEvidence('cancelOccurrences', {
+    var scheduleCleanupVerified = false;
+    String? scheduledPlatformAlarmId;
+    late ScheduleResult scheduleResult;
+    try {
+      scheduleResult = await gateway
+          .scheduleOccurrences([scheduleRequest])
+          .nativeSmokeTimeout('scheduleOccurrences');
+      scheduleSucceeded = scheduleResult.isSuccess;
+      if (scheduleResult.occurrences.length == 1) {
+        scheduledPlatformAlarmId =
+            scheduleResult.occurrences.single.platformAlarmId;
+      }
+      _emitEvidence('scheduleOccurrences', {
         'platform': platform,
         'evidenceLabel': evidenceLabel,
-        'status': cancelResult.status.name,
-        'alarms': cancelResult.alarms.map(_cancelAlarmEvidence).toList(),
+        'status': scheduleResult.status.name,
+        'occurrences': scheduleResult.occurrences
+            .map(_scheduleOccurrenceEvidence)
+            .toList(),
       });
-      expect(cancelResult.alarms, hasLength(1));
-      scheduleCancelSucceeded = cancelResult.isSuccess;
-      if (scheduleCancelSucceeded) {
-        final inventoryAfterCancel = await gateway
-            .getInventory()
-            .nativeSmokeTimeout('getInventoryAfterCancel');
-        _emitEvidence('getInventoryAfterCancel', {
-          'platform': platform,
-          'evidenceLabel': evidenceLabel,
-          'status': inventoryAfterCancel.status.name,
-          'reservations': inventoryAfterCancel.rows
-              .map(_inventoryEvidence)
-              .toList(),
-        });
-        expect(inventoryAfterCancel.isSuccess, isTrue);
+
+      final isAndroidRuntime = defaultTargetPlatform == TargetPlatform.android;
+      if (isAndroidRuntime) {
         expect(
-          inventoryAfterCancel.rows.where(
-            (row) => row.reservationId == scheduleRequest.reservationId,
-          ),
-          isEmpty,
-          reason:
-              'Cancelled native reservations must disappear from inventory.',
+          platform.toLowerCase(),
+          contains('android'),
+          reason: 'Android smoke must declare an Android smoke platform.',
+        );
+      } else {
+        expect(
+          platform.toLowerCase(),
+          isNot(contains('android')),
+          reason: 'Non-Android smoke must not declare Android.',
         );
       }
-    } else {
-      _emitEvidence('cancelOccurrences', {
-        'platform': platform,
-        'evidenceLabel': evidenceLabel,
-        'status': 'skipped',
-        'reason': 'scheduleOccurrences did not return a platformAlarmId',
-      });
+      if (scheduleSucceeded) {
+        final inventory = await gateway.getInventory().nativeSmokeTimeout(
+          'getInventory',
+        );
+        _emitEvidence('getInventory', {
+          'platform': platform,
+          'evidenceLabel': evidenceLabel,
+          'status': inventory.status.name,
+          'reservations': inventory.rows.map(_inventoryEvidence).toList(),
+        });
+        expect(
+          inventory.isSuccess,
+          isTrue,
+          reason:
+              'Successful native scheduling must expose authoritative inventory.',
+        );
+        final matchingRows = inventory.rows
+            .where(
+              (row) =>
+                  row.reservationId == scheduleRequest.reservationId &&
+                  row.occurrenceId == scheduleRequest.occurrenceId,
+            )
+            .toList();
+        expect(matchingRows, hasLength(1));
+        expect(
+          matchingRows.single.status,
+          anyOf(
+            NativeAlarmReservationStatus.scheduled,
+            NativeAlarmReservationStatus.ringing,
+          ),
+        );
+      }
+
+      if (scheduledPlatformAlarmId != null) {
+        final cancelResult = await gateway
+            .cancelOccurrences([
+              NativeAlarmCancelRequest(
+                occurrenceId: scheduleRequest.occurrenceId,
+                reservationId: scheduleRequest.reservationId,
+                platformAlarmId: scheduledPlatformAlarmId,
+              ),
+            ])
+            .nativeSmokeTimeout('cancelOccurrences');
+        _emitEvidence('cancelOccurrences', {
+          'platform': platform,
+          'evidenceLabel': evidenceLabel,
+          'status': cancelResult.status.name,
+          'alarms': cancelResult.alarms.map(_cancelAlarmEvidence).toList(),
+        });
+        expect(cancelResult.alarms, hasLength(1));
+        scheduleCancelSucceeded = cancelResult.isSuccess;
+        if (scheduleCancelSucceeded) {
+          final inventoryAfterCancel = await gateway
+              .getInventory()
+              .nativeSmokeTimeout('getInventoryAfterCancel');
+          _emitEvidence('getInventoryAfterCancel', {
+            'platform': platform,
+            'evidenceLabel': evidenceLabel,
+            'status': inventoryAfterCancel.status.name,
+            'reservations': inventoryAfterCancel.rows
+                .map(_inventoryEvidence)
+                .toList(),
+          });
+          expect(inventoryAfterCancel.isSuccess, isTrue);
+          expect(
+            inventoryAfterCancel.rows.where(
+              (row) =>
+                  row.reservationId == scheduleRequest.reservationId &&
+                  row.occurrenceId == scheduleRequest.occurrenceId,
+            ),
+            isEmpty,
+            reason:
+                'Cancelled native reservations must disappear from inventory.',
+          );
+          scheduleCleanupVerified = true;
+        }
+      } else {
+        _emitEvidence('cancelOccurrences', {
+          'platform': platform,
+          'evidenceLabel': evidenceLabel,
+          'status': 'skipped',
+          'reason': 'scheduleOccurrences did not return a platformAlarmId',
+        });
+      }
+    } finally {
+      if (!scheduleCleanupVerified) {
+        scheduleCleanupVerified = await _bestEffortCleanupTestAlarm(
+          gateway: gateway,
+          occurrenceId: scheduleRequest.occurrenceId,
+          reservationId: scheduleRequest.reservationId,
+          platformAlarmId: scheduledPlatformAlarmId,
+          platform: platform,
+          evidenceLabel: evidenceLabel,
+          cleanupLabel: 'schedule',
+        );
+      }
     }
 
     const testAlarmIdentity = 'ci-smoke-test-alarm';
@@ -273,10 +295,12 @@ void main() {
       if (!testCleanupVerified) {
         testCleanupVerified = await _bestEffortCleanupTestAlarm(
           gateway: gateway,
-          identity: testAlarmIdentity,
+          occurrenceId: testAlarmIdentity,
+          reservationId: testAlarmIdentity,
           platformAlarmId: testPlatformAlarmId,
           platform: platform,
           evidenceLabel: evidenceLabel,
+          cleanupLabel: 'testAlarm',
         );
       }
     }
@@ -284,8 +308,10 @@ void main() {
     final criticalOperationsSucceeded =
         scheduleSucceeded &&
         scheduleCancelSucceeded &&
+        scheduleCleanupVerified &&
         testAlarmSucceeded &&
-        testCancelSucceeded;
+        testCancelSucceeded &&
+        testCleanupVerified;
     final outcome = criticalOperationsSucceeded ? 'NEAR_DEVICE' : 'BLOCKED';
     _emitEvidence('nativeSmokeOutcome', {
       'platform': platform,
@@ -303,17 +329,19 @@ void main() {
 
 Future<bool> _bestEffortCleanupTestAlarm({
   required MethodChannelNativeAlarmGateway gateway,
-  required String identity,
+  required String occurrenceId,
+  required String reservationId,
   required String? platformAlarmId,
   required String platform,
   required String evidenceLabel,
+  required String cleanupLabel,
 }) async {
   String? recoveredPlatformAlarmId = platformAlarmId;
   try {
     final inventory = await gateway.getInventory().nativeSmokeTimeout(
-      'cleanupTestAlarmInventory',
+      'cleanup${cleanupLabel}Inventory',
     );
-    _emitEvidence('cleanupTestAlarmInventory', {
+    _emitEvidence('cleanup${cleanupLabel}Inventory', {
       'platform': platform,
       'evidenceLabel': evidenceLabel,
       'status': inventory.status.name,
@@ -323,11 +351,12 @@ Future<bool> _bestEffortCleanupTestAlarm({
       final matching = inventory.rows
           .where(
             (row) =>
-                row.reservationId == identity && row.occurrenceId == identity,
+                row.reservationId == reservationId &&
+                row.occurrenceId == occurrenceId,
           )
           .toList();
       if (matching.length > 1) {
-        _emitEvidence('cleanupTestAlarmFailure', {
+        _emitEvidence('cleanup${cleanupLabel}Failure', {
           'platform': platform,
           'evidenceLabel': evidenceLabel,
           'reason': 'multiple matching test alarms',
@@ -340,7 +369,7 @@ Future<bool> _bestEffortCleanupTestAlarm({
       if (recoveredPlatformAlarmId == null && matching.isEmpty) return true;
     }
   } catch (error) {
-    _emitEvidence('cleanupTestAlarmInventoryFailure', {
+    _emitEvidence('cleanup${cleanupLabel}InventoryFailure', {
       'platform': platform,
       'evidenceLabel': evidenceLabel,
       'error': '$error',
@@ -353,13 +382,13 @@ Future<bool> _bestEffortCleanupTestAlarm({
       final cancel = await gateway
           .cancelOccurrences([
             NativeAlarmCancelRequest(
-              occurrenceId: identity,
-              reservationId: identity,
+              occurrenceId: occurrenceId,
+              reservationId: reservationId,
               platformAlarmId: recoveredPlatformAlarmId,
             ),
           ])
-          .nativeSmokeTimeout('cleanupTestAlarmCancel$attempt');
-      _emitEvidence('cleanupTestAlarmCancel', {
+          .nativeSmokeTimeout('cleanup${cleanupLabel}Cancel$attempt');
+      _emitEvidence('cleanup${cleanupLabel}Cancel', {
         'platform': platform,
         'evidenceLabel': evidenceLabel,
         'attempt': attempt,
@@ -368,7 +397,7 @@ Future<bool> _bestEffortCleanupTestAlarm({
       });
       if (cancel.isSuccess) break;
     } catch (error) {
-      _emitEvidence('cleanupTestAlarmCancelFailure', {
+      _emitEvidence('cleanup${cleanupLabel}CancelFailure', {
         'platform': platform,
         'evidenceLabel': evidenceLabel,
         'attempt': attempt,
@@ -379,18 +408,22 @@ Future<bool> _bestEffortCleanupTestAlarm({
 
   try {
     final finalInventory = await gateway.getInventory().nativeSmokeTimeout(
-      'cleanupTestAlarmFinalInventory',
+      'cleanup${cleanupLabel}FinalInventory',
     );
-    _emitEvidence('cleanupTestAlarmFinalInventory', {
+    _emitEvidence('cleanup${cleanupLabel}FinalInventory', {
       'platform': platform,
       'evidenceLabel': evidenceLabel,
       'status': finalInventory.status.name,
       'reservations': finalInventory.rows.map(_inventoryEvidence).toList(),
     });
     return finalInventory.isSuccess &&
-        finalInventory.rows.every((row) => row.reservationId != identity);
+        finalInventory.rows.every(
+          (row) =>
+              !(row.reservationId == reservationId &&
+                  row.occurrenceId == occurrenceId),
+        );
   } catch (error) {
-    _emitEvidence('cleanupTestAlarmFinalInventoryFailure', {
+    _emitEvidence('cleanup${cleanupLabel}FinalInventoryFailure', {
       'platform': platform,
       'evidenceLabel': evidenceLabel,
       'error': '$error',

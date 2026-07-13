@@ -946,6 +946,86 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
+  func testBridgeReconcilesActualPriorEnvelopeWriterBeforeRestart() async {
+    let currentRequest = makeScheduleRequest("reservation-current-envelope")
+    let priorRequest = makeScheduleRequest(
+      "reservation-prior-envelope",
+      occurrenceId: "prior-occurrence"
+    )
+    let currentId = calarmPlatformAlarmId(for: currentRequest.reservationId)
+    let priorId = calarmPlatformAlarmId(for: priorRequest.reservationId)
+    let priorRecord: [String: String] = [
+      "reservationId": priorRequest.reservationId,
+      "occurrenceId": priorRequest.occurrenceId,
+      "wakePlanId": priorRequest.wakePlanId,
+      "platformAlarmId": priorId,
+    ]
+    let currentRecord: [String: String] = [
+      "reservationId": currentRequest.reservationId,
+      "occurrenceId": currentRequest.occurrenceId,
+      "wakePlanId": currentRequest.wakePlanId,
+      "platformAlarmId": currentId,
+    ]
+    let fake = FakeAlarmKitNativeClient()
+    fake.nativeAlarmIds.insert(priorId.uppercased())
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    clearMirror()
+    defer { clearMirror() }
+
+    // This is the exact prior writer shape: a MirrorEnvelope in the legacy
+    // key, including a changed occurrence identity, after a current envelope
+    // was already published.
+    UserDefaults.standard.set(
+      mirrorEnvelopeData(committed: [currentId: currentRecord], pending: [:]),
+      forKey: envelopeKey
+    )
+    UserDefaults.standard.set(
+      mirrorEnvelopeData(committed: [priorId: priorRecord], pending: [:]),
+      forKey: mirrorKey
+    )
+
+    let inventory = await inventoryValue(bridge)
+    let rows = (inventory as? [String: Any?])?["reservations"] as? [[String: Any?]]
+    XCTAssertEqual(rows?.count, 1)
+    XCTAssertEqual(rows?.first?["reservationId"] as? String, priorRequest.reservationId)
+    XCTAssertEqual(rows?.first?["occurrenceId"] as? String, priorRequest.occurrenceId)
+    XCTAssertNotEqual(rows?.first?["reservationId"] as? String, currentRequest.reservationId)
+
+    // Simulate the same prior reader cancelling the row, leaving a prior
+    // empty envelope while the current envelope still contains stale data.
+    try! fake.cancel(id: UUID(uuidString: priorId)!)
+    UserDefaults.standard.set(
+      mirrorEnvelopeData(committed: [:], pending: [:]),
+      forKey: mirrorKey
+    )
+    let restarted = AlarmKitBridge(nativeClient: fake)
+    let afterCancel = await inventoryValue(restarted)
+    let afterRows = (afterCancel as? [String: Any?])?["reservations"]
+      as? [[String: Any?]]
+    XCTAssertEqual(afterRows?.count, 0)
+    XCTAssertEqual((mirrorEnvelopeObject()?["committed"] as? [String: Any])?.count, 0)
+
+    // A native row that exists only in the stale current envelope is not
+    // resurrected; the reader reports non-authoritative state instead.
+    clearMirror()
+    let conflictFake = FakeAlarmKitNativeClient()
+    conflictFake.nativeAlarmIds.insert(currentId.uppercased())
+    let conflictBridge = AlarmKitBridge(nativeClient: conflictFake)
+    let currentEnvelopeData = mirrorEnvelopeData(
+      committed: [currentId: currentRecord],
+      pending: [:]
+    )
+    let priorEmptyData = mirrorEnvelopeData(committed: [:], pending: [:])
+    UserDefaults.standard.set(currentEnvelopeData, forKey: envelopeKey)
+    UserDefaults.standard.set(priorEmptyData, forKey: mirrorKey)
+    let conflictResult = await inventoryValue(conflictBridge)
+    XCTAssertEqual((conflictResult as? FlutterError)?.code, "corrupt")
+    XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), priorEmptyData)
+    XCTAssertEqual(UserDefaults.standard.data(forKey: envelopeKey), currentEnvelopeData)
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
   func testBridgeNativeReadFailureDoesNotPersistUppercaseMirrorMigration() async {
     let fake = FakeAlarmKitNativeClient()
     fake.inventoryError = true

@@ -632,9 +632,18 @@ class TestAlarmScheduleResult {
   factory TestAlarmScheduleResult.failure({
     required ScheduleFailureReason reason,
     String? message,
+    String? platformAlarmId,
   }) {
+    if (platformAlarmId != null && platformAlarmId.trim().isEmpty) {
+      throw ArgumentError.value(
+        platformAlarmId,
+        'platformAlarmId',
+        'must be null or a non-empty String.',
+      );
+    }
     return TestAlarmScheduleResult(
       status: ScheduleResult._statusForFailureReason(reason),
+      platformAlarmId: platformAlarmId,
       failureReason: reason,
       failureMessage: message,
     );

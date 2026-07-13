@@ -137,6 +137,7 @@ class MethodChannelNativeAlarmGateway implements NativeAlarmGateway {
           _requiredString(response, 'failureReason'),
         ),
         message: _optionalString(response, 'failureMessage'),
+        platformAlarmId: _optionalString(response, 'platformAlarmId'),
       );
     } on PlatformException catch (error) {
       return TestAlarmScheduleResult.failure(

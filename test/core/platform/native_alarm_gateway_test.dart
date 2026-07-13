@@ -848,6 +848,26 @@ void main() {
       expect(result.failureReason, ScheduleFailureReason.unavailable);
       expect(result.platformAlarmId, isNull);
     });
+
+    test('rejects an empty recoverable test alarm id', () {
+      expect(
+        () => TestAlarmScheduleResult.failure(
+          reason: ScheduleFailureReason.nativeError,
+          platformAlarmId: '  ',
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('retains a non-empty recoverable test alarm id on failure', () {
+      final result = TestAlarmScheduleResult.failure(
+        reason: ScheduleFailureReason.nativeError,
+        platformAlarmId: 'recoverable-test-id',
+      );
+
+      expect(result.status, ScheduleResultStatus.failure);
+      expect(result.platformAlarmId, 'recoverable-test-id');
+    });
   });
 }
 
