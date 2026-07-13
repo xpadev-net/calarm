@@ -395,7 +395,13 @@
 
 ### Task_12: Implement AlarmKit inventory and stop-state observation on iOS
 
-- status: unstarted
+- status: in_progress
+- worker:
+  - thread: `019f5b6a-1df9-7392-93f9-9b5c6d87c2be`
+  - worktree: `/Users/xpadev/.codex/worktrees/a8e4/calarm`
+  - branch: `codex/reviewfix-ios-native-inventory`
+  - runtime: `gpt-5.6-luna` / `high`
+  - startup: active beyond worktree setup; onboarding and implementation in progress.
 - type: impl
 - owns:
   - `ios/Runner/AlarmKitBridge.swift`
@@ -650,6 +656,13 @@
   - Initial thread `019f4f15-56f9-7832-804e-01750602dfd7` stopped with `systemError` before onboarding; one bounded resume stopped identically.
   - Replacement thread `019f4f16-f94f-7d22-89d1-566e6293690d` and final explicit Luna High startup retry `019f4f18-4966-73e3-a353-c70c656da829` also stopped with `systemError` before onboarding.
   - All three failed threads were archived; no worker edits, commits, pushes, PRs, or product changes occurred. Task_9 remains unstarted in substance and needs a future user-visible Codex thread/runtime recovery before implementation can proceed.
+
+- 2026-07-13 Task_12 dispatched and startup-checked with Luna High.
+  - Worker thread `019f5b6a-1df9-7392-93f9-9b5c6d87c2be` runs in Codex worktree `/Users/xpadev/.codex/worktrees/a8e4/calarm` on branch `codex/reviewfix-ios-native-inventory`.
+  - The worker owns only the plan-defined iOS AlarmKit bridge/lifecycle/tests and optional iOS native smoke surface; Task_13/14 Dart and data reconciliation remain excluded.
+  - Startup state: active beyond worktree creation with the required `gpt-5.6-luna` / `high` runtime and read-only independent Reviewer handoff contract.
+  - Parent checkout remains product-code clean; user-owned untracked `docs/coding-agent/reports/` is preserved.
+  - Next action: wait for the exact-head `REVIEW_READY` report, then create a fresh read-only Reviewer Codex worktree thread before permitting PR creation.
 
 ## Decision Log
 
