@@ -184,9 +184,7 @@ void main() {
         );
       }
     }
-    if (scheduleSucceeded &&
-        scheduleCancelSucceeded &&
-        !scheduleCleanupVerified) {
+    if (scheduleSucceeded && !scheduleCleanupVerified) {
       throw StateError(
         'Native schedule cleanup could not be authoritatively verified.',
       );
@@ -314,7 +312,7 @@ void main() {
         );
       }
     }
-    if (testAlarmSucceeded && testCancelSucceeded && !testCleanupVerified) {
+    if (testAlarmSucceeded && !testCleanupVerified) {
       throw StateError(
         'Native test-alarm cleanup could not be authoritatively verified.',
       );

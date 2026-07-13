@@ -418,6 +418,11 @@ class RunnerTests: XCTestCase {
     fake.nativeAlarmIds.insert(id.uppercased())
     UserDefaults.standard.removeObject(forKey: pendingMirrorKey)
     let restarted = AlarmKitBridge(nativeClient: fake)
+    let mirrorBeforeObserver = UserDefaults.standard.data(forKey: mirrorKey)
+    let envelopeBeforeObserver = UserDefaults.standard.data(forKey: envelopeKey)
+    await restarted.reconcileMirror(withNativeAlarmIds: [id.uppercased()])
+    XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), mirrorBeforeObserver)
+    XCTAssertEqual(UserDefaults.standard.data(forKey: envelopeKey), envelopeBeforeObserver)
     let value = await inventoryValue(restarted)
     let rows = (value as? [String: Any?])?["reservations"] as? [[String: Any?]]
     XCTAssertEqual(rows?.count, 1)
@@ -563,6 +568,50 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(rows?.count, 1)
     XCTAssertEqual(rows?.first?["platformAlarmId"] as? String, id)
     XCTAssertFalse(pendingMirrorContains(id))
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testBridgeQuarantinesNoncanonicalCurrentEnvelopeGeneration() async {
+    let fake = FakeAlarmKitNativeClient()
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let request = makeScheduleRequest("reservation-lowercase-generation")
+    let id = calarmPlatformAlarmId(for: request.reservationId)
+    clearMirror()
+    defer { clearMirror() }
+
+    XCTAssertEqual((await bridge.scheduleAlarm(request)).status, "success")
+    let envelope = try! XCTUnwrap(
+      UserDefaults.standard.data(forKey: envelopeKey)
+    )
+    var object = try! XCTUnwrap(
+      JSONSerialization.jsonObject(with: envelope) as? [String: Any]
+    )
+    object["generation"] = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+    UserDefaults.standard.set(
+      try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+      forKey: envelopeKey
+    )
+
+    let value = await inventoryValue(bridge)
+    let rows = (value as? [String: Any?])?["reservations"] as? [[String: Any?]]
+    XCTAssertEqual(rows?.count, 1)
+    XCTAssertEqual(rows?.first?["platformAlarmId"] as? String, id)
+
+    var unsupported = try! XCTUnwrap(
+      JSONSerialization.jsonObject(
+        with: try! XCTUnwrap(UserDefaults.standard.data(forKey: envelopeKey))
+      ) as? [String: Any]
+    )
+    unsupported["version"] = 99
+    UserDefaults.standard.set(
+      try! JSONSerialization.data(withJSONObject: unsupported, options: [.sortedKeys]),
+      forKey: envelopeKey
+    )
+    let unsupportedValue = await inventoryValue(bridge)
+    let unsupportedRows = (unsupportedValue as? [String: Any?])?["reservations"]
+      as? [[String: Any?]]
+    XCTAssertEqual(unsupportedRows?.count, 1)
   }
 
   @available(iOS 26.0, *)

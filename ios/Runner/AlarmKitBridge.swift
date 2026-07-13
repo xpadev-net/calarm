@@ -1079,8 +1079,7 @@ final class AlarmKitBridge {
         let envelope = try decodeMirrorEnvelope(data)
         if requireGeneration {
           guard let generation = envelope.generation,
-            let uuid = UUID(uuidString: generation),
-            generation == uuid.uuidString
+            (try? canonicalMirrorGeneration(generation)) != nil
           else { return RecoveryMirrorArtifact.invalid }
         }
         let state = try validatedMirrorEnvelopeState(envelope)
@@ -1166,7 +1165,7 @@ final class AlarmKitBridge {
       guard let envelopeData,
         let envelope = try? decodeMirrorEnvelope(envelopeData),
         let generation = envelope.generation,
-        generation == marker.generation
+        try canonicalMirrorGeneration(generation) == marker.generation
       else { throw MirrorValidationError.invalid }
       return false
     }
@@ -1446,7 +1445,7 @@ private struct MirrorTransactionMarker: Codable {
 
   func validate() throws {
     guard version == nativeAlarmMirrorEnvelopeVersion,
-      UUID(uuidString: generation) != nil,
+      (try? canonicalMirrorGeneration(generation)) != nil,
       isDigest(committedDigest),
       isDigest(pendingDigest),
       isDigest(envelopeDigest)
@@ -1462,6 +1461,15 @@ private struct MirrorTransactionMarker: Codable {
           || (scalar.value >= 97 && scalar.value <= 102)
       }
   }
+}
+
+private func canonicalMirrorGeneration(_ generation: String) throws -> String {
+  guard let uuid = UUID(uuidString: generation),
+    generation == uuid.uuidString
+  else {
+    throw MirrorValidationError.invalid
+  }
+  return generation
 }
 
 private struct RecoveryMirrorArtifact {
