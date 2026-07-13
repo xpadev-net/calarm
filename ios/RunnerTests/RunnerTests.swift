@@ -86,6 +86,208 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
+  func testBridgeConcurrentDifferentSchedulesPreserveBothMirrorRows() async {
+    let fake = FakeAlarmKitNativeClient()
+    fake.gatedScheduleAttempts = [1]
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let requestA = makeScheduleRequest("reservation-concurrent-a", occurrenceId: "occurrence-a")
+    let requestB = makeScheduleRequest("reservation-concurrent-b", occurrenceId: "occurrence-b")
+    clearMirror()
+    defer { clearMirror() }
+
+    let first = Task { @MainActor in await bridge.scheduleAlarm(requestA) }
+    while !fake.gatedScheduleStartedAttempts.contains(1) { await Task.yield() }
+    let second = Task { @MainActor in await bridge.scheduleAlarm(requestB) }
+    await Task.yield()
+    fake.allowGatedSchedules = true
+
+    XCTAssertEqual((await first.value).status, "success")
+    XCTAssertEqual((await second.value).status, "success")
+    let idA = calarmPlatformAlarmId(for: requestA.reservationId)
+    let idB = calarmPlatformAlarmId(for: requestB.reservationId)
+    XCTAssertEqual(fake.nativeAlarmIds, Set([idA.uppercased(), idB.uppercased()]))
+    XCTAssertTrue(mirrorContains(idA))
+    XCTAssertTrue(mirrorContains(idB))
+    let inventory = await inventoryValue(bridge)
+    let rows = (inventory as? [String: Any?])?["reservations"] as? [[String: Any?]]
+    XCTAssertEqual(rows?.count, 2)
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testBridgeScheduleAndCancelDifferentIdentitiesPreserveOrdering() async {
+    let fake = FakeAlarmKitNativeClient()
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let requestA = makeScheduleRequest("reservation-overlap-a", occurrenceId: "occurrence-a")
+    let requestB = makeScheduleRequest("reservation-overlap-b", occurrenceId: "occurrence-b")
+    clearMirror()
+    defer { clearMirror() }
+    XCTAssertEqual((await bridge.scheduleAlarm(requestB)).status, "success")
+
+    fake.gatedScheduleAttempts = [2]
+    let schedule = Task { @MainActor in await bridge.scheduleAlarm(requestA) }
+    while !fake.gatedScheduleStartedAttempts.contains(2) { await Task.yield() }
+    let cancel = Task { @MainActor in
+      await bridge.cancelAlarm([
+        "occurrenceId": requestB.occurrenceId,
+        "reservationId": requestB.reservationId,
+        "platformAlarmId": calarmPlatformAlarmId(for: requestB.reservationId).uppercased(),
+      ])
+    }
+    await Task.yield()
+    fake.allowGatedSchedules = true
+
+    XCTAssertEqual((await schedule.value).status, "success")
+    let cancelResult = await cancel.value
+    XCTAssertEqual(cancelResult["status"] as? String, "success")
+    let idA = calarmPlatformAlarmId(for: requestA.reservationId)
+    let idB = calarmPlatformAlarmId(for: requestB.reservationId)
+    XCTAssertEqual(fake.nativeAlarmIds, Set([idA.uppercased()]))
+    XCTAssertTrue(mirrorContains(idA))
+    XCTAssertFalse(mirrorContains(idB))
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testBridgeObserverRacingSchedulePreservesPendingAndUnrelatedRows() async {
+    let fake = FakeAlarmKitNativeClient()
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let request = makeScheduleRequest("reservation-observer-race")
+    let unrelatedRequest = makeScheduleRequest(
+      "reservation-observer-unrelated",
+      occurrenceId: "occurrence-observer-unrelated"
+    )
+    clearMirror()
+    defer { clearMirror() }
+    XCTAssertEqual((await bridge.scheduleAlarm(unrelatedRequest)).status, "success")
+    fake.gatedScheduleAttempts = [2]
+
+    let schedule = Task { @MainActor in await bridge.scheduleAlarm(request) }
+    while !fake.gatedScheduleStartedAttempts.contains(2) { await Task.yield() }
+    let id = calarmPlatformAlarmId(for: request.reservationId)
+    let unrelatedId = calarmPlatformAlarmId(for: unrelatedRequest.reservationId)
+    let observer = Task { @MainActor in
+      await bridge.reconcileMirror(
+        withNativeAlarmIds: [id.uppercased(), unrelatedId.uppercased()]
+      )
+    }
+    await Task.yield()
+    fake.allowGatedSchedules = true
+
+    XCTAssertEqual((await schedule.value).status, "success")
+    await observer.value
+    XCTAssertTrue(mirrorContains(id))
+    XCTAssertTrue(mirrorContains(unrelatedId))
+    XCTAssertEqual(fake.nativeAlarmIds, Set([id.uppercased(), unrelatedId.uppercased()]))
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testBridgeUncertainNewScheduleFailureKeepsCommittedBytesAndAllowsRetry() async {
+    let fake = FakeAlarmKitNativeClient()
+    fake.failFirstSchedule = true
+    fake.inventoryErrorOnCall = 2
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let request = makeScheduleRequest("reservation-uncertain-new")
+    let id = calarmPlatformAlarmId(for: request.reservationId)
+    let unrelatedId = calarmPlatformAlarmId(for: "reservation-uncertain-unrelated")
+    let originalData = mirrorData([
+      unrelatedId: [
+        "reservationId": "reservation-uncertain-unrelated",
+        "occurrenceId": "occurrence-uncertain-unrelated",
+        "wakePlanId": "wake-plan-uncertain-unrelated",
+        "platformAlarmId": unrelatedId,
+      ]
+    ])
+    clearMirror()
+    UserDefaults.standard.set(originalData, forKey: mirrorKey)
+    defer { clearMirror() }
+
+    let failed = await bridge.scheduleAlarm(request)
+    XCTAssertEqual(failed.failureReason, "nativeError")
+    XCTAssertNil(failed.platformAlarmId)
+    XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), originalData)
+    XCTAssertTrue(pendingMirrorContains(id))
+
+    fake.inventoryErrorOnCall = nil
+    let retried = await bridge.scheduleAlarm(
+      makeScheduleRequest("reservation-uncertain-new", occurrenceId: "occurrence-retry")
+    )
+    XCTAssertEqual(retried.status, "success")
+    XCTAssertTrue(mirrorContains(id))
+    XCTAssertTrue(mirrorContains(unrelatedId))
+    XCTAssertFalse(pendingMirrorContains(id))
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testBridgeUncertainCleanupKeepsPendingUntilNativePresenceIsKnown() async {
+    let fake = FakeAlarmKitNativeClient()
+    fake.failFirstSchedule = true
+    fake.inventoryIdsByCall = [1: [], 2: [calarmPlatformAlarmId(for: "reservation-uncertain-live").uppercased()]]
+    fake.insertBeforeFailFirstSchedule = true
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let request = makeScheduleRequest("reservation-uncertain-live")
+    let id = calarmPlatformAlarmId(for: request.reservationId)
+    clearMirror()
+    defer { clearMirror() }
+
+    let failed = await bridge.scheduleAlarm(request)
+    XCTAssertEqual(failed.failureReason, "nativeError")
+    XCTAssertEqual(failed.platformAlarmId, id)
+    XCTAssertTrue(pendingMirrorContains(id))
+    XCTAssertFalse(mirrorContains(id))
+
+    let inventory = await inventoryValue(bridge)
+    let rows = (inventory as? [String: Any?])?["reservations"] as? [[String: Any?]]
+    XCTAssertEqual(rows?.first?["platformAlarmId"] as? String, id)
+    XCTAssertTrue(mirrorContains(id))
+    XCTAssertFalse(pendingMirrorContains(id))
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testBridgeMalformedOrDuplicateCleanupKeepsCommittedBytesAndPendingRecovery() async {
+    let request = makeScheduleRequest("reservation-invalid-cleanup")
+    let id = calarmPlatformAlarmId(for: request.reservationId)
+    let unrelatedId = calarmPlatformAlarmId(for: "reservation-invalid-cleanup-unrelated")
+    let originalData = mirrorData([
+      unrelatedId: [
+        "reservationId": "reservation-invalid-cleanup-unrelated",
+        "occurrenceId": "occurrence-invalid-cleanup-unrelated",
+        "wakePlanId": "wake-plan-invalid-cleanup-unrelated",
+        "platformAlarmId": unrelatedId,
+      ]
+    ])
+    let cleanupSnapshots = [
+      ["not-a-uuid"],
+      [id, id.uppercased()],
+      [calarmPlatformAlarmId(for: "unrelated"), calarmPlatformAlarmId(for: "unrelated")],
+    ]
+
+    for cleanupSnapshot in cleanupSnapshots {
+      let fake = FakeAlarmKitNativeClient()
+      fake.failFirstSchedule = true
+      fake.inventoryIdsByCall = [1: [], 2: cleanupSnapshot]
+      let bridge = AlarmKitBridge(nativeClient: fake)
+      clearMirror()
+      UserDefaults.standard.set(originalData, forKey: mirrorKey)
+      let failed = await bridge.scheduleAlarm(request)
+      XCTAssertEqual(failed.failureReason, "nativeError")
+      XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), originalData)
+      XCTAssertTrue(pendingMirrorContains(id))
+
+      fake.inventoryIdsByCall.removeValue(forKey: 2)
+      let recovered = await inventoryValue(bridge)
+      let rows = (recovered as? [String: Any?])?["reservations"] as? [[String: Any?]]
+      XCTAssertEqual(rows?.count, 0)
+      XCTAssertFalse(pendingMirrorContains(id))
+      clearMirror()
+    }
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
   func testBridgeCancelWaitsForOverlappingScheduleAndRetryIsRecoverable() async {
     let fake = FakeAlarmKitNativeClient()
     fake.gateFirstSchedule = true
@@ -246,7 +448,8 @@ class RunnerTests: XCTestCase {
     let result = await bridge.scheduleAlarm(request)
     XCTAssertEqual(result.failureReason, "nativeError")
     XCTAssertEqual(fake.nativeAlarmIds, Set([platformAlarmId.uppercased()]))
-    XCTAssertTrue(mirrorContains(platformAlarmId))
+    XCTAssertTrue(pendingMirrorContains(platformAlarmId))
+    XCTAssertFalse(mirrorContains(platformAlarmId))
 
     let inventory = await inventoryValue(bridge)
     let response = inventory as? [String: Any?]
@@ -266,9 +469,9 @@ class RunnerTests: XCTestCase {
 
     let scheduleResult = await bridge.scheduleAlarm(request)
     XCTAssertEqual(scheduleResult.status, "success")
-    bridge.reconcileMirror(withNativeAlarmIds: [platformAlarmId.uppercased()])
+    await bridge.reconcileMirror(withNativeAlarmIds: [platformAlarmId.uppercased()])
     XCTAssertTrue(mirrorContains(platformAlarmId))
-    bridge.reconcileMirror(withNativeAlarmIds: [])
+    await bridge.reconcileMirror(withNativeAlarmIds: [])
     XCTAssertFalse(mirrorContains(platformAlarmId))
   }
 
@@ -467,9 +670,9 @@ class RunnerTests: XCTestCase {
     ])
     clearMirror()
     UserDefaults.standard.set(originalData, forKey: mirrorKey)
-    bridge.reconcileMirror(withNativeAlarmIds: [uppercasePlatformAlarmId, "not-a-uuid"])
+    await bridge.reconcileMirror(withNativeAlarmIds: [uppercasePlatformAlarmId, "not-a-uuid"])
     XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), originalData)
-    bridge.reconcileMirror(withNativeAlarmIds: [platformAlarmId, uppercasePlatformAlarmId])
+    await bridge.reconcileMirror(withNativeAlarmIds: [platformAlarmId, uppercasePlatformAlarmId])
     XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), originalData)
     clearMirror()
   }
@@ -581,6 +784,7 @@ class RunnerTests: XCTestCase {
 }
 
 private let mirrorKey = "net.xpadev.calarm/native_alarm_mirror"
+private let pendingMirrorKey = "net.xpadev.calarm/native_alarm_pending_mirror"
 
 @MainActor
 private final class FakeAlarmKitNativeClient: AlarmKitNativeClient {
@@ -602,14 +806,21 @@ private final class FakeAlarmKitNativeClient: AlarmKitNativeClient {
   var cancelCalls = 0
   var inventoryCalls = 0
   var inventoryError = false
+  var inventoryErrorOnCall: Int?
   var inventoryIdsOverride: [String]?
+  var inventoryIdsByCall: [Int: [String]] = [:]
+  var gatedScheduleAttempts = Set<Int>()
+  var gatedScheduleStartedAttempts = Set<Int>()
+  var allowGatedSchedules = false
 
   func inventory() throws -> [NativeAlarmSnapshot] {
     inventoryCalls += 1
-    if inventoryError {
+    if inventoryError || inventoryErrorOnCall == inventoryCalls {
       throw FakeError.inventoryFailed
     }
-    let ids = inventoryIdsOverride ?? Array(nativeAlarmIds)
+    let ids = inventoryIdsByCall[inventoryCalls]
+      ?? inventoryIdsOverride
+      ?? Array(nativeAlarmIds)
     return ids.map {
       NativeAlarmSnapshot(platformAlarmId: $0, status: "scheduled")
     }
@@ -624,6 +835,12 @@ private final class FakeAlarmKitNativeClient: AlarmKitNativeClient {
     if gateFirstSchedule && scheduleAttempts == 1 {
       firstScheduleStarted = true
       while !allowFirstScheduleToFinish {
+        await Task.yield()
+      }
+    }
+    if gatedScheduleAttempts.contains(scheduleAttempts) {
+      gatedScheduleStartedAttempts.insert(scheduleAttempts)
+      while !allowGatedSchedules {
         await Task.yield()
       }
     }
@@ -643,10 +860,13 @@ private final class FakeAlarmKitNativeClient: AlarmKitNativeClient {
   }
 }
 
-private func makeScheduleRequest(_ reservationId: String = "reservation-1") -> ScheduleRequest {
+private func makeScheduleRequest(
+  _ reservationId: String = "reservation-1",
+  occurrenceId: String = "occurrence-1"
+) -> ScheduleRequest {
   let date = Date(timeIntervalSince1970: 1_900_000_000)
   return ScheduleRequest(
-    occurrenceId: "occurrence-1",
+    occurrenceId: occurrenceId,
     reservationId: reservationId,
     wakePlanId: "wake-plan-1",
     scheduledAt: date,
@@ -672,6 +892,7 @@ private func makeSchedulePayload(
 
 private func clearMirror() {
   UserDefaults.standard.removeObject(forKey: mirrorKey)
+  UserDefaults.standard.removeObject(forKey: pendingMirrorKey)
 }
 
 private func mirrorData(_ records: [String: [String: String]]) -> Data {
@@ -680,6 +901,15 @@ private func mirrorData(_ records: [String: [String: String]]) -> Data {
 
 private func mirrorContains(_ platformAlarmId: String) -> Bool {
   guard let data = UserDefaults.standard.data(forKey: mirrorKey),
+    let mirror = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+  else {
+    return false
+  }
+  return mirror[platformAlarmId] != nil
+}
+
+private func pendingMirrorContains(_ platformAlarmId: String) -> Bool {
+  guard let data = UserDefaults.standard.data(forKey: pendingMirrorKey),
     let mirror = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
   else {
     return false

@@ -7,12 +7,14 @@ import SwiftUI
 private let nativeAlarmChannelName = "net.xpadev.calarm/native_alarm"
 private let nativeAlarmSchemaVersion = 1
 private let nativeAlarmMirrorKey = "net.xpadev.calarm/native_alarm_mirror"
+private let nativeAlarmPendingMirrorKey = "net.xpadev.calarm/native_alarm_pending_mirror"
 
 @MainActor
 final class AlarmKitBridge {
   private let channel: FlutterMethodChannel?
   private var alarmObservationTask: Task<Void, Never>?
   private let scheduleCoordinator = AlarmScheduleCoordinator()
+  private let mirrorCoordinator = AlarmMirrorCoordinator.shared
   private var pendingNativeAlarmIds = Set<String>()
   private let nativeClient: (any AlarmKitNativeClient)?
 
@@ -134,108 +136,110 @@ final class AlarmKitBridge {
     }
 
     Task { @MainActor in
-      let mirrorSnapshot: MirrorSnapshot
+      let value = await mirrorCoordinator.run {
+        await self.performGetInventory()
+      }
+      complete(result, value)
+    }
+  }
+
+  @available(iOS 26.0, *)
+  private func performGetInventory() async -> Any? {
+    let mirrorSnapshot: MirrorSnapshot
+    do {
+      mirrorSnapshot = try loadMirrorSnapshot()
+    } catch {
+      return FlutterError(
+        code: "corrupt",
+        message: "The persisted AlarmKit identity mirror is corrupt.",
+        details: nil
+      )
+    }
+
+    do {
+      let alarms = try nativeClientForAlarmKit().inventory()
+      let canonicalIds: [String]
       do {
-        mirrorSnapshot = try loadMirrorSnapshot()
+        canonicalIds = try canonicalNativeAlarmIds(
+          alarms.map { $0.platformAlarmId }
+        )
       } catch {
-        complete(
-          result,
-          FlutterError(
+        return FlutterError(
+          code: "corrupt",
+          message: "AlarmKit returned invalid or duplicate platform identities.",
+          details: nil
+        )
+      }
+      let currentIds = Set(canonicalIds)
+      var reconciledMirror = mirrorSnapshot.normalized
+      var reconciledPendingMirror = mirrorSnapshot.pendingNormalized
+      var seenReservationIds = Set<String>()
+      var seenOccurrenceIds = Set<String>()
+      var seenPlatformIds = Set<String>()
+      var rows = [[String: Any?]]()
+
+      for (alarm, platformAlarmId) in zip(alarms, canonicalIds) {
+        guard let record = reconciledMirror[platformAlarmId]
+          ?? reconciledPendingMirror[platformAlarmId]
+        else {
+          return FlutterError(
             code: "corrupt",
-            message: "The persisted AlarmKit identity mirror is corrupt.",
+            message: "Unknown AlarmKit identity: \(platformAlarmId).",
             details: nil
           )
-        )
-        return
-      }
-
-      do {
-        let alarms = try nativeClientForAlarmKit().inventory()
-        let canonicalIds: [String]
-        do {
-          canonicalIds = try canonicalNativeAlarmIds(
-            alarms.map { $0.platformAlarmId }
-          )
-        } catch {
-          complete(
-            result,
-            FlutterError(
-              code: "corrupt",
-              message: "AlarmKit returned invalid or duplicate platform identities.",
-              details: nil
-            )
-          )
-          return
         }
-        let currentIds = Set(canonicalIds)
-        let mirror = mirrorSnapshot.normalized
-        var seenReservationIds = Set<String>()
-        var seenOccurrenceIds = Set<String>()
-        var seenPlatformIds = Set<String>()
-        var rows = [[String: Any?]]()
-
-        for (alarm, platformAlarmId) in zip(alarms, canonicalIds) {
-          guard let record = mirror[platformAlarmId] else {
-            complete(
-              result,
-              FlutterError(
-                code: "corrupt",
-                message: "Unknown AlarmKit identity: \(platformAlarmId).",
-                details: nil
-              )
-            )
-            return
-          }
-          guard record.platformAlarmId == platformAlarmId,
-            !record.reservationId.isEmpty,
-            !record.occurrenceId.isEmpty,
-            !record.wakePlanId.isEmpty,
-            seenReservationIds.insert(record.reservationId).inserted,
-            seenOccurrenceIds.insert(record.occurrenceId).inserted,
-            seenPlatformIds.insert(platformAlarmId).inserted
-          else {
-            complete(
-              result,
-              FlutterError(
-                code: "corrupt",
-                message: "Corrupt or duplicate AlarmKit identity: \(platformAlarmId).",
-                details: nil
-              )
-            )
-            return
-          }
-
-          rows.append(
-            inventoryRow(
-              record: record,
-              status: alarm.status
-            )
-          )
-        }
-
-        // AlarmKit removes one-shot alarms after they fire or stop. Pruning
-        // the mirror makes that removal observable as an absent row on the
-        // next inventory read, including after the app was not running.
-        let prunedMirror = mirror.filter {
-          currentIds.contains($0.key) || pendingNativeAlarmIds.contains($0.key)
-        }
-        if prunedMirror != mirrorSnapshot.stored {
-          try saveMirror(prunedMirror)
-        }
-
-        var response = baseResponse()
-        response["reservations"] = rows
-        complete(result, response)
-      } catch {
-        complete(
-          result,
-          FlutterError(
-            code: "nativeError",
-            message: error.localizedDescription,
+        guard record.platformAlarmId == platformAlarmId,
+          !record.reservationId.isEmpty,
+          !record.occurrenceId.isEmpty,
+          !record.wakePlanId.isEmpty,
+          seenReservationIds.insert(record.reservationId).inserted,
+          seenOccurrenceIds.insert(record.occurrenceId).inserted,
+          seenPlatformIds.insert(platformAlarmId).inserted
+        else {
+          return FlutterError(
+            code: "corrupt",
+            message: "Corrupt or duplicate AlarmKit identity: \(platformAlarmId).",
             details: nil
+          )
+        }
+
+        if reconciledPendingMirror.removeValue(forKey: platformAlarmId) != nil {
+          reconciledMirror[platformAlarmId] = record
+        }
+        rows.append(
+          inventoryRow(
+            record: record,
+            status: alarm.status
           )
         )
       }
+
+      // AlarmKit removes one-shot alarms after they fire or stop. Pruning
+      // the mirror makes that removal observable as an absent row on the
+      // next inventory read, including after the app was not running.
+      let prunedMirror = reconciledMirror.filter {
+        currentIds.contains($0.key) || pendingNativeAlarmIds.contains($0.key)
+      }
+      let prunedPendingMirror = reconciledPendingMirror.filter {
+        currentIds.contains($0.key) || pendingNativeAlarmIds.contains($0.key)
+      }
+      if prunedMirror != mirrorSnapshot.normalized
+        || prunedPendingMirror != mirrorSnapshot.pendingNormalized
+        || prunedMirror != mirrorSnapshot.stored
+        || prunedPendingMirror != mirrorSnapshot.pendingStored
+      {
+        try saveMirrorState(prunedMirror, pending: prunedPendingMirror)
+      }
+
+      var response = baseResponse()
+      response["reservations"] = rows
+      return response
+    } catch {
+      return FlutterError(
+        code: "nativeError",
+        message: error.localizedDescription,
+        details: nil
+      )
     }
   }
 
@@ -466,10 +470,31 @@ final class AlarmKitBridge {
     responsePlatformAlarmId: String,
     alarmId: UUID
   ) async -> [String: Any?] {
+    await mirrorCoordinator.run {
+      await self.performCancelAlarmInMirrorTransaction(
+        occurrenceId: occurrenceId,
+        requestedReservationId: requestedReservationId,
+        responseReservationId: responseReservationId,
+        platformAlarmId: platformAlarmId,
+        responsePlatformAlarmId: responsePlatformAlarmId,
+        alarmId: alarmId
+      )
+    }
+  }
+
+  private func performCancelAlarmInMirrorTransaction(
+    occurrenceId: String,
+    requestedReservationId: String?,
+    responseReservationId: String,
+    platformAlarmId: String,
+    responsePlatformAlarmId: String,
+    alarmId: UUID
+  ) async -> [String: Any?] {
     do {
       let mirrorSnapshot = try loadMirrorSnapshot()
       var mirror = mirrorSnapshot.normalized
-      if let record = mirror[platformAlarmId],
+      var pendingMirror = mirrorSnapshot.pendingNormalized
+      if let record = mirror[platformAlarmId] ?? pendingMirror[platformAlarmId],
         record.occurrenceId != occurrenceId
           || (requestedReservationId != nil
             && record.reservationId != requestedReservationId)
@@ -484,7 +509,8 @@ final class AlarmKitBridge {
       }
       try nativeClientForAlarmKit().cancel(id: alarmId)
       mirror.removeValue(forKey: platformAlarmId)
-      try saveMirror(mirror)
+      pendingMirror.removeValue(forKey: platformAlarmId)
+      try saveMirrorState(mirror, pending: pendingMirror)
       return cancelSuccessRow(
         occurrenceId: occurrenceId,
         reservationId: responseReservationId,
@@ -510,6 +536,14 @@ final class AlarmKitBridge {
   }
 
   private func performScheduleAlarm(_ request: ScheduleRequest) async -> ScheduleRow {
+    await mirrorCoordinator.run {
+      await self.performScheduleAlarmInMirrorTransaction(request)
+    }
+  }
+
+  private func performScheduleAlarmInMirrorTransaction(
+    _ request: ScheduleRequest
+  ) async -> ScheduleRow {
     guard #available(iOS 26.0, *) else {
       return ScheduleRow(
         status: "failure",
@@ -539,10 +573,13 @@ final class AlarmKitBridge {
     }
 
     var mirrorEntryPresent = false
+    var pendingEntryCreated = false
     do {
       let mirrorSnapshot = try loadMirrorSnapshot()
       var mirror = mirrorSnapshot.normalized
-      if let existing = mirror[platformAlarmId], !existing.matches(request) {
+      var pendingMirror = mirrorSnapshot.pendingNormalized
+      let existing = mirror[platformAlarmId] ?? pendingMirror[platformAlarmId]
+      if let existing, !existing.matches(request), mirror[platformAlarmId] != nil {
         return ScheduleRow(
           status: "failure",
           platformAlarmId: platformAlarmId,
@@ -550,7 +587,7 @@ final class AlarmKitBridge {
           failureMessage: "reservationId is already bound to a different alarm."
         )
       }
-      mirrorEntryPresent = mirror[platformAlarmId] != nil
+      mirrorEntryPresent = existing != nil
 
       let currentIds: Set<String>
       do {
@@ -568,7 +605,9 @@ final class AlarmKitBridge {
         )
       }
       if currentIds.contains(platformAlarmId) {
-        guard mirror[platformAlarmId] != nil else {
+        guard let existing,
+          existing.matches(request)
+        else {
           return ScheduleRow(
             status: "failure",
             platformAlarmId: platformAlarmId,
@@ -576,7 +615,10 @@ final class AlarmKitBridge {
             failureMessage: "AlarmKit contains an unknown native identity."
           )
         }
-        try saveMirror(mirror)
+        if pendingMirror.removeValue(forKey: platformAlarmId) != nil {
+          mirror[platformAlarmId] = existing
+        }
+        try saveMirrorState(mirror, pending: pendingMirror)
         return ScheduleRow(
           status: "success",
           platformAlarmId: platformAlarmId,
@@ -585,23 +627,25 @@ final class AlarmKitBridge {
         )
       }
 
+      if pendingMirror.removeValue(forKey: platformAlarmId) != nil {
+        mirrorEntryPresent = false
+      }
+
       pendingNativeAlarmIds.insert(platformAlarmId)
       defer { pendingNativeAlarmIds.remove(platformAlarmId) }
 
       if !mirrorEntryPresent {
-        // Persist before crossing into AlarmKit so an interrupted process can
-        // recover the caller identity from the next inventory read. Preserve
-        // the original spelling of existing mirror records until this
-        // operation has a successful native outcome.
-        var preflightMirror = mirrorSnapshot.stored
+        // Keep in-flight recovery identity separate from the committed mirror.
+        // A failed/uncertain native call must never turn a new row into an
+        // ordinary committed identity or overwrite the caller's prior bytes.
         let mirrorEntry = AlarmMirrorRecord(
           request: request,
           platformAlarmId: platformAlarmId
         )
-        mirror[platformAlarmId] = mirrorEntry
-        preflightMirror[platformAlarmId] = mirrorEntry
-        try saveMirror(preflightMirror)
+        pendingMirror[platformAlarmId] = mirrorEntry
+        try savePendingMirror(pendingMirror)
         mirrorEntryPresent = true
+        pendingEntryCreated = true
       }
 
       let scheduledPlatformAlarmId = try await nativeClientForAlarmKit().schedule(
@@ -611,7 +655,12 @@ final class AlarmKitBridge {
       guard try canonicalPlatformAlarmId(scheduledPlatformAlarmId) == platformAlarmId else {
         throw MirrorValidationError.invalid
       }
-      try saveMirror(mirror)
+      if pendingEntryCreated {
+        if let pendingEntry = pendingMirror.removeValue(forKey: platformAlarmId) {
+          mirror[platformAlarmId] = pendingEntry
+        }
+      }
+      try saveMirrorState(mirror, pending: pendingMirror)
       return ScheduleRow(
         status: "success",
         platformAlarmId: platformAlarmId,
@@ -619,22 +668,30 @@ final class AlarmKitBridge {
         failureMessage: nil
       )
     } catch AlarmManager.AlarmError.maximumLimitReached {
-      if mirrorEntryPresent {
-        removeMirrorEntryIfNativeAlarmAbsent(platformAlarmId, request: request)
-      }
+      let cleanup = mirrorEntryPresent
+        ? removeMirrorEntryIfNativeAlarmAbsent(
+          platformAlarmId,
+          request: request,
+          pendingEntryCreated: pendingEntryCreated
+        )
+        : .uncertain
       return ScheduleRow(
         status: "failure",
-        platformAlarmId: nil,
+        platformAlarmId: cleanup == .nativePresent ? platformAlarmId : nil,
         failureReason: "osConstraint",
         failureMessage: "AlarmKit maximum pending alarm limit was reached."
       )
     } catch {
-      if mirrorEntryPresent {
-        removeMirrorEntryIfNativeAlarmAbsent(platformAlarmId, request: request)
-      }
+      let cleanup = mirrorEntryPresent
+        ? removeMirrorEntryIfNativeAlarmAbsent(
+          platformAlarmId,
+          request: request,
+          pendingEntryCreated: pendingEntryCreated
+        )
+        : .uncertain
       return ScheduleRow(
         status: "failure",
-        platformAlarmId: nil,
+        platformAlarmId: cleanup == .nativePresent ? platformAlarmId : nil,
         failureReason: "nativeError",
         failureMessage: error.localizedDescription
       )
@@ -649,26 +706,50 @@ final class AlarmKitBridge {
   @available(iOS 26.0, *)
   private func observeAlarmUpdates() async {
     for await alarms in AlarmManager.shared.alarmUpdates {
-      reconcileMirror(with: alarms)
+      await reconcileMirror(with: alarms)
     }
   }
 
   @available(iOS 26.0, *)
-  private func reconcileMirror(with alarms: [Alarm]) {
-    reconcileMirror(withNativeAlarmIds: alarms.map { $0.id.uuidString })
+  private func reconcileMirror(with alarms: [Alarm]) async {
+    await reconcileMirror(withNativeAlarmIds: alarms.map { $0.id.uuidString })
   }
 
-  func reconcileMirror(withNativeAlarmIds nativeAlarmIds: [String]) {
+  func reconcileMirror(withNativeAlarmIds nativeAlarmIds: [String]) async {
+    await mirrorCoordinator.run {
+      await self.reconcileMirrorInMirrorTransaction(withNativeAlarmIds: nativeAlarmIds)
+    }
+  }
+
+  private func reconcileMirrorInMirrorTransaction(withNativeAlarmIds nativeAlarmIds: [String]) async {
     guard let mirrorSnapshot = try? loadMirrorSnapshot(),
       let canonicalIds = try? canonicalNativeAlarmIds(nativeAlarmIds)
     else { return }
-    let mirror = mirrorSnapshot.normalized
+    var reconciledMirror = mirrorSnapshot.normalized
+    var reconciledPendingMirror = mirrorSnapshot.pendingNormalized
     let currentIds = Set(canonicalIds)
-    let prunedMirror = mirror.filter {
+    for (platformAlarmId, record) in reconciledPendingMirror {
+      if currentIds.contains(platformAlarmId) {
+        reconciledMirror[platformAlarmId] = record
+      }
+    }
+    for platformAlarmId in Array(reconciledPendingMirror.keys)
+      where currentIds.contains(platformAlarmId)
+    {
+      reconciledPendingMirror.removeValue(forKey: platformAlarmId)
+    }
+    let prunedMirror = reconciledMirror.filter {
       currentIds.contains($0.key) || pendingNativeAlarmIds.contains($0.key)
     }
-    if prunedMirror != mirrorSnapshot.stored {
-      try? saveMirror(prunedMirror)
+    let prunedPendingMirror = reconciledPendingMirror.filter {
+      currentIds.contains($0.key) || pendingNativeAlarmIds.contains($0.key)
+    }
+    if prunedMirror != mirrorSnapshot.normalized
+      || prunedPendingMirror != mirrorSnapshot.pendingNormalized
+      || prunedMirror != mirrorSnapshot.stored
+      || prunedPendingMirror != mirrorSnapshot.pendingStored
+    {
+      try? saveMirrorState(prunedMirror, pending: prunedPendingMirror)
     }
   }
 
@@ -681,8 +762,28 @@ final class AlarmKitBridge {
 
   private func loadMirrorSnapshot() throws -> MirrorSnapshot {
     let mirror = try loadMirror()
+    let pendingMirror = try loadPendingMirror()
     let normalizedMirror = try validatedMirror(mirror)
-    return MirrorSnapshot(stored: mirror, normalized: normalizedMirror)
+    let normalizedPendingMirror = try validatedMirror(pendingMirror)
+    var combined = normalizedMirror
+    for (key, record) in normalizedPendingMirror {
+      guard combined[key] == nil else { throw MirrorValidationError.invalid }
+      combined[key] = record
+    }
+    _ = try validatedMirror(combined)
+    return MirrorSnapshot(
+      stored: mirror,
+      normalized: normalizedMirror,
+      pendingStored: pendingMirror,
+      pendingNormalized: normalizedPendingMirror
+    )
+  }
+
+  private func loadPendingMirror() throws -> [String: AlarmMirrorRecord] {
+    guard let data = UserDefaults.standard.data(forKey: nativeAlarmPendingMirrorKey) else {
+      return [:]
+    }
+    return try JSONDecoder().decode([String: AlarmMirrorRecord].self, from: data)
   }
 
   private func validatedMirror(
@@ -717,40 +818,67 @@ final class AlarmKitBridge {
     return normalizedMirror
   }
 
-  private func saveMirror(_ mirror: [String: AlarmMirrorRecord]) throws {
-    let data = try JSONEncoder().encode(mirror)
-    UserDefaults.standard.set(data, forKey: nativeAlarmMirrorKey)
+  private func saveMirrorState(
+    _ mirror: [String: AlarmMirrorRecord],
+    pending: [String: AlarmMirrorRecord]
+  ) throws {
+    let mirrorData = try JSONEncoder().encode(mirror)
+    UserDefaults.standard.set(mirrorData, forKey: nativeAlarmMirrorKey)
+    try savePendingMirror(pending)
+  }
+
+  private func savePendingMirror(_ pending: [String: AlarmMirrorRecord]) throws {
+    let pendingData = try JSONEncoder().encode(pending)
+    if pending.isEmpty {
+      UserDefaults.standard.removeObject(forKey: nativeAlarmPendingMirrorKey)
+    } else {
+      UserDefaults.standard.set(pendingData, forKey: nativeAlarmPendingMirrorKey)
+    }
+  }
+
+  private enum ScheduleFailureCleanupOutcome: Equatable {
+    case nativePresent
+    case nativeAbsent
+    case uncertain
   }
 
   private func removeMirrorEntryIfNativeAlarmAbsent(
     _ platformAlarmId: String,
-    request: ScheduleRequest
-  ) {
+    request: ScheduleRequest,
+    pendingEntryCreated: Bool
+  ) -> ScheduleFailureCleanupOutcome {
     do {
       let currentNativeAlarmIds = Set(
         try canonicalNativeAlarmIds(
           nativeClientForAlarmKit().inventory().map { $0.platformAlarmId }
         )
       )
-      guard calarmShouldRemoveMirrorAfterScheduleFailure(
-        currentNativeAlarmIds: currentNativeAlarmIds,
-        platformAlarmId: platformAlarmId
-      ) else { return }
+      if currentNativeAlarmIds.contains(platformAlarmId) {
+        return .nativePresent
+      }
 
-      var mirror = try loadMirror()
-      _ = try validatedMirror(mirror)
-      let matchingKeys = try mirror.keys.filter {
+      let snapshot = try loadMirrorSnapshot()
+      var mirror = snapshot.stored
+      var pendingMirror = snapshot.pendingStored
+      let matchingKeys = try (pendingEntryCreated ? pendingMirror.keys : mirror.keys).filter {
         try canonicalPlatformAlarmId($0) == platformAlarmId
       }
       guard matchingKeys.count == 1,
         let matchingKey = matchingKeys.first,
-        mirror[matchingKey]?.matches(request) == true
-      else { return }
-      mirror.removeValue(forKey: matchingKey)
-      try saveMirror(mirror)
+        (pendingEntryCreated ? pendingMirror[matchingKey] : mirror[matchingKey])?.matches(request) == true
+      else { return .uncertain }
+      if pendingEntryCreated {
+        pendingMirror.removeValue(forKey: matchingKey)
+        try savePendingMirror(pendingMirror)
+      } else {
+        mirror.removeValue(forKey: matchingKey)
+        try saveMirrorState(mirror, pending: pendingMirror)
+      }
+      return .nativeAbsent
     } catch {
       // Preserve the mirror when native inventory or mirror persistence cannot
       // establish that the AlarmKit alarm is absent.
+      return .uncertain
     }
   }
 
@@ -842,6 +970,8 @@ private enum NativeSnapshotValidationError: Error {
 private struct MirrorSnapshot {
   let stored: [String: AlarmMirrorRecord]
   let normalized: [String: AlarmMirrorRecord]
+  let pendingStored: [String: AlarmMirrorRecord]
+  let pendingNormalized: [String: AlarmMirrorRecord]
 }
 
 struct ScheduleRow {
@@ -950,6 +1080,41 @@ final class AlarmScheduleCoordinator {
         }
       }
       tails[reservationId] = Tail(token: token, task: task)
+    }
+  }
+}
+
+@MainActor
+final class AlarmMirrorCoordinator {
+  // UserDefaults stores the committed and pending mirrors as whole maps. Keep
+  // every read/normalize/merge/write transaction in one shared FIFO so a
+  // native await cannot let another bridge instance save a stale snapshot.
+  static let shared = AlarmMirrorCoordinator()
+
+  private struct Tail {
+    let token: UUID
+    let task: Task<Void, Never>
+  }
+
+  private var tail: Tail?
+
+  func run<Value>(
+    operation: @escaping @MainActor () async -> Value
+  ) async -> Value {
+    let token = UUID()
+    let predecessor = tail?.task
+    return await withCheckedContinuation { continuation in
+      let task = Task { @MainActor in
+        if let predecessor {
+          await predecessor.value
+        }
+        let value = await operation()
+        continuation.resume(returning: value)
+        if tail?.token == token {
+          tail = nil
+        }
+      }
+      tail = Tail(token: token, task: task)
     }
   }
 }
