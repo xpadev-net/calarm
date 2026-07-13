@@ -596,12 +596,15 @@ jobs:
           reboot_status="$?"
           set -e
           if [[ "${reboot_status}" -ne 0 ]]; then
+            if [[ "${xctest_status}" -ne 0 ]]; then
+              write_ios_blocked_summary \
+                "Hosted iOS simulator was not available after RunnerTests XCTest completed; the XCTest gate also failed." \
+                "artifacts/native-smoke/logs/ios-runner-tests.log"
+              exit "${xctest_status}"
+            fi
             write_ios_blocked_summary \
               "Hosted iOS simulator was not available after RunnerTests XCTest completed." \
               "artifacts/native-smoke/logs/ios-simctl-bootstatus-after-xctest.log"
-            if [[ "${xctest_status}" -ne 0 ]]; then
-              exit "${xctest_status}"
-            fi
             exit 0
           fi
 
