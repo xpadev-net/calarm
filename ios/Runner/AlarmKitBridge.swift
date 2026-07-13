@@ -8,6 +8,7 @@ private let nativeAlarmChannelName = "net.xpadev.calarm/native_alarm"
 private let nativeAlarmSchemaVersion = 1
 private let nativeAlarmMirrorKey = "net.xpadev.calarm/native_alarm_mirror"
 private let nativeAlarmPendingMirrorKey = "net.xpadev.calarm/native_alarm_pending_mirror"
+private let nativeAlarmMirrorEnvelopeKey = "net.xpadev.calarm/native_alarm_mirror_envelope"
 private let nativeAlarmMirrorEnvelopeVersion = 1
 
 @MainActor
@@ -226,6 +227,7 @@ final class AlarmKitBridge {
         currentIds.contains($0.key) || pendingNativeAlarmIds.contains($0.key)
       }
       if !mirrorSnapshot.isEnvelope
+        || mirrorSnapshot.needsProjectionRewrite
         || mirrorSnapshot.legacyPendingPresent
         || prunedMirror != mirrorSnapshot.normalized
         || prunedPendingMirror != mirrorSnapshot.pendingNormalized
@@ -322,6 +324,11 @@ final class AlarmKitBridge {
         response["status"] = "failure"
         response["failureReason"] = row.failureReason ?? "nativeError"
         response["failureMessage"] = row.failureMessage
+        // Preserve a recoverable identity for native smoke cleanup when the
+        // schedule outcome is uncertain. Older Dart readers may ignore this
+        // optional field, so cleanup also recovers it from inventory by the
+        // stable test tuple.
+        response["platformAlarmId"] = row.platformAlarmId
       }
       complete(result, response)
     }
@@ -757,6 +764,7 @@ final class AlarmKitBridge {
       currentIds.contains($0.key) || pendingNativeAlarmIds.contains($0.key)
     }
     if !mirrorSnapshot.isEnvelope
+      || mirrorSnapshot.needsProjectionRewrite
       || mirrorSnapshot.legacyPendingPresent
       || prunedMirror != mirrorSnapshot.normalized
       || prunedPendingMirror != mirrorSnapshot.pendingNormalized
@@ -770,19 +778,84 @@ final class AlarmKitBridge {
   private func loadMirrorSnapshot() throws -> MirrorSnapshot {
     let committedData = UserDefaults.standard.data(forKey: nativeAlarmMirrorKey)
     let legacyPendingData = UserDefaults.standard.data(forKey: nativeAlarmPendingMirrorKey)
+    let envelopeData = UserDefaults.standard.data(forKey: nativeAlarmMirrorEnvelopeKey)
     let state: StoredMirrorState
-    if let committedData,
-      isMirrorEnvelope(committedData)
-    {
-      let envelope = try JSONDecoder().decode(MirrorEnvelope.self, from: committedData)
-      guard envelope.version == nativeAlarmMirrorEnvelopeVersion else {
-        throw MirrorValidationError.invalid
+    if let envelopeData {
+      do {
+        let envelope = try decodeMirrorEnvelope(envelopeData)
+        let envelopeCommitted = try validatedMirror(envelope.committed)
+        let envelopePending = try validatedMirror(envelope.pending)
+        if let legacyCommittedData = committedData {
+          do {
+            let projection = try validatedMirror(decodeMirrorMap(legacyCommittedData))
+            let pendingProjection = try validatedMirror(decodeMirrorMap(legacyPendingData))
+            var pending = envelopePending
+            for (key, record) in pendingProjection {
+              if let existing = pending[key] {
+                guard existing == record else { throw MirrorValidationError.invalid }
+              } else {
+                pending[key] = record
+              }
+            }
+            // A valid legacy projection may have been changed by an older
+            // binary after this envelope was written. It is therefore the
+            // committed authority; never resurrect envelope-only committed
+            // rows from a stale rollback projection.
+            state = StoredMirrorState(
+              committed: projection,
+              pending: pending.filter { projection[$0.key] == nil },
+              isEnvelope: true,
+              legacyPendingPresent: legacyPendingData != nil,
+              needsProjectionRewrite: projection != envelopeCommitted
+                || pending != envelopePending
+            )
+          } catch {
+            state = StoredMirrorState(
+              committed: envelopeCommitted,
+              pending: envelopePending,
+              isEnvelope: true,
+              legacyPendingPresent: true,
+              needsProjectionRewrite: true
+            )
+          }
+        } else {
+          state = StoredMirrorState(
+            committed: envelopeCommitted,
+            pending: envelopePending,
+            isEnvelope: true,
+            legacyPendingPresent: false,
+            needsProjectionRewrite: true
+          )
+        }
+      } catch {
+        // A partially written/unsupported envelope can fall back to the
+        // legacy projection, which is deliberately written before the new
+        // envelope. If that projection is not readable, the state is truly
+        // unrecoverable and must remain corrupt.
+        guard committedData != nil || legacyPendingData != nil else {
+          throw MirrorValidationError.invalid
+        }
+        let committed = try validatedMirror(decodeMirrorMap(committedData))
+        let pending = try validatedMirror(decodeMirrorMap(legacyPendingData))
+        let merged = try mergeLegacyMirrorState(committed: committed, pending: pending)
+        state = StoredMirrorState(
+          committed: merged.committed,
+          pending: merged.pending,
+          isEnvelope: false,
+          legacyPendingPresent: legacyPendingData != nil,
+          needsProjectionRewrite: true
+        )
       }
+    } else if let committedData, isMirrorEnvelope(committedData) {
+      // Compatibility with the short-lived envelope-at-legacy-key layout
+      // shipped before the rollback projection was split out.
+      let envelope = try decodeMirrorEnvelope(committedData)
       state = StoredMirrorState(
         committed: envelope.committed,
         pending: envelope.pending,
-        isEnvelope: true,
-        legacyPendingPresent: legacyPendingData != nil
+        isEnvelope: false,
+        legacyPendingPresent: legacyPendingData != nil,
+        needsProjectionRewrite: true
       )
     } else {
       let committed = try decodeMirrorMap(committedData)
@@ -792,7 +865,8 @@ final class AlarmKitBridge {
         committed: merged.committed,
         pending: merged.pending,
         isEnvelope: false,
-        legacyPendingPresent: false
+        legacyPendingPresent: legacyPendingData != nil,
+        needsProjectionRewrite: true
       )
     }
 
@@ -812,8 +886,17 @@ final class AlarmKitBridge {
       pendingStored: pendingMirror,
       pendingNormalized: normalizedPendingMirror,
       isEnvelope: state.isEnvelope,
-      legacyPendingPresent: state.legacyPendingPresent
+      legacyPendingPresent: state.legacyPendingPresent,
+      needsProjectionRewrite: state.needsProjectionRewrite
     )
+  }
+
+  private func decodeMirrorEnvelope(_ data: Data) throws -> MirrorEnvelope {
+    let envelope = try JSONDecoder().decode(MirrorEnvelope.self, from: data)
+    guard envelope.version == nativeAlarmMirrorEnvelopeVersion else {
+      throw MirrorValidationError.invalid
+    }
+    return envelope
   }
 
   private func decodeMirrorMap(_ data: Data?) throws -> [String: AlarmMirrorRecord] {
@@ -893,9 +976,22 @@ final class AlarmKitBridge {
       committed: mirror,
       pending: pending
     )
-    let data = try JSONEncoder().encode(envelope)
-    UserDefaults.standard.set(data, forKey: nativeAlarmMirrorKey)
-    UserDefaults.standard.removeObject(forKey: nativeAlarmPendingMirrorKey)
+    let encoder = JSONEncoder()
+    let envelopeData = try encoder.encode(envelope)
+    let committedData = try encoder.encode(mirror)
+    let pendingData = pending.isEmpty ? nil : try encoder.encode(pending)
+
+    // Keep the legacy key decodable by an older binary. The committed
+    // projection intentionally excludes pending-only rows. Encode all bytes
+    // before mutating UserDefaults, then publish the envelope last; a crash
+    // before that final write leaves a coherent legacy state for both readers.
+    UserDefaults.standard.set(committedData, forKey: nativeAlarmMirrorKey)
+    if let pendingData {
+      UserDefaults.standard.set(pendingData, forKey: nativeAlarmPendingMirrorKey)
+    } else {
+      UserDefaults.standard.removeObject(forKey: nativeAlarmPendingMirrorKey)
+    }
+    UserDefaults.standard.set(envelopeData, forKey: nativeAlarmMirrorEnvelopeKey)
   }
 
   private enum ScheduleFailureCleanupOutcome: Equatable {
@@ -1042,6 +1138,7 @@ private struct StoredMirrorState {
   let pending: [String: AlarmMirrorRecord]
   let isEnvelope: Bool
   let legacyPendingPresent: Bool
+  let needsProjectionRewrite: Bool
 }
 
 private struct MirrorSnapshot {
@@ -1051,6 +1148,7 @@ private struct MirrorSnapshot {
   let pendingNormalized: [String: AlarmMirrorRecord]
   let isEnvelope: Bool
   let legacyPendingPresent: Bool
+  let needsProjectionRewrite: Bool
 }
 
 struct ScheduleRow {

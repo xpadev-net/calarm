@@ -163,33 +163,37 @@ void main() {
       });
     }
 
-    final testAlarmResult = await gateway
-        .scheduleTestAlarm(
-          NativeTestAlarmScheduleRequest(
-            fireAfter: const Duration(minutes: 2),
-            vibrationEnabled: false,
-          ),
-        )
-        .nativeSmokeTimeout('scheduleTestAlarm');
-    final testAlarmSucceeded = testAlarmResult.isSuccess;
     const testAlarmIdentity = 'ci-smoke-test-alarm';
-    _emitEvidence('scheduleTestAlarm', {
-      'platform': platform,
-      'evidenceLabel': evidenceLabel,
-      'status': testAlarmResult.status.name,
-      'platformAlarmId': testAlarmResult.platformAlarmId,
-      'failureReason': testAlarmResult.failureReason?.name,
-      'failureMessage': testAlarmResult.failureMessage,
-    });
-    if (testAlarmResult.isSuccess) {
-      expect(testAlarmResult.platformAlarmId, isNotNull);
-    } else {
-      expect(testAlarmResult.failureReason, isNotNull);
-    }
-
-    final testPlatformAlarmId = testAlarmResult.platformAlarmId;
+    late TestAlarmScheduleResult testAlarmResult;
+    String? testPlatformAlarmId;
+    var testAlarmSucceeded = false;
     var testCancelSucceeded = false;
-    if (testPlatformAlarmId != null) {
+    var testCleanupVerified = false;
+    try {
+      testAlarmResult = await gateway
+          .scheduleTestAlarm(
+            NativeTestAlarmScheduleRequest(
+              fireAfter: const Duration(minutes: 2),
+              vibrationEnabled: false,
+            ),
+          )
+          .nativeSmokeTimeout('scheduleTestAlarm');
+      testAlarmSucceeded = testAlarmResult.isSuccess;
+      testPlatformAlarmId = testAlarmResult.platformAlarmId;
+      _emitEvidence('scheduleTestAlarm', {
+        'platform': platform,
+        'evidenceLabel': evidenceLabel,
+        'status': testAlarmResult.status.name,
+        'platformAlarmId': testAlarmResult.platformAlarmId,
+        'failureReason': testAlarmResult.failureReason?.name,
+        'failureMessage': testAlarmResult.failureMessage,
+      });
+      if (testAlarmResult.isSuccess) {
+        expect(testAlarmResult.platformAlarmId, isNotNull);
+      } else {
+        expect(testAlarmResult.failureReason, isNotNull);
+      }
+
       final testInventory = await gateway.getInventory().nativeSmokeTimeout(
         'getInventoryTestAlarm',
       );
@@ -200,49 +204,79 @@ void main() {
         'reservations': testInventory.rows.map(_inventoryEvidence).toList(),
       });
       expect(testInventory.isSuccess, isTrue);
-      expect(
-        testInventory.rows.where(
-          (row) =>
-              row.reservationId == testAlarmIdentity &&
-              row.occurrenceId == testAlarmIdentity &&
-              row.platformAlarmId == testPlatformAlarmId,
-        ),
-        hasLength(1),
-      );
-      final cancelTestResult = await gateway
-          .cancelOccurrences([
-            NativeAlarmCancelRequest(
-              occurrenceId: testAlarmIdentity,
-              platformAlarmId: testPlatformAlarmId,
-            ),
-          ])
-          .nativeSmokeTimeout('cancelTestAlarm');
-      _emitEvidence('cancelTestAlarm', {
-        'platform': platform,
-        'evidenceLabel': evidenceLabel,
-        'status': cancelTestResult.status.name,
-        'alarms': cancelTestResult.alarms.map(_cancelAlarmEvidence).toList(),
-      });
-      expect(cancelTestResult.alarms, hasLength(1));
-      testCancelSucceeded = cancelTestResult.isSuccess;
-      if (testCancelSucceeded) {
-        final testInventoryAfterCancel = await gateway
-            .getInventory()
-            .nativeSmokeTimeout('getInventoryTestAlarmAfterCancel');
-        _emitEvidence('getInventoryTestAlarmAfterCancel', {
+      final matchingTestRows = testInventory.rows
+          .where(
+            (row) =>
+                row.reservationId == testAlarmIdentity &&
+                row.occurrenceId == testAlarmIdentity,
+          )
+          .toList();
+      if (matchingTestRows.isNotEmpty) {
+        expect(matchingTestRows, hasLength(1));
+        testPlatformAlarmId ??= matchingTestRows.single.platformAlarmId;
+      }
+      if (testAlarmResult.isSuccess) {
+        expect(matchingTestRows, hasLength(1));
+        expect(matchingTestRows.single.platformAlarmId, testPlatformAlarmId);
+      }
+
+      if (testPlatformAlarmId != null) {
+        final cancelTestResult = await gateway
+            .cancelOccurrences([
+              NativeAlarmCancelRequest(
+                occurrenceId: testAlarmIdentity,
+                reservationId: testAlarmIdentity,
+                platformAlarmId: testPlatformAlarmId,
+              ),
+            ])
+            .nativeSmokeTimeout('cancelTestAlarm');
+        _emitEvidence('cancelTestAlarm', {
           'platform': platform,
           'evidenceLabel': evidenceLabel,
-          'status': testInventoryAfterCancel.status.name,
-          'reservations': testInventoryAfterCancel.rows
-              .map(_inventoryEvidence)
-              .toList(),
+          'status': cancelTestResult.status.name,
+          'alarms': cancelTestResult.alarms.map(_cancelAlarmEvidence).toList(),
         });
-        expect(testInventoryAfterCancel.isSuccess, isTrue);
-        expect(
-          testInventoryAfterCancel.rows.where(
-            (row) => row.reservationId == testAlarmIdentity,
-          ),
-          isEmpty,
+        expect(cancelTestResult.alarms, hasLength(1));
+        testCancelSucceeded = cancelTestResult.isSuccess;
+        if (testCancelSucceeded) {
+          final testInventoryAfterCancel = await gateway
+              .getInventory()
+              .nativeSmokeTimeout('getInventoryTestAlarmAfterCancel');
+          _emitEvidence('getInventoryTestAlarmAfterCancel', {
+            'platform': platform,
+            'evidenceLabel': evidenceLabel,
+            'status': testInventoryAfterCancel.status.name,
+            'reservations': testInventoryAfterCancel.rows
+                .map(_inventoryEvidence)
+                .toList(),
+          });
+          expect(testInventoryAfterCancel.isSuccess, isTrue);
+          expect(
+            testInventoryAfterCancel.rows.where(
+              (row) => row.reservationId == testAlarmIdentity,
+            ),
+            isEmpty,
+          );
+          testCleanupVerified = true;
+        }
+      } else {
+        testCleanupVerified = matchingTestRows.isEmpty;
+      }
+    } catch (error, stackTrace) {
+      _emitEvidence('testAlarmLifecycleFailure', {
+        'platform': platform,
+        'evidenceLabel': evidenceLabel,
+        'error': '$error',
+      });
+      Error.throwWithStackTrace(error, stackTrace);
+    } finally {
+      if (!testCleanupVerified) {
+        testCleanupVerified = await _bestEffortCleanupTestAlarm(
+          gateway: gateway,
+          identity: testAlarmIdentity,
+          platformAlarmId: testPlatformAlarmId,
+          platform: platform,
+          evidenceLabel: evidenceLabel,
         );
       }
     }
@@ -265,6 +299,104 @@ void main() {
     });
     debugPrintSynchronously('CALARM_NATIVE_SMOKE_OUTCOME=$outcome');
   });
+}
+
+Future<bool> _bestEffortCleanupTestAlarm({
+  required MethodChannelNativeAlarmGateway gateway,
+  required String identity,
+  required String? platformAlarmId,
+  required String platform,
+  required String evidenceLabel,
+}) async {
+  String? recoveredPlatformAlarmId = platformAlarmId;
+  try {
+    final inventory = await gateway.getInventory().nativeSmokeTimeout(
+      'cleanupTestAlarmInventory',
+    );
+    _emitEvidence('cleanupTestAlarmInventory', {
+      'platform': platform,
+      'evidenceLabel': evidenceLabel,
+      'status': inventory.status.name,
+      'reservations': inventory.rows.map(_inventoryEvidence).toList(),
+    });
+    if (inventory.isSuccess) {
+      final matching = inventory.rows
+          .where(
+            (row) =>
+                row.reservationId == identity && row.occurrenceId == identity,
+          )
+          .toList();
+      if (matching.length > 1) {
+        _emitEvidence('cleanupTestAlarmFailure', {
+          'platform': platform,
+          'evidenceLabel': evidenceLabel,
+          'reason': 'multiple matching test alarms',
+        });
+        return false;
+      }
+      recoveredPlatformAlarmId ??= matching.isEmpty
+          ? null
+          : matching.single.platformAlarmId;
+      if (recoveredPlatformAlarmId == null && matching.isEmpty) return true;
+    }
+  } catch (error) {
+    _emitEvidence('cleanupTestAlarmInventoryFailure', {
+      'platform': platform,
+      'evidenceLabel': evidenceLabel,
+      'error': '$error',
+    });
+  }
+
+  if (recoveredPlatformAlarmId == null) return false;
+  for (var attempt = 1; attempt <= 2; attempt++) {
+    try {
+      final cancel = await gateway
+          .cancelOccurrences([
+            NativeAlarmCancelRequest(
+              occurrenceId: identity,
+              reservationId: identity,
+              platformAlarmId: recoveredPlatformAlarmId,
+            ),
+          ])
+          .nativeSmokeTimeout('cleanupTestAlarmCancel$attempt');
+      _emitEvidence('cleanupTestAlarmCancel', {
+        'platform': platform,
+        'evidenceLabel': evidenceLabel,
+        'attempt': attempt,
+        'status': cancel.status.name,
+        'alarms': cancel.alarms.map(_cancelAlarmEvidence).toList(),
+      });
+      if (cancel.isSuccess) break;
+    } catch (error) {
+      _emitEvidence('cleanupTestAlarmCancelFailure', {
+        'platform': platform,
+        'evidenceLabel': evidenceLabel,
+        'attempt': attempt,
+        'error': '$error',
+      });
+    }
+  }
+
+  try {
+    final finalInventory = await gateway.getInventory().nativeSmokeTimeout(
+      'cleanupTestAlarmFinalInventory',
+    );
+    _emitEvidence('cleanupTestAlarmFinalInventory', {
+      'platform': platform,
+      'evidenceLabel': evidenceLabel,
+      'status': finalInventory.status.name,
+      'reservations': finalInventory.rows.map(_inventoryEvidence).toList(),
+    });
+    return finalInventory.isSuccess &&
+        finalInventory.rows.every((row) => row.reservationId != identity);
+  } catch (error) {
+    _emitEvidence('cleanupTestAlarmFinalInventoryFailure', {
+      'platform': platform,
+      'evidenceLabel': evidenceLabel,
+      'error': '$error',
+    });
+    return false;
+  }
 }
 
 extension NativeSmokeTimeout<T> on Future<T> {

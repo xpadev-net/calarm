@@ -856,6 +856,96 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
+  func testBridgeRollbackProjectionRemainsReadableAndDoesNotResurrectOldRows() async {
+    let fake = FakeAlarmKitNativeClient()
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let request = makeScheduleRequest("reservation-rollback-projection")
+    let id = calarmPlatformAlarmId(for: request.reservationId)
+    clearMirror()
+    defer { clearMirror() }
+
+    XCTAssertEqual((await bridge.scheduleAlarm(request)).status, "success")
+    let committedProjection = try! XCTUnwrap(
+      UserDefaults.standard.data(forKey: mirrorKey)
+    )
+    XCTAssertNil(
+      (try? JSONSerialization.jsonObject(with: committedProjection) as? [String: Any])?["version"]
+    )
+    XCTAssertEqual(mirrorEnvelopeVersion(), 1)
+
+    // Simulate an older binary updating the committed projection after the
+    // new writer published its envelope. The new reader must honor that
+    // mutation rather than resurrecting stale envelope fields.
+    let legacyUpdatedRecord: [String: String] = [
+      "reservationId": request.reservationId,
+      "occurrenceId": "legacy-updated-occurrence",
+      "wakePlanId": "legacy-updated-wake-plan",
+      "platformAlarmId": id,
+    ]
+    UserDefaults.standard.set(
+      mirrorData([id: legacyUpdatedRecord]),
+      forKey: mirrorKey
+    )
+    let updatedInventory = await inventoryValue(bridge)
+    let updatedRows = (updatedInventory as? [String: Any?])?["reservations"]
+      as? [[String: Any?]]
+    XCTAssertEqual(
+      updatedRows?.first?["occurrenceId"] as? String,
+      "legacy-updated-occurrence"
+    )
+
+    // Simulate an older binary cancelling the committed projection. The new
+    // reader must honor that mutation rather than resurrecting the stale row.
+    try! fake.cancel(id: UUID(uuidString: id)!)
+    UserDefaults.standard.set(mirrorData([:]), forKey: mirrorKey)
+    let restarted = AlarmKitBridge(nativeClient: fake)
+    let inventory = await inventoryValue(restarted)
+    let rows = (inventory as? [String: Any?])?["reservations"] as? [[String: Any?]]
+    XCTAssertEqual(rows?.count, 0)
+    let rewrittenProjection = try! XCTUnwrap(
+      UserDefaults.standard.data(forKey: mirrorKey)
+    )
+    let rewrittenProjectionObject = try! XCTUnwrap(
+      try? JSONSerialization.jsonObject(with: rewrittenProjection) as? [String: Any]
+    )
+    XCTAssertNil(rewrittenProjectionObject["version"])
+    XCTAssertTrue(rewrittenProjectionObject.isEmpty)
+    let rewrittenEnvelope = try! XCTUnwrap(mirrorEnvelopeObject())
+    XCTAssertEqual((rewrittenEnvelope["committed"] as? [String: Any])?.count, 0)
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testBridgeUnsupportedEnvelopeFallsBackToLegacyProjectionWithoutLoss() async {
+    let request = makeScheduleRequest("reservation-envelope-fallback")
+    let id = calarmPlatformAlarmId(for: request.reservationId)
+    let record: [String: String] = [
+      "reservationId": request.reservationId,
+      "occurrenceId": request.occurrenceId,
+      "wakePlanId": request.wakePlanId,
+      "platformAlarmId": id,
+    ]
+    let fake = FakeAlarmKitNativeClient()
+    fake.nativeAlarmIds.insert(id.uppercased())
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    clearMirror()
+    let legacyData = mirrorData([id: record])
+    UserDefaults.standard.set(legacyData, forKey: mirrorKey)
+    UserDefaults.standard.set(
+      Data("{\"version\":2,\"committed\":{},\"pending\":{}}".utf8),
+      forKey: envelopeKey
+    )
+    defer { clearMirror() }
+
+    let inventory = await inventoryValue(bridge)
+    let rows = (inventory as? [String: Any?])?["reservations"] as? [[String: Any?]]
+    XCTAssertEqual(rows?.count, 1)
+    XCTAssertEqual(mirrorEnvelopeVersion(), 1)
+    XCTAssertNotNil(UserDefaults.standard.data(forKey: envelopeKey))
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
   func testBridgeNativeReadFailureDoesNotPersistUppercaseMirrorMigration() async {
     let fake = FakeAlarmKitNativeClient()
     fake.inventoryError = true
@@ -1130,6 +1220,7 @@ class RunnerTests: XCTestCase {
 
 private let mirrorKey = "net.xpadev.calarm/native_alarm_mirror"
 private let pendingMirrorKey = "net.xpadev.calarm/native_alarm_pending_mirror"
+private let envelopeKey = "net.xpadev.calarm/native_alarm_mirror_envelope"
 
 @MainActor
 private final class FakeAlarmKitNativeClient: AlarmKitNativeClient {
@@ -1238,6 +1329,7 @@ private func makeSchedulePayload(
 private func clearMirror() {
   UserDefaults.standard.removeObject(forKey: mirrorKey)
   UserDefaults.standard.removeObject(forKey: pendingMirrorKey)
+  UserDefaults.standard.removeObject(forKey: envelopeKey)
 }
 
 private func mirrorData(_ records: [String: [String: String]]) -> Data {
@@ -1274,7 +1366,8 @@ private func pendingMirrorContains(_ platformAlarmId: String) -> Bool {
 }
 
 private func mirrorEnvelopeObject() -> [String: Any]? {
-  guard let data = UserDefaults.standard.data(forKey: mirrorKey),
+  guard let data = UserDefaults.standard.data(forKey: envelopeKey)
+      ?? UserDefaults.standard.data(forKey: mirrorKey),
     let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
     object["version"] != nil
   else { return nil }
@@ -1282,7 +1375,8 @@ private func mirrorEnvelopeObject() -> [String: Any]? {
 }
 
 private func committedMirrorObject() -> [String: Any]? {
-  guard let data = UserDefaults.standard.data(forKey: mirrorKey),
+  guard let data = UserDefaults.standard.data(forKey: envelopeKey)
+      ?? UserDefaults.standard.data(forKey: mirrorKey),
     let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
   else { return nil }
   return (object["committed"] as? [String: Any]) ?? object
