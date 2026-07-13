@@ -184,7 +184,10 @@ void main() {
         );
       }
     }
-    if (scheduleSucceeded && !scheduleCleanupVerified) {
+    // A non-throwing lifecycle may continue as BLOCKED only after cleanup
+    // authoritatively proves absence. This also covers failure results that
+    // returned or revealed a recoverable platform ID.
+    if (!scheduleCleanupVerified) {
       throw StateError(
         'Native schedule cleanup could not be authoritatively verified.',
       );
@@ -312,7 +315,7 @@ void main() {
         );
       }
     }
-    if (testAlarmSucceeded && !testCleanupVerified) {
+    if (!testCleanupVerified) {
       throw StateError(
         'Native test-alarm cleanup could not be authoritatively verified.',
       );
