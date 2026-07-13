@@ -184,6 +184,13 @@ void main() {
         );
       }
     }
+    if (scheduleSucceeded &&
+        scheduleCancelSucceeded &&
+        !scheduleCleanupVerified) {
+      throw StateError(
+        'Native schedule cleanup could not be authoritatively verified.',
+      );
+    }
 
     const testAlarmIdentity = 'ci-smoke-test-alarm';
     late TestAlarmScheduleResult testAlarmResult;
@@ -307,6 +314,11 @@ void main() {
         );
       }
     }
+    if (testAlarmSucceeded && testCancelSucceeded && !testCleanupVerified) {
+      throw StateError(
+        'Native test-alarm cleanup could not be authoritatively verified.',
+      );
+    }
 
     final criticalOperationsSucceeded =
         scheduleSucceeded &&
@@ -340,6 +352,39 @@ Future<bool> _bestEffortCleanupTestAlarm({
   required String cleanupLabel,
 }) async {
   String? recoveredPlatformAlarmId = platformAlarmId;
+
+  Future<bool> cancelExact(String id, String phase) async {
+    for (var attempt = 1; attempt <= 2; attempt++) {
+      try {
+        final cancel = await gateway
+            .cancelOccurrences([
+              NativeAlarmCancelRequest(
+                occurrenceId: occurrenceId,
+                reservationId: reservationId,
+                platformAlarmId: id,
+              ),
+            ])
+            .nativeSmokeTimeout('$phase$attempt');
+        _emitEvidence(phase, {
+          'platform': platform,
+          'evidenceLabel': evidenceLabel,
+          'attempt': attempt,
+          'status': cancel.status.name,
+          'alarms': cancel.alarms.map(_cancelAlarmEvidence).toList(),
+        });
+        if (cancel.isSuccess) return true;
+      } catch (error) {
+        _emitEvidence('${phase}Failure', {
+          'platform': platform,
+          'evidenceLabel': evidenceLabel,
+          'attempt': attempt,
+          'error': '$error',
+        });
+      }
+    }
+    return false;
+  }
+
   try {
     final inventory = await gateway.getInventory().nativeSmokeTimeout(
       'cleanup${cleanupLabel}Inventory',
@@ -379,34 +424,7 @@ Future<bool> _bestEffortCleanupTestAlarm({
   }
 
   if (recoveredPlatformAlarmId != null) {
-    for (var attempt = 1; attempt <= 2; attempt++) {
-      try {
-        final cancel = await gateway
-            .cancelOccurrences([
-              NativeAlarmCancelRequest(
-                occurrenceId: occurrenceId,
-                reservationId: reservationId,
-                platformAlarmId: recoveredPlatformAlarmId,
-              ),
-            ])
-            .nativeSmokeTimeout('cleanup${cleanupLabel}Cancel$attempt');
-        _emitEvidence('cleanup${cleanupLabel}Cancel', {
-          'platform': platform,
-          'evidenceLabel': evidenceLabel,
-          'attempt': attempt,
-          'status': cancel.status.name,
-          'alarms': cancel.alarms.map(_cancelAlarmEvidence).toList(),
-        });
-        if (cancel.isSuccess) break;
-      } catch (error) {
-        _emitEvidence('cleanup${cleanupLabel}CancelFailure', {
-          'platform': platform,
-          'evidenceLabel': evidenceLabel,
-          'attempt': attempt,
-          'error': '$error',
-        });
-      }
-    }
+    await cancelExact(recoveredPlatformAlarmId, 'cleanup${cleanupLabel}Cancel');
   }
 
   try {
@@ -419,12 +437,58 @@ Future<bool> _bestEffortCleanupTestAlarm({
       'status': finalInventory.status.name,
       'reservations': finalInventory.rows.map(_inventoryEvidence).toList(),
     });
-    return finalInventory.isSuccess &&
-        finalInventory.rows.every(
+    if (!finalInventory.isSuccess) return false;
+    final matching = finalInventory.rows
+        .where(
           (row) =>
-              !(row.reservationId == reservationId &&
-                  row.occurrenceId == occurrenceId),
-        );
+              row.reservationId == reservationId &&
+              row.occurrenceId == occurrenceId,
+        )
+        .toList();
+    if (matching.isEmpty) return true;
+    if (matching.length > 1) {
+      _emitEvidence('cleanup${cleanupLabel}Failure', {
+        'platform': platform,
+        'evidenceLabel': evidenceLabel,
+        'reason': 'multiple matching test alarms in final inventory',
+      });
+      return false;
+    }
+
+    // A row may appear between the first cancellation and final inventory.
+    // Cancel only the exact full-tuple match, then verify once more.
+    if (!await cancelExact(
+      matching.single.platformAlarmId,
+      'cleanup${cleanupLabel}LateCancel',
+    )) {
+      return false;
+    }
+    try {
+      final finalFinalInventory = await gateway
+          .getInventory()
+          .nativeSmokeTimeout('cleanup${cleanupLabel}FinalFinalInventory');
+      _emitEvidence('cleanup${cleanupLabel}FinalFinalInventory', {
+        'platform': platform,
+        'evidenceLabel': evidenceLabel,
+        'status': finalFinalInventory.status.name,
+        'reservations': finalFinalInventory.rows
+            .map(_inventoryEvidence)
+            .toList(),
+      });
+      return finalFinalInventory.isSuccess &&
+          finalFinalInventory.rows.every(
+            (row) =>
+                !(row.reservationId == reservationId &&
+                    row.occurrenceId == occurrenceId),
+          );
+    } catch (error) {
+      _emitEvidence('cleanup${cleanupLabel}FinalFinalInventoryFailure', {
+        'platform': platform,
+        'evidenceLabel': evidenceLabel,
+        'error': '$error',
+      });
+      return false;
+    }
   } catch (error) {
     _emitEvidence('cleanup${cleanupLabel}FinalInventoryFailure', {
       'platform': platform,

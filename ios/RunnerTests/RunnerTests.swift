@@ -533,6 +533,67 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
+  func testBridgeQuarantinesInvalidAlternativesWhenProjectionCoversLiveAlarm() async {
+    let fake = FakeAlarmKitNativeClient()
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let request = makeScheduleRequest("reservation-quarantine-alternatives")
+    let id = calarmPlatformAlarmId(for: request.reservationId)
+    clearMirror()
+    defer { clearMirror() }
+
+    XCTAssertEqual((await bridge.scheduleAlarm(request)).status, "success")
+    UserDefaults.standard.set(
+      mirrorEnvelopeData(
+        committed: [id: [
+          "reservationId": request.reservationId,
+          "occurrenceId": request.occurrenceId,
+          "wakePlanId": request.wakePlanId,
+          "platformAlarmId": id,
+        ]],
+        pending: [:]
+      ),
+      forKey: envelopeKey
+    )
+    UserDefaults.standard.set(
+      Data("malformed pending alternative".utf8),
+      forKey: pendingMirrorKey
+    )
+    let value = await inventoryValue(bridge)
+    let rows = (value as? [String: Any?])?["reservations"] as? [[String: Any?]]
+    XCTAssertEqual(rows?.count, 1)
+    XCTAssertEqual(rows?.first?["platformAlarmId"] as? String, id)
+    XCTAssertFalse(pendingMirrorContains(id))
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testBridgeRejectsConflictingValidRecoveryCandidatesWithoutMutation() async {
+    let fake = FakeAlarmKitNativeClient()
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let request = makeScheduleRequest("reservation-conflicting-recovery")
+    let id = calarmPlatformAlarmId(for: request.reservationId)
+    clearMirror()
+    defer { clearMirror() }
+
+    XCTAssertEqual((await bridge.scheduleAlarm(request)).status, "success")
+    let envelopeBefore = UserDefaults.standard.data(forKey: envelopeKey)
+    let conflictingCommitted = mirrorData([
+      id: [
+        "reservationId": request.reservationId,
+        "occurrenceId": "conflicting-occurrence",
+        "wakePlanId": request.wakePlanId,
+        "platformAlarmId": id,
+      ],
+    ])
+    UserDefaults.standard.set(conflictingCommitted, forKey: mirrorKey)
+    let value = await inventoryValue(bridge)
+    XCTAssertEqual((value as? FlutterError)?.code, "corrupt")
+    XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), conflictingCommitted)
+    XCTAssertEqual(UserDefaults.standard.data(forKey: envelopeKey), envelopeBefore)
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
   func testBridgeUncertainCleanupKeepsPendingUntilNativePresenceIsKnown() async {
     let fake = FakeAlarmKitNativeClient()
     fake.failFirstSchedule = true
@@ -883,6 +944,26 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(emptyReservation["failureReason"] as? String, "invalidRequest")
     XCTAssertEqual(fake.cancelCalls, 0)
     XCTAssertTrue(mirrorContains(platformAlarmId))
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testBridgeKeepsMirrorlessLegacyUuidCancellationCompatible() async {
+    let fake = FakeAlarmKitNativeClient()
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let legacyId = UUID().uuidString
+    clearMirror()
+    defer { clearMirror() }
+    fake.nativeAlarmIds.insert(legacyId)
+
+    let result = await bridge.cancelAlarm([
+      "occurrenceId": "legacy-occurrence",
+      "platformAlarmId": legacyId.lowercased(),
+    ])
+    XCTAssertEqual(result["status"] as? String, "success")
+    XCTAssertEqual(fake.cancelCalls, 1)
+    XCTAssertTrue(fake.nativeAlarmIds.isEmpty)
+    XCTAssertNil(UserDefaults.standard.data(forKey: mirrorKey))
   }
 
   @available(iOS 26.0, *)

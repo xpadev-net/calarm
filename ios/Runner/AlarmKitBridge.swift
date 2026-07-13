@@ -125,7 +125,9 @@ final class AlarmKitBridge {
     }
   }
 
-  private func getInventory(result: @escaping FlutterResult) {
+  // Internal for the native XCTest production-seam harness. The MethodChannel
+  // remains the only application-facing entry point.
+  func getInventory(result: @escaping FlutterResult) {
     guard #available(iOS 26.0, *) else {
       complete(
         result,
@@ -999,26 +1001,35 @@ final class AlarmKitBridge {
     let pendingData = UserDefaults.standard.data(forKey: nativeAlarmPendingMirrorKey)
     let envelopeData = UserDefaults.standard.data(forKey: nativeAlarmMirrorEnvelopeKey)
 
-    let committedArtifact = try decodeRecoveryArtifact(
+    let committedArtifact = decodeRecoveryArtifact(
       committedData,
-      allowEnvelope: true
+      allowEnvelope: true,
+      requireGeneration: false
     )
-    let envelopeArtifact = try decodeRecoveryArtifact(
+    let envelopeArtifact = decodeRecoveryArtifact(
       envelopeData,
-      allowEnvelope: true
+      allowEnvelope: true,
+      requireGeneration: true
     )
-    let pendingArtifact = try decodeRecoveryArtifact(
+    let pendingArtifact = decodeRecoveryArtifact(
       pendingData,
-      allowEnvelope: false
+      allowEnvelope: false,
+      requireGeneration: false
     )
+
+    let artifacts = [committedArtifact, envelopeArtifact, pendingArtifact]
+    let hasPresentArtifact = artifacts.contains { $0.isPresent }
+    let hasValidArtifact = artifacts.contains { $0.isPresent && $0.isValid }
+    guard !hasPresentArtifact || hasValidArtifact else {
+      throw MirrorValidationError.invalid
+    }
 
     var committed = [String: AlarmMirrorRecord]()
     var pending = [String: AlarmMirrorRecord]()
-    try mergeRecoveryRecords(&committed, from: committedArtifact.committed)
-    try mergeRecoveryRecords(&committed, from: envelopeArtifact.committed)
-    try mergeRecoveryRecords(&pending, from: committedArtifact.pending)
-    try mergeRecoveryRecords(&pending, from: envelopeArtifact.pending)
-    try mergeRecoveryRecords(&pending, from: pendingArtifact.committed)
+    for artifact in artifacts where artifact.isValid {
+      try mergeRecoveryRecords(&committed, from: artifact.committed)
+      try mergeRecoveryRecords(&pending, from: artifact.pending)
+    }
 
     for (key, record) in Array(pending) {
       if let committedRecord = committed[key] {
@@ -1058,21 +1069,39 @@ final class AlarmKitBridge {
 
   private func decodeRecoveryArtifact(
     _ data: Data?,
-    allowEnvelope: Bool
-  ) throws -> RecoveryMirrorArtifact {
+    allowEnvelope: Bool,
+    requireGeneration: Bool
+  ) -> RecoveryMirrorArtifact {
     guard let data else { return RecoveryMirrorArtifact() }
-    if isMirrorEnvelope(data) {
-      guard allowEnvelope else { throw MirrorValidationError.invalid }
-      let envelope = try decodeMirrorEnvelope(data)
-      let state = try validatedMirrorEnvelopeState(envelope)
+    do {
+      if isMirrorEnvelope(data) {
+        guard allowEnvelope else { return RecoveryMirrorArtifact.invalid }
+        let envelope = try decodeMirrorEnvelope(data)
+        if requireGeneration {
+          guard let generation = envelope.generation,
+            let uuid = UUID(uuidString: generation),
+            generation == uuid.uuidString
+          else { return RecoveryMirrorArtifact.invalid }
+        }
+        let state = try validatedMirrorEnvelopeState(envelope)
+        return RecoveryMirrorArtifact(
+          committed: state.committed,
+          pending: state.pending,
+          isPresent: true,
+          isValid: true
+        )
+      }
       return RecoveryMirrorArtifact(
-        committed: state.committed,
-        pending: state.pending
+        committed: try validatedMirror(decodeMirrorMap(data)),
+        isPresent: true,
+        isValid: true
       )
+    } catch {
+      // An invalid alternative is quarantined. The caller may still recover
+      // when another complete artifact uniquely covers every live native ID;
+      // an uncovered native ID fails below without mutating the bytes.
+      return RecoveryMirrorArtifact.invalid
     }
-    return RecoveryMirrorArtifact(
-      committed: try validatedMirror(decodeMirrorMap(data))
-    )
   }
 
   private func mergeRecoveryRecords(
@@ -1438,14 +1467,25 @@ private struct MirrorTransactionMarker: Codable {
 private struct RecoveryMirrorArtifact {
   let committed: [String: AlarmMirrorRecord]
   let pending: [String: AlarmMirrorRecord]
+  let isPresent: Bool
+  let isValid: Bool
 
   init(
     committed: [String: AlarmMirrorRecord] = [:],
-    pending: [String: AlarmMirrorRecord] = [:]
+    pending: [String: AlarmMirrorRecord] = [:],
+    isPresent: Bool = false,
+    isValid: Bool = true
   ) {
     self.committed = committed
     self.pending = pending
+    self.isPresent = isPresent
+    self.isValid = isValid
   }
+
+  static let invalid = RecoveryMirrorArtifact(
+    isPresent: true,
+    isValid: false
+  )
 }
 
 private struct StoredMirrorState {
