@@ -148,19 +148,33 @@ final class AlarmKitBridge {
 
   @available(iOS 26.0, *)
   private func performGetInventory() async -> Any? {
-    let mirrorSnapshot: MirrorSnapshot
+    let alarms: [NativeAlarmSnapshot]
     do {
-      mirrorSnapshot = try loadMirrorSnapshot()
+      alarms = try nativeClientForAlarmKit().inventory()
     } catch {
       return FlutterError(
-        code: "corrupt",
-        message: "The persisted AlarmKit identity mirror is corrupt.",
+        code: "nativeError",
+        message: error.localizedDescription,
         details: nil
       )
     }
 
+    let mirrorSnapshot: MirrorSnapshot
     do {
-      let alarms = try nativeClientForAlarmKit().inventory()
+      mirrorSnapshot = try loadMirrorSnapshot()
+    } catch {
+      do {
+        mirrorSnapshot = try recoverMirrorSnapshot(from: alarms)
+      } catch {
+        return FlutterError(
+          code: "corrupt",
+          message: "The persisted AlarmKit identity mirror is corrupt or ambiguous.",
+          details: nil
+        )
+      }
+    }
+
+    do {
       let canonicalIds: [String]
       do {
         canonicalIds = try authoritativeNativeAlarmIds(
@@ -507,7 +521,13 @@ final class AlarmKitBridge {
     alarmId: UUID
   ) async -> [String: Any?] {
     do {
-      let mirrorSnapshot = try loadMirrorSnapshot()
+      let mirrorSnapshot: MirrorSnapshot
+      do {
+        mirrorSnapshot = try loadMirrorSnapshot()
+      } catch {
+        let recoveryAlarms = try nativeClientForAlarmKit().inventory()
+        mirrorSnapshot = try recoverMirrorSnapshot(from: recoveryAlarms)
+      }
       var mirror = mirrorSnapshot.normalized
       var pendingMirror = mirrorSnapshot.pendingNormalized
       if let record = mirror[platformAlarmId] ?? pendingMirror[platformAlarmId],
@@ -591,7 +611,29 @@ final class AlarmKitBridge {
     var mirrorEntryPresent = false
     var pendingEntryCreated = false
     do {
-      let mirrorSnapshot = try loadMirrorSnapshot()
+      let mirrorSnapshot: MirrorSnapshot
+      do {
+        mirrorSnapshot = try loadMirrorSnapshot()
+      } catch {
+        do {
+          let recoveryAlarms = try nativeClientForAlarmKit().inventory()
+          mirrorSnapshot = try recoverMirrorSnapshot(from: recoveryAlarms)
+        } catch is NativeSnapshotValidationError {
+          return ScheduleRow(
+            status: "failure",
+            platformAlarmId: platformAlarmId,
+            failureReason: "unknown",
+            failureMessage: "AlarmKit identity state was ambiguous or non-authoritative."
+          )
+        } catch {
+          return ScheduleRow(
+            status: "failure",
+            platformAlarmId: platformAlarmId,
+            failureReason: "nativeError",
+            failureMessage: error.localizedDescription
+          )
+        }
+      }
       var mirror = mirrorSnapshot.normalized
       var pendingMirror = mirrorSnapshot.pendingNormalized
       let committedExisting = mirror[platformAlarmId]
@@ -797,14 +839,14 @@ final class AlarmKitBridge {
       do {
         let envelope = try decodeMirrorEnvelope(envelopeData)
         let currentEnvelopeState = try validatedMirrorEnvelopeState(envelope)
-        if let legacyCommittedData, isMirrorEnvelope(legacyCommittedData) {
+        if let committedData, isMirrorEnvelope(committedData) {
           // The prior implementation wrote its complete envelope to the
           // legacy key. A current writer always replaces that key with a
           // plain committed projection before publishing the new envelope,
           // so a valid prior envelope here proves that an older reader wrote
           // after the current envelope. It is the deterministic latest state.
           // If it is malformed, do not silently fall back and resurrect rows.
-          let priorEnvelope = try decodeMirrorEnvelope(legacyCommittedData)
+          let priorEnvelope = try decodeMirrorEnvelope(committedData)
           let priorEnvelopeState = try validatedMirrorEnvelopeState(priorEnvelope)
           state = StoredMirrorState(
             committed: priorEnvelopeState.committed,
@@ -814,11 +856,11 @@ final class AlarmKitBridge {
               needsProjectionRewrite: true,
               needsTransactionMarkerRewrite: true
           )
-        } else if let legacyCommittedData {
+        } else if let committedData {
           // A present legacy key must be fully decodable and semantically
           // valid. Treating malformed prior-envelope/projection bytes as
           // absent would silently discard rollback evidence.
-          let projection = try validatedMirror(decodeMirrorMap(legacyCommittedData))
+          let projection = try validatedMirror(decodeMirrorMap(committedData))
           let pendingProjection = try validatedMirror(decodeMirrorMap(legacyPendingData))
           var pending = currentEnvelopeState.pending
           for (key, record) in pendingProjection {
@@ -945,6 +987,107 @@ final class AlarmKitBridge {
     )
   }
 
+  // A marker or projection failure is not immediately terminal: a native
+  // schedule may have committed before the durable publication crashed. Read
+  // AlarmKit first, then combine only independently valid persisted artifacts.
+  // Recovery never invents an identity; every live native ID must have one
+  // unambiguous persisted ownership tuple.
+  private func recoverMirrorSnapshot(
+    from nativeAlarms: [NativeAlarmSnapshot]
+  ) throws -> MirrorSnapshot {
+    let committedData = UserDefaults.standard.data(forKey: nativeAlarmMirrorKey)
+    let pendingData = UserDefaults.standard.data(forKey: nativeAlarmPendingMirrorKey)
+    let envelopeData = UserDefaults.standard.data(forKey: nativeAlarmMirrorEnvelopeKey)
+
+    let committedArtifact = try decodeRecoveryArtifact(
+      committedData,
+      allowEnvelope: true
+    )
+    let envelopeArtifact = try decodeRecoveryArtifact(
+      envelopeData,
+      allowEnvelope: true
+    )
+    let pendingArtifact = try decodeRecoveryArtifact(
+      pendingData,
+      allowEnvelope: false
+    )
+
+    var committed = [String: AlarmMirrorRecord]()
+    var pending = [String: AlarmMirrorRecord]()
+    try mergeRecoveryRecords(&committed, from: committedArtifact.committed)
+    try mergeRecoveryRecords(&committed, from: envelopeArtifact.committed)
+    try mergeRecoveryRecords(&pending, from: committedArtifact.pending)
+    try mergeRecoveryRecords(&pending, from: envelopeArtifact.pending)
+    try mergeRecoveryRecords(&pending, from: pendingArtifact.committed)
+
+    for (key, record) in Array(pending) {
+      if let committedRecord = committed[key] {
+        guard committedRecord == record else { throw MirrorValidationError.invalid }
+        pending.removeValue(forKey: key)
+      }
+    }
+    let normalizedCommitted = try validatedMirror(committed)
+    let normalizedPending = try validatedMirror(pending)
+    var combined = normalizedCommitted
+    for (key, record) in normalizedPending {
+      guard combined[key] == nil else { throw MirrorValidationError.invalid }
+      combined[key] = record
+    }
+    _ = try validatedMirror(combined)
+
+    let canonicalIds = try canonicalNativeAlarmIds(
+      nativeAlarms.map { $0.platformAlarmId }
+    )
+    let candidateIds = Set(normalizedCommitted.keys)
+      .union(normalizedPending.keys)
+    guard Set(canonicalIds).subtracting(candidateIds).isEmpty else {
+      throw NativeSnapshotValidationError.unknownIdentity
+    }
+
+    return MirrorSnapshot(
+      stored: normalizedCommitted,
+      normalized: normalizedCommitted,
+      pendingStored: normalizedPending,
+      pendingNormalized: normalizedPending,
+      isEnvelope: false,
+      legacyPendingPresent: pendingData != nil,
+      needsProjectionRewrite: true,
+      needsTransactionMarkerRewrite: true
+    )
+  }
+
+  private func decodeRecoveryArtifact(
+    _ data: Data?,
+    allowEnvelope: Bool
+  ) throws -> RecoveryMirrorArtifact {
+    guard let data else { return RecoveryMirrorArtifact() }
+    if isMirrorEnvelope(data) {
+      guard allowEnvelope else { throw MirrorValidationError.invalid }
+      let envelope = try decodeMirrorEnvelope(data)
+      let state = try validatedMirrorEnvelopeState(envelope)
+      return RecoveryMirrorArtifact(
+        committed: state.committed,
+        pending: state.pending
+      )
+    }
+    return RecoveryMirrorArtifact(
+      committed: try validatedMirror(decodeMirrorMap(data))
+    )
+  }
+
+  private func mergeRecoveryRecords(
+    _ target: inout [String: AlarmMirrorRecord],
+    from source: [String: AlarmMirrorRecord]
+  ) throws {
+    for (key, record) in source {
+      if let existing = target[key] {
+        guard existing == record else { throw MirrorValidationError.invalid }
+      } else {
+        target[key] = record
+      }
+    }
+  }
+
   private func decodeMirrorEnvelope(_ data: Data) throws -> MirrorEnvelope {
     let envelope = try JSONDecoder().decode(MirrorEnvelope.self, from: data)
     guard envelope.version == nativeAlarmMirrorEnvelopeVersion else {
@@ -977,69 +1120,40 @@ final class AlarmKitBridge {
     normalizedPendingMirror: [String: AlarmMirrorRecord]
   ) throws -> Bool {
     guard let markerData else {
-      if authoritativePriorEnvelope { return true }
-      guard let envelopeData,
-        let envelope = try? decodeMirrorEnvelope(envelopeData),
-        let envelopeState = try? validatedMirrorEnvelopeState(envelope),
-        let committedData,
-        let committedProjection = try? validatedMirror(decodeMirrorMap(committedData)),
-        let pendingProjection = try? validatedMirror(decodeMirrorMap(pendingData)),
-        committedProjection == envelopeState.committed,
-        pendingProjection == envelopeState.pending,
-        normalizedMirror == envelopeState.committed,
-        normalizedPendingMirror == envelopeState.pending
-      else {
-        // A current envelope without its provenance marker is safe only when
-        // every projection is visibly the same snapshot. Otherwise reject the
-        // mixed-generation state without pruning or republishing it.
-        if envelopeData == nil { return true }
-        throw MirrorValidationError.invalid
+      // A legacy map-only layout is safe to migrate. Once an envelope exists,
+      // however, the absence of a marker is not evidence that its projections
+      // belong to one generation; recovery must consult native authority.
+      if envelopeData == nil && !authoritativePriorEnvelope {
+        return true
       }
-      return true
+      throw MirrorValidationError.invalid
     }
     let marker = try JSONDecoder().decode(MirrorTransactionMarker.self, from: markerData)
+    try marker.validate()
     let markerMatches = marker.committedDigest == mirrorDigest(committedData)
       && marker.pendingDigest == mirrorDigest(pendingData)
       && marker.envelopeDigest == mirrorDigest(envelopeData)
     if markerMatches {
-      if let envelopeData,
+      guard let envelopeData,
         let envelope = try? decodeMirrorEnvelope(envelopeData),
-        let generation = envelope.generation
-      {
-        guard generation == marker.generation else { throw MirrorValidationError.invalid }
-      }
+        let generation = envelope.generation,
+        generation == marker.generation
+      else { throw MirrorValidationError.invalid }
       return false
     }
 
-    // A valid prior-reader envelope is a complete, independently recoverable
-    // snapshot. It may legitimately disagree with a current marker because
-    // the old binary wrote after the current writer; preserve it and repair
-    // the marker only after a successful native reconciliation.
-    if authoritativePriorEnvelope { return true }
-
-    // Otherwise a marker mismatch means the projection/pending/envelope
-    // writes crossed a crash boundary. Accept only the rare case where all
-    // current artifacts are already a self-consistent snapshot; never merge
-    // pending rows from an older envelope into a newer projection.
-    guard let envelopeData,
-      let envelope = try? decodeMirrorEnvelope(envelopeData),
-      let envelopeState = try? validatedMirrorEnvelopeState(envelope),
-      let committedData,
-      let committedProjection = try? validatedMirror(decodeMirrorMap(committedData)),
-      let pendingProjection = try? validatedMirror(decodeMirrorMap(pendingData)),
-      committedProjection == envelopeState.committed,
-      pendingProjection == envelopeState.pending,
-      normalizedMirror == envelopeState.committed,
-      normalizedPendingMirror == envelopeState.pending
-    else {
-      throw MirrorValidationError.invalid
-    }
-    return true
+    // Any mismatch is a crash boundary. Even semantically equal maps are not
+    // proof of a shared transaction, so defer to recovery-first native
+    // correlation instead of accepting or republishing them here.
+    _ = authoritativePriorEnvelope
+    _ = normalizedMirror
+    _ = normalizedPendingMirror
+    throw MirrorValidationError.invalid
   }
 
   private func mirrorDigest(_ data: Data?) -> String {
-    guard let data else { return "<absent>" }
-    return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    let bytes = data ?? Data("<absent>".utf8)
+    return SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
   }
 
   private func decodeMirrorMap(_ data: Data?) throws -> [String: AlarmMirrorRecord] {
@@ -1125,6 +1239,7 @@ final class AlarmKitBridge {
     let committedData = try encoder.encode(mirror)
     let pendingData = pending.isEmpty ? nil : try encoder.encode(pending)
     let marker = MirrorTransactionMarker(
+      version: nativeAlarmMirrorEnvelopeVersion,
       generation: envelope.generation ?? UUID().uuidString,
       committedDigest: mirrorDigest(committedData),
       pendingDigest: mirrorDigest(pendingData),
@@ -1159,7 +1274,13 @@ final class AlarmKitBridge {
     pendingEntryCreated: Bool
   ) -> ScheduleFailureCleanupOutcome {
     do {
-      let snapshot = try loadMirrorSnapshot()
+      let snapshot: MirrorSnapshot
+      do {
+        snapshot = try loadMirrorSnapshot()
+      } catch {
+        let recoveryAlarms = try nativeClientForAlarmKit().inventory()
+        snapshot = try recoverMirrorSnapshot(from: recoveryAlarms)
+      }
       let currentNativeAlarmIds = Set(
         try authoritativeNativeAlarmIds(
           nativeClientForAlarmKit().inventory().map { $0.platformAlarmId },
@@ -1288,10 +1409,43 @@ private struct MirrorEnvelope: Codable {
 }
 
 private struct MirrorTransactionMarker: Codable {
+  let version: Int
   let generation: String
   let committedDigest: String
   let pendingDigest: String
   let envelopeDigest: String
+
+  func validate() throws {
+    guard version == nativeAlarmMirrorEnvelopeVersion,
+      UUID(uuidString: generation) != nil,
+      isDigest(committedDigest),
+      isDigest(pendingDigest),
+      isDigest(envelopeDigest)
+    else {
+      throw MirrorValidationError.invalid
+    }
+  }
+
+  private func isDigest(_ value: String) -> Bool {
+    value.count == 64
+      && value.unicodeScalars.allSatisfy { scalar in
+        (scalar.value >= 48 && scalar.value <= 57)
+          || (scalar.value >= 97 && scalar.value <= 102)
+      }
+  }
+}
+
+private struct RecoveryMirrorArtifact {
+  let committed: [String: AlarmMirrorRecord]
+  let pending: [String: AlarmMirrorRecord]
+
+  init(
+    committed: [String: AlarmMirrorRecord] = [:],
+    pending: [String: AlarmMirrorRecord] = [:]
+  ) {
+    self.committed = committed
+    self.pending = pending
+  }
 }
 
 private struct StoredMirrorState {

@@ -393,7 +393,7 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
-  func testBridgeRejectsInterruptedPendingRemovalWithoutResurrection() async {
+  func testBridgeRecoversInterruptedPendingRemovalWhenNativeAlarmIsLive() async {
     let fake = FakeAlarmKitNativeClient()
     fake.failFirstSchedule = true
     fake.inventoryErrorOnCall = 2
@@ -415,14 +415,120 @@ class RunnerTests: XCTestCase {
 
     // Emulate the crash window after the new committed projection/pending
     // removal but before envelope publication: old envelope and marker remain.
+    fake.nativeAlarmIds.insert(id.uppercased())
     UserDefaults.standard.removeObject(forKey: pendingMirrorKey)
     let restarted = AlarmKitBridge(nativeClient: fake)
     let value = await inventoryValue(restarted)
-    XCTAssertEqual((value as? FlutterError)?.code, "corrupt")
+    let rows = (value as? [String: Any?])?["reservations"] as? [[String: Any?]]
+    XCTAssertEqual(rows?.count, 1)
+    XCTAssertEqual(rows?.first?["platformAlarmId"] as? String, id)
+    XCTAssertTrue(mirrorContains(id))
+    XCTAssertFalse(pendingMirrorContains(id))
     XCTAssertNil(UserDefaults.standard.data(forKey: pendingMirrorKey))
-    XCTAssertEqual(UserDefaults.standard.data(forKey: envelopeKey), envelopeBeforeCrash)
-    XCTAssertEqual(UserDefaults.standard.data(forKey: transactionKey), transactionBeforeCrash)
-    XCTAssertEqual(fake.inventoryCalls, 2)
+    XCTAssertNotEqual(UserDefaults.standard.data(forKey: envelopeKey), envelopeBeforeCrash)
+    XCTAssertNotEqual(UserDefaults.standard.data(forKey: transactionKey), transactionBeforeCrash)
+
+    let cancelled = await restarted.cancelAlarm([
+      "occurrenceId": request.occurrenceId,
+      "reservationId": request.reservationId,
+      "platformAlarmId": id.uppercased(),
+    ])
+    XCTAssertEqual(cancelled["status"] as? String, "success")
+    let afterCancel = await inventoryValue(restarted)
+    let afterCancelRows = (afterCancel as? [String: Any?])?["reservations"]
+      as? [[String: Any?]]
+    XCTAssertEqual(afterCancelRows?.count, 0)
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testBridgeKeepsAmbiguousMixedStateCorruptWithoutMutation() async {
+    let fake = FakeAlarmKitNativeClient()
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let request = makeScheduleRequest("reservation-ambiguous-recovery")
+    let id = calarmPlatformAlarmId(for: request.reservationId)
+    clearMirror()
+    defer { clearMirror() }
+
+    let committedData = mirrorData([
+      id: [
+        "reservationId": request.reservationId,
+        "occurrenceId": request.occurrenceId,
+        "wakePlanId": request.wakePlanId,
+        "platformAlarmId": id,
+      ],
+    ])
+    UserDefaults.standard.set(committedData, forKey: mirrorKey)
+    UserDefaults.standard.set(Data("not-a-mirror".utf8), forKey: pendingMirrorKey)
+    fake.nativeAlarmIds.insert(id.uppercased())
+    let committedBefore = UserDefaults.standard.data(forKey: mirrorKey)
+    let pendingBefore = UserDefaults.standard.data(forKey: pendingMirrorKey)
+
+    let value = await inventoryValue(bridge)
+    XCTAssertEqual((value as? FlutterError)?.code, "corrupt")
+    XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), committedBefore)
+    XCTAssertEqual(UserDefaults.standard.data(forKey: pendingMirrorKey), pendingBefore)
+    XCTAssertEqual(fake.inventoryCalls, 1)
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testBridgeRecoversMalformedMarkerFromNativeIdentityEvidence() async {
+    let fake = FakeAlarmKitNativeClient()
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let request = makeScheduleRequest("reservation-malformed-marker")
+    let id = calarmPlatformAlarmId(for: request.reservationId)
+    clearMirror()
+    defer { clearMirror() }
+
+    UserDefaults.standard.set(
+      mirrorData([
+        id: [
+          "reservationId": request.reservationId,
+          "occurrenceId": request.occurrenceId,
+          "wakePlanId": request.wakePlanId,
+          "platformAlarmId": id,
+        ],
+      ]),
+      forKey: mirrorKey
+    )
+    UserDefaults.standard.set(
+      Data("unsupported-marker".utf8),
+      forKey: transactionKey
+    )
+    fake.nativeAlarmIds.insert(id.uppercased())
+
+    let value = await inventoryValue(bridge)
+    let rows = (value as? [String: Any?])?["reservations"] as? [[String: Any?]]
+    XCTAssertEqual(rows?.count, 1)
+    XCTAssertEqual(rows?.first?["platformAlarmId"] as? String, id)
+    XCTAssertNotEqual(
+      UserDefaults.standard.data(forKey: transactionKey),
+      Data("unsupported-marker".utf8)
+    )
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testBridgeRecoversInterruptedStateAndPrunesAbsentPendingIdentity() async {
+    let fake = FakeAlarmKitNativeClient()
+    fake.failFirstSchedule = true
+    fake.inventoryErrorOnCall = 2
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let request = makeScheduleRequest("reservation-interrupted-absent")
+    let id = calarmPlatformAlarmId(for: request.reservationId)
+    clearMirror()
+    defer { clearMirror() }
+
+    XCTAssertEqual((await bridge.scheduleAlarm(request)).failureReason, "nativeError")
+    XCTAssertTrue(pendingMirrorContains(id))
+    UserDefaults.standard.removeObject(forKey: pendingMirrorKey)
+
+    let value = await inventoryValue(bridge)
+    let rows = (value as? [String: Any?])?["reservations"] as? [[String: Any?]]
+    XCTAssertEqual(rows?.count, 0)
+    XCTAssertFalse(mirrorContains(id))
+    XCTAssertFalse(pendingMirrorContains(id))
   }
 
   @available(iOS 26.0, *)

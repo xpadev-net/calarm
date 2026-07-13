@@ -282,7 +282,10 @@ void main() {
           testCleanupVerified = true;
         }
       } else {
-        testCleanupVerified = matchingTestRows.isEmpty;
+        // The first inventory is only a recovery hint. Always run the
+        // bounded final inventory in finally so a late native row cannot be
+        // orphaned behind an incorrectly verified cleanup.
+        testCleanupVerified = false;
       }
     } catch (error, stackTrace) {
       _emitEvidence('testAlarmLifecycleFailure', {
