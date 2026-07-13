@@ -624,6 +624,7 @@ jobs:
           xcrun simctl io "${device_id}" screenshot "${SMOKE_ARTIFACT_ROOT}/logs/ios-screenshot.png" \
             > "${SMOKE_ARTIFACT_ROOT}/logs/ios-screenshot.log" 2>&1 || true
           smoke_outcome="$(grep -E 'CALARM_NATIVE_SMOKE_OUTCOME=' "${SMOKE_ARTIFACT_ROOT}/logs/ios-native-smoke-test.log" | tail -n 1 | cut -d= -f2 || true)"
+          evidence="artifacts/native-smoke/logs/ios-native-smoke-test.log"
 
           if [[ "${smoke_status}" -ne 0 ]]; then
             status="BLOCKED"
@@ -642,6 +643,7 @@ jobs:
             else
               xctest_reason="RunnerTests XCTest failed; see artifacts/native-smoke/logs/ios-runner-tests.log. The CI gate failed."
             fi
+            evidence="artifacts/native-smoke/logs/ios-runner-tests.log"
             reason="${reason} ${xctest_reason}"
           fi
           if [[ "${smoke_outcome}" != "NEAR_DEVICE" ]]; then
@@ -657,7 +659,7 @@ jobs:
             echo "- detected iphonesimulator SDK: ${simulator_sdk}"
             echo "- reason: ${reason}"
             echo "- runtime approval: not approved; real-device iOS 26+ wake, lock/terminated, Silent/Focus, and full-screen stop UI gates remain BLOCKED"
-            echo "- evidence: artifacts/native-smoke/logs/ios-native-smoke-test.log"
+            echo "- evidence: ${evidence}"
           } > "${SMOKE_ARTIFACT_ROOT}/summary/ios-summary.md"
 
           if [[ "${xctest_status}" -ne 0 ]]; then
