@@ -571,6 +571,19 @@ jobs:
               "artifacts/native-smoke/logs/ios-simctl-bootstatus.log"
             exit 0
           fi
+
+          run_with_timeout 900 bash -o pipefail -c \
+            'xcodebuild test \
+              -workspace ios/Runner.xcworkspace \
+              -scheme Runner \
+              -destination "platform=iOS Simulator,id=$1" \
+              -only-testing:RunnerTests \
+              -resultBundlePath "$2" \
+              2>&1 | tee "$3"' \
+            bash "${device_id}" \
+            "${SMOKE_ARTIFACT_ROOT}/logs/ios-runner-tests.xcresult" \
+            "${SMOKE_ARTIFACT_ROOT}/logs/ios-runner-tests.log"
+
           flutter devices 2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/ios-flutter-devices.log"
           if [[ "${runtime_version%%.*}" -ge 26 ]]; then
             status="NEAR_DEVICE"
