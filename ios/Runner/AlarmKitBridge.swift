@@ -12,6 +12,8 @@ private let nativeAlarmMirrorKey = "net.xpadev.calarm/native_alarm_mirror"
 final class AlarmKitBridge {
   private let channel: FlutterMethodChannel
   private var alarmObservationTask: Task<Void, Never>?
+  private let scheduleCoordinator = AlarmScheduleCoordinator<ScheduleRow>()
+  private var pendingNativeAlarmIds = Set<String>()
 
   init(messenger: FlutterBinaryMessenger) {
     channel = FlutterMethodChannel(
@@ -173,7 +175,9 @@ final class AlarmKitBridge {
         // AlarmKit removes one-shot alarms after they fire or stop. Pruning
         // the mirror makes that removal observable as an absent row on the
         // next inventory read, including after the app was not running.
-        let prunedMirror = mirror.filter { currentIds.contains($0.key) }
+        let prunedMirror = mirror.filter {
+          currentIds.contains($0.key) || pendingNativeAlarmIds.contains($0.key)
+        }
         if prunedMirror.count != mirror.count {
           try saveMirror(prunedMirror)
         }
@@ -388,6 +392,12 @@ final class AlarmKitBridge {
   }
 
   private func scheduleAlarm(_ request: ScheduleRequest) async -> ScheduleRow {
+    await scheduleCoordinator.run(for: request.reservationId) {
+      await self.performScheduleAlarm(request)
+    }
+  }
+
+  private func performScheduleAlarm(_ request: ScheduleRequest) async -> ScheduleRow {
     guard #available(iOS 26.0, *) else {
       return ScheduleRow(
         status: "failure",
@@ -446,6 +456,9 @@ final class AlarmKitBridge {
         )
       }
 
+      pendingNativeAlarmIds.insert(platformAlarmId)
+      defer { pendingNativeAlarmIds.remove(platformAlarmId) }
+
       // Persist before crossing into AlarmKit so an interrupted process can
       // recover the caller identity from the next inventory read.
       mirror[platformAlarmId] = AlarmMirrorRecord(
@@ -472,7 +485,7 @@ final class AlarmKitBridge {
       )
     } catch AlarmManager.AlarmError.maximumLimitReached {
       if mirrorEntryWritten {
-        removeMirrorEntry(platformAlarmId)
+        removeMirrorEntryIfNativeAlarmAbsent(platformAlarmId, request: request)
       }
       return ScheduleRow(
         status: "failure",
@@ -482,7 +495,7 @@ final class AlarmKitBridge {
       )
     } catch {
       if mirrorEntryWritten {
-        removeMirrorEntry(platformAlarmId)
+        removeMirrorEntryIfNativeAlarmAbsent(platformAlarmId, request: request)
       }
       return ScheduleRow(
         status: "failure",
@@ -504,7 +517,9 @@ final class AlarmKitBridge {
   private func reconcileMirror(with alarms: [Alarm]) {
     guard let mirror = try? loadMirror() else { return }
     let currentIds = Set(alarms.map { $0.id.uuidString })
-    let prunedMirror = mirror.filter { currentIds.contains($0.key) }
+    let prunedMirror = mirror.filter {
+      currentIds.contains($0.key) || pendingNativeAlarmIds.contains($0.key)
+    }
     if prunedMirror.count != mirror.count {
       try? saveMirror(prunedMirror)
     }
@@ -522,10 +537,27 @@ final class AlarmKitBridge {
     UserDefaults.standard.set(data, forKey: nativeAlarmMirrorKey)
   }
 
-  private func removeMirrorEntry(_ platformAlarmId: String) {
-    guard var mirror = try? loadMirror() else { return }
-    mirror.removeValue(forKey: platformAlarmId)
-    try? saveMirror(mirror)
+  private func removeMirrorEntryIfNativeAlarmAbsent(
+    _ platformAlarmId: String,
+    request: ScheduleRequest
+  ) {
+    do {
+      let currentNativeAlarmIds = Set(
+        try AlarmManager.shared.alarms.map { $0.id.uuidString }
+      )
+      guard calarmShouldRemoveMirrorAfterScheduleFailure(
+        currentNativeAlarmIds: currentNativeAlarmIds,
+        platformAlarmId: platformAlarmId
+      ) else { return }
+
+      var mirror = try loadMirror()
+      guard mirror[platformAlarmId]?.matches(request) == true else { return }
+      mirror.removeValue(forKey: platformAlarmId)
+      try saveMirror(mirror)
+    } catch {
+      // Preserve the mirror when native inventory or mirror persistence cannot
+      // establish that the AlarmKit alarm is absent.
+    }
   }
 
   private func complete(_ result: @escaping FlutterResult, _ value: Any?) {
@@ -626,6 +658,36 @@ private struct ScheduleRow {
   let failureMessage: String?
 }
 
+@MainActor
+final class AlarmScheduleCoordinator<Value> {
+  private struct Tail {
+    let token: UUID
+    let task: Task<Value, Never>
+  }
+
+  private var tails: [String: Tail] = [:]
+
+  func run(
+    for reservationId: String,
+    operation: @escaping @MainActor () async -> Value
+  ) async -> Value {
+    let token = UUID()
+    let predecessor = tails[reservationId]?.task
+    let task = Task { @MainActor in
+      if let predecessor {
+        _ = await predecessor.value
+      }
+      return await operation()
+    }
+    tails[reservationId] = Tail(token: token, task: task)
+    let value = await task.value
+    if tails[reservationId]?.token == token {
+      tails.removeValue(forKey: reservationId)
+    }
+    return value
+  }
+}
+
 private func baseResponse() -> [String: Any?] {
   ["schemaVersion": nativeAlarmSchemaVersion]
 }
@@ -718,6 +780,14 @@ func calarmPlatformAlarmId(for reservationId: String) -> String {
   bytes[8] = (bytes[8] & 0x3f) | 0x80
   let hex = bytes.map { String(format: "%02x", $0) }
   return "\(hex[0])\(hex[1])\(hex[2])\(hex[3])-\(hex[4])\(hex[5])-\(hex[6])\(hex[7])-\(hex[8])\(hex[9])-\(hex[10])\(hex[11])\(hex[12])\(hex[13])\(hex[14])\(hex[15])"
+}
+
+func calarmShouldRemoveMirrorAfterScheduleFailure(
+  currentNativeAlarmIds: Set<String>?,
+  platformAlarmId: String
+) -> Bool {
+  guard let currentNativeAlarmIds else { return false }
+  return !currentNativeAlarmIds.contains(platformAlarmId)
 }
 
 @available(iOS 26.0, *)

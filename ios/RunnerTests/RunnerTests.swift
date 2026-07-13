@@ -36,4 +36,89 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(inventoryStatus(for: .alerting), "ringing")
   }
 
+  @MainActor
+  func testProductionScheduleCoordinatorKeepsDuplicateRetryRecoverable() async {
+    let coordinator = AlarmScheduleCoordinator<Bool>()
+    let state = AlarmScheduleRaceState()
+    let nativeAlarmId = "native-alarm"
+    let operation: @MainActor () async -> Bool = {
+      await state.performOperation(nativeAlarmId: nativeAlarmId)
+    }
+
+    let first = Task { @MainActor in
+      await coordinator.run(for: "reservation-1", operation: operation)
+    }
+    while !state.firstOperationStarted {
+      await Task.yield()
+    }
+
+    let second = Task { @MainActor in
+      await coordinator.run(for: "reservation-1", operation: operation)
+    }
+    await Task.yield()
+    state.allowFirstOperationToFinish = true
+
+    let firstResult = await first.value
+    let secondResult = await second.value
+    XCTAssertFalse(firstResult)
+    XCTAssertTrue(secondResult)
+    XCTAssertEqual(state.attempts, 2)
+    XCTAssertEqual(state.maxActiveOperations, 1)
+    XCTAssertTrue(state.nativeAlarmPresent)
+    XCTAssertTrue(state.mirrorPresent)
+    XCTAssertTrue(state.retrySawAbsentNativeAndMirror)
+    XCTAssertFalse(
+      calarmShouldRemoveMirrorAfterScheduleFailure(
+        currentNativeAlarmIds: nil,
+        platformAlarmId: nativeAlarmId
+      )
+    )
+    XCTAssertFalse(
+      calarmShouldRemoveMirrorAfterScheduleFailure(
+        currentNativeAlarmIds: Set([nativeAlarmId]),
+        platformAlarmId: nativeAlarmId
+      )
+    )
+  }
+
+}
+
+@MainActor
+private final class AlarmScheduleRaceState {
+  var attempts = 0
+  var activeOperations = 0
+  var maxActiveOperations = 0
+  var firstOperationStarted = false
+  var allowFirstOperationToFinish = false
+  var mirrorPresent = false
+  var nativeAlarmPresent = false
+  var retrySawAbsentNativeAndMirror = false
+
+  func performOperation(nativeAlarmId: String) async -> Bool {
+    attempts += 1
+    activeOperations += 1
+    maxActiveOperations = max(maxActiveOperations, activeOperations)
+    defer { activeOperations -= 1 }
+
+    mirrorPresent = true
+    if attempts == 1 {
+      firstOperationStarted = true
+      while !allowFirstOperationToFinish {
+        await Task.yield()
+      }
+      nativeAlarmPresent = false
+      if calarmShouldRemoveMirrorAfterScheduleFailure(
+        currentNativeAlarmIds: Set<String>(),
+        platformAlarmId: nativeAlarmId
+      ) {
+        mirrorPresent = false
+      }
+      return false
+    }
+
+    retrySawAbsentNativeAndMirror = !nativeAlarmPresent && !mirrorPresent
+    nativeAlarmPresent = true
+    mirrorPresent = true
+    return true
+  }
 }
