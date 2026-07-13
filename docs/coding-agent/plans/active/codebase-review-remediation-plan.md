@@ -2,7 +2,7 @@
 
 - status: approved
 - generated: 2026-07-10
-- last_updated: 2026-07-11
+- last_updated: 2026-07-14
 - work_type: code
 - orchestrator_model_policy: `gpt-5.6-luna` / `high` for every worker start, resume, and replacement
 
@@ -14,7 +14,7 @@
 
 ## Definition of Done
 
-- Tasks 1-14 are merged with current validation, independent review, worker `gh-review-hook` exit 0, orchestrator deep-review, orchestrator hook exit 0, and clean merge state.
+- Tasks 1-14 and Task 17 are merged with current validation, independent review, worker `gh-review-hook` exit 0, orchestrator deep-review, orchestrator hook exit 0, and clean merge state.
 - Task 15 harmonization passes full format/analyze/test and Android build checks; iOS compile validation is pass or explicitly blocked only by a recorded local platform limitation with remote CI evidence.
 - No confirmed deep-review finding remains unowned.
 - Existing real-device iOS 26+ and Android API 36 release gates remain truthfully BLOCKED until Task 16 receives user-owned device evidence.
@@ -408,6 +408,12 @@
   - branch: `codex/reviewfix-ios-native-inventory-retry`
   - runtime: `gpt-5.6-luna` / `high`
   - startup: active beyond replacement worktree setup; onboarding and implementation in progress.
+- validation_support_task: Task_17
+- current_reviewer:
+  - thread: `019f5d9d-66b4-7272-87cd-dce0a97405d8`
+  - exact_head: `988f712b3cf05e5381562037ccaf2bc08b5fefb3`
+  - runtime: `gpt-5.6-luna` / `high`
+  - state: active, read-only nineteenth review of the rollback-recovery remediation.
 - type: impl
 - owns:
   - `ios/Runner/AlarmKitBridge.swift`
@@ -415,7 +421,7 @@
   - `ios/Runner/SceneDelegate.swift` only if lifecycle delivery requires it
   - `ios/RunnerTests/**`
   - `integration_test/native_alarm_smoke_test.dart` only for iOS contract coverage
-- depends_on: [Task_1, Task_10]
+- depends_on: [Task_1, Task_10, Task_17]
 - acceptance:
   - AlarmKit uses/preserves the contract identity and exposes authoritative scheduled inventory.
   - AlarmKit stop/removal changes become observable to Dart or are recoverable on the next inventory read.
@@ -426,6 +432,26 @@
   - kind: command; required: true; owner: worker; detail: iOS simulator build/smoke when platform is installed; otherwise record exact BLOCKED evidence and require remote CI before merge.
   - kind: command; required: true; owner: worker; detail: `flutter analyze` and `flutter test`.
   - kind: review; required: true; owner: reviewer; detail: AlarmKit lifecycle/contract review.
+
+### Task_17: Execute iOS RunnerTests in hosted native smoke CI
+
+- status: in_progress
+- worker_thread: `019f5d9c-7f4d-7b11-91ce-86bdd55c99c4`
+- worker_worktree: `/Users/xpadev/.codex/worktrees/da98/calarm`
+- worker_branch: `codex/reviewfix-ios-runner-xctest-ci`
+- worker_runtime: `gpt-5.6-luna` / `xhigh`
+- type: test
+- owns:
+  - `.github/workflows/native-smoke.yml`
+- depends_on: [Task_1, Task_10]
+- acceptance:
+  - The hosted iOS native-smoke job compiles and executes `RunnerTests` through the checked-in Runner scheme on its selected compatible simulator.
+  - XCTest compile, execution, assertion, and timeout failures fail the job and retain actionable logs under the existing native-smoke artifact layout.
+  - Existing iOS simulator build and integration smoke remain required and real-device approval remains explicitly out of scope.
+- validation:
+  - kind: command; required: true; owner: worker; detail: YAML/action and embedded-shell validation plus `git diff --check`.
+  - kind: command; required: true; owner: worker; detail: hosted PR evidence showing the RunnerTests target compiled and its XCTest suite executed successfully.
+  - kind: review; required: true; owner: reviewer; detail: independent CI failure-semantics, simulator-destination, artifact, and scope review.
 
 ### Task_13: Reconcile Drift and native reservations durably
 
@@ -508,7 +534,9 @@
 - Wave 3 (sequential state mutations): [Task_8]
 - Wave 4 (sequential idempotency): [Task_9]
 - Wave 5 (contract foundation): [Task_10]
-- Wave 6 (parallel platform implementations): [Task_11, Task_12]
+- Wave 6 (Android platform implementation): [Task_11]
+- Wave 6A (Task_12 hosted XCTest validation support): [Task_17]
+- Wave 6B (iOS platform implementation completion): [Task_12]
 - Wave 7 (sequential durable reconciliation): [Task_13]
 - Wave 8 (sequential ringing reconciliation): [Task_14]
 - Wave 9 (orchestrator/reviewer): [Task_15]
@@ -677,7 +705,19 @@
   - Scope, validation, independent Reviewer handoff, no-merge contract, and parent product-code boundary remain unchanged.
   - Next action: wait for the replacement worker's exact-head `REVIEW_READY` report.
 
+- 2026-07-14 Task_12 hosted XCTest validation split dispatched.
+  - Independent review of PR #48 proved that `.github/workflows/native-smoke.yml` builds the iOS simulator app and runs the Flutter integration smoke but never invokes the Runner scheme TestAction, so hosted success did not execute `RunnerTests`.
+  - Task_17 worker `019f5d9c-7f4d-7b11-91ce-86bdd55c99c4` started in separate worktree `/Users/xpadev/.codex/worktrees/da98/calarm` on branch `codex/reviewfix-ios-runner-xctest-ci` with `gpt-5.6-luna` / `xhigh`; ownership is only `.github/workflows/native-smoke.yml`.
+  - Task_12 pushed rollback-recovery remediation head `988f712b3cf05e5381562037ccaf2bc08b5fefb3`; read-only Reviewer `019f5d9d-66b4-7272-87cd-dce0a97405d8` is reviewing that exact code head with Luna High.
+  - PR #48 remains unmerged until Task_17 merges, Task_12 incorporates the updated base, the hosted RunnerTests gate passes, and all fresh exact-head worker/orchestrator gates pass.
+
 ## Decision Log
+
+- 2026-07-14 Decision: split the missing hosted RunnerTests execution gate into Task_17 before Task_12 can merge.
+  - Trigger: the Task_12 worker and nineteenth-review preparation confirmed that the iOS native-smoke job does not run `xcodebuild test`; the checked-in RunnerTests therefore lacked the plan-required remote execution evidence.
+  - Plan delta: Task_17 exclusively owns `.github/workflows/native-smoke.yml`; Task_12 now depends on Task_17 and must update to the resulting base before final review and merge gates.
+  - Tradeoff: one small prerequisite CI PR and an additional base update for PR #48, in exchange for keeping workflow ownership out of the already large AlarmKit product PR and obtaining executable Swift regression evidence.
+  - User approval: covered by the user's standing instruction to decompose cross-ownership work into separate user-visible workers and enforce every required validation gate.
 
 - 2026-07-11 Decision: keep Task_7 narrow and route the native crash-window authority gap through Tasks 10, 12, and 13.
   - Trigger: independent review proved that a native schedule can succeed before the platform ID is persisted, and the unchanged iOS bridge generates a new UUID per call.
