@@ -393,6 +393,40 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
+  func testBridgeRejectsInterruptedPendingRemovalWithoutResurrection() async {
+    let fake = FakeAlarmKitNativeClient()
+    fake.failFirstSchedule = true
+    fake.inventoryErrorOnCall = 2
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let request = makeScheduleRequest("reservation-interrupted-pending")
+    let id = calarmPlatformAlarmId(for: request.reservationId)
+    clearMirror()
+    defer { clearMirror() }
+
+    let failed = await bridge.scheduleAlarm(request)
+    XCTAssertEqual(failed.failureReason, "nativeError")
+    XCTAssertTrue(pendingMirrorContains(id))
+    let envelopeBeforeCrash = try! XCTUnwrap(
+      UserDefaults.standard.data(forKey: envelopeKey)
+    )
+    let transactionBeforeCrash = try! XCTUnwrap(
+      UserDefaults.standard.data(forKey: transactionKey)
+    )
+
+    // Emulate the crash window after the new committed projection/pending
+    // removal but before envelope publication: old envelope and marker remain.
+    UserDefaults.standard.removeObject(forKey: pendingMirrorKey)
+    let restarted = AlarmKitBridge(nativeClient: fake)
+    let value = await inventoryValue(restarted)
+    XCTAssertEqual((value as? FlutterError)?.code, "corrupt")
+    XCTAssertNil(UserDefaults.standard.data(forKey: pendingMirrorKey))
+    XCTAssertEqual(UserDefaults.standard.data(forKey: envelopeKey), envelopeBeforeCrash)
+    XCTAssertEqual(UserDefaults.standard.data(forKey: transactionKey), transactionBeforeCrash)
+    XCTAssertEqual(fake.inventoryCalls, 2)
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
   func testBridgeUncertainCleanupKeepsPendingUntilNativePresenceIsKnown() async {
     let fake = FakeAlarmKitNativeClient()
     fake.failFirstSchedule = true
@@ -569,6 +603,72 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(collisionResult["failureReason"] as? String, "unknown")
     XCTAssertEqual(stableFake.scheduleAttempts, 1)
     XCTAssertTrue(mirrorContains(stablePlatformAlarmId))
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testBridgeRejectsConflictingPendingOwnershipWithoutMutation() async {
+    let request = makeScheduleRequest(
+      "reservation-pending-owner",
+      occurrenceId: "requested-occurrence"
+    )
+    let id = calarmPlatformAlarmId(for: request.reservationId)
+    let conflictingRecord: [String: String] = [
+      "reservationId": request.reservationId,
+      "occurrenceId": "recovery-owned-occurrence",
+      "wakePlanId": "recovery-owned-plan",
+      "platformAlarmId": id,
+    ]
+    let fake = FakeAlarmKitNativeClient()
+    fake.inventoryIdsOverride = []
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    clearMirror()
+    let pendingData = mirrorData([id: conflictingRecord])
+    UserDefaults.standard.set(pendingData, forKey: pendingMirrorKey)
+    defer { clearMirror() }
+
+    let result = await bridge.scheduleAlarm(request)
+    XCTAssertEqual(result.failureReason, "unknown")
+    XCTAssertEqual(fake.scheduleAttempts, 0)
+    XCTAssertEqual(fake.inventoryCalls, 0)
+    XCTAssertNil(UserDefaults.standard.data(forKey: mirrorKey))
+    XCTAssertEqual(UserDefaults.standard.data(forKey: pendingMirrorKey), pendingData)
+    XCTAssertNil(UserDefaults.standard.data(forKey: envelopeKey))
+    XCTAssertNil(UserDefaults.standard.data(forKey: transactionKey))
+
+    // A same-tuple pending recovery row remains idempotently schedulable when
+    // authoritative native inventory is empty.
+    clearMirror()
+    let sameTupleRecord: [String: String] = [
+      "reservationId": request.reservationId,
+      "occurrenceId": request.occurrenceId,
+      "wakePlanId": request.wakePlanId,
+      "platformAlarmId": id,
+    ]
+    UserDefaults.standard.set(
+      mirrorData([id: sameTupleRecord]),
+      forKey: pendingMirrorKey
+    )
+    let retry = await bridge.scheduleAlarm(request)
+    XCTAssertEqual(retry.status, "success")
+    XCTAssertEqual(fake.scheduleAttempts, 1)
+    XCTAssertTrue(mirrorContains(id))
+
+    // If the native alarm is already present, the same pending tuple is
+    // promoted without a second native schedule call.
+    clearMirror()
+    UserDefaults.standard.set(
+      mirrorData([id: sameTupleRecord]),
+      forKey: pendingMirrorKey
+    )
+    fake.inventoryIdsOverride = nil
+    fake.nativeAlarmIds.insert(id.uppercased())
+    let nativePresentBridge = AlarmKitBridge(nativeClient: fake)
+    let nativePresent = await nativePresentBridge.scheduleAlarm(request)
+    XCTAssertEqual(nativePresent.status, "success")
+    XCTAssertEqual(fake.scheduleAttempts, 1)
+    XCTAssertTrue(mirrorContains(id))
+    XCTAssertFalse(pendingMirrorContains(id))
   }
 
   @available(iOS 26.0, *)
@@ -1301,6 +1401,7 @@ class RunnerTests: XCTestCase {
 private let mirrorKey = "net.xpadev.calarm/native_alarm_mirror"
 private let pendingMirrorKey = "net.xpadev.calarm/native_alarm_pending_mirror"
 private let envelopeKey = "net.xpadev.calarm/native_alarm_mirror_envelope"
+private let transactionKey = "net.xpadev.calarm/native_alarm_mirror_transaction"
 
 @MainActor
 private final class FakeAlarmKitNativeClient: AlarmKitNativeClient {
@@ -1410,6 +1511,7 @@ private func clearMirror() {
   UserDefaults.standard.removeObject(forKey: mirrorKey)
   UserDefaults.standard.removeObject(forKey: pendingMirrorKey)
   UserDefaults.standard.removeObject(forKey: envelopeKey)
+  UserDefaults.standard.removeObject(forKey: transactionKey)
 }
 
 private func mirrorData(_ records: [String: [String: String]]) -> Data {

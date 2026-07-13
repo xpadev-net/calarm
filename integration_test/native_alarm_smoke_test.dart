@@ -366,7 +366,6 @@ Future<bool> _bestEffortCleanupTestAlarm({
       recoveredPlatformAlarmId ??= matching.isEmpty
           ? null
           : matching.single.platformAlarmId;
-      if (recoveredPlatformAlarmId == null && matching.isEmpty) return true;
     }
   } catch (error) {
     _emitEvidence('cleanup${cleanupLabel}InventoryFailure', {
@@ -376,33 +375,34 @@ Future<bool> _bestEffortCleanupTestAlarm({
     });
   }
 
-  if (recoveredPlatformAlarmId == null) return false;
-  for (var attempt = 1; attempt <= 2; attempt++) {
-    try {
-      final cancel = await gateway
-          .cancelOccurrences([
-            NativeAlarmCancelRequest(
-              occurrenceId: occurrenceId,
-              reservationId: reservationId,
-              platformAlarmId: recoveredPlatformAlarmId,
-            ),
-          ])
-          .nativeSmokeTimeout('cleanup${cleanupLabel}Cancel$attempt');
-      _emitEvidence('cleanup${cleanupLabel}Cancel', {
-        'platform': platform,
-        'evidenceLabel': evidenceLabel,
-        'attempt': attempt,
-        'status': cancel.status.name,
-        'alarms': cancel.alarms.map(_cancelAlarmEvidence).toList(),
-      });
-      if (cancel.isSuccess) break;
-    } catch (error) {
-      _emitEvidence('cleanup${cleanupLabel}CancelFailure', {
-        'platform': platform,
-        'evidenceLabel': evidenceLabel,
-        'attempt': attempt,
-        'error': '$error',
-      });
+  if (recoveredPlatformAlarmId != null) {
+    for (var attempt = 1; attempt <= 2; attempt++) {
+      try {
+        final cancel = await gateway
+            .cancelOccurrences([
+              NativeAlarmCancelRequest(
+                occurrenceId: occurrenceId,
+                reservationId: reservationId,
+                platformAlarmId: recoveredPlatformAlarmId,
+              ),
+            ])
+            .nativeSmokeTimeout('cleanup${cleanupLabel}Cancel$attempt');
+        _emitEvidence('cleanup${cleanupLabel}Cancel', {
+          'platform': platform,
+          'evidenceLabel': evidenceLabel,
+          'attempt': attempt,
+          'status': cancel.status.name,
+          'alarms': cancel.alarms.map(_cancelAlarmEvidence).toList(),
+        });
+        if (cancel.isSuccess) break;
+      } catch (error) {
+        _emitEvidence('cleanup${cleanupLabel}CancelFailure', {
+          'platform': platform,
+          'evidenceLabel': evidenceLabel,
+          'attempt': attempt,
+          'error': '$error',
+        });
+      }
     }
   }
 
