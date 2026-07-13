@@ -178,6 +178,7 @@ void main() {
           occurrenceId: scheduleRequest.occurrenceId,
           reservationId: scheduleRequest.reservationId,
           platformAlarmId: scheduledPlatformAlarmId,
+          expectedWakePlanId: scheduleRequest.wakePlanId,
           platform: platform,
           evidenceLabel: evidenceLabel,
           cleanupLabel: 'schedule',
@@ -195,7 +196,10 @@ void main() {
 
     const testAlarmIdentity = 'ci-smoke-test-alarm';
     late TestAlarmScheduleResult testAlarmResult;
+    var testOccurrenceId = testAlarmIdentity;
+    var testReservationId = testAlarmIdentity;
     String? testPlatformAlarmId;
+    var testIdentityCorrelated = false;
     var testAlarmSucceeded = false;
     var testCancelSucceeded = false;
     var testCleanupVerified = false;
@@ -241,21 +245,45 @@ void main() {
                 row.occurrenceId == testAlarmIdentity,
           )
           .toList();
-      if (matchingTestRows.isNotEmpty) {
+      if (testPlatformAlarmId != null) {
+        final platformRows = testInventory.rows
+            .where((row) => row.platformAlarmId == testPlatformAlarmId)
+            .toList();
+        expect(
+          platformRows,
+          hasLength(1),
+          reason:
+              'A returned test-alarm platform ID must map to exactly one inventory row.',
+        );
+        final row = platformRows.single;
+        expect(
+          row.wakePlanId,
+          'test',
+          reason:
+              'A returned test-alarm platform ID must retain the test wake plan.',
+        );
+        testOccurrenceId = row.occurrenceId;
+        testReservationId = row.reservationId;
+        testPlatformAlarmId = row.platformAlarmId;
+        testIdentityCorrelated = true;
+      } else if (matchingTestRows.isNotEmpty) {
         expect(matchingTestRows, hasLength(1));
-        testPlatformAlarmId ??= matchingTestRows.single.platformAlarmId;
+        final row = matchingTestRows.single;
+        testOccurrenceId = row.occurrenceId;
+        testReservationId = row.reservationId;
+        testPlatformAlarmId = row.platformAlarmId;
+        testIdentityCorrelated = true;
       }
       if (testAlarmResult.isSuccess) {
-        expect(matchingTestRows, hasLength(1));
-        expect(matchingTestRows.single.platformAlarmId, testPlatformAlarmId);
+        expect(testIdentityCorrelated, isTrue);
       }
 
-      if (testPlatformAlarmId != null) {
+      if (testPlatformAlarmId != null && testIdentityCorrelated) {
         final cancelTestResult = await gateway
             .cancelOccurrences([
               NativeAlarmCancelRequest(
-                occurrenceId: testAlarmIdentity,
-                reservationId: testAlarmIdentity,
+                occurrenceId: testOccurrenceId,
+                reservationId: testReservationId,
                 platformAlarmId: testPlatformAlarmId,
               ),
             ])
@@ -283,7 +311,10 @@ void main() {
           expect(testInventoryAfterCancel.isSuccess, isTrue);
           expect(
             testInventoryAfterCancel.rows.where(
-              (row) => row.reservationId == testAlarmIdentity,
+              (row) =>
+                  row.platformAlarmId == testPlatformAlarmId &&
+                  row.reservationId == testReservationId &&
+                  row.occurrenceId == testOccurrenceId,
             ),
             isEmpty,
           );
@@ -306,9 +337,10 @@ void main() {
       if (!testCleanupVerified) {
         testCleanupVerified = await _bestEffortCleanupTestAlarm(
           gateway: gateway,
-          occurrenceId: testAlarmIdentity,
-          reservationId: testAlarmIdentity,
+          occurrenceId: testOccurrenceId,
+          reservationId: testReservationId,
           platformAlarmId: testPlatformAlarmId,
+          expectedWakePlanId: 'test',
           platform: platform,
           evidenceLabel: evidenceLabel,
           cleanupLabel: 'testAlarm',
@@ -348,11 +380,22 @@ Future<bool> _bestEffortCleanupTestAlarm({
   required String occurrenceId,
   required String reservationId,
   required String? platformAlarmId,
+  required String expectedWakePlanId,
   required String platform,
   required String evidenceLabel,
   required String cleanupLabel,
 }) async {
   String? recoveredPlatformAlarmId = platformAlarmId;
+  var recoveredOccurrenceId = occurrenceId;
+  var recoveredReservationId = reservationId;
+  var platformCorrelationVerified = platformAlarmId == null;
+
+  bool isExactRow(NativeAlarmInventoryRow row) {
+    return (recoveredPlatformAlarmId == null ||
+            row.platformAlarmId == recoveredPlatformAlarmId) &&
+        row.occurrenceId == recoveredOccurrenceId &&
+        row.reservationId == recoveredReservationId;
+  }
 
   Future<bool> cancelExact(String id, String phase) async {
     for (var attempt = 1; attempt <= 2; attempt++) {
@@ -360,8 +403,8 @@ Future<bool> _bestEffortCleanupTestAlarm({
         final cancel = await gateway
             .cancelOccurrences([
               NativeAlarmCancelRequest(
-                occurrenceId: occurrenceId,
-                reservationId: reservationId,
+                occurrenceId: recoveredOccurrenceId,
+                reservationId: recoveredReservationId,
                 platformAlarmId: id,
               ),
             ])
@@ -397,24 +440,54 @@ Future<bool> _bestEffortCleanupTestAlarm({
       'reservations': inventory.rows.map(_inventoryEvidence).toList(),
     });
     if (inventory.isSuccess) {
-      final matching = inventory.rows
-          .where(
-            (row) =>
-                row.reservationId == reservationId &&
-                row.occurrenceId == occurrenceId,
-          )
-          .toList();
-      if (matching.length > 1) {
-        _emitEvidence('cleanup${cleanupLabel}Failure', {
-          'platform': platform,
-          'evidenceLabel': evidenceLabel,
-          'reason': 'multiple matching test alarms',
-        });
-        return false;
+      if (recoveredPlatformAlarmId != null) {
+        final idMatches = inventory.rows
+            .where((row) => row.platformAlarmId == recoveredPlatformAlarmId)
+            .toList();
+        if (idMatches.length > 1) {
+          _emitEvidence('cleanup${cleanupLabel}Failure', {
+            'platform': platform,
+            'evidenceLabel': evidenceLabel,
+            'reason': 'multiple rows for returned test-alarm platform ID',
+          });
+          return false;
+        }
+        if (idMatches.length == 1) {
+          final row = idMatches.single;
+          if (row.wakePlanId != expectedWakePlanId) {
+            _emitEvidence('cleanup${cleanupLabel}Failure', {
+              'platform': platform,
+              'evidenceLabel': evidenceLabel,
+              'reason':
+                  'returned test-alarm platform ID has mismatched wake plan',
+            });
+            return false;
+          }
+          recoveredOccurrenceId = row.occurrenceId;
+          recoveredReservationId = row.reservationId;
+          platformCorrelationVerified = true;
+        }
+      } else {
+        final tupleMatches = inventory.rows
+            .where(
+              (row) =>
+                  row.reservationId == recoveredReservationId &&
+                  row.occurrenceId == recoveredOccurrenceId,
+            )
+            .toList();
+        if (tupleMatches.length > 1) {
+          _emitEvidence('cleanup${cleanupLabel}Failure', {
+            'platform': platform,
+            'evidenceLabel': evidenceLabel,
+            'reason': 'multiple matching test alarms',
+          });
+          return false;
+        }
+        if (tupleMatches.length == 1) {
+          recoveredPlatformAlarmId = tupleMatches.single.platformAlarmId;
+          platformCorrelationVerified = true;
+        }
       }
-      recoveredPlatformAlarmId ??= matching.isEmpty
-          ? null
-          : matching.single.platformAlarmId;
     }
   } catch (error) {
     _emitEvidence('cleanup${cleanupLabel}InventoryFailure', {
@@ -424,7 +497,7 @@ Future<bool> _bestEffortCleanupTestAlarm({
     });
   }
 
-  if (recoveredPlatformAlarmId != null) {
+  if (recoveredPlatformAlarmId != null && platformCorrelationVerified) {
     await cancelExact(recoveredPlatformAlarmId, 'cleanup${cleanupLabel}Cancel');
   }
 
@@ -439,19 +512,65 @@ Future<bool> _bestEffortCleanupTestAlarm({
       'reservations': finalInventory.rows.map(_inventoryEvidence).toList(),
     });
     if (!finalInventory.isSuccess) return false;
-    final matching = finalInventory.rows
-        .where(
-          (row) =>
-              row.reservationId == reservationId &&
-              row.occurrenceId == occurrenceId,
-        )
-        .toList();
-    if (matching.isEmpty) return true;
-    if (matching.length > 1) {
+    if (recoveredPlatformAlarmId != null) {
+      final idMatches = finalInventory.rows
+          .where((row) => row.platformAlarmId == recoveredPlatformAlarmId)
+          .toList();
+      if (idMatches.length > 1) {
+        _emitEvidence('cleanup${cleanupLabel}Failure', {
+          'platform': platform,
+          'evidenceLabel': evidenceLabel,
+          'reason': 'multiple rows for returned test-alarm platform ID',
+        });
+        return false;
+      }
+      if (idMatches.length == 1 && !platformCorrelationVerified) {
+        final row = idMatches.single;
+        if (row.wakePlanId != expectedWakePlanId) {
+          _emitEvidence('cleanup${cleanupLabel}Failure', {
+            'platform': platform,
+            'evidenceLabel': evidenceLabel,
+            'reason':
+                'returned test-alarm platform ID has mismatched wake plan',
+          });
+          return false;
+        }
+        recoveredOccurrenceId = row.occurrenceId;
+        recoveredReservationId = row.reservationId;
+        platformCorrelationVerified = true;
+      }
+      if (idMatches.isEmpty && !platformCorrelationVerified) return false;
+    } else {
+      final tupleMatches = finalInventory.rows
+          .where(
+            (row) =>
+                row.reservationId == recoveredReservationId &&
+                row.occurrenceId == recoveredOccurrenceId,
+          )
+          .toList();
+      if (tupleMatches.length > 1) {
+        _emitEvidence('cleanup${cleanupLabel}Failure', {
+          'platform': platform,
+          'evidenceLabel': evidenceLabel,
+          'reason': 'multiple matching test alarms in final inventory',
+        });
+        return false;
+      }
+      if (tupleMatches.length == 1) {
+        recoveredPlatformAlarmId = tupleMatches.single.platformAlarmId;
+        platformCorrelationVerified = true;
+      }
+    }
+    final matching = finalInventory.rows.where(isExactRow).toList();
+    final ambiguousRows = finalInventory.rows.any(
+      (row) => row.wakePlanId == expectedWakePlanId && !isExactRow(row),
+    );
+    if (matching.isEmpty && !ambiguousRows) return true;
+    if (matching.length > 1 || ambiguousRows) {
       _emitEvidence('cleanup${cleanupLabel}Failure', {
         'platform': platform,
         'evidenceLabel': evidenceLabel,
-        'reason': 'multiple matching test alarms in final inventory',
+        'reason': 'ambiguous or mismatched test-alarm inventory rows',
       });
       return false;
     }
@@ -477,11 +596,7 @@ Future<bool> _bestEffortCleanupTestAlarm({
             .toList(),
       });
       return finalFinalInventory.isSuccess &&
-          finalFinalInventory.rows.every(
-            (row) =>
-                !(row.reservationId == reservationId &&
-                    row.occurrenceId == occurrenceId),
-          );
+          finalFinalInventory.rows.every((row) => !isExactRow(row));
     } catch (error) {
       _emitEvidence('cleanup${cleanupLabel}FinalFinalInventoryFailure', {
         'platform': platform,
