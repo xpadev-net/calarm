@@ -548,7 +548,7 @@ Future<bool> _bestEffortCleanupTestAlarm({
           recoveredReservationId = row.reservationId;
           platformCorrelationVerified = true;
         }
-      } else {
+      } else if (allowTupleFallback) {
         final tupleCandidateRows = inventory.rows
             .where(
               (row) =>
@@ -634,7 +634,7 @@ Future<bool> _bestEffortCleanupTestAlarm({
         platformCorrelationVerified = true;
       }
       if (idMatches.isEmpty && !platformCorrelationVerified) return false;
-    } else {
+    } else if (allowTupleFallback) {
       final tupleCandidateRows = finalInventory.rows
           .where(
             (row) =>
