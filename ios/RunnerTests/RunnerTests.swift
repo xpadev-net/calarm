@@ -86,6 +86,35 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
+  func testBridgeStableReservationRetryUpdatesRecreatedOccurrence() async {
+    let fake = FakeAlarmKitNativeClient()
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let original = makeScheduleRequest("reservation-recreated")
+    let recreated = makeScheduleRequest(
+      "reservation-recreated",
+      occurrenceId: "occurrence-recreated"
+    )
+    let platformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
+    clearMirror()
+    defer { clearMirror() }
+
+    XCTAssertEqual((await bridge.scheduleAlarm(original)).status, "success")
+    let retryResult = await bridge.scheduleAlarm(recreated)
+    XCTAssertEqual(retryResult.status, "success")
+    XCTAssertEqual(fake.scheduleAttempts, 1)
+
+    let inventory = await inventoryValue(bridge)
+    let rows = (inventory as? [String: Any?])?["reservations"]
+      as? [[String: Any?]]
+    XCTAssertEqual(rows?.count, 1)
+    XCTAssertEqual(rows?.first?["reservationId"] as? String, original.reservationId)
+    XCTAssertEqual(rows?.first?["occurrenceId"] as? String, recreated.occurrenceId)
+    XCTAssertEqual(rows?.first?["platformAlarmId"] as? String, platformAlarmId)
+    XCTAssertTrue(mirrorContains(platformAlarmId))
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
   func testBridgeConcurrentDifferentSchedulesPreserveBothMirrorRows() async {
     let fake = FakeAlarmKitNativeClient()
     fake.gatedScheduleAttempts = [1]

@@ -1,4 +1,4 @@
-import AlarmKit
+@_weakLinked import AlarmKit
 import CryptoKit
 import Flutter
 import Foundation
@@ -514,6 +514,7 @@ final class AlarmKitBridge {
     }
   }
 
+  @available(iOS 26.0, *)
   private func performCancelAlarmInMirrorTransaction(
     occurrenceId: String,
     requestedReservationId: String?,
@@ -640,7 +641,9 @@ final class AlarmKitBridge {
       var pendingMirror = mirrorSnapshot.pendingNormalized
       let committedExisting = mirror[platformAlarmId]
       let pendingExisting = pendingMirror[platformAlarmId]
-      if let committedExisting, !committedExisting.matches(request) {
+      if let committedExisting,
+        !committedExisting.matchesStableReservation(request)
+      {
         return ScheduleRow(
           status: "failure",
           platformAlarmId: platformAlarmId,
@@ -648,7 +651,9 @@ final class AlarmKitBridge {
           failureMessage: "reservationId is already bound to a different alarm."
         )
       }
-      if let pendingExisting, !pendingExisting.matches(request) {
+      if let pendingExisting,
+        !pendingExisting.matchesStableReservation(request)
+      {
         return ScheduleRow(
           status: "failure",
           platformAlarmId: platformAlarmId,
@@ -678,7 +683,7 @@ final class AlarmKitBridge {
       }
       if currentIds.contains(platformAlarmId) {
         guard let existing,
-          existing.matches(request)
+          existing.matchesStableReservation(request)
         else {
           return ScheduleRow(
             status: "failure",
@@ -687,9 +692,12 @@ final class AlarmKitBridge {
             failureMessage: "AlarmKit contains an unknown native identity."
           )
         }
-        if pendingMirror.removeValue(forKey: platformAlarmId) != nil {
-          mirror[platformAlarmId] = existing
-        }
+        _ = existing
+        pendingMirror.removeValue(forKey: platformAlarmId)
+        mirror[platformAlarmId] = AlarmMirrorRecord(
+          request: request,
+          platformAlarmId: platformAlarmId
+        )
         try saveMirrorState(mirror, pending: pendingMirror)
         return ScheduleRow(
           status: "success",
@@ -701,6 +709,13 @@ final class AlarmKitBridge {
 
       if pendingMirror.removeValue(forKey: platformAlarmId) != nil {
         mirrorEntryPresent = false
+      }
+
+      if committedExisting != nil {
+        mirror[platformAlarmId] = AlarmMirrorRecord(
+          request: request,
+          platformAlarmId: platformAlarmId
+        )
       }
 
       pendingNativeAlarmIds.insert(platformAlarmId)
@@ -1296,6 +1311,7 @@ final class AlarmKitBridge {
     case uncertain
   }
 
+  @available(iOS 26.0, *)
   private func removeMirrorEntryIfNativeAlarmAbsent(
     _ platformAlarmId: String,
     request: ScheduleRequest,
@@ -1416,6 +1432,11 @@ private struct AlarmMirrorRecord: Codable, Equatable {
   func matches(_ request: ScheduleRequest) -> Bool {
     reservationId == request.reservationId &&
       occurrenceId == request.occurrenceId &&
+      wakePlanId == request.wakePlanId
+  }
+
+  func matchesStableReservation(_ request: ScheduleRequest) -> Bool {
+    reservationId == request.reservationId &&
       wakePlanId == request.wakePlanId
   }
 }

@@ -198,12 +198,31 @@ void main() {
     late TestAlarmScheduleResult testAlarmResult;
     var testOccurrenceId = testAlarmIdentity;
     var testReservationId = testAlarmIdentity;
+    String? reportedTestPlatformAlarmId;
     String? testPlatformAlarmId;
     var testIdentityCorrelated = false;
     var testAlarmSucceeded = false;
     var testCancelSucceeded = false;
     var testCleanupVerified = false;
+    var testAlarmScheduleAttempted = false;
     try {
+      final testInventoryBeforeSchedule = await gateway
+          .getInventory()
+          .nativeSmokeTimeout('getInventoryBeforeTestAlarm');
+      _emitEvidence('getInventoryBeforeTestAlarm', {
+        'platform': platform,
+        'evidenceLabel': evidenceLabel,
+        'status': testInventoryBeforeSchedule.status.name,
+        'reservations': testInventoryBeforeSchedule.rows
+            .map(_inventoryEvidence)
+            .toList(),
+      });
+      expect(testInventoryBeforeSchedule.isSuccess, isTrue);
+      final baselinePlatformAlarmIds = testInventoryBeforeSchedule.rows
+          .map((row) => row.platformAlarmId)
+          .toSet();
+
+      testAlarmScheduleAttempted = true;
       testAlarmResult = await gateway
           .scheduleTestAlarm(
             NativeTestAlarmScheduleRequest(
@@ -213,12 +232,12 @@ void main() {
           )
           .nativeSmokeTimeout('scheduleTestAlarm');
       testAlarmSucceeded = testAlarmResult.isSuccess;
-      testPlatformAlarmId = testAlarmResult.platformAlarmId;
+      reportedTestPlatformAlarmId = testAlarmResult.platformAlarmId;
       _emitEvidence('scheduleTestAlarm', {
         'platform': platform,
         'evidenceLabel': evidenceLabel,
         'status': testAlarmResult.status.name,
-        'platformAlarmId': testAlarmResult.platformAlarmId,
+        'platformAlarmId': reportedTestPlatformAlarmId,
         'failureReason': testAlarmResult.failureReason?.name,
         'failureMessage': testAlarmResult.failureMessage,
       });
@@ -248,27 +267,40 @@ void main() {
       final matchingTestRows = fallbackTestRows
           .where((row) => row.wakePlanId == 'test')
           .toList();
-      if (testPlatformAlarmId != null) {
+      if (reportedTestPlatformAlarmId != null) {
         final platformRows = testInventory.rows
-            .where((row) => row.platformAlarmId == testPlatformAlarmId)
+            .where((row) => row.platformAlarmId == reportedTestPlatformAlarmId)
             .toList();
-        expect(
-          platformRows,
-          hasLength(1),
-          reason:
-              'A returned test-alarm platform ID must map to exactly one inventory row.',
-        );
-        final row = platformRows.single;
-        expect(
-          row.wakePlanId,
-          'test',
-          reason:
-              'A returned test-alarm platform ID must retain the test wake plan.',
-        );
-        testOccurrenceId = row.occurrenceId;
-        testReservationId = row.reservationId;
-        testPlatformAlarmId = row.platformAlarmId;
-        testIdentityCorrelated = true;
+        final staleFailureId =
+            !testAlarmResult.isSuccess &&
+            baselinePlatformAlarmIds.contains(reportedTestPlatformAlarmId);
+        if (staleFailureId) {
+          _emitEvidence('testAlarmIdentityFailure', {
+            'platform': platform,
+            'evidenceLabel': evidenceLabel,
+            'reason':
+                'A failed schedule returned a platform ID already present before this attempt.',
+            'platformAlarmId': reportedTestPlatformAlarmId,
+          });
+        } else {
+          expect(
+            platformRows,
+            hasLength(1),
+            reason:
+                'A returned test-alarm platform ID must map to exactly one inventory row.',
+          );
+          final row = platformRows.single;
+          expect(
+            row.wakePlanId,
+            'test',
+            reason:
+                'A returned test-alarm platform ID must retain the test wake plan.',
+          );
+          testOccurrenceId = row.occurrenceId;
+          testReservationId = row.reservationId;
+          testPlatformAlarmId = row.platformAlarmId;
+          testIdentityCorrelated = true;
+        }
       } else if (fallbackTestRows.isNotEmpty) {
         expect(
           fallbackTestRows,
@@ -278,10 +310,23 @@ void main() {
         );
         expect(matchingTestRows, hasLength(1));
         final row = matchingTestRows.single;
-        testOccurrenceId = row.occurrenceId;
-        testReservationId = row.reservationId;
-        testPlatformAlarmId = row.platformAlarmId;
-        testIdentityCorrelated = true;
+        final staleFailureFallback =
+            !testAlarmResult.isSuccess &&
+            baselinePlatformAlarmIds.contains(row.platformAlarmId);
+        if (staleFailureFallback) {
+          _emitEvidence('testAlarmIdentityFailure', {
+            'platform': platform,
+            'evidenceLabel': evidenceLabel,
+            'reason':
+                'A failed schedule matched a fallback platform ID already present before this attempt.',
+            'platformAlarmId': row.platformAlarmId,
+          });
+        } else {
+          testOccurrenceId = row.occurrenceId;
+          testReservationId = row.reservationId;
+          testPlatformAlarmId = row.platformAlarmId;
+          testIdentityCorrelated = true;
+        }
       }
       if (testAlarmResult.isSuccess) {
         expect(testIdentityCorrelated, isTrue);
@@ -335,7 +380,7 @@ void main() {
       });
       Error.throwWithStackTrace(error, stackTrace);
     } finally {
-      if (!testCleanupVerified) {
+      if (!testCleanupVerified && testAlarmScheduleAttempted) {
         testCleanupVerified = await _bestEffortCleanupTestAlarm(
           gateway: gateway,
           occurrenceId: testOccurrenceId,
@@ -348,6 +393,8 @@ void main() {
           evidenceLabel: evidenceLabel,
           cleanupLabel: 'testAlarm',
         );
+      } else if (!testAlarmScheduleAttempted) {
+        testCleanupVerified = true;
       }
     }
     if (!testCleanupVerified) {
