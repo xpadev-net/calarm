@@ -8,6 +8,7 @@ private let nativeAlarmChannelName = "net.xpadev.calarm/native_alarm"
 private let nativeAlarmSchemaVersion = 1
 private let nativeAlarmMirrorKey = "net.xpadev.calarm/native_alarm_mirror"
 private let nativeAlarmPendingMirrorKey = "net.xpadev.calarm/native_alarm_pending_mirror"
+private let nativeAlarmMirrorEnvelopeVersion = 1
 
 @MainActor
 final class AlarmKitBridge {
@@ -160,8 +161,9 @@ final class AlarmKitBridge {
       let alarms = try nativeClientForAlarmKit().inventory()
       let canonicalIds: [String]
       do {
-        canonicalIds = try canonicalNativeAlarmIds(
-          alarms.map { $0.platformAlarmId }
+        canonicalIds = try authoritativeNativeAlarmIds(
+          alarms.map { $0.platformAlarmId },
+          mirrorSnapshot: mirrorSnapshot
         )
       } catch {
         return FlutterError(
@@ -223,7 +225,9 @@ final class AlarmKitBridge {
       let prunedPendingMirror = reconciledPendingMirror.filter {
         currentIds.contains($0.key) || pendingNativeAlarmIds.contains($0.key)
       }
-      if prunedMirror != mirrorSnapshot.normalized
+      if !mirrorSnapshot.isEnvelope
+        || mirrorSnapshot.legacyPendingPresent
+        || prunedMirror != mirrorSnapshot.normalized
         || prunedPendingMirror != mirrorSnapshot.pendingNormalized
         || prunedMirror != mirrorSnapshot.stored
         || prunedPendingMirror != mirrorSnapshot.pendingStored
@@ -294,7 +298,10 @@ final class AlarmKitBridge {
     }
 
     let scheduledAt = Date().addingTimeInterval(TimeInterval(fireAfterMillis) / 1000.0)
-    let testOccurrenceId = "test-\(UUID().uuidString)"
+    // Keep the test alarm's full ownership tuple stable across the
+    // MethodChannel schedule/cancel smoke flow. Production alarms still use
+    // their caller-owned reservation identity.
+    let testOccurrenceId = "ci-smoke-test-alarm"
     let request = ScheduleRequest(
       occurrenceId: testOccurrenceId,
       reservationId: testOccurrenceId,
@@ -589,14 +596,16 @@ final class AlarmKitBridge {
       }
       mirrorEntryPresent = existing != nil
 
+      let nativeAlarms = try nativeClientForAlarmKit().inventory()
       let currentIds: Set<String>
       do {
         currentIds = try Set(
-          canonicalNativeAlarmIds(
-            nativeClientForAlarmKit().inventory().map { $0.platformAlarmId }
+          authoritativeNativeAlarmIds(
+            nativeAlarms.map { $0.platformAlarmId },
+            mirrorSnapshot: mirrorSnapshot
           )
         )
-      } catch NativeSnapshotValidationError.invalidOrDuplicate {
+      } catch {
         return ScheduleRow(
           status: "failure",
           platformAlarmId: platformAlarmId,
@@ -643,7 +652,7 @@ final class AlarmKitBridge {
           platformAlarmId: platformAlarmId
         )
         pendingMirror[platformAlarmId] = mirrorEntry
-        try savePendingMirror(pendingMirror)
+        try saveMirrorState(mirror, pending: pendingMirror)
         mirrorEntryPresent = true
         pendingEntryCreated = true
       }
@@ -723,7 +732,10 @@ final class AlarmKitBridge {
 
   private func reconcileMirrorInMirrorTransaction(withNativeAlarmIds nativeAlarmIds: [String]) async {
     guard let mirrorSnapshot = try? loadMirrorSnapshot(),
-      let canonicalIds = try? canonicalNativeAlarmIds(nativeAlarmIds)
+      let canonicalIds = try? authoritativeNativeAlarmIds(
+        nativeAlarmIds,
+        mirrorSnapshot: mirrorSnapshot
+      )
     else { return }
     var reconciledMirror = mirrorSnapshot.normalized
     var reconciledPendingMirror = mirrorSnapshot.pendingNormalized
@@ -744,7 +756,9 @@ final class AlarmKitBridge {
     let prunedPendingMirror = reconciledPendingMirror.filter {
       currentIds.contains($0.key) || pendingNativeAlarmIds.contains($0.key)
     }
-    if prunedMirror != mirrorSnapshot.normalized
+    if !mirrorSnapshot.isEnvelope
+      || mirrorSnapshot.legacyPendingPresent
+      || prunedMirror != mirrorSnapshot.normalized
       || prunedPendingMirror != mirrorSnapshot.pendingNormalized
       || prunedMirror != mirrorSnapshot.stored
       || prunedPendingMirror != mirrorSnapshot.pendingStored
@@ -753,16 +767,37 @@ final class AlarmKitBridge {
     }
   }
 
-  private func loadMirror() throws -> [String: AlarmMirrorRecord] {
-    guard let data = UserDefaults.standard.data(forKey: nativeAlarmMirrorKey) else {
-      return [:]
-    }
-    return try JSONDecoder().decode([String: AlarmMirrorRecord].self, from: data)
-  }
-
   private func loadMirrorSnapshot() throws -> MirrorSnapshot {
-    let mirror = try loadMirror()
-    let pendingMirror = try loadPendingMirror()
+    let committedData = UserDefaults.standard.data(forKey: nativeAlarmMirrorKey)
+    let legacyPendingData = UserDefaults.standard.data(forKey: nativeAlarmPendingMirrorKey)
+    let state: StoredMirrorState
+    if let committedData,
+      isMirrorEnvelope(committedData)
+    {
+      let envelope = try JSONDecoder().decode(MirrorEnvelope.self, from: committedData)
+      guard envelope.version == nativeAlarmMirrorEnvelopeVersion else {
+        throw MirrorValidationError.invalid
+      }
+      state = StoredMirrorState(
+        committed: envelope.committed,
+        pending: envelope.pending,
+        isEnvelope: true,
+        legacyPendingPresent: legacyPendingData != nil
+      )
+    } else {
+      let committed = try decodeMirrorMap(committedData)
+      let pending = try decodeMirrorMap(legacyPendingData)
+      let merged = try mergeLegacyMirrorState(committed: committed, pending: pending)
+      state = StoredMirrorState(
+        committed: merged.committed,
+        pending: merged.pending,
+        isEnvelope: false,
+        legacyPendingPresent: false
+      )
+    }
+
+    let mirror = state.committed
+    let pendingMirror = state.pending
     let normalizedMirror = try validatedMirror(mirror)
     let normalizedPendingMirror = try validatedMirror(pendingMirror)
     var combined = normalizedMirror
@@ -775,15 +810,46 @@ final class AlarmKitBridge {
       stored: mirror,
       normalized: normalizedMirror,
       pendingStored: pendingMirror,
-      pendingNormalized: normalizedPendingMirror
+      pendingNormalized: normalizedPendingMirror,
+      isEnvelope: state.isEnvelope,
+      legacyPendingPresent: state.legacyPendingPresent
     )
   }
 
-  private func loadPendingMirror() throws -> [String: AlarmMirrorRecord] {
-    guard let data = UserDefaults.standard.data(forKey: nativeAlarmPendingMirrorKey) else {
+  private func decodeMirrorMap(_ data: Data?) throws -> [String: AlarmMirrorRecord] {
+    guard let data else {
       return [:]
     }
     return try JSONDecoder().decode([String: AlarmMirrorRecord].self, from: data)
+  }
+
+  private func isMirrorEnvelope(_ data: Data) -> Bool {
+    guard let object = try? JSONSerialization.jsonObject(with: data),
+      let dictionary = object as? [String: Any]
+    else { return false }
+    return dictionary["version"] != nil
+      || dictionary["committed"] != nil
+      || dictionary["pending"] != nil
+  }
+
+  private func mergeLegacyMirrorState(
+    committed: [String: AlarmMirrorRecord],
+    pending: [String: AlarmMirrorRecord]
+  ) throws -> (committed: [String: AlarmMirrorRecord], pending: [String: AlarmMirrorRecord]) {
+    let normalizedCommitted = try validatedMirror(committed)
+    let normalizedPending = try validatedMirror(pending)
+    var merged = normalizedCommitted
+    var recoverablePending = normalizedPending
+    for (key, record) in normalizedPending {
+      if let committedRecord = normalizedCommitted[key] {
+        guard committedRecord == record else { throw MirrorValidationError.invalid }
+        recoverablePending.removeValue(forKey: key)
+      } else {
+        merged[key] = record
+      }
+    }
+    _ = try validatedMirror(merged)
+    return (normalizedCommitted, recoverablePending)
   }
 
   private func validatedMirror(
@@ -822,18 +888,14 @@ final class AlarmKitBridge {
     _ mirror: [String: AlarmMirrorRecord],
     pending: [String: AlarmMirrorRecord]
   ) throws {
-    let mirrorData = try JSONEncoder().encode(mirror)
-    UserDefaults.standard.set(mirrorData, forKey: nativeAlarmMirrorKey)
-    try savePendingMirror(pending)
-  }
-
-  private func savePendingMirror(_ pending: [String: AlarmMirrorRecord]) throws {
-    let pendingData = try JSONEncoder().encode(pending)
-    if pending.isEmpty {
-      UserDefaults.standard.removeObject(forKey: nativeAlarmPendingMirrorKey)
-    } else {
-      UserDefaults.standard.set(pendingData, forKey: nativeAlarmPendingMirrorKey)
-    }
+    let envelope = MirrorEnvelope(
+      version: nativeAlarmMirrorEnvelopeVersion,
+      committed: mirror,
+      pending: pending
+    )
+    let data = try JSONEncoder().encode(envelope)
+    UserDefaults.standard.set(data, forKey: nativeAlarmMirrorKey)
+    UserDefaults.standard.removeObject(forKey: nativeAlarmPendingMirrorKey)
   }
 
   private enum ScheduleFailureCleanupOutcome: Equatable {
@@ -848,16 +910,17 @@ final class AlarmKitBridge {
     pendingEntryCreated: Bool
   ) -> ScheduleFailureCleanupOutcome {
     do {
+      let snapshot = try loadMirrorSnapshot()
       let currentNativeAlarmIds = Set(
-        try canonicalNativeAlarmIds(
-          nativeClientForAlarmKit().inventory().map { $0.platformAlarmId }
+        try authoritativeNativeAlarmIds(
+          nativeClientForAlarmKit().inventory().map { $0.platformAlarmId },
+          mirrorSnapshot: snapshot
         )
       )
       if currentNativeAlarmIds.contains(platformAlarmId) {
         return .nativePresent
       }
 
-      let snapshot = try loadMirrorSnapshot()
       var mirror = snapshot.stored
       var pendingMirror = snapshot.pendingStored
       let matchingKeys = try (pendingEntryCreated ? pendingMirror.keys : mirror.keys).filter {
@@ -869,7 +932,7 @@ final class AlarmKitBridge {
       else { return .uncertain }
       if pendingEntryCreated {
         pendingMirror.removeValue(forKey: matchingKey)
-        try savePendingMirror(pendingMirror)
+        try saveMirrorState(mirror, pending: pendingMirror)
       } else {
         mirror.removeValue(forKey: matchingKey)
         try saveMirrorState(mirror, pending: pendingMirror)
@@ -965,6 +1028,20 @@ private enum MirrorValidationError: Error {
 
 private enum NativeSnapshotValidationError: Error {
   case invalidOrDuplicate
+  case unknownIdentity
+}
+
+private struct MirrorEnvelope: Codable {
+  let version: Int
+  let committed: [String: AlarmMirrorRecord]
+  let pending: [String: AlarmMirrorRecord]
+}
+
+private struct StoredMirrorState {
+  let committed: [String: AlarmMirrorRecord]
+  let pending: [String: AlarmMirrorRecord]
+  let isEnvelope: Bool
+  let legacyPendingPresent: Bool
 }
 
 private struct MirrorSnapshot {
@@ -972,6 +1049,8 @@ private struct MirrorSnapshot {
   let normalized: [String: AlarmMirrorRecord]
   let pendingStored: [String: AlarmMirrorRecord]
   let pendingNormalized: [String: AlarmMirrorRecord]
+  let isEnvelope: Bool
+  let legacyPendingPresent: Bool
 }
 
 struct ScheduleRow {
@@ -1234,6 +1313,19 @@ private func canonicalNativeAlarmIds(_ platformAlarmIds: [String]) throws -> [St
     }
     return canonicalId
   }
+}
+
+private func authoritativeNativeAlarmIds(
+  _ platformAlarmIds: [String],
+  mirrorSnapshot: MirrorSnapshot
+) throws -> [String] {
+  let canonicalIds = try canonicalNativeAlarmIds(platformAlarmIds)
+  let knownIds = Set(mirrorSnapshot.normalized.keys)
+    .union(mirrorSnapshot.pendingNormalized.keys)
+  guard Set(canonicalIds).subtracting(knownIds).isEmpty else {
+    throw NativeSnapshotValidationError.unknownIdentity
+  }
+  return canonicalIds
 }
 
 func calarmShouldRemoveMirrorAfterScheduleFailure(

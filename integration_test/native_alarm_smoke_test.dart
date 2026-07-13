@@ -172,6 +172,7 @@ void main() {
         )
         .nativeSmokeTimeout('scheduleTestAlarm');
     final testAlarmSucceeded = testAlarmResult.isSuccess;
+    const testAlarmIdentity = 'ci-smoke-test-alarm';
     _emitEvidence('scheduleTestAlarm', {
       'platform': platform,
       'evidenceLabel': evidenceLabel,
@@ -189,10 +190,29 @@ void main() {
     final testPlatformAlarmId = testAlarmResult.platformAlarmId;
     var testCancelSucceeded = false;
     if (testPlatformAlarmId != null) {
+      final testInventory = await gateway.getInventory().nativeSmokeTimeout(
+        'getInventoryTestAlarm',
+      );
+      _emitEvidence('getInventoryTestAlarm', {
+        'platform': platform,
+        'evidenceLabel': evidenceLabel,
+        'status': testInventory.status.name,
+        'reservations': testInventory.rows.map(_inventoryEvidence).toList(),
+      });
+      expect(testInventory.isSuccess, isTrue);
+      expect(
+        testInventory.rows.where(
+          (row) =>
+              row.reservationId == testAlarmIdentity &&
+              row.occurrenceId == testAlarmIdentity &&
+              row.platformAlarmId == testPlatformAlarmId,
+        ),
+        hasLength(1),
+      );
       final cancelTestResult = await gateway
           .cancelOccurrences([
             NativeAlarmCancelRequest(
-              occurrenceId: 'ci-smoke-test-alarm',
+              occurrenceId: testAlarmIdentity,
               platformAlarmId: testPlatformAlarmId,
             ),
           ])
@@ -205,6 +225,26 @@ void main() {
       });
       expect(cancelTestResult.alarms, hasLength(1));
       testCancelSucceeded = cancelTestResult.isSuccess;
+      if (testCancelSucceeded) {
+        final testInventoryAfterCancel = await gateway
+            .getInventory()
+            .nativeSmokeTimeout('getInventoryTestAlarmAfterCancel');
+        _emitEvidence('getInventoryTestAlarmAfterCancel', {
+          'platform': platform,
+          'evidenceLabel': evidenceLabel,
+          'status': testInventoryAfterCancel.status.name,
+          'reservations': testInventoryAfterCancel.rows
+              .map(_inventoryEvidence)
+              .toList(),
+        });
+        expect(testInventoryAfterCancel.isSuccess, isTrue);
+        expect(
+          testInventoryAfterCancel.rows.where(
+            (row) => row.reservationId == testAlarmIdentity,
+          ),
+          isEmpty,
+        );
+      }
     }
 
     final criticalOperationsSucceeded =
