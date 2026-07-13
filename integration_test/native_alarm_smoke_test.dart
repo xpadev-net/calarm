@@ -36,6 +36,7 @@ void main() {
       'requiresFullScreenIntentPermission':
           capability.requiresFullScreenIntentPermission,
       'supportsTestAlarm': capability.supportsTestAlarm,
+      'supportsInventory': capability.supportsInventory,
     });
 
     final scheduleRequest = NativeAlarmScheduleRequest(
@@ -77,7 +78,7 @@ void main() {
         reason: 'Non-Android smoke must not declare Android.',
       );
     }
-    if (isAndroidRuntime && scheduleSucceeded) {
+    if (scheduleSucceeded) {
       final inventory = await gateway.getInventory().nativeSmokeTimeout(
         'getInventory',
       );
@@ -87,7 +88,12 @@ void main() {
         'status': inventory.status.name,
         'reservations': inventory.rows.map(_inventoryEvidence).toList(),
       });
-      expect(inventory.isSuccess, isTrue);
+      expect(
+        inventory.isSuccess,
+        isTrue,
+        reason:
+            'Successful native scheduling must expose authoritative inventory.',
+      );
       final matchingRows = inventory.rows
           .where(
             (row) =>
@@ -98,7 +104,10 @@ void main() {
       expect(matchingRows, hasLength(1));
       expect(
         matchingRows.single.status,
-        NativeAlarmReservationStatus.scheduled,
+        anyOf(
+          NativeAlarmReservationStatus.scheduled,
+          NativeAlarmReservationStatus.ringing,
+        ),
       );
     }
 
@@ -123,6 +132,28 @@ void main() {
       });
       expect(cancelResult.alarms, hasLength(1));
       scheduleCancelSucceeded = cancelResult.isSuccess;
+      if (scheduleCancelSucceeded) {
+        final inventoryAfterCancel = await gateway
+            .getInventory()
+            .nativeSmokeTimeout('getInventoryAfterCancel');
+        _emitEvidence('getInventoryAfterCancel', {
+          'platform': platform,
+          'evidenceLabel': evidenceLabel,
+          'status': inventoryAfterCancel.status.name,
+          'reservations': inventoryAfterCancel.rows
+              .map(_inventoryEvidence)
+              .toList(),
+        });
+        expect(inventoryAfterCancel.isSuccess, isTrue);
+        expect(
+          inventoryAfterCancel.rows.where(
+            (row) => row.reservationId == scheduleRequest.reservationId,
+          ),
+          isEmpty,
+          reason:
+              'Cancelled native reservations must disappear from inventory.',
+        );
+      }
     } else {
       _emitEvidence('cancelOccurrences', {
         'platform': platform,

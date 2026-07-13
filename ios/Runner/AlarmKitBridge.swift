@@ -1,13 +1,17 @@
 import AlarmKit
+import CryptoKit
 import Flutter
 import Foundation
 import SwiftUI
 
 private let nativeAlarmChannelName = "net.xpadev.calarm/native_alarm"
 private let nativeAlarmSchemaVersion = 1
+private let nativeAlarmMirrorKey = "net.xpadev.calarm/native_alarm_mirror"
 
+@MainActor
 final class AlarmKitBridge {
   private let channel: FlutterMethodChannel
+  private var alarmObservationTask: Task<Void, Never>?
 
   init(messenger: FlutterBinaryMessenger) {
     channel = FlutterMethodChannel(
@@ -15,16 +19,24 @@ final class AlarmKitBridge {
       binaryMessenger: messenger
     )
     channel.setMethodCallHandler(handle)
+    if #available(iOS 26.0, *) {
+      alarmObservationTask = Task { @MainActor [weak self] in
+        await self?.observeAlarmUpdates()
+      }
+    }
   }
 
   private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
     case "getCapability":
       guard validateBasePayload(call.arguments, result: result) else { return }
-      result(getCapability())
+      complete(result, getCapability())
     case "requestPermissionIfNeeded":
       guard validateBasePayload(call.arguments, result: result) else { return }
       requestPermission(result: result)
+    case "getInventory":
+      guard validateBasePayload(call.arguments, result: result) else { return }
+      getInventory(result: result)
     case "scheduleOccurrences":
       scheduleOccurrences(call.arguments, result: result)
     case "cancelOccurrences", "cancelPlan":
@@ -32,7 +44,7 @@ final class AlarmKitBridge {
     case "scheduleTestAlarm":
       scheduleTestAlarm(call.arguments, result: result)
     default:
-      result(FlutterMethodNotImplemented)
+      complete(result, FlutterMethodNotImplemented)
     }
   }
 
@@ -48,6 +60,7 @@ final class AlarmKitBridge {
       response["requiresFullScreenIntentPermission"] = false
       response["requiresNotificationChannelSetup"] = false
       response["supportsTestAlarm"] = false
+      response["supportsInventory"] = false
       return response
     }
 
@@ -61,6 +74,7 @@ final class AlarmKitBridge {
     response["requiresFullScreenIntentPermission"] = false
     response["requiresNotificationChannelSetup"] = false
     response["supportsTestAlarm"] = true
+    response["supportsInventory"] = true
     return response
   }
 
@@ -69,19 +83,107 @@ final class AlarmKitBridge {
       var response = baseResponse()
       response["status"] = "unavailable"
       response["permissionStatus"] = "unavailable"
-      result(response)
+      complete(result, response)
       return
     }
 
-    Task {
+    Task { @MainActor in
       do {
         let state = try await AlarmManager.shared.requestAuthorization()
         var response = baseResponse()
         response["status"] = state == .authorized ? "granted" : "denied"
         response["permissionStatus"] = permissionStatus(state)
-        result(response)
+        complete(result, response)
       } catch {
-        result(
+        complete(
+          result,
+          FlutterError(
+            code: "nativeError",
+            message: error.localizedDescription,
+            details: nil
+          )
+        )
+      }
+    }
+  }
+
+  private func getInventory(result: @escaping FlutterResult) {
+    guard #available(iOS 26.0, *) else {
+      complete(
+        result,
+        FlutterError(
+          code: "unavailable",
+          message: "AlarmKit requires iOS 26.0 or newer.",
+          details: nil
+        )
+      )
+      return
+    }
+
+    Task { @MainActor in
+      do {
+        let mirror = try loadMirror()
+        let alarms = try AlarmManager.shared.alarms
+        let currentIds = Set(alarms.map { $0.id.uuidString })
+        var seenReservationIds = Set<String>()
+        var seenOccurrenceIds = Set<String>()
+        var seenPlatformIds = Set<String>()
+        var rows = [[String: Any?]]()
+
+        for alarm in alarms {
+          let platformAlarmId = alarm.id.uuidString
+          guard let record = mirror[platformAlarmId] else {
+            complete(
+              result,
+              FlutterError(
+                code: "corrupt",
+                message: "Unknown AlarmKit identity: \(platformAlarmId).",
+                details: nil
+              )
+            )
+            return
+          }
+          guard record.platformAlarmId == platformAlarmId,
+            !record.reservationId.isEmpty,
+            !record.occurrenceId.isEmpty,
+            !record.wakePlanId.isEmpty,
+            seenReservationIds.insert(record.reservationId).inserted,
+            seenOccurrenceIds.insert(record.occurrenceId).inserted,
+            seenPlatformIds.insert(platformAlarmId).inserted
+          else {
+            complete(
+              result,
+              FlutterError(
+                code: "corrupt",
+                message: "Corrupt or duplicate AlarmKit identity: \(platformAlarmId).",
+                details: nil
+              )
+            )
+            return
+          }
+
+          rows.append(
+            inventoryRow(
+              record: record,
+              status: inventoryStatus(for: alarm.state)
+            )
+          )
+        }
+
+        // AlarmKit removes one-shot alarms after they fire or stop. Pruning
+        // the mirror makes that removal observable as an absent row on the
+        // next inventory read, including after the app was not running.
+        let prunedMirror = mirror.filter { currentIds.contains($0.key) }
+        if prunedMirror.count != mirror.count {
+          try saveMirror(prunedMirror)
+        }
+
+        var response = baseResponse()
+        response["reservations"] = rows
+        complete(result, response)
+      } catch {
+        complete(
+          result,
           FlutterError(
             code: "nativeError",
             message: error.localizedDescription,
@@ -95,31 +197,31 @@ final class AlarmKitBridge {
   private func scheduleOccurrences(_ arguments: Any?, result: @escaping FlutterResult) {
     guard let payload = validatedPayload(arguments, result: result) else { return }
     guard let occurrencePayloads = payload["occurrences"] as? [[String: Any?]] else {
-      result(invalidRequest("occurrences must be a list."))
+      complete(result, invalidRequest("occurrences must be a list."))
       return
     }
 
-    Task {
+    Task { @MainActor in
       let rows = await occurrencePayloads.asyncMap { payload in
         await scheduleOccurrence(payload)
       }
       var response = baseResponse()
       response["occurrences"] = rows
-      result(response)
+      complete(result, response)
     }
   }
 
   private func cancelAlarms(_ arguments: Any?, result: @escaping FlutterResult) {
     guard let payload = validatedPayload(arguments, result: result) else { return }
     guard let alarmPayloads = payload["alarms"] as? [[String: Any?]] else {
-      result(invalidRequest("alarms must be a list."))
+      complete(result, invalidRequest("alarms must be a list."))
       return
     }
 
     let rows = alarmPayloads.map(cancelAlarm)
     var response = baseResponse()
     response["alarms"] = rows
-    result(response)
+    complete(result, response)
   }
 
   private func scheduleTestAlarm(_ arguments: Any?, result: @escaping FlutterResult) {
@@ -134,13 +236,15 @@ final class AlarmKitBridge {
       response["status"] = "failure"
       response["failureReason"] = "invalidRequest"
       response["failureMessage"] = "fireAfterMillis must be a positive integer."
-      result(response)
+      complete(result, response)
       return
     }
 
     let scheduledAt = Date().addingTimeInterval(TimeInterval(fireAfterMillis) / 1000.0)
+    let testOccurrenceId = "test-\(UUID().uuidString)"
     let request = ScheduleRequest(
-      occurrenceId: "test-\(UUID().uuidString)",
+      occurrenceId: testOccurrenceId,
+      reservationId: testOccurrenceId,
       wakePlanId: "test",
       scheduledAt: scheduledAt,
       targetAt: scheduledAt,
@@ -148,7 +252,7 @@ final class AlarmKitBridge {
       vibrationEnabled: vibrationEnabled
     )
 
-    Task {
+    Task { @MainActor in
       let row = await scheduleAlarm(request)
       var response = baseResponse()
       if row.status == "success", let platformAlarmId = row.platformAlarmId {
@@ -159,7 +263,7 @@ final class AlarmKitBridge {
         response["failureReason"] = row.failureReason ?? "nativeError"
         response["failureMessage"] = row.failureMessage
       }
-      result(response)
+      complete(result, response)
     }
   }
 
@@ -174,14 +278,19 @@ final class AlarmKitBridge {
     else {
       return scheduleFailureRow(
         occurrenceId: stringValue(payloadValue(payload, "occurrenceId")) ?? "",
+        reservationId: stringValue(payloadValue(payload, "reservationId"))
+          ?? stringValue(payloadValue(payload, "occurrenceId"))
+          ?? "",
         wakePlanId: stringValue(payloadValue(payload, "wakePlanId")) ?? "",
         reason: "invalidRequest",
         message: "Occurrence requires occurrenceId, wakePlanId, scheduledAt, and targetAt."
       )
     }
+    let reservationId = nonEmptyString(payloadValue(payload, "reservationId")) ?? occurrenceId
 
     let request = ScheduleRequest(
       occurrenceId: occurrenceId,
+      reservationId: reservationId,
       wakePlanId: wakePlanId,
       scheduledAt: scheduledAt,
       targetAt: targetAt,
@@ -192,12 +301,14 @@ final class AlarmKitBridge {
     if row.status == "success" {
       return scheduleSuccessRow(
         occurrenceId: occurrenceId,
+        reservationId: reservationId,
         wakePlanId: wakePlanId,
         platformAlarmId: row.platformAlarmId ?? ""
       )
     }
     return scheduleFailureRow(
       occurrenceId: occurrenceId,
+      reservationId: reservationId,
       wakePlanId: wakePlanId,
       reason: row.failureReason ?? "nativeError",
       message: row.failureMessage,
@@ -209,14 +320,17 @@ final class AlarmKitBridge {
     guard let occurrenceId = nonEmptyString(payloadValue(payload, "occurrenceId")) else {
       return cancelFailureRow(
         occurrenceId: "",
+        reservationId: stringValue(payloadValue(payload, "reservationId")) ?? "",
         platformAlarmId: stringValue(payloadValue(payload, "platformAlarmId")) ?? "",
         reason: "invalidRequest",
         message: "occurrenceId is required."
       )
     }
+    let reservationId = nonEmptyString(payloadValue(payload, "reservationId")) ?? occurrenceId
     guard let platformAlarmId = nonEmptyString(payloadValue(payload, "platformAlarmId")) else {
       return cancelFailureRow(
         occurrenceId: occurrenceId,
+        reservationId: reservationId,
         platformAlarmId: "",
         reason: "missingPlatformAlarmId",
         message: "platformAlarmId is required."
@@ -225,6 +339,7 @@ final class AlarmKitBridge {
     guard #available(iOS 26.0, *) else {
       return cancelFailureRow(
         occurrenceId: occurrenceId,
+        reservationId: reservationId,
         platformAlarmId: platformAlarmId,
         reason: "unavailable",
         message: "AlarmKit requires iOS 26.0 or newer."
@@ -233,6 +348,7 @@ final class AlarmKitBridge {
     guard let alarmId = UUID(uuidString: platformAlarmId) else {
       return cancelFailureRow(
         occurrenceId: occurrenceId,
+        reservationId: reservationId,
         platformAlarmId: platformAlarmId,
         reason: "invalidRequest",
         message: "platformAlarmId must be an AlarmKit UUID."
@@ -240,11 +356,30 @@ final class AlarmKitBridge {
     }
 
     do {
+      var mirror = try loadMirror()
+      if let record = mirror[platformAlarmId],
+        record.occurrenceId != occurrenceId || record.reservationId != reservationId
+      {
+        return cancelFailureRow(
+          occurrenceId: occurrenceId,
+          reservationId: reservationId,
+          platformAlarmId: platformAlarmId,
+          reason: "invalidRequest",
+          message: "AlarmKit identity does not match the requested reservation."
+        )
+      }
       try AlarmManager.shared.cancel(id: alarmId)
-      return cancelSuccessRow(occurrenceId: occurrenceId, platformAlarmId: platformAlarmId)
+      mirror.removeValue(forKey: platformAlarmId)
+      try saveMirror(mirror)
+      return cancelSuccessRow(
+        occurrenceId: occurrenceId,
+        reservationId: reservationId,
+        platformAlarmId: platformAlarmId
+      )
     } catch {
       return cancelFailureRow(
         occurrenceId: occurrenceId,
+        reservationId: reservationId,
         platformAlarmId: platformAlarmId,
         reason: "nativeError",
         message: error.localizedDescription
@@ -271,8 +406,55 @@ final class AlarmKitBridge {
       )
     }
 
-    let alarmId = UUID()
+    let platformAlarmId = calarmPlatformAlarmId(for: request.reservationId)
+    guard let alarmId = UUID(uuidString: platformAlarmId) else {
+      return ScheduleRow(
+        status: "failure",
+        platformAlarmId: nil,
+        failureReason: "invalidRequest",
+        failureMessage: "reservationId could not produce an AlarmKit UUID."
+      )
+    }
+
+    var mirrorEntryWritten = false
     do {
+      var mirror = try loadMirror()
+      if let existing = mirror[platformAlarmId], !existing.matches(request) {
+        return ScheduleRow(
+          status: "failure",
+          platformAlarmId: platformAlarmId,
+          failureReason: "unknown",
+          failureMessage: "reservationId is already bound to a different alarm."
+        )
+      }
+
+      let currentIds = Set(try AlarmManager.shared.alarms.map { $0.id.uuidString })
+      if currentIds.contains(platformAlarmId) {
+        guard mirror[platformAlarmId] != nil else {
+          return ScheduleRow(
+            status: "failure",
+            platformAlarmId: platformAlarmId,
+            failureReason: "unknown",
+            failureMessage: "AlarmKit contains an unknown native identity."
+          )
+        }
+        return ScheduleRow(
+          status: "success",
+          platformAlarmId: platformAlarmId,
+          failureReason: nil,
+          failureMessage: nil
+        )
+      }
+
+      // Persist before crossing into AlarmKit so an interrupted process can
+      // recover the caller identity from the next inventory read.
+      mirror[platformAlarmId] = AlarmMirrorRecord(
+        request: request,
+        platformAlarmId: platformAlarmId
+      )
+      try saveMirror(mirror)
+      mirrorEntryWritten = true
+
       let attributes = alarmAttributes(for: request)
       let configuration = AlarmManager.AlarmConfiguration<CalarmAlarmMetadata>.alarm(
         schedule: .fixed(request.scheduledAt),
@@ -289,6 +471,9 @@ final class AlarmKitBridge {
         failureMessage: nil
       )
     } catch AlarmManager.AlarmError.maximumLimitReached {
+      if mirrorEntryWritten {
+        removeMirrorEntry(platformAlarmId)
+      }
       return ScheduleRow(
         status: "failure",
         platformAlarmId: nil,
@@ -296,12 +481,56 @@ final class AlarmKitBridge {
         failureMessage: "AlarmKit maximum pending alarm limit was reached."
       )
     } catch {
+      if mirrorEntryWritten {
+        removeMirrorEntry(platformAlarmId)
+      }
       return ScheduleRow(
         status: "failure",
         platformAlarmId: nil,
         failureReason: "nativeError",
         failureMessage: error.localizedDescription
       )
+    }
+  }
+
+  @available(iOS 26.0, *)
+  private func observeAlarmUpdates() async {
+    for await alarms in AlarmManager.shared.alarmUpdates {
+      reconcileMirror(with: alarms)
+    }
+  }
+
+  @available(iOS 26.0, *)
+  private func reconcileMirror(with alarms: [Alarm]) {
+    guard let mirror = try? loadMirror() else { return }
+    let currentIds = Set(alarms.map { $0.id.uuidString })
+    let prunedMirror = mirror.filter { currentIds.contains($0.key) }
+    if prunedMirror.count != mirror.count {
+      try? saveMirror(prunedMirror)
+    }
+  }
+
+  private func loadMirror() throws -> [String: AlarmMirrorRecord] {
+    guard let data = UserDefaults.standard.data(forKey: nativeAlarmMirrorKey) else {
+      return [:]
+    }
+    return try JSONDecoder().decode([String: AlarmMirrorRecord].self, from: data)
+  }
+
+  private func saveMirror(_ mirror: [String: AlarmMirrorRecord]) throws {
+    let data = try JSONEncoder().encode(mirror)
+    UserDefaults.standard.set(data, forKey: nativeAlarmMirrorKey)
+  }
+
+  private func removeMirrorEntry(_ platformAlarmId: String) {
+    guard var mirror = try? loadMirror() else { return }
+    mirror.removeValue(forKey: platformAlarmId)
+    try? saveMirror(mirror)
+  }
+
+  private func complete(_ result: @escaping FlutterResult, _ value: Any?) {
+    DispatchQueue.main.async {
+      result(value)
     }
   }
 
@@ -331,17 +560,20 @@ final class AlarmKitBridge {
     )
   }
 
-  private func validateBasePayload(_ arguments: Any?, result: FlutterResult) -> Bool {
+  private func validateBasePayload(_ arguments: Any?, result: @escaping FlutterResult) -> Bool {
     validatedPayload(arguments, result: result) != nil
   }
 
-  private func validatedPayload(_ arguments: Any?, result: FlutterResult) -> [String: Any?]? {
+  private func validatedPayload(
+    _ arguments: Any?,
+    result: @escaping FlutterResult
+  ) -> [String: Any?]? {
     guard let payload = arguments as? [String: Any?] else {
-      result(invalidRequest("Arguments must be a map."))
+      complete(result, invalidRequest("Arguments must be a map."))
       return nil
     }
     guard intValue(payloadValue(payload, "schemaVersion")) == nativeAlarmSchemaVersion else {
-      result(invalidRequest("Unsupported native alarm schemaVersion."))
+      complete(result, invalidRequest("Unsupported native alarm schemaVersion."))
       return nil
     }
     return payload
@@ -359,11 +591,32 @@ private struct CalarmAlarmMetadata: AlarmMetadata {
 
 private struct ScheduleRequest {
   let occurrenceId: String
+  let reservationId: String
   let wakePlanId: String
   let scheduledAt: Date
   let targetAt: Date
   let soundId: String
   let vibrationEnabled: Bool
+}
+
+private struct AlarmMirrorRecord: Codable, Equatable {
+  let reservationId: String
+  let occurrenceId: String
+  let wakePlanId: String
+  let platformAlarmId: String
+
+  init(request: ScheduleRequest, platformAlarmId: String) {
+    reservationId = request.reservationId
+    occurrenceId = request.occurrenceId
+    wakePlanId = request.wakePlanId
+    self.platformAlarmId = platformAlarmId
+  }
+
+  func matches(_ request: ScheduleRequest) -> Bool {
+    reservationId == request.reservationId &&
+      occurrenceId == request.occurrenceId &&
+      wakePlanId == request.wakePlanId
+  }
 }
 
 private struct ScheduleRow {
@@ -393,11 +646,13 @@ private func permissionStatus(_ state: AlarmManager.AuthorizationState) -> Strin
 
 private func scheduleSuccessRow(
   occurrenceId: String,
+  reservationId: String,
   wakePlanId: String,
   platformAlarmId: String
 ) -> [String: Any?] {
   [
     "occurrenceId": occurrenceId,
+    "reservationId": reservationId,
     "wakePlanId": wakePlanId,
     "status": "success",
     "platformAlarmId": platformAlarmId,
@@ -406,6 +661,7 @@ private func scheduleSuccessRow(
 
 private func scheduleFailureRow(
   occurrenceId: String,
+  reservationId: String,
   wakePlanId: String,
   reason: String,
   message: String?,
@@ -413,6 +669,7 @@ private func scheduleFailureRow(
 ) -> [String: Any?] {
   [
     "occurrenceId": occurrenceId,
+    "reservationId": reservationId,
     "wakePlanId": wakePlanId,
     "status": "failure",
     "failureReason": reason,
@@ -421,9 +678,14 @@ private func scheduleFailureRow(
   ]
 }
 
-private func cancelSuccessRow(occurrenceId: String, platformAlarmId: String) -> [String: Any?] {
+private func cancelSuccessRow(
+  occurrenceId: String,
+  reservationId: String,
+  platformAlarmId: String
+) -> [String: Any?] {
   [
     "occurrenceId": occurrenceId,
+    "reservationId": reservationId,
     "platformAlarmId": platformAlarmId,
     "status": "success",
   ]
@@ -431,12 +693,14 @@ private func cancelSuccessRow(occurrenceId: String, platformAlarmId: String) -> 
 
 private func cancelFailureRow(
   occurrenceId: String,
+  reservationId: String,
   platformAlarmId: String,
   reason: String,
   message: String?
 ) -> [String: Any?] {
   [
     "occurrenceId": occurrenceId,
+    "reservationId": reservationId,
     "platformAlarmId": platformAlarmId,
     "status": "failure",
     "failureReason": reason,
@@ -446,6 +710,39 @@ private func cancelFailureRow(
 
 private func invalidRequest(_ message: String) -> FlutterError {
   FlutterError(code: "invalidRequest", message: message, details: nil)
+}
+
+func calarmPlatformAlarmId(for reservationId: String) -> String {
+  var bytes = Array(SHA256.hash(data: Data(reservationId.utf8)).prefix(16))
+  bytes[6] = (bytes[6] & 0x0f) | 0x50
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  let hex = bytes.map { String(format: "%02x", $0) }
+  return "\(hex[0])\(hex[1])\(hex[2])\(hex[3])-\(hex[4])\(hex[5])-\(hex[6])\(hex[7])-\(hex[8])\(hex[9])-\(hex[10])\(hex[11])\(hex[12])\(hex[13])\(hex[14])\(hex[15])"
+}
+
+@available(iOS 26.0, *)
+func inventoryStatus(for state: Alarm.State) -> String {
+  switch state {
+  case .scheduled, .countdown, .paused:
+    return "scheduled"
+  case .alerting:
+    return "ringing"
+  @unknown default:
+    return "unknown"
+  }
+}
+
+private func inventoryRow(
+  record: AlarmMirrorRecord,
+  status: String
+) -> [String: Any?] {
+  [
+    "reservationId": record.reservationId,
+    "occurrenceId": record.occurrenceId,
+    "wakePlanId": record.wakePlanId,
+    "platformAlarmId": record.platformAlarmId,
+    "status": status,
+  ]
 }
 
 private func nonEmptyString(_ value: Any?) -> String? {
