@@ -396,12 +396,18 @@
 ### Task_12: Implement AlarmKit inventory and stop-state observation on iOS
 
 - status: in_progress
-- worker:
+- initial_worker:
   - thread: `019f5b6a-1df9-7392-93f9-9b5c6d87c2be`
   - worktree: `/Users/xpadev/.codex/worktrees/a8e4/calarm`
   - branch: `codex/reviewfix-ios-native-inventory`
   - runtime: `gpt-5.6-luna` / `high`
-  - startup: active beyond worktree setup; onboarding and implementation in progress.
+  - state: interrupted and archived after remaining at a clean detached base for over one hour; one startup resume produced no progress, and no branch, edit, commit, push, or PR was created.
+- replacement_worker:
+  - thread: `019f5bac-5671-7022-8a1a-12fa6cc67ee3`
+  - worktree: `/Users/xpadev/.codex/worktrees/5a01/calarm`
+  - branch: `codex/reviewfix-ios-native-inventory-retry`
+  - runtime: `gpt-5.6-luna` / `high`
+  - startup: active beyond replacement worktree setup; onboarding and implementation in progress.
 - type: impl
 - owns:
   - `ios/Runner/AlarmKitBridge.swift`
@@ -663,6 +669,13 @@
   - Startup state: active beyond worktree creation with the required `gpt-5.6-luna` / `high` runtime and read-only independent Reviewer handoff contract.
   - Parent checkout remains product-code clean; user-owned untracked `docs/coding-agent/reports/` is preserved.
   - Next action: wait for the exact-head `REVIEW_READY` report, then create a fresh read-only Reviewer Codex worktree thread before permitting PR creation.
+
+- 2026-07-13 Task_12 startup worker replaced after a non-progressing active turn.
+  - Initial thread `019f5b6a-1df9-7392-93f9-9b5c6d87c2be` remained at clean detached base `97bd5ad` for over one hour with no tool activity, branch, edit, commit, push, or PR; one bounded Luna/High resume instruction did not start work.
+  - The initial thread was interrupted and archived to prevent duplicate implementation.
+  - Replacement thread `019f5bac-5671-7022-8a1a-12fa6cc67ee3` started in Codex worktree `/Users/xpadev/.codex/worktrees/5a01/calarm` on branch `codex/reviewfix-ios-native-inventory-retry` with `gpt-5.6-luna` / `high`.
+  - Scope, validation, independent Reviewer handoff, no-merge contract, and parent product-code boundary remain unchanged.
+  - Next action: wait for the replacement worker's exact-head `REVIEW_READY` report.
 
 ## Decision Log
 
