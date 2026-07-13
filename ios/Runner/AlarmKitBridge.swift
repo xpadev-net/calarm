@@ -692,8 +692,35 @@ final class AlarmKitBridge {
             failureMessage: "AlarmKit contains an unknown native identity."
           )
         }
-        _ = existing
         pendingMirror.removeValue(forKey: platformAlarmId)
+
+        if !existing.matches(request) {
+          // The stable reservation may be retried with a recreated occurrence.
+          // Replace the native configuration before publishing the new mirror,
+          // so inventory cannot claim that new metadata is scheduled on the
+          // old AlarmKit configuration.
+          try nativeClientForAlarmKit().cancel(id: alarmId)
+          mirror[platformAlarmId] = AlarmMirrorRecord(
+            request: request,
+            platformAlarmId: platformAlarmId
+          )
+          try saveMirrorState(mirror, pending: pendingMirror)
+          let scheduledPlatformAlarmId = try await nativeClientForAlarmKit().schedule(
+            id: alarmId,
+            request: request
+          )
+          guard try canonicalPlatformAlarmId(scheduledPlatformAlarmId) == platformAlarmId else {
+            throw MirrorValidationError.invalid
+          }
+          try saveMirrorState(mirror, pending: pendingMirror)
+          return ScheduleRow(
+            status: "success",
+            platformAlarmId: platformAlarmId,
+            failureReason: nil,
+            failureMessage: nil
+          )
+        }
+
         mirror[platformAlarmId] = AlarmMirrorRecord(
           request: request,
           platformAlarmId: platformAlarmId

@@ -101,7 +101,8 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual((await bridge.scheduleAlarm(original)).status, "success")
     let retryResult = await bridge.scheduleAlarm(recreated)
     XCTAssertEqual(retryResult.status, "success")
-    XCTAssertEqual(fake.scheduleAttempts, 1)
+    XCTAssertEqual(fake.scheduleAttempts, 2)
+    XCTAssertEqual(fake.cancelCalls, 1)
 
     let inventory = await inventoryValue(bridge)
     let rows = (inventory as? [String: Any?])?["reservations"]
