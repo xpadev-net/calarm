@@ -238,12 +238,15 @@ void main() {
         'reservations': testInventory.rows.map(_inventoryEvidence).toList(),
       });
       expect(testInventory.isSuccess, isTrue);
-      final matchingTestRows = testInventory.rows
+      final fallbackTestRows = testInventory.rows
           .where(
             (row) =>
                 row.reservationId == testAlarmIdentity &&
                 row.occurrenceId == testAlarmIdentity,
           )
+          .toList();
+      final matchingTestRows = fallbackTestRows
+          .where((row) => row.wakePlanId == 'test')
           .toList();
       if (testPlatformAlarmId != null) {
         final platformRows = testInventory.rows
@@ -266,7 +269,13 @@ void main() {
         testReservationId = row.reservationId;
         testPlatformAlarmId = row.platformAlarmId;
         testIdentityCorrelated = true;
-      } else if (matchingTestRows.isNotEmpty) {
+      } else if (fallbackTestRows.isNotEmpty) {
+        expect(
+          fallbackTestRows,
+          hasLength(1),
+          reason:
+              'The stable fallback tuple must map to exactly one test-alarm row.',
+        );
         expect(matchingTestRows, hasLength(1));
         final row = matchingTestRows.single;
         testOccurrenceId = row.occurrenceId;
@@ -297,28 +306,20 @@ void main() {
         expect(cancelTestResult.alarms, hasLength(1));
         testCancelSucceeded = cancelTestResult.isSuccess;
         if (testCancelSucceeded) {
-          final testInventoryAfterCancel = await gateway
-              .getInventory()
-              .nativeSmokeTimeout('getInventoryTestAlarmAfterCancel');
-          _emitEvidence('getInventoryTestAlarmAfterCancel', {
-            'platform': platform,
-            'evidenceLabel': evidenceLabel,
-            'status': testInventoryAfterCancel.status.name,
-            'reservations': testInventoryAfterCancel.rows
-                .map(_inventoryEvidence)
-                .toList(),
-          });
-          expect(testInventoryAfterCancel.isSuccess, isTrue);
-          expect(
-            testInventoryAfterCancel.rows.where(
-              (row) =>
-                  row.platformAlarmId == testPlatformAlarmId &&
-                  row.reservationId == testReservationId &&
-                  row.occurrenceId == testOccurrenceId,
-            ),
-            isEmpty,
+          testCleanupVerified = await _bestEffortCleanupTestAlarm(
+            gateway: gateway,
+            occurrenceId: testOccurrenceId,
+            reservationId: testReservationId,
+            platformAlarmId: testPlatformAlarmId,
+            expectedWakePlanId: 'test',
+            fallbackOccurrenceId: testAlarmIdentity,
+            fallbackReservationId: testAlarmIdentity,
+            platformAlarmIdAlreadyCorrelated: true,
+            cancelBeforeVerification: false,
+            platform: platform,
+            evidenceLabel: evidenceLabel,
+            cleanupLabel: 'testAlarmAfterCancel',
           );
-          testCleanupVerified = true;
         }
       } else {
         // The first inventory is only a recovery hint. Always run the
@@ -341,6 +342,8 @@ void main() {
           reservationId: testReservationId,
           platformAlarmId: testPlatformAlarmId,
           expectedWakePlanId: 'test',
+          fallbackOccurrenceId: testAlarmIdentity,
+          fallbackReservationId: testAlarmIdentity,
           platform: platform,
           evidenceLabel: evidenceLabel,
           cleanupLabel: 'testAlarm',
@@ -381,6 +384,10 @@ Future<bool> _bestEffortCleanupTestAlarm({
   required String reservationId,
   required String? platformAlarmId,
   required String expectedWakePlanId,
+  String? fallbackOccurrenceId,
+  String? fallbackReservationId,
+  bool platformAlarmIdAlreadyCorrelated = false,
+  bool cancelBeforeVerification = true,
   required String platform,
   required String evidenceLabel,
   required String cleanupLabel,
@@ -388,13 +395,27 @@ Future<bool> _bestEffortCleanupTestAlarm({
   String? recoveredPlatformAlarmId = platformAlarmId;
   var recoveredOccurrenceId = occurrenceId;
   var recoveredReservationId = reservationId;
-  var platformCorrelationVerified = platformAlarmId == null;
+  var platformCorrelationVerified =
+      platformAlarmId == null || platformAlarmIdAlreadyCorrelated;
 
   bool isExactRow(NativeAlarmInventoryRow row) {
     return (recoveredPlatformAlarmId == null ||
             row.platformAlarmId == recoveredPlatformAlarmId) &&
         row.occurrenceId == recoveredOccurrenceId &&
-        row.reservationId == recoveredReservationId;
+        row.reservationId == recoveredReservationId &&
+        row.wakePlanId == expectedWakePlanId;
+  }
+
+  bool isPotentialCandidate(NativeAlarmInventoryRow row) {
+    return row.wakePlanId == expectedWakePlanId ||
+        (recoveredPlatformAlarmId != null &&
+            row.platformAlarmId == recoveredPlatformAlarmId) ||
+        (row.occurrenceId == recoveredOccurrenceId &&
+            row.reservationId == recoveredReservationId) ||
+        (fallbackOccurrenceId != null &&
+            fallbackReservationId != null &&
+            row.occurrenceId == fallbackOccurrenceId &&
+            row.reservationId == fallbackReservationId);
   }
 
   Future<bool> cancelExact(String id, String phase) async {
@@ -468,13 +489,24 @@ Future<bool> _bestEffortCleanupTestAlarm({
           platformCorrelationVerified = true;
         }
       } else {
-        final tupleMatches = inventory.rows
+        final tupleCandidateRows = inventory.rows
             .where(
               (row) =>
                   row.reservationId == recoveredReservationId &&
                   row.occurrenceId == recoveredOccurrenceId,
             )
             .toList();
+        final tupleMatches = tupleCandidateRows
+            .where((row) => row.wakePlanId == expectedWakePlanId)
+            .toList();
+        if (tupleCandidateRows.length != tupleMatches.length) {
+          _emitEvidence('cleanup${cleanupLabel}Failure', {
+            'platform': platform,
+            'evidenceLabel': evidenceLabel,
+            'reason': 'fallback tuple has a mismatched wake plan',
+          });
+          return false;
+        }
         if (tupleMatches.length > 1) {
           _emitEvidence('cleanup${cleanupLabel}Failure', {
             'platform': platform,
@@ -497,7 +529,9 @@ Future<bool> _bestEffortCleanupTestAlarm({
     });
   }
 
-  if (recoveredPlatformAlarmId != null && platformCorrelationVerified) {
+  if (cancelBeforeVerification &&
+      recoveredPlatformAlarmId != null &&
+      platformCorrelationVerified) {
     await cancelExact(recoveredPlatformAlarmId, 'cleanup${cleanupLabel}Cancel');
   }
 
@@ -541,12 +575,15 @@ Future<bool> _bestEffortCleanupTestAlarm({
       }
       if (idMatches.isEmpty && !platformCorrelationVerified) return false;
     } else {
-      final tupleMatches = finalInventory.rows
+      final tupleCandidateRows = finalInventory.rows
           .where(
             (row) =>
                 row.reservationId == recoveredReservationId &&
                 row.occurrenceId == recoveredOccurrenceId,
           )
+          .toList();
+      final tupleMatches = tupleCandidateRows
+          .where((row) => row.wakePlanId == expectedWakePlanId)
           .toList();
       if (tupleMatches.length > 1) {
         _emitEvidence('cleanup${cleanupLabel}Failure', {
@@ -563,7 +600,7 @@ Future<bool> _bestEffortCleanupTestAlarm({
     }
     final matching = finalInventory.rows.where(isExactRow).toList();
     final ambiguousRows = finalInventory.rows.any(
-      (row) => row.wakePlanId == expectedWakePlanId && !isExactRow(row),
+      (row) => isPotentialCandidate(row) && !isExactRow(row),
     );
     if (matching.isEmpty && !ambiguousRows) return true;
     if (matching.length > 1 || ambiguousRows) {
@@ -595,8 +632,14 @@ Future<bool> _bestEffortCleanupTestAlarm({
             .map(_inventoryEvidence)
             .toList(),
       });
-      return finalFinalInventory.isSuccess &&
-          finalFinalInventory.rows.every((row) => !isExactRow(row));
+      if (!finalFinalInventory.isSuccess) return false;
+      final finalFinalMatching = finalFinalInventory.rows
+          .where(isExactRow)
+          .toList();
+      final finalFinalAmbiguous = finalFinalInventory.rows.any(
+        (row) => isPotentialCandidate(row) && !isExactRow(row),
+      );
+      return finalFinalMatching.isEmpty && !finalFinalAmbiguous;
     } catch (error) {
       _emitEvidence('cleanup${cleanupLabel}FinalFinalInventoryFailure', {
         'platform': platform,
