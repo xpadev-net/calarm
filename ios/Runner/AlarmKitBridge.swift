@@ -1060,16 +1060,30 @@ final class AlarmKitBridge {
     )
 
     let artifacts = [committedArtifact, envelopeArtifact, pendingArtifact]
-    let hasPresentArtifact = artifacts.contains { $0.isPresent }
-    let hasValidArtifact = artifacts.contains { $0.isPresent && $0.isValid }
-    guard !hasPresentArtifact || hasValidArtifact else {
+    let hasMalformedArtifact = artifacts.contains { $0.isPresent && !$0.isValid }
+    guard !hasMalformedArtifact else {
       throw MirrorValidationError.invalid
     }
 
     var committed = [String: AlarmMirrorRecord]()
     var pending = [String: AlarmMirrorRecord]()
-    for artifact in artifacts where artifact.isValid {
-      try mergeRecoveryRecords(&committed, from: artifact.committed)
+    if committedArtifact.isPresent, committedArtifact.isPlainProjection {
+      // A valid plain map in the legacy committed key is the rollback/older
+      // writer's authoritative key set. Enrich matching rows from newer
+      // artifacts, but never resurrect rows omitted by that projection.
+      committed = committedArtifact.committed
+      for artifact in artifacts where artifact.isPresent && !artifact.isPlainProjection {
+        for (key, record) in artifact.committed {
+          guard let existing = committed[key] else { continue }
+          committed[key] = try existing.mergedRecoveryRecord(with: record)
+        }
+      }
+    } else {
+      for artifact in artifacts where artifact.isPresent {
+        try mergeRecoveryRecords(&committed, from: artifact.committed)
+      }
+    }
+    for artifact in artifacts where artifact.isPresent {
       try mergeRecoveryRecords(&pending, from: artifact.pending)
     }
 
@@ -1135,12 +1149,12 @@ final class AlarmKitBridge {
       return RecoveryMirrorArtifact(
         committed: try validatedMirror(decodeMirrorMap(data)),
         isPresent: true,
-        isValid: true
+        isValid: true,
+        isPlainProjection: true
       )
     } catch {
-      // An invalid alternative is quarantined. The caller may still recover
-      // when another complete artifact uniquely covers every live native ID;
-      // an uncovered native ID fails below without mutating the bytes.
+      // Preserve invalidity as evidence. The recovery caller rejects any
+      // present malformed artifact before considering valid alternatives.
       return RecoveryMirrorArtifact.invalid
     }
   }
@@ -1596,17 +1610,20 @@ private struct RecoveryMirrorArtifact {
   let pending: [String: AlarmMirrorRecord]
   let isPresent: Bool
   let isValid: Bool
+  let isPlainProjection: Bool
 
   init(
     committed: [String: AlarmMirrorRecord] = [:],
     pending: [String: AlarmMirrorRecord] = [:],
     isPresent: Bool = false,
-    isValid: Bool = true
+    isValid: Bool = true,
+    isPlainProjection: Bool = false
   ) {
     self.committed = committed
     self.pending = pending
     self.isPresent = isPresent
     self.isValid = isValid
+    self.isPlainProjection = isPlainProjection
   }
 
   static let invalid = RecoveryMirrorArtifact(

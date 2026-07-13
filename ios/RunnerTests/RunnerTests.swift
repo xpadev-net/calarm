@@ -599,7 +599,7 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
-  func testBridgeQuarantinesInvalidAlternativesWhenProjectionCoversLiveAlarm() async {
+  func testBridgeMalformedRecoveryAlternativesRemainCorruptAndMutationFree() async {
     let fake = FakeAlarmKitNativeClient()
     let bridge = AlarmKitBridge(nativeClient: fake)
     let request = makeScheduleRequest("reservation-quarantine-alternatives")
@@ -608,36 +608,109 @@ class RunnerTests: XCTestCase {
     defer { clearMirror() }
 
     XCTAssertEqual((await bridge.scheduleAlarm(request)).status, "success")
-    UserDefaults.standard.set(
-      mirrorEnvelopeData(
-        committed: [id: [
-          "reservationId": request.reservationId,
-          "occurrenceId": request.occurrenceId,
-          "wakePlanId": request.wakePlanId,
-          "platformAlarmId": id,
-        ]],
-        pending: [:]
-      ),
-      forKey: envelopeKey
+    let committedBefore = try! XCTUnwrap(
+      UserDefaults.standard.data(forKey: mirrorKey)
     )
-    UserDefaults.standard.set(
-      Data("malformed pending alternative".utf8),
-      forKey: pendingMirrorKey
-    )
+    let malformedEnvelope = Data("malformed current envelope".utf8)
+    let malformedPending = Data("malformed pending alternative".utf8)
+    UserDefaults.standard.set(malformedEnvelope, forKey: envelopeKey)
+    UserDefaults.standard.set(malformedPending, forKey: pendingMirrorKey)
     let value = await inventoryValue(bridge)
-    let rows = (value as? [String: Any?])?["reservations"] as? [[String: Any?]]
-    XCTAssertEqual(rows?.count, 1)
-    XCTAssertEqual(rows?.first?["platformAlarmId"] as? String, id)
-    XCTAssertFalse(pendingMirrorContains(id))
+    XCTAssertEqual((value as? FlutterError)?.code, "corrupt")
+    XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), committedBefore)
+    XCTAssertEqual(UserDefaults.standard.data(forKey: envelopeKey), malformedEnvelope)
+    XCTAssertEqual(UserDefaults.standard.data(forKey: pendingMirrorKey), malformedPending)
+    XCTAssertEqual(fake.cancelCalls, 0)
   }
 
   @available(iOS 26.0, *)
   @MainActor
-  func testBridgeQuarantinesNoncanonicalCurrentEnvelopeGeneration() async {
+  func testBridgeMalformedLegacyCommittedAndPendingRemainCorrupt() async {
+    let request = makeScheduleRequest("reservation-malformed-legacy")
+    let id = calarmPlatformAlarmId(for: request.reservationId)
+    let record: [String: String] = [
+      "reservationId": request.reservationId,
+      "occurrenceId": request.occurrenceId,
+      "wakePlanId": request.wakePlanId,
+      "platformAlarmId": id,
+    ]
+    defer { clearMirror() }
+
+    clearMirror()
+    let malformedLegacy = Data("malformed legacy committed".utf8)
+    UserDefaults.standard.set(malformedLegacy, forKey: mirrorKey)
+    let legacyBridge = AlarmKitBridge(nativeClient: FakeAlarmKitNativeClient())
+    let legacyResult = await inventoryValue(legacyBridge)
+    XCTAssertEqual((legacyResult as? FlutterError)?.code, "corrupt")
+    XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), malformedLegacy)
+
+    clearMirror()
+    let pendingProjection = mirrorData([id: record])
+    let malformedPending = Data("malformed pending projection".utf8)
+    UserDefaults.standard.set(pendingProjection, forKey: mirrorKey)
+    UserDefaults.standard.set(malformedPending, forKey: pendingMirrorKey)
+    let pendingBridge = AlarmKitBridge(nativeClient: FakeAlarmKitNativeClient())
+    let pendingResult = await inventoryValue(pendingBridge)
+    XCTAssertEqual((pendingResult as? FlutterError)?.code, "corrupt")
+    XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), pendingProjection)
+    XCTAssertEqual(UserDefaults.standard.data(forKey: pendingMirrorKey), malformedPending)
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testBridgeMalformedCurrentAndPriorEnvelopesRemainCorrupt() async {
+    let request = makeScheduleRequest("reservation-malformed-envelope")
+    defer { clearMirror() }
+
+    clearMirror()
+    let currentFake = FakeAlarmKitNativeClient()
+    let currentBridge = AlarmKitBridge(nativeClient: currentFake)
+    XCTAssertEqual((await currentBridge.scheduleAlarm(request)).status, "success")
+    let committedBefore = try! XCTUnwrap(
+      UserDefaults.standard.data(forKey: mirrorKey)
+    )
+    let validEnvelope = try! XCTUnwrap(
+      UserDefaults.standard.data(forKey: envelopeKey)
+    )
+    var currentEnvelopeObject = try! XCTUnwrap(
+      JSONSerialization.jsonObject(with: validEnvelope) as? [String: Any]
+    )
+    currentEnvelopeObject["generation"] = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+    let malformedCurrent = try! JSONSerialization.data(
+      withJSONObject: currentEnvelopeObject,
+      options: [.sortedKeys]
+    )
+    UserDefaults.standard.set(malformedCurrent, forKey: envelopeKey)
+    let currentResult = await inventoryValue(currentBridge)
+    XCTAssertEqual((currentResult as? FlutterError)?.code, "corrupt")
+    XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), committedBefore)
+    XCTAssertEqual(UserDefaults.standard.data(forKey: envelopeKey), malformedCurrent)
+
+    clearMirror()
+    let priorFake = FakeAlarmKitNativeClient()
+    let priorWriter = AlarmKitBridge(nativeClient: priorFake)
+    XCTAssertEqual((await priorWriter.scheduleAlarm(request)).status, "success")
+    let validCurrentEnvelope = try! XCTUnwrap(
+      UserDefaults.standard.data(forKey: envelopeKey)
+    )
+    let malformedPrior = Data(
+      "{\"version\":2,\"committed\":{},\"pending\":{}}".utf8
+    )
+    UserDefaults.standard.set(validCurrentEnvelope, forKey: envelopeKey)
+    UserDefaults.standard.set(malformedPrior, forKey: mirrorKey)
+    let priorBridge = AlarmKitBridge(nativeClient: priorFake)
+    let priorResult = await inventoryValue(priorBridge)
+    XCTAssertEqual((priorResult as? FlutterError)?.code, "corrupt")
+    XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), malformedPrior)
+    XCTAssertEqual(UserDefaults.standard.data(forKey: envelopeKey), validCurrentEnvelope)
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testBridgeRejectsMalformedCurrentEnvelopeWithoutMutation() async {
     let fake = FakeAlarmKitNativeClient()
     let bridge = AlarmKitBridge(nativeClient: fake)
     let request = makeScheduleRequest("reservation-lowercase-generation")
-    let id = calarmPlatformAlarmId(for: request.reservationId)
     clearMirror()
     defer { clearMirror() }
 
@@ -649,15 +722,15 @@ class RunnerTests: XCTestCase {
       JSONSerialization.jsonObject(with: envelope) as? [String: Any]
     )
     object["generation"] = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
-    UserDefaults.standard.set(
-      try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
-      forKey: envelopeKey
+    let malformedCurrent = try! JSONSerialization.data(
+      withJSONObject: object,
+      options: [.sortedKeys]
     )
+    UserDefaults.standard.set(malformedCurrent, forKey: envelopeKey)
 
     let value = await inventoryValue(bridge)
-    let rows = (value as? [String: Any?])?["reservations"] as? [[String: Any?]]
-    XCTAssertEqual(rows?.count, 1)
-    XCTAssertEqual(rows?.first?["platformAlarmId"] as? String, id)
+    XCTAssertEqual((value as? FlutterError)?.code, "corrupt")
+    XCTAssertEqual(UserDefaults.standard.data(forKey: envelopeKey), malformedCurrent)
 
     var unsupported = try! XCTUnwrap(
       JSONSerialization.jsonObject(
@@ -665,14 +738,14 @@ class RunnerTests: XCTestCase {
       ) as? [String: Any]
     )
     unsupported["version"] = 99
-    UserDefaults.standard.set(
-      try! JSONSerialization.data(withJSONObject: unsupported, options: [.sortedKeys]),
-      forKey: envelopeKey
+    let unsupportedData = try! JSONSerialization.data(
+      withJSONObject: unsupported,
+      options: [.sortedKeys]
     )
+    UserDefaults.standard.set(unsupportedData, forKey: envelopeKey)
     let unsupportedValue = await inventoryValue(bridge)
-    let unsupportedRows = (unsupportedValue as? [String: Any?])?["reservations"]
-      as? [[String: Any?]]
-    XCTAssertEqual(unsupportedRows?.count, 1)
+    XCTAssertEqual((unsupportedValue as? FlutterError)?.code, "corrupt")
+    XCTAssertEqual(UserDefaults.standard.data(forKey: envelopeKey), unsupportedData)
   }
 
   @available(iOS 26.0, *)
@@ -1224,7 +1297,7 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
-  func testBridgeEnvelopeWinsAfterInterruptedLegacyCleanup() async {
+  func testBridgeMalformedPendingDoesNotFallBackToEnvelope() async {
     let request = makeScheduleRequest("reservation-envelope-restart")
     let id = calarmPlatformAlarmId(for: request.reservationId)
     let record: [String: String] = [
@@ -1238,16 +1311,14 @@ class RunnerTests: XCTestCase {
     fake.nativeAlarmIds.insert(id.uppercased())
     let bridge = AlarmKitBridge(nativeClient: fake)
     clearMirror()
+    let malformedPending = Data("stale legacy bytes".utf8)
     UserDefaults.standard.set(envelopeData, forKey: mirrorKey)
-    UserDefaults.standard.set(Data("stale legacy bytes".utf8), forKey: pendingMirrorKey)
+    UserDefaults.standard.set(malformedPending, forKey: pendingMirrorKey)
 
     let result = await inventoryValue(bridge)
-    XCTAssertEqual(
-      ((result as? [String: Any?])?["reservations"] as? [[String: Any?]])?.count,
-      1
-    )
-    XCTAssertEqual(mirrorEnvelopeVersion(), 1)
-    XCTAssertNil(UserDefaults.standard.data(forKey: pendingMirrorKey))
+    XCTAssertEqual((result as? FlutterError)?.code, "corrupt")
+    XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), envelopeData)
+    XCTAssertEqual(UserDefaults.standard.data(forKey: pendingMirrorKey), malformedPending)
     clearMirror()
   }
 
@@ -1327,7 +1398,7 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
-  func testBridgeUnsupportedEnvelopeFallsBackToLegacyProjectionWithoutLoss() async {
+  func testBridgeUnsupportedEnvelopeRemainsCorruptWithoutLoss() async {
     let request = makeScheduleRequest("reservation-envelope-fallback")
     let id = calarmPlatformAlarmId(for: request.reservationId)
     let record: [String: String] = [
@@ -1341,18 +1412,17 @@ class RunnerTests: XCTestCase {
     let bridge = AlarmKitBridge(nativeClient: fake)
     clearMirror()
     let legacyData = mirrorData([id: record])
-    UserDefaults.standard.set(legacyData, forKey: mirrorKey)
-    UserDefaults.standard.set(
-      Data("{\"version\":2,\"committed\":{},\"pending\":{}}".utf8),
-      forKey: envelopeKey
+    let unsupportedEnvelope = Data(
+      "{\"version\":2,\"committed\":{},\"pending\":{}}".utf8
     )
+    UserDefaults.standard.set(legacyData, forKey: mirrorKey)
+    UserDefaults.standard.set(unsupportedEnvelope, forKey: envelopeKey)
     defer { clearMirror() }
 
     let inventory = await inventoryValue(bridge)
-    let rows = (inventory as? [String: Any?])?["reservations"] as? [[String: Any?]]
-    XCTAssertEqual(rows?.count, 1)
-    XCTAssertEqual(mirrorEnvelopeVersion(), 1)
-    XCTAssertNotNil(UserDefaults.standard.data(forKey: envelopeKey))
+    XCTAssertEqual((inventory as? FlutterError)?.code, "corrupt")
+    XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), legacyData)
+    XCTAssertEqual(UserDefaults.standard.data(forKey: envelopeKey), unsupportedEnvelope)
   }
 
   @available(iOS 26.0, *)
@@ -1371,25 +1441,18 @@ class RunnerTests: XCTestCase {
       "wakePlanId": priorRequest.wakePlanId,
       "platformAlarmId": priorId,
     ]
-    let currentRecord: [String: String] = [
-      "reservationId": currentRequest.reservationId,
-      "occurrenceId": currentRequest.occurrenceId,
-      "wakePlanId": currentRequest.wakePlanId,
-      "platformAlarmId": currentId,
-    ]
     let fake = FakeAlarmKitNativeClient()
+    clearMirror()
+    let currentWriter = AlarmKitBridge(nativeClient: fake)
+    XCTAssertEqual((await currentWriter.scheduleAlarm(currentRequest)).status, "success")
+    try! fake.cancel(id: UUID(uuidString: currentId)!)
     fake.nativeAlarmIds.insert(priorId.uppercased())
     let bridge = AlarmKitBridge(nativeClient: fake)
-    clearMirror()
     defer { clearMirror() }
 
     // This is the exact prior writer shape: a MirrorEnvelope in the legacy
     // key, including a changed occurrence identity, after a current envelope
     // was already published.
-    UserDefaults.standard.set(
-      mirrorEnvelopeData(committed: [currentId: currentRecord], pending: [:]),
-      forKey: envelopeKey
-    )
     UserDefaults.standard.set(
       mirrorEnvelopeData(committed: [priorId: priorRecord], pending: [:]),
       forKey: mirrorKey
@@ -1420,15 +1483,15 @@ class RunnerTests: XCTestCase {
     // resurrected; the reader reports non-authoritative state instead.
     clearMirror()
     let conflictFake = FakeAlarmKitNativeClient()
-    conflictFake.nativeAlarmIds.insert(currentId.uppercased())
-    let conflictBridge = AlarmKitBridge(nativeClient: conflictFake)
-    let currentEnvelopeData = mirrorEnvelopeData(
-      committed: [currentId: currentRecord],
-      pending: [:]
+    let conflictWriter = AlarmKitBridge(nativeClient: conflictFake)
+    XCTAssertEqual((await conflictWriter.scheduleAlarm(currentRequest)).status, "success")
+    let currentEnvelopeData = try! XCTUnwrap(
+      UserDefaults.standard.data(forKey: envelopeKey)
     )
-    let priorEmptyData = mirrorEnvelopeData(committed: [:], pending: [:])
+    let priorEmptyData = mirrorData([:])
     UserDefaults.standard.set(currentEnvelopeData, forKey: envelopeKey)
     UserDefaults.standard.set(priorEmptyData, forKey: mirrorKey)
+    let conflictBridge = AlarmKitBridge(nativeClient: conflictFake)
     let conflictResult = await inventoryValue(conflictBridge)
     XCTAssertEqual((conflictResult as? FlutterError)?.code, "corrupt")
     XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), priorEmptyData)
