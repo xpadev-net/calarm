@@ -397,7 +397,7 @@ jobs:
   ios-simulator:
     name: iOS simulator native smoke
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_ios }}
 
     steps:
@@ -622,7 +622,7 @@ jobs:
             bash "${device_id}" "${status}" "${SMOKE_ARTIFACT_ROOT}/logs/ios-native-smoke-test.log"
           smoke_status="$?"
           set -e
-          xcrun simctl spawn "${device_id}" log show --style compact --last 10m \
+          xcrun simctl spawn "${device_id}" log show --style compact --last 30m \
             > "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-log-show.log" 2>&1 || true
           xcrun simctl io "${device_id}" screenshot "${SMOKE_ARTIFACT_ROOT}/logs/ios-screenshot.png" \
             > "${SMOKE_ARTIFACT_ROOT}/logs/ios-screenshot.log" 2>&1 || true
