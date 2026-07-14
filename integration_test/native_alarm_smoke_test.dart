@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:calarm/core/platform/method_channel_native_alarm_gateway.dart';
 import 'package:calarm/core/platform/native_alarm_gateway.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
@@ -32,6 +33,64 @@ void main() {
       isFalse,
     );
   });
+
+  testWidgets(
+    'stable post-cancel verification rejects a mismatched native row',
+    (_) async {
+      const channel = MethodChannel(nativeAlarmChannelName);
+      var cancelCalls = 0;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            if (call.method == 'getInventory') {
+              return {
+                'schemaVersion': nativeAlarmChannelSchemaVersion,
+                'reservations': [
+                  {
+                    'reservationId': 'other-reservation',
+                    'occurrenceId': 'other-occurrence',
+                    'wakePlanId': 'stable-plan',
+                    'platformAlarmId': 'stable-platform-id',
+                    'status': 'scheduled',
+                  },
+                ],
+              };
+            }
+            if (call.method == 'cancelOccurrences') {
+              cancelCalls++;
+              return {
+                'schemaVersion': nativeAlarmChannelSchemaVersion,
+                'alarms': [
+                  {
+                    'status': 'success',
+                    'occurrenceId': 'other-occurrence',
+                    'reservationId': 'other-reservation',
+                    'platformAlarmId': 'stable-platform-id',
+                  },
+                ],
+              };
+            }
+            throw MissingPluginException('Unexpected ${call.method}');
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
+
+      final verified = await _verifyStableScheduleCleanupAfterCancel(
+        gateway: MethodChannelNativeAlarmGateway(channel: channel),
+        occurrenceId: 'expected-occurrence',
+        reservationId: 'expected-reservation',
+        platformAlarmId: 'stable-platform-id',
+        expectedWakePlanId: 'stable-plan',
+        platform: 'test',
+        evidenceLabel: 'TEST',
+        cleanupLabel: 'stableMismatch',
+      );
+
+      expect(verified, isFalse);
+      expect(cancelCalls, 0);
+    },
+  );
 
   testWidgets('native alarm MethodChannel smoke', (_) async {
     final gateway = MethodChannelNativeAlarmGateway();
@@ -166,29 +225,17 @@ void main() {
         expect(cancelResult.alarms, hasLength(1));
         scheduleCancelSucceeded = cancelResult.isSuccess;
         if (scheduleCancelSucceeded) {
-          final inventoryAfterCancel = await gateway
-              .getInventory()
-              .nativeSmokeTimeout('getInventoryAfterCancel');
-          _emitEvidence('getInventoryAfterCancel', {
-            'platform': platform,
-            'evidenceLabel': evidenceLabel,
-            'status': inventoryAfterCancel.status.name,
-            'reservations': inventoryAfterCancel.rows
-                .map(_inventoryEvidence)
-                .toList(),
-          });
-          expect(inventoryAfterCancel.isSuccess, isTrue);
-          expect(
-            inventoryAfterCancel.rows.where(
-              (row) =>
-                  row.reservationId == scheduleRequest.reservationId &&
-                  row.occurrenceId == scheduleRequest.occurrenceId,
-            ),
-            isEmpty,
-            reason:
-                'Cancelled native reservations must disappear from inventory.',
-          );
-          scheduleCleanupVerified = true;
+          scheduleCleanupVerified =
+              await _verifyStableScheduleCleanupAfterCancel(
+                gateway: gateway,
+                occurrenceId: scheduleRequest.occurrenceId,
+                reservationId: scheduleRequest.reservationId,
+                platformAlarmId: scheduledPlatformAlarmId,
+                expectedWakePlanId: scheduleRequest.wakePlanId,
+                platform: platform,
+                evidenceLabel: evidenceLabel,
+                cleanupLabel: 'scheduleAfterCancel',
+              );
         }
       } else {
         _emitEvidence('cancelOccurrences', {
@@ -474,6 +521,31 @@ bool _matchesStableScheduleTuple(
       row.occurrenceId == occurrenceId &&
       row.wakePlanId == wakePlanId &&
       (platformAlarmId == null || row.platformAlarmId == platformAlarmId);
+}
+
+Future<bool> _verifyStableScheduleCleanupAfterCancel({
+  required MethodChannelNativeAlarmGateway gateway,
+  required String occurrenceId,
+  required String reservationId,
+  required String? platformAlarmId,
+  required String expectedWakePlanId,
+  required String platform,
+  required String evidenceLabel,
+  required String cleanupLabel,
+}) {
+  return _bestEffortCleanupTestAlarm(
+    gateway: gateway,
+    occurrenceId: occurrenceId,
+    reservationId: reservationId,
+    platformAlarmId: platformAlarmId,
+    expectedWakePlanId: expectedWakePlanId,
+    allowPlatformIdTupleDiscovery: false,
+    platformAlarmIdAlreadyCorrelated: true,
+    cancelBeforeVerification: false,
+    platform: platform,
+    evidenceLabel: evidenceLabel,
+    cleanupLabel: cleanupLabel,
+  );
 }
 
 Future<bool> _bestEffortCleanupTestAlarm({
