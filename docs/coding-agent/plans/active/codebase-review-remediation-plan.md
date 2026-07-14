@@ -443,7 +443,7 @@
 - pr: `#49` — https://github.com/xpadev-net/calarm/pull/49
 - final_head: `88f71cccbe8795e8d947099a0aad7952e639768e`
 - merge_commit: `5c347ef5451c2a741eb1b5be47beb12a289535c0`
-- worker_thread_archived: false
+- worker_thread_archived: true
 - merge_evidence:
   - Fresh independent read-only Reviewer approved the exact final head with no findings.
   - Worker and orchestrator `gh-review-hook 49` both exited 0; the PR was non-draft, CLEAN, APPROVED, base-current, and all seven CI/AI/security checks completed successfully.
