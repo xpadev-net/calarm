@@ -1077,9 +1077,10 @@ class RunnerTests: XCTestCase {
     var collisionPayload = makeSchedulePayload(occurrenceId: "occurrence-collision")
     collisionPayload["reservationId"] = "stable-reservation"
     let collisionResult = await stableBridge.scheduleOccurrence(collisionPayload)
-    XCTAssertEqual(collisionResult["status"] as? String, "failure")
-    XCTAssertEqual(collisionResult["failureReason"] as? String, "unknown")
-    XCTAssertEqual(stableFake.scheduleAttempts, 1)
+    XCTAssertEqual(collisionResult["status"] as? String, "success")
+    XCTAssertEqual(stableFake.scheduleAttempts, 2)
+    XCTAssertEqual(stableFake.cancelCalls, 1)
+    XCTAssertGreaterThanOrEqual(stableFake.inventoryCalls, 2)
     XCTAssertTrue(mirrorContains(stablePlatformAlarmId))
   }
 
@@ -1108,7 +1109,7 @@ class RunnerTests: XCTestCase {
     let result = await bridge.scheduleAlarm(request)
     XCTAssertEqual(result.failureReason, "unknown")
     XCTAssertEqual(fake.scheduleAttempts, 0)
-    XCTAssertEqual(fake.inventoryCalls, 0)
+    XCTAssertEqual(fake.inventoryCalls, 1)
     XCTAssertNil(UserDefaults.standard.data(forKey: mirrorKey))
     XCTAssertEqual(UserDefaults.standard.data(forKey: pendingMirrorKey), pendingData)
     XCTAssertNil(UserDefaults.standard.data(forKey: envelopeKey))
@@ -1334,7 +1335,7 @@ class RunnerTests: XCTestCase {
     let corrupt = await inventoryValue(bridge)
     XCTAssertEqual((corrupt as? FlutterError)?.code, "corrupt")
     XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), collisionData)
-    XCTAssertEqual(fake.inventoryCalls, 0)
+    XCTAssertEqual(fake.inventoryCalls, 1)
   }
 
   @available(iOS 26.0, *)
@@ -1418,7 +1419,7 @@ class RunnerTests: XCTestCase {
       XCTAssertEqual((result as? FlutterError)?.code, "corrupt")
       XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), committedData)
       XCTAssertEqual(UserDefaults.standard.data(forKey: pendingMirrorKey), pendingData)
-      XCTAssertEqual(fake.inventoryCalls, 0)
+      XCTAssertEqual(fake.inventoryCalls, 1)
     }
     clearMirror()
   }
@@ -1846,7 +1847,7 @@ class RunnerTests: XCTestCase {
     let value = await inventoryValue(bridge)
     XCTAssertEqual((value as? FlutterError)?.code, "corrupt")
     XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), data)
-    XCTAssertEqual(fake.inventoryCalls, 0)
+    XCTAssertEqual(fake.inventoryCalls, 1)
   }
 
   @available(iOS 26.0, *)
@@ -1877,7 +1878,7 @@ class RunnerTests: XCTestCase {
     let value = await inventoryValue(bridge)
     XCTAssertEqual((value as? FlutterError)?.code, "corrupt")
     XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), data)
-    XCTAssertEqual(fake.inventoryCalls, 0)
+    XCTAssertEqual(fake.inventoryCalls, 1)
   }
 
   @available(iOS 26.0, *)
