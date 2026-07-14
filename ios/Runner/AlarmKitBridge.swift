@@ -747,7 +747,12 @@ final class AlarmKitBridge {
                 failureMessage: error.localizedDescription
               )
             }
-            throw error
+            return ScheduleRow(
+              status: "failure",
+              platformAlarmId: nil,
+              failureReason: "nativeError",
+              failureMessage: error.localizedDescription
+            )
           }
         }
 
