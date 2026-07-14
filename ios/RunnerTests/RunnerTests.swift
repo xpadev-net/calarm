@@ -98,7 +98,8 @@ class RunnerTests: XCTestCase {
     clearMirror()
     defer { clearMirror() }
 
-    XCTAssertEqual((await bridge.scheduleAlarm(original)).status, "success")
+    let originalResult = await bridge.scheduleAlarm(original)
+    XCTAssertEqual(originalResult.status, "success")
     let retryResult = await bridge.scheduleAlarm(recreated)
     XCTAssertEqual(retryResult.status, "success")
     XCTAssertEqual(fake.scheduleAttempts, 2)
@@ -132,8 +133,10 @@ class RunnerTests: XCTestCase {
     clearMirror()
     defer { clearMirror() }
 
-    XCTAssertEqual((await bridge.scheduleAlarm(original)).status, "success")
-    XCTAssertEqual((await bridge.scheduleAlarm(updated)).status, "success")
+    let originalResult = await bridge.scheduleAlarm(original)
+    XCTAssertEqual(originalResult.status, "success")
+    let updatedResult = await bridge.scheduleAlarm(updated)
+    XCTAssertEqual(updatedResult.status, "success")
     XCTAssertEqual(fake.scheduleAttempts, 2)
     XCTAssertEqual(fake.cancelCalls, 1)
 
@@ -162,8 +165,10 @@ class RunnerTests: XCTestCase {
     await Task.yield()
     fake.allowGatedSchedules = true
 
-    XCTAssertEqual((await first.value).status, "success")
-    XCTAssertEqual((await second.value).status, "success")
+    let firstResult = await first.value
+    let secondResult = await second.value
+    XCTAssertEqual(firstResult.status, "success")
+    XCTAssertEqual(secondResult.status, "success")
     let idA = calarmPlatformAlarmId(for: requestA.reservationId)
     let idB = calarmPlatformAlarmId(for: requestB.reservationId)
     XCTAssertEqual(fake.nativeAlarmIds, Set([idA.uppercased(), idB.uppercased()]))
@@ -183,7 +188,8 @@ class RunnerTests: XCTestCase {
     let requestB = makeScheduleRequest("reservation-overlap-b", occurrenceId: "occurrence-b")
     clearMirror()
     defer { clearMirror() }
-    XCTAssertEqual((await bridge.scheduleAlarm(requestB)).status, "success")
+    let initialResult = await bridge.scheduleAlarm(requestB)
+    XCTAssertEqual(initialResult.status, "success")
 
     fake.gatedScheduleAttempts = [2]
     let schedule = Task { @MainActor in await bridge.scheduleAlarm(requestA) }
@@ -198,8 +204,9 @@ class RunnerTests: XCTestCase {
     await Task.yield()
     fake.allowGatedSchedules = true
 
-    XCTAssertEqual((await schedule.value).status, "success")
     let cancelResult = await cancel.value
+    let scheduleResult = await schedule.value
+    XCTAssertEqual(scheduleResult.status, "success")
     XCTAssertEqual(cancelResult["status"] as? String, "success")
     let idA = calarmPlatformAlarmId(for: requestA.reservationId)
     let idB = calarmPlatformAlarmId(for: requestB.reservationId)
@@ -220,7 +227,8 @@ class RunnerTests: XCTestCase {
     )
     clearMirror()
     defer { clearMirror() }
-    XCTAssertEqual((await bridge.scheduleAlarm(unrelatedRequest)).status, "success")
+    let unrelatedResult = await bridge.scheduleAlarm(unrelatedRequest)
+    XCTAssertEqual(unrelatedResult.status, "success")
     fake.gatedScheduleAttempts = [2]
 
     let schedule = Task { @MainActor in await bridge.scheduleAlarm(request) }
@@ -235,7 +243,8 @@ class RunnerTests: XCTestCase {
     await Task.yield()
     fake.allowGatedSchedules = true
 
-    XCTAssertEqual((await schedule.value).status, "success")
+    let scheduleResult = await schedule.value
+    XCTAssertEqual(scheduleResult.status, "success")
     await observer.value
     XCTAssertTrue(mirrorContains(id))
     XCTAssertTrue(mirrorContains(unrelatedId))
@@ -261,8 +270,10 @@ class RunnerTests: XCTestCase {
     await Task.yield()
     fakeA.allowGatedSchedules = true
 
-    XCTAssertEqual((await scheduleA.value).status, "success")
-    XCTAssertEqual((await scheduleB.value).status, "success")
+    let scheduleAResult = await scheduleA.value
+    let scheduleBResult = await scheduleB.value
+    XCTAssertEqual(scheduleAResult.status, "success")
+    XCTAssertEqual(scheduleBResult.status, "success")
     XCTAssertTrue(mirrorContains(calarmPlatformAlarmId(for: requestA.reservationId)))
     XCTAssertTrue(mirrorContains(calarmPlatformAlarmId(for: requestB.reservationId)))
     XCTAssertEqual(fakeA.maxActiveSchedules, 1)
@@ -280,7 +291,8 @@ class RunnerTests: XCTestCase {
     let requestB = makeScheduleRequest("reservation-cross-cancel-b", occurrenceId: "occurrence-cross-cancel-b")
     clearMirror()
     defer { clearMirror() }
-    XCTAssertEqual((await bridgeB.scheduleAlarm(requestB)).status, "success")
+    let initialResult = await bridgeB.scheduleAlarm(requestB)
+    XCTAssertEqual(initialResult.status, "success")
 
     fakeA.gatedScheduleAttempts = [1]
     let schedule = Task { @MainActor in await bridgeA.scheduleAlarm(requestA) }
@@ -295,8 +307,10 @@ class RunnerTests: XCTestCase {
     await Task.yield()
     fakeA.allowGatedSchedules = true
 
-    XCTAssertEqual((await schedule.value).status, "success")
-    XCTAssertEqual((await cancel.value)["status"] as? String, "success")
+    let scheduleResult = await schedule.value
+    let cancelResult = await cancel.value
+    XCTAssertEqual(scheduleResult.status, "success")
+    XCTAssertEqual(cancelResult["status"] as? String, "success")
     XCTAssertTrue(mirrorContains(calarmPlatformAlarmId(for: requestA.reservationId)))
     XCTAssertFalse(mirrorContains(calarmPlatformAlarmId(for: requestB.reservationId)))
   }
@@ -322,7 +336,8 @@ class RunnerTests: XCTestCase {
     await Task.yield()
     fakeA.allowGatedSchedules = true
 
-    XCTAssertEqual((await schedule.value).status, "success")
+    let scheduleResult = await schedule.value
+    XCTAssertEqual(scheduleResult.status, "success")
     await observer.value
     XCTAssertTrue(mirrorContains(id))
   }
@@ -347,7 +362,8 @@ class RunnerTests: XCTestCase {
     await Task.yield()
     fakeA.allowGatedSchedules = true
 
-    XCTAssertEqual((await schedule.value).status, "success")
+    let scheduleResult = await schedule.value
+    XCTAssertEqual(scheduleResult.status, "success")
     let inventoryValueResult = await inventory.value
     XCTAssertEqual(
       ((inventoryValueResult as? [String: Any?])?["reservations"] as? [[String: Any?]])?.count,
@@ -367,7 +383,8 @@ class RunnerTests: XCTestCase {
     let id = calarmPlatformAlarmId(for: request.reservationId)
     clearMirror()
     defer { clearMirror() }
-    XCTAssertEqual((await bridgeB.scheduleAlarm(request)).status, "success")
+    let initialResult = await bridgeB.scheduleAlarm(request)
+    XCTAssertEqual(initialResult.status, "success")
 
     let cancel = Task { @MainActor in
       await bridgeB.cancelAlarm([
@@ -379,7 +396,8 @@ class RunnerTests: XCTestCase {
     let observer = Task { @MainActor in
       await bridgeA.reconcileMirror(withNativeAlarmIds: [])
     }
-    XCTAssertEqual((await cancel.value)["status"] as? String, "success")
+    let cancelResult = await cancel.value
+    XCTAssertEqual(cancelResult["status"] as? String, "success")
     await observer.value
     XCTAssertTrue(fakeB.nativeAlarmIds.isEmpty)
     XCTAssertFalse(mirrorContains(id))
@@ -406,8 +424,10 @@ class RunnerTests: XCTestCase {
     await Task.yield()
     fakeA.allowGatedSchedules = true
 
-    XCTAssertEqual((await failed.value).failureReason, "nativeError")
-    XCTAssertEqual((await succeeded.value).status, "success")
+    let failedResult = await failed.value
+    let succeededResult = await succeeded.value
+    XCTAssertEqual(failedResult.failureReason, "nativeError")
+    XCTAssertEqual(succeededResult.status, "success")
     XCTAssertFalse(mirrorContains(calarmPlatformAlarmId(for: failedRequest.reservationId)))
     XCTAssertTrue(mirrorContains(calarmPlatformAlarmId(for: successRequest.reservationId)))
   }
@@ -586,7 +606,8 @@ class RunnerTests: XCTestCase {
     clearMirror()
     defer { clearMirror() }
 
-    XCTAssertEqual((await bridge.scheduleAlarm(request)).failureReason, "nativeError")
+    let failedResult = await bridge.scheduleAlarm(request)
+    XCTAssertEqual(failedResult.failureReason, "nativeError")
     XCTAssertTrue(pendingMirrorContains(id))
     UserDefaults.standard.removeObject(forKey: pendingMirrorKey)
 
@@ -607,7 +628,8 @@ class RunnerTests: XCTestCase {
     clearMirror()
     defer { clearMirror() }
 
-    XCTAssertEqual((await bridge.scheduleAlarm(request)).status, "success")
+    let scheduleResult = await bridge.scheduleAlarm(request)
+    XCTAssertEqual(scheduleResult.status, "success")
     let committedBefore = try! XCTUnwrap(
       UserDefaults.standard.data(forKey: mirrorKey)
     )
@@ -665,7 +687,8 @@ class RunnerTests: XCTestCase {
     clearMirror()
     let currentFake = FakeAlarmKitNativeClient()
     let currentBridge = AlarmKitBridge(nativeClient: currentFake)
-    XCTAssertEqual((await currentBridge.scheduleAlarm(request)).status, "success")
+    let currentResult = await currentBridge.scheduleAlarm(request)
+    XCTAssertEqual(currentResult.status, "success")
     let committedBefore = try! XCTUnwrap(
       UserDefaults.standard.data(forKey: mirrorKey)
     )
@@ -689,7 +712,8 @@ class RunnerTests: XCTestCase {
     clearMirror()
     let priorFake = FakeAlarmKitNativeClient()
     let priorWriter = AlarmKitBridge(nativeClient: priorFake)
-    XCTAssertEqual((await priorWriter.scheduleAlarm(request)).status, "success")
+    let priorResult = await priorWriter.scheduleAlarm(request)
+    XCTAssertEqual(priorResult.status, "success")
     let validCurrentEnvelope = try! XCTUnwrap(
       UserDefaults.standard.data(forKey: envelopeKey)
     )
@@ -714,7 +738,8 @@ class RunnerTests: XCTestCase {
     clearMirror()
     defer { clearMirror() }
 
-    XCTAssertEqual((await bridge.scheduleAlarm(request)).status, "success")
+    let scheduleResult = await bridge.scheduleAlarm(request)
+    XCTAssertEqual(scheduleResult.status, "success")
     let envelope = try! XCTUnwrap(
       UserDefaults.standard.data(forKey: envelopeKey)
     )
@@ -758,7 +783,8 @@ class RunnerTests: XCTestCase {
     clearMirror()
     defer { clearMirror() }
 
-    XCTAssertEqual((await bridge.scheduleAlarm(request)).status, "success")
+    let scheduleResult = await bridge.scheduleAlarm(request)
+    XCTAssertEqual(scheduleResult.status, "success")
     let envelopeBefore = UserDefaults.standard.data(forKey: envelopeKey)
     let conflictingCommitted = mirrorData([
       id: [
@@ -1332,7 +1358,8 @@ class RunnerTests: XCTestCase {
     clearMirror()
     defer { clearMirror() }
 
-    XCTAssertEqual((await bridge.scheduleAlarm(request)).status, "success")
+    let scheduleResult = await bridge.scheduleAlarm(request)
+    XCTAssertEqual(scheduleResult.status, "success")
     let committedProjection = try! XCTUnwrap(
       UserDefaults.standard.data(forKey: mirrorKey)
     )
@@ -1444,7 +1471,8 @@ class RunnerTests: XCTestCase {
     let fake = FakeAlarmKitNativeClient()
     clearMirror()
     let currentWriter = AlarmKitBridge(nativeClient: fake)
-    XCTAssertEqual((await currentWriter.scheduleAlarm(currentRequest)).status, "success")
+    let currentResult = await currentWriter.scheduleAlarm(currentRequest)
+    XCTAssertEqual(currentResult.status, "success")
     try! fake.cancel(id: UUID(uuidString: currentId)!)
     fake.nativeAlarmIds.insert(priorId.uppercased())
     let bridge = AlarmKitBridge(nativeClient: fake)
@@ -1484,7 +1512,8 @@ class RunnerTests: XCTestCase {
     clearMirror()
     let conflictFake = FakeAlarmKitNativeClient()
     let conflictWriter = AlarmKitBridge(nativeClient: conflictFake)
-    XCTAssertEqual((await conflictWriter.scheduleAlarm(currentRequest)).status, "success")
+    let conflictResult = await conflictWriter.scheduleAlarm(currentRequest)
+    XCTAssertEqual(conflictResult.status, "success")
     let currentEnvelopeData = try! XCTUnwrap(
       UserDefaults.standard.data(forKey: envelopeKey)
     )
