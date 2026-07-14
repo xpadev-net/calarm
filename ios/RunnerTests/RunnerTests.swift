@@ -1109,7 +1109,7 @@ class RunnerTests: XCTestCase {
     let result = await bridge.scheduleAlarm(request)
     XCTAssertEqual(result.failureReason, "unknown")
     XCTAssertEqual(fake.scheduleAttempts, 0)
-    XCTAssertEqual(fake.inventoryCalls, 1)
+    XCTAssertEqual(fake.inventoryCalls, 0)
     XCTAssertNil(UserDefaults.standard.data(forKey: mirrorKey))
     XCTAssertEqual(UserDefaults.standard.data(forKey: pendingMirrorKey), pendingData)
     XCTAssertNil(UserDefaults.standard.data(forKey: envelopeKey))
@@ -1160,12 +1160,16 @@ class RunnerTests: XCTestCase {
     let nativePlatformAlarmId = platformAlarmId.uppercased()
     clearMirror()
     UserDefaults.standard.set(
-      mirrorData([
+      completeMirrorData([
         platformAlarmId: [
           "reservationId": request.reservationId,
           "occurrenceId": request.occurrenceId,
           "wakePlanId": request.wakePlanId,
           "platformAlarmId": platformAlarmId,
+          "scheduledAt": request.scheduledAt.timeIntervalSinceReferenceDate,
+          "targetAt": request.targetAt.timeIntervalSinceReferenceDate,
+          "soundId": request.soundId,
+          "vibrationEnabled": request.vibrationEnabled,
         ]
       ]),
       forKey: mirrorKey
@@ -1275,7 +1279,8 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(result["status"] as? String, "success")
     XCTAssertEqual(fake.cancelCalls, 1)
     XCTAssertTrue(fake.nativeAlarmIds.isEmpty)
-    XCTAssertNil(UserDefaults.standard.data(forKey: mirrorKey))
+    XCTAssertTrue(committedMirrorObject()?.isEmpty == true)
+    XCTAssertEqual(mirrorEnvelopeVersion(), 1)
   }
 
   @available(iOS 26.0, *)
@@ -2032,6 +2037,10 @@ private func clearMirror() {
 }
 
 private func mirrorData(_ records: [String: [String: String]]) -> Data {
+  try! JSONSerialization.data(withJSONObject: records, options: [.sortedKeys])
+}
+
+private func completeMirrorData(_ records: [String: [String: Any]]) -> Data {
   try! JSONSerialization.data(withJSONObject: records, options: [.sortedKeys])
 }
 
