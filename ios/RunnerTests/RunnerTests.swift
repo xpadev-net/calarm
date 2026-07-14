@@ -150,6 +150,43 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
+  func testBridgeReplacementFailureRestoresPriorNativeAlarmAndMirror() async {
+    let fake = FakeAlarmKitNativeClient()
+    fake.failedScheduleAttempts = [2]
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let original = makeScheduleRequest("reservation-replacement-rollback")
+    let replacement = makeScheduleRequest(
+      "reservation-replacement-rollback",
+      occurrenceId: "occurrence-replacement"
+    )
+    let platformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
+    clearMirror()
+    defer { clearMirror() }
+
+    let originalResult = await bridge.scheduleAlarm(original)
+    XCTAssertEqual(originalResult.status, "success")
+
+    let replacementResult = await bridge.scheduleAlarm(replacement)
+    XCTAssertEqual(replacementResult.status, "failure")
+    XCTAssertEqual(replacementResult.failureReason, "nativeError")
+    XCTAssertEqual(replacementResult.platformAlarmId, platformAlarmId)
+    XCTAssertEqual(fake.cancelCalls, 1)
+    XCTAssertTrue(fake.nativeAlarmIds.contains(platformAlarmId.uppercased()))
+    XCTAssertEqual(
+      fake.scheduledRequests[platformAlarmId]?.occurrenceId,
+      original.occurrenceId
+    )
+    XCTAssertTrue(mirrorContains(platformAlarmId))
+
+    let inventory = await inventoryValue(bridge)
+    let rows = (inventory as? [String: Any?])?["reservations"]
+      as? [[String: Any?]]
+    XCTAssertEqual(rows?.count, 1)
+    XCTAssertEqual(rows?.first?["occurrenceId"] as? String, original.occurrenceId)
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
   func testBridgeConcurrentDifferentSchedulesPreserveBothMirrorRows() async {
     let fake = FakeAlarmKitNativeClient()
     fake.gatedScheduleAttempts = [1]
@@ -1822,6 +1859,7 @@ private final class FakeAlarmKitNativeClient: AlarmKitNativeClient {
   var allowFirstScheduleToFinish = false
   var gateFirstSchedule = false
   var failFirstSchedule = false
+  var failedScheduleAttempts = Set<Int>()
   var insertBeforeFailFirstSchedule = false
   var cancelCalls = 0
   var scheduledRequests: [String: ScheduleRequest] = [:]
@@ -1869,6 +1907,9 @@ private final class FakeAlarmKitNativeClient: AlarmKitNativeClient {
       if insertBeforeFailFirstSchedule {
         nativeAlarmIds.insert(id.uuidString)
       }
+      throw FakeError.scheduleFailed
+    }
+    if failedScheduleAttempts.contains(scheduleAttempts) {
       throw FakeError.scheduleFailed
     }
     nativeAlarmIds.insert(id.uuidString)

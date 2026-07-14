@@ -698,27 +698,57 @@ final class AlarmKitBridge {
           // The stable reservation may be retried with a recreated occurrence.
           // Replace the native configuration before publishing the new mirror,
           // so inventory cannot claim that new metadata is scheduled on the
-          // old AlarmKit configuration.
-          try nativeClientForAlarmKit().cancel(id: alarmId)
-          mirror[platformAlarmId] = AlarmMirrorRecord(
-            request: request,
-            platformAlarmId: platformAlarmId
-          )
-          try saveMirrorState(mirror, pending: pendingMirror)
-          let scheduledPlatformAlarmId = try await nativeClientForAlarmKit().schedule(
-            id: alarmId,
-            request: request
-          )
-          guard try canonicalPlatformAlarmId(scheduledPlatformAlarmId) == platformAlarmId else {
-            throw MirrorValidationError.invalid
+          // old AlarmKit configuration. Keep the prior record available until
+          // the replacement is committed so a failed replacement can restore
+          // both the native alarm and its durable identity.
+          let previousRecord = existing
+          do {
+            try nativeClientForAlarmKit().cancel(id: alarmId)
+            mirror[platformAlarmId] = AlarmMirrorRecord(
+              request: request,
+              platformAlarmId: platformAlarmId
+            )
+            try saveMirrorState(mirror, pending: pendingMirror)
+            let scheduledPlatformAlarmId = try await nativeClientForAlarmKit().schedule(
+              id: alarmId,
+              request: request
+            )
+            guard try canonicalPlatformAlarmId(scheduledPlatformAlarmId) == platformAlarmId else {
+              throw MirrorValidationError.invalid
+            }
+            try saveMirrorState(mirror, pending: pendingMirror)
+            return ScheduleRow(
+              status: "success",
+              platformAlarmId: platformAlarmId,
+              failureReason: nil,
+              failureMessage: nil
+            )
+          } catch {
+            mirror[platformAlarmId] = previousRecord
+            pendingMirror.removeValue(forKey: platformAlarmId)
+            var nativeRestored = false
+            if let previousRequest = previousRecord.scheduleRequest() {
+              do {
+                let restoredPlatformAlarmId = try await nativeClientForAlarmKit().schedule(
+                  id: alarmId,
+                  request: previousRequest
+                )
+                nativeRestored = try canonicalPlatformAlarmId(restoredPlatformAlarmId) == platformAlarmId
+              } catch {
+                nativeRestored = false
+              }
+            }
+            try? saveMirrorState(mirror, pending: pendingMirror)
+            if nativeRestored {
+              return ScheduleRow(
+                status: "failure",
+                platformAlarmId: platformAlarmId,
+                failureReason: "nativeError",
+                failureMessage: error.localizedDescription
+              )
+            }
+            throw error
           }
-          try saveMirrorState(mirror, pending: pendingMirror)
-          return ScheduleRow(
-            status: "success",
-            platformAlarmId: platformAlarmId,
-            failureReason: nil,
-            failureMessage: nil
-          )
         }
 
         mirror[platformAlarmId] = AlarmMirrorRecord(
@@ -1523,6 +1553,25 @@ private struct AlarmMirrorRecord: Codable, Equatable {
   func matchesStableReservation(_ request: ScheduleRequest) -> Bool {
     reservationId == request.reservationId &&
       wakePlanId == request.wakePlanId
+  }
+
+  func scheduleRequest() -> ScheduleRequest? {
+    guard let scheduledAt,
+      let targetAt,
+      let soundId,
+      let vibrationEnabled
+    else {
+      return nil
+    }
+    return ScheduleRequest(
+      occurrenceId: occurrenceId,
+      reservationId: reservationId,
+      wakePlanId: wakePlanId,
+      scheduledAt: scheduledAt,
+      targetAt: targetAt,
+      soundId: soundId,
+      vibrationEnabled: vibrationEnabled
+    )
   }
 
   func mergedRecoveryRecord(with other: AlarmMirrorRecord) throws -> AlarmMirrorRecord {
