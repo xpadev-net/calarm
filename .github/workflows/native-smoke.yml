@@ -397,7 +397,7 @@ jobs:
   ios-simulator:
     name: iOS simulator native smoke
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_ios }}
 
     steps:
@@ -571,6 +571,43 @@ jobs:
               "artifacts/native-smoke/logs/ios-simctl-bootstatus.log"
             exit 0
           fi
+
+          set +e
+          run_with_timeout 900 bash -o pipefail -c \
+            'xcodebuild test \
+              -workspace ios/Runner.xcworkspace \
+              -scheme Runner \
+              -destination "platform=iOS Simulator,id=$1" \
+              -only-testing:RunnerTests \
+              -resultBundlePath "$2" \
+              2>&1 | tee "$3"' \
+            bash "${device_id}" \
+            "${SMOKE_ARTIFACT_ROOT}/logs/ios-runner-tests.xcresult" \
+            "${SMOKE_ARTIFACT_ROOT}/logs/ios-runner-tests.log"
+          xctest_status="$?"
+          set -e
+
+          xcrun simctl boot "${device_id}" \
+            > "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-reboot-after-xctest.log" 2>&1 || true
+          set +e
+          run_with_timeout 300 bash -o pipefail -c \
+            'xcrun simctl bootstatus "$1" -b 2>&1 | tee "$2"' \
+            bash "${device_id}" "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-bootstatus-after-xctest.log"
+          reboot_status="$?"
+          set -e
+          if [[ "${reboot_status}" -ne 0 ]]; then
+            if [[ "${xctest_status}" -ne 0 ]]; then
+              write_ios_blocked_summary \
+                "Hosted iOS simulator was not available after RunnerTests XCTest completed; the XCTest gate also failed." \
+                "artifacts/native-smoke/logs/ios-runner-tests.log"
+              exit "${xctest_status}"
+            fi
+            write_ios_blocked_summary \
+              "Hosted iOS simulator was not available after RunnerTests XCTest completed." \
+              "artifacts/native-smoke/logs/ios-simctl-bootstatus-after-xctest.log"
+            exit 0
+          fi
+
           flutter devices 2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/ios-flutter-devices.log"
           if [[ "${runtime_version%%.*}" -ge 26 ]]; then
             status="NEAR_DEVICE"
@@ -585,26 +622,32 @@ jobs:
             bash "${device_id}" "${status}" "${SMOKE_ARTIFACT_ROOT}/logs/ios-native-smoke-test.log"
           smoke_status="$?"
           set -e
-          xcrun simctl spawn "${device_id}" log show --style compact --last 10m \
+          xcrun simctl spawn "${device_id}" log show --style compact --last 30m \
             > "${SMOKE_ARTIFACT_ROOT}/logs/ios-simctl-log-show.log" 2>&1 || true
           xcrun simctl io "${device_id}" screenshot "${SMOKE_ARTIFACT_ROOT}/logs/ios-screenshot.png" \
             > "${SMOKE_ARTIFACT_ROOT}/logs/ios-screenshot.log" 2>&1 || true
           smoke_outcome="$(grep -E 'CALARM_NATIVE_SMOKE_OUTCOME=' "${SMOKE_ARTIFACT_ROOT}/logs/ios-native-smoke-test.log" | tail -n 1 | cut -d= -f2 || true)"
+          evidence="artifacts/native-smoke/logs/ios-native-smoke-test.log"
 
           if [[ "${smoke_status}" -ne 0 ]]; then
+            status="BLOCKED"
             if [[ "${smoke_status}" -eq 124 ]]; then
               echo "CALARM_NATIVE_SMOKE_OUTCOME=BLOCKED" >> "${SMOKE_ARTIFACT_ROOT}/logs/ios-native-smoke-test.log"
               smoke_reason="MethodChannel smoke test timed out on the hosted simulator; runtime evidence is BLOCKED, but the simulator timeout is not real-device approval evidence."
-              write_ios_blocked_summary \
-                "${smoke_reason}" \
-                "artifacts/native-smoke/logs/ios-native-smoke-test.log"
-              exit 0
             else
-              write_ios_blocked_summary \
-                "MethodChannel smoke test failed; see artifacts/native-smoke/logs/ios-native-smoke-test.log" \
-                "artifacts/native-smoke/logs/ios-native-smoke-test.log"
-              exit "${smoke_status}"
+              smoke_reason="MethodChannel smoke test failed; see artifacts/native-smoke/logs/ios-native-smoke-test.log"
             fi
+            reason="${reason} ${smoke_reason}"
+          fi
+          if [[ "${xctest_status}" -ne 0 ]]; then
+            status="BLOCKED"
+            if [[ "${xctest_status}" -eq 124 ]]; then
+              xctest_reason="RunnerTests XCTest timed out; see artifacts/native-smoke/logs/ios-runner-tests.log. The CI gate failed."
+            else
+              xctest_reason="RunnerTests XCTest failed; see artifacts/native-smoke/logs/ios-runner-tests.log. The CI gate failed."
+            fi
+            evidence="artifacts/native-smoke/logs/ios-runner-tests.log"
+            reason="${reason} ${xctest_reason}"
           fi
           if [[ "${smoke_outcome}" != "NEAR_DEVICE" ]]; then
             status="BLOCKED"
@@ -619,8 +662,15 @@ jobs:
             echo "- detected iphonesimulator SDK: ${simulator_sdk}"
             echo "- reason: ${reason}"
             echo "- runtime approval: not approved; real-device iOS 26+ wake, lock/terminated, Silent/Focus, and full-screen stop UI gates remain BLOCKED"
-            echo "- evidence: artifacts/native-smoke/logs/ios-native-smoke-test.log"
+            echo "- evidence: ${evidence}"
           } > "${SMOKE_ARTIFACT_ROOT}/summary/ios-summary.md"
+
+          if [[ "${xctest_status}" -ne 0 ]]; then
+            exit "${xctest_status}"
+          fi
+          if [[ "${smoke_status}" -ne 0 && "${smoke_status}" -ne 124 ]]; then
+            exit "${smoke_status}"
+          fi
 
       - name: Upload iOS native smoke artifacts
         if: always()
