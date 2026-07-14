@@ -10,6 +10,29 @@ import 'package:integration_test/integration_test.dart';
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
+  testWidgets('stable smoke correlation rejects a mismatched wake plan', (
+    _,
+  ) async {
+    final row = NativeAlarmInventoryRow(
+      reservationId: 'ci-smoke-reservation',
+      occurrenceId: 'ci-smoke-occurrence',
+      wakePlanId: 'different-plan',
+      platformAlarmId: 'ci-smoke-platform-id',
+      status: NativeAlarmReservationStatus.scheduled,
+    );
+
+    expect(
+      _matchesStableScheduleTuple(
+        row,
+        reservationId: 'ci-smoke-reservation',
+        occurrenceId: 'ci-smoke-occurrence',
+        wakePlanId: 'ci-smoke-plan',
+        platformAlarmId: 'ci-smoke-platform-id',
+      ),
+      isFalse,
+    );
+  });
+
   testWidgets('native alarm MethodChannel smoke', (_) async {
     final gateway = MethodChannelNativeAlarmGateway();
     const platform = String.fromEnvironment(
@@ -105,9 +128,13 @@ void main() {
         );
         final matchingRows = inventory.rows
             .where(
-              (row) =>
-                  row.reservationId == scheduleRequest.reservationId &&
-                  row.occurrenceId == scheduleRequest.occurrenceId,
+              (row) => _matchesStableScheduleTuple(
+                row,
+                reservationId: scheduleRequest.reservationId,
+                occurrenceId: scheduleRequest.occurrenceId,
+                wakePlanId: scheduleRequest.wakePlanId,
+                platformAlarmId: scheduledPlatformAlarmId,
+              ),
             )
             .toList();
         expect(matchingRows, hasLength(1));
@@ -179,6 +206,7 @@ void main() {
           reservationId: scheduleRequest.reservationId,
           platformAlarmId: scheduledPlatformAlarmId,
           expectedWakePlanId: scheduleRequest.wakePlanId,
+          allowPlatformIdTupleDiscovery: false,
           platform: platform,
           evidenceLabel: evidenceLabel,
           cleanupLabel: 'schedule',
@@ -435,6 +463,19 @@ void main() {
   });
 }
 
+bool _matchesStableScheduleTuple(
+  NativeAlarmInventoryRow row, {
+  required String reservationId,
+  required String occurrenceId,
+  required String wakePlanId,
+  required String? platformAlarmId,
+}) {
+  return row.reservationId == reservationId &&
+      row.occurrenceId == occurrenceId &&
+      row.wakePlanId == wakePlanId &&
+      (platformAlarmId == null || row.platformAlarmId == platformAlarmId);
+}
+
 Future<bool> _bestEffortCleanupTestAlarm({
   required MethodChannelNativeAlarmGateway gateway,
   required String occurrenceId,
@@ -444,6 +485,7 @@ Future<bool> _bestEffortCleanupTestAlarm({
   String? fallbackOccurrenceId,
   String? fallbackReservationId,
   bool allowTupleFallback = true,
+  bool allowPlatformIdTupleDiscovery = true,
   bool platformAlarmIdAlreadyCorrelated = false,
   bool cancelBeforeVerification = true,
   required String platform,
@@ -535,7 +577,24 @@ Future<bool> _bestEffortCleanupTestAlarm({
         }
         if (idMatches.length == 1) {
           final row = idMatches.single;
-          if (row.wakePlanId != expectedWakePlanId) {
+          final rowMatchesExpectedTuple = _matchesStableScheduleTuple(
+            row,
+            reservationId: recoveredReservationId,
+            occurrenceId: recoveredOccurrenceId,
+            wakePlanId: expectedWakePlanId,
+            platformAlarmId: recoveredPlatformAlarmId,
+          );
+          if (!allowPlatformIdTupleDiscovery && !rowMatchesExpectedTuple) {
+            _emitEvidence('cleanup${cleanupLabel}Failure', {
+              'platform': platform,
+              'evidenceLabel': evidenceLabel,
+              'reason':
+                  'stable returned platform ID does not match the expected tuple',
+            });
+            return false;
+          }
+          if (allowPlatformIdTupleDiscovery &&
+              row.wakePlanId != expectedWakePlanId) {
             _emitEvidence('cleanup${cleanupLabel}Failure', {
               'platform': platform,
               'evidenceLabel': evidenceLabel,
@@ -544,8 +603,10 @@ Future<bool> _bestEffortCleanupTestAlarm({
             });
             return false;
           }
-          recoveredOccurrenceId = row.occurrenceId;
-          recoveredReservationId = row.reservationId;
+          if (allowPlatformIdTupleDiscovery) {
+            recoveredOccurrenceId = row.occurrenceId;
+            recoveredReservationId = row.reservationId;
+          }
           platformCorrelationVerified = true;
         }
       } else if (allowTupleFallback) {
@@ -620,7 +681,24 @@ Future<bool> _bestEffortCleanupTestAlarm({
       }
       if (idMatches.length == 1 && !platformCorrelationVerified) {
         final row = idMatches.single;
-        if (row.wakePlanId != expectedWakePlanId) {
+        final rowMatchesExpectedTuple = _matchesStableScheduleTuple(
+          row,
+          reservationId: recoveredReservationId,
+          occurrenceId: recoveredOccurrenceId,
+          wakePlanId: expectedWakePlanId,
+          platformAlarmId: recoveredPlatformAlarmId,
+        );
+        if (!allowPlatformIdTupleDiscovery && !rowMatchesExpectedTuple) {
+          _emitEvidence('cleanup${cleanupLabel}Failure', {
+            'platform': platform,
+            'evidenceLabel': evidenceLabel,
+            'reason':
+                'stable returned platform ID does not match the expected tuple',
+          });
+          return false;
+        }
+        if (allowPlatformIdTupleDiscovery &&
+            row.wakePlanId != expectedWakePlanId) {
           _emitEvidence('cleanup${cleanupLabel}Failure', {
             'platform': platform,
             'evidenceLabel': evidenceLabel,
@@ -629,8 +707,10 @@ Future<bool> _bestEffortCleanupTestAlarm({
           });
           return false;
         }
-        recoveredOccurrenceId = row.occurrenceId;
-        recoveredReservationId = row.reservationId;
+        if (allowPlatformIdTupleDiscovery) {
+          recoveredOccurrenceId = row.occurrenceId;
+          recoveredReservationId = row.reservationId;
+        }
         platformCorrelationVerified = true;
       }
       if (idMatches.isEmpty && !platformCorrelationVerified) return false;
