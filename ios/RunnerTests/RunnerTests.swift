@@ -187,6 +187,71 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
+  func testBridgeReplacementUnknownOutcomeKeepsRecoverablePriorIdentity() async {
+    let fake = FakeAlarmKitNativeClient()
+    fake.throwAfterMutationScheduleAttempts = [2]
+    fake.failedScheduleAttempts = [3]
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let original = makeScheduleRequest("reservation-replacement-unknown")
+    let replacement = makeScheduleRequest(
+      "reservation-replacement-unknown",
+      occurrenceId: "occurrence-replacement-unknown"
+    )
+    let platformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
+    clearMirror()
+    defer { clearMirror() }
+
+    let originalResult = await bridge.scheduleAlarm(original)
+    XCTAssertEqual(originalResult.status, "success")
+    let replacementResult = await bridge.scheduleAlarm(replacement)
+    XCTAssertEqual(replacementResult.status, "failure")
+    XCTAssertEqual(replacementResult.failureReason, "nativeError")
+    XCTAssertEqual(replacementResult.platformAlarmId, platformAlarmId)
+    XCTAssertTrue(fake.nativeAlarmIds.contains(platformAlarmId.uppercased()))
+    XCTAssertTrue(mirrorContains(platformAlarmId))
+
+    let inventory = await inventoryValue(bridge)
+    let rows = (inventory as? [String: Any?])?["reservations"]
+      as? [[String: Any?]]
+    XCTAssertEqual(rows?.first?["occurrenceId"] as? String, original.occurrenceId)
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testBridgeLegacyMirrorReplacementFailsClosedWithoutCancel() async {
+    let fake = FakeAlarmKitNativeClient()
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let original = makeScheduleRequest("reservation-legacy-replacement")
+    let replacement = makeScheduleRequest(
+      "reservation-legacy-replacement",
+      occurrenceId: "occurrence-legacy-replacement"
+    )
+    let platformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
+    let legacyData = mirrorData([
+      platformAlarmId: [
+        "reservationId": original.reservationId,
+        "occurrenceId": original.occurrenceId,
+        "wakePlanId": original.wakePlanId,
+        "platformAlarmId": platformAlarmId,
+      ]
+    ])
+    clearMirror()
+    UserDefaults.standard.set(legacyData, forKey: mirrorKey)
+    fake.nativeAlarmIds.insert(platformAlarmId.uppercased())
+    defer { clearMirror() }
+
+    let result = await bridge.scheduleAlarm(replacement)
+    XCTAssertEqual(result.status, "failure")
+    XCTAssertEqual(result.failureReason, "unknown")
+    XCTAssertEqual(result.platformAlarmId, platformAlarmId)
+    XCTAssertEqual(fake.cancelCalls, 0)
+    XCTAssertEqual(fake.scheduleAttempts, 0)
+    XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), legacyData)
+    XCTAssertTrue(fake.nativeAlarmIds.contains(platformAlarmId.uppercased()))
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
   func testBridgeConcurrentDifferentSchedulesPreserveBothMirrorRows() async {
     let fake = FakeAlarmKitNativeClient()
     fake.gatedScheduleAttempts = [1]
@@ -741,8 +806,8 @@ class RunnerTests: XCTestCase {
       options: [.sortedKeys]
     )
     UserDefaults.standard.set(malformedCurrent, forKey: envelopeKey)
-    let currentResult = await inventoryValue(currentBridge)
-    XCTAssertEqual((currentResult as? FlutterError)?.code, "corrupt")
+    let currentInventoryResult = await inventoryValue(currentBridge)
+    XCTAssertEqual((currentInventoryResult as? FlutterError)?.code, "corrupt")
     XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), committedBefore)
     XCTAssertEqual(UserDefaults.standard.data(forKey: envelopeKey), malformedCurrent)
 
@@ -760,8 +825,8 @@ class RunnerTests: XCTestCase {
     UserDefaults.standard.set(validCurrentEnvelope, forKey: envelopeKey)
     UserDefaults.standard.set(malformedPrior, forKey: mirrorKey)
     let priorBridge = AlarmKitBridge(nativeClient: priorFake)
-    let priorResult = await inventoryValue(priorBridge)
-    XCTAssertEqual((priorResult as? FlutterError)?.code, "corrupt")
+    let priorInventoryResult = await inventoryValue(priorBridge)
+    XCTAssertEqual((priorInventoryResult as? FlutterError)?.code, "corrupt")
     XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), malformedPrior)
     XCTAssertEqual(UserDefaults.standard.data(forKey: envelopeKey), validCurrentEnvelope)
   }
@@ -1558,8 +1623,8 @@ class RunnerTests: XCTestCase {
     UserDefaults.standard.set(currentEnvelopeData, forKey: envelopeKey)
     UserDefaults.standard.set(priorEmptyData, forKey: mirrorKey)
     let conflictBridge = AlarmKitBridge(nativeClient: conflictFake)
-    let conflictResult = await inventoryValue(conflictBridge)
-    XCTAssertEqual((conflictResult as? FlutterError)?.code, "corrupt")
+    let conflictInventoryResult = await inventoryValue(conflictBridge)
+    XCTAssertEqual((conflictInventoryResult as? FlutterError)?.code, "corrupt")
     XCTAssertEqual(UserDefaults.standard.data(forKey: mirrorKey), priorEmptyData)
     XCTAssertEqual(UserDefaults.standard.data(forKey: envelopeKey), currentEnvelopeData)
   }
@@ -1860,6 +1925,7 @@ private final class FakeAlarmKitNativeClient: AlarmKitNativeClient {
   var gateFirstSchedule = false
   var failFirstSchedule = false
   var failedScheduleAttempts = Set<Int>()
+  var throwAfterMutationScheduleAttempts = Set<Int>()
   var insertBeforeFailFirstSchedule = false
   var cancelCalls = 0
   var scheduledRequests: [String: ScheduleRequest] = [:]
@@ -1914,6 +1980,9 @@ private final class FakeAlarmKitNativeClient: AlarmKitNativeClient {
     }
     nativeAlarmIds.insert(id.uuidString)
     scheduledRequests[id.uuidString.lowercased()] = request
+    if throwAfterMutationScheduleAttempts.contains(scheduleAttempts) {
+      throw FakeError.scheduleFailed
+    }
     return id.uuidString
   }
 

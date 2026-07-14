@@ -702,6 +702,14 @@ final class AlarmKitBridge {
           // the replacement is committed so a failed replacement can restore
           // both the native alarm and its durable identity.
           let previousRecord = existing
+          guard let previousRequest = previousRecord.scheduleRequest() else {
+            return ScheduleRow(
+              status: "failure",
+              platformAlarmId: platformAlarmId,
+              failureReason: "unknown",
+              failureMessage: "The existing AlarmKit configuration is unavailable for a safe replacement."
+            )
+          }
           do {
             try nativeClientForAlarmKit().cancel(id: alarmId)
             mirror[platformAlarmId] = AlarmMirrorRecord(
@@ -727,19 +735,34 @@ final class AlarmKitBridge {
             mirror[platformAlarmId] = previousRecord
             pendingMirror.removeValue(forKey: platformAlarmId)
             var nativeRestored = false
-            if let previousRequest = previousRecord.scheduleRequest() {
-              do {
-                let restoredPlatformAlarmId = try await nativeClientForAlarmKit().schedule(
-                  id: alarmId,
-                  request: previousRequest
+            do {
+              let restoredPlatformAlarmId = try await nativeClientForAlarmKit().schedule(
+                id: alarmId,
+                request: previousRequest
+              )
+              nativeRestored = try canonicalPlatformAlarmId(restoredPlatformAlarmId) == platformAlarmId
+            } catch {
+              nativeRestored = false
+            }
+
+            var nativePresence: Bool?
+            do {
+              let freshNativeAlarms = try nativeClientForAlarmKit().inventory()
+              let freshNativeIds = try Set(
+                authoritativeNativeAlarmIds(
+                  freshNativeAlarms.map { $0.platformAlarmId },
+                  mirrorSnapshot: mirrorSnapshot
                 )
-                nativeRestored = try canonicalPlatformAlarmId(restoredPlatformAlarmId) == platformAlarmId
-              } catch {
-                nativeRestored = false
-              }
+              )
+              nativePresence = freshNativeIds.contains(platformAlarmId)
+            } catch {
+              nativePresence = nil
+            }
+            if nativePresence == false {
+              mirror.removeValue(forKey: platformAlarmId)
             }
             try? saveMirrorState(mirror, pending: pendingMirror)
-            if nativeRestored {
+            if nativeRestored || nativePresence == true {
               return ScheduleRow(
                 status: "failure",
                 platformAlarmId: platformAlarmId,
