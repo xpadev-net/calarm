@@ -6,9 +6,11 @@
 - work_type: code
 
 ## Goal
+
 - Refine the calendar-first UI with a left tools drawer, silent empty weeks, bounded two-finger vertical pinch zoom, and three-day/week display switching.
 
 ## Definition of Done
+
 - The unwanted empty-week message is absent while the empty grid remains usable.
 - Secondary tools open from the left and remain reachable.
 - Two-finger pinch zoom changes hour density within safe bounds without losing the viewed time context, with no zoom buttons shown.
@@ -16,18 +18,22 @@
 - Required Flutter checks pass and independent review approves compact layouts and interactions.
 
 ## Scope / Non-goals
+
 - Scope: home drawer direction, calendar toolbar/state, variable-day layout/paging, vertical zoom, and focused tests.
 - Non-goals: persistent user preferences, zoom buttons, arbitrary day counts, backend/domain/schema changes, or Google branding.
 
 ## Context (workspace)
+
 - Related files/areas: home scaffold, week calendar placeholder/view/interaction model, and widget/model tests.
 - Existing patterns or references: calendar-first uncommitted baseline and existing `WeekRange.visibleDays` support.
 - Repo reference docs consulted: root `AGENTS.md`, `docs/coding-agent/lessons.md`; repository rule suite is absent.
 
 ## Open Questions (max 3)
+
 - None blocking.
 
 ## Assumptions
+
 - Zoom uses a two-finger pinch gesture; one-finger vertical scroll and horizontal paging must remain available.
 - Switching between three-day and week views resets to the current period for deterministic behavior.
 - Display settings remain local to the home calendar instance and are not persisted.
@@ -35,6 +41,7 @@
 ## Tasks
 
 ### Task_1: Research variable calendar presentation
+
 - type: research
 - owns: []
 - depends_on: []
@@ -50,6 +57,7 @@
     detail: "Research cites concrete paths and covers all four requested behaviors."
 
 ### Task_2: Implement calendar presentation controls
+
 - type: impl
 - owns:
   - lib/app.dart
@@ -93,6 +101,7 @@
     detail: "rtk git diff --check"
 
 ### Task_3: Independently review UI and interaction behavior
+
 - type: review
 - owns: []
 - depends_on: [Task_2]
@@ -130,6 +139,7 @@
 - known_flakiness: provider-backed tests require existing overrides; scroll-position assertions should allow normal floating-point tolerance.
 
 ## Rollback / Safety
+
 - Revert view-state and drawer changes; no persisted data, schema, native alarm scheduling, or API behavior changes.
 
 ## Progress Log (append-only)
@@ -161,6 +171,7 @@
   - User approval: not separately required; this is an in-scope correctness fix for the explicitly requested pinch behavior.
 
 ## Notes
+
 - Risks: hard-coded seven-day divisors, paging stride, scroll reprojection, compact toolbar overflow, and API compatibility of empty-state fields.
 - Edge cases: zoom bounds, provider error, empty calendar, future pages, compact landscape, and floating-point scroll offsets.
 - Quality routing note: L1, low-to-medium localized Flutter presentation risk; security, data integrity, migration, concurrency, external dependency, backend, and persisted-contract concerns are out of scope.

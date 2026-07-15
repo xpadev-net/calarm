@@ -35,8 +35,9 @@ class WeekCalendarDraft {
   WeekCalendarDraft moveBy({required int days, required int minutes}) {
     final interval = weekCalendarDraftSnapInterval.inMinutes;
     final snappedMinutes = (minutes / interval).round() * interval;
-    final delta = Duration(days: days, minutes: snappedMinutes);
-    return copyWith(startAt: startAt.add(delta), endAt: endAt.add(delta));
+    final minuteDelta = Duration(minutes: snappedMinutes);
+    final nextStartAt = _addCalendarDays(startAt, days).add(minuteDelta);
+    return copyWith(startAt: nextStartAt, endAt: nextStartAt.add(duration));
   }
 
   WeekCalendarDraft resizeStartBy(Duration delta) {
@@ -98,19 +99,45 @@ WeekCalendarDraft clampWeekCalendarDraftToRange({
 }) {
   final rangeStart = week.start.startOfDay;
   final rangeEnd = week.endExclusive.startOfDay;
-  if (!draft.endAt.isAfter(rangeStart)) {
+  if (draft.startAt.isBefore(rangeStart)) {
     return draft.copyWith(
       startAt: rangeStart,
       endAt: rangeStart.add(draft.duration),
     );
   }
-  if (!draft.startAt.isBefore(rangeEnd)) {
+  if (draft.endAt.isAfter(rangeEnd)) {
     return draft.copyWith(
       startAt: rangeEnd.subtract(draft.duration),
       endAt: rangeEnd,
     );
   }
   return draft;
+}
+
+DateTime _addCalendarDays(DateTime value, int days) {
+  final nextDay = CalendarDay.fromDateTime(value).addDays(days);
+  if (value.isUtc) {
+    return DateTime.utc(
+      nextDay.year,
+      nextDay.month,
+      nextDay.day,
+      value.hour,
+      value.minute,
+      value.second,
+      value.millisecond,
+      value.microsecond,
+    );
+  }
+  return DateTime(
+    nextDay.year,
+    nextDay.month,
+    nextDay.day,
+    value.hour,
+    value.minute,
+    value.second,
+    value.millisecond,
+    value.microsecond,
+  );
 }
 
 DateTime _clampDraftStart(DateTime candidate, DateTime endAt) {

@@ -104,9 +104,9 @@ class _InlineWakePlanEditorState extends State<InlineWakePlanEditor>
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-          child: Row(
-            children: [
-              IconButton(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final cancel = IconButton(
                 key: const ValueKey('inline-wake-plan-cancel'),
                 tooltip: widget.submissionAttempted
                     ? 'Cannot cancel after submission'
@@ -115,35 +115,31 @@ class _InlineWakePlanEditorState extends State<InlineWakePlanEditor>
                     ? null
                     : widget.onCancel,
                 icon: const Icon(Icons.close),
-              ),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+              );
+              final summary = Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _rangeLabel(widget.startAt, widget.endAt),
+                    key: const ValueKey('inline-wake-plan-time-range'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  if (guidance != null)
                     Text(
-                      _rangeLabel(widget.startAt, widget.endAt),
-                      key: const ValueKey('inline-wake-plan-time-range'),
-                      maxLines: 1,
+                      guidance,
+                      key: const ValueKey('inline-wake-plan-guidance'),
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodyMedium,
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: colorScheme.error),
                     ),
-                    if (guidance != null)
-                      Text(
-                        guidance,
-                        key: const ValueKey('inline-wake-plan-guidance'),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: colorScheme.error,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
+                ],
+              );
+              final save = FilledButton(
                 key: const ValueKey('inline-wake-plan-save'),
                 onPressed: widget.saving || !_isFuture ? null : widget.onSave,
                 child: Text(
@@ -153,8 +149,33 @@ class _InlineWakePlanEditorState extends State<InlineWakePlanEditor>
                       ? 'Retry'
                       : 'Save',
                 ),
-              ),
-            ],
+              );
+              final textScale = MediaQuery.textScalerOf(context).scale(1);
+              if (textScale > 1.4 || constraints.maxWidth < 300) {
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        cancel,
+                        const SizedBox(width: 4),
+                        Expanded(child: summary),
+                      ],
+                    ),
+                    Align(alignment: Alignment.centerRight, child: save),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  cancel,
+                  const SizedBox(width: 4),
+                  Expanded(child: summary),
+                  const SizedBox(width: 8),
+                  save,
+                ],
+              );
+            },
           ),
         ),
       ),

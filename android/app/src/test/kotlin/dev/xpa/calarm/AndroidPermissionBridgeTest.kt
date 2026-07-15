@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.app.AlarmManager
 import android.app.Application
+import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
@@ -149,6 +150,87 @@ class AndroidPermissionBridgeTest {
         assertEquals(Settings.ACTION_APP_NOTIFICATION_SETTINGS, launched.action)
         assertEquals("denied", (result.value as Map<*, *>)["status"])
         assertEquals(1, result.completionCount)
+    }
+
+    @Test
+    fun `missing exact alarm settings activity falls back to app details`() {
+        ShadowAlarmManager.setCanScheduleExactAlarms(false)
+        allowOnlyAppDetailsSettings()
+        Shadows.shadowOf(application).checkActivities(true)
+        val result = CapturingResult()
+
+        AndroidAlarmBridge(application).onMethodCall(permissionCall(), result)
+
+        val launched = Shadows.shadowOf(application).nextStartedActivity
+        assertEquals(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, launched.action)
+        assertEquals("package:${application.packageName}", launched.data.toString())
+        assertEquals("denied", (result.value as Map<*, *>)["status"])
+    }
+
+    @Test
+    fun `security failure opening channel settings falls back to app details`() {
+        Shadows.shadowOf(application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        application.getSystemService(NotificationManager::class.java).apply {
+            deleteNotificationChannel(AlarmNotificationChannel.ID)
+            createNotificationChannel(
+                NotificationChannel(
+                    AlarmNotificationChannel.ID,
+                    "Wake alarms",
+                    NotificationManager.IMPORTANCE_NONE,
+                ),
+            )
+        }
+        var rejectedAction: String? = null
+        val bridge = AndroidAlarmBridge(application) { intent ->
+            if (rejectedAction == null) {
+                rejectedAction = intent.action
+                throw SecurityException("settings activity rejected")
+            }
+            application.startActivity(intent)
+        }
+        val result = CapturingResult()
+
+        bridge.onMethodCall(permissionCall(), result)
+
+        assertEquals(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS, rejectedAction)
+        val launched = Shadows.shadowOf(application).nextStartedActivity
+        assertEquals(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, launched.action)
+        assertEquals("package:${application.packageName}", launched.data.toString())
+        assertEquals("denied", (result.value as Map<*, *>)["status"])
+    }
+
+    @Test
+    fun `failed runtime permission request can be retried`() {
+        val firstResult = CapturingResult()
+
+        AndroidAlarmBridge(activity) { _, _, _ ->
+            throw RuntimeException("permission controller unavailable")
+        }.onMethodCall(permissionCall(), firstResult)
+
+        assertEquals("UNAVAILABLE", firstResult.errorCode)
+        assertEquals(1, firstResult.completionCount)
+        assertEquals(
+            false,
+            application.getSharedPreferences("native_alarm_permissions", Context.MODE_PRIVATE)
+                .getBoolean("notification_requested", true),
+        )
+
+        val retryResult = CapturingResult()
+        val retryBridge = AndroidAlarmBridge(activity)
+        retryBridge.onMethodCall(permissionCall(), retryResult)
+
+        assertNull(retryResult.value)
+        assertNull(retryResult.errorCode)
+        retryBridge.detach()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun allowOnlyAppDetailsSettings() {
+        val detailsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.parse("package:${application.packageName}")
+        }
+        Shadows.shadowOf(application.packageManager)
+            .setResolveInfosForIntent(detailsIntent, listOf(ResolveInfo()))
     }
 
     private fun permissionCall(): MethodCall {

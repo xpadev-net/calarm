@@ -522,6 +522,64 @@ void main() {
   }
 
   testWidgets(
+    'uses actual remaining height with wrapped errors, large text, and inset',
+    (tester) async {
+      addTearDown(tester.view.reset);
+      tester.view.physicalSize = const Size(320, 568);
+      tester.view.devicePixelRatio = 1;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            weekCalendarRepositoryProvider.overrideWith((ref) async {
+              throw StateError('database unavailable');
+            }),
+            wakePlanDefaultsRepositoryProvider.overrideWith((ref) async {
+              throw StateError('defaults unavailable');
+            }),
+            weekCalendarClockProvider.overrideWith(
+              (ref) =>
+                  () => DateTime(2026, 7, 8, 5, 30),
+            ),
+          ],
+          child: MaterialApp(
+            home: MediaQuery(
+              data: const MediaQueryData(
+                size: Size(320, 568),
+                padding: EdgeInsets.only(bottom: 34),
+                textScaler: TextScaler.linear(2),
+              ),
+              child: const Scaffold(body: WeekCalendarPlaceholder()),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      _calendar(tester).onTargetTap!(
+        WeekCalendarTapTarget(
+          day: CalendarDay(year: 2026, month: 7, day: 9),
+          time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final error = find.text('Could not load wake plans or defaults.');
+      final calendar = find.byType(WeekCalendarView);
+      final editor = find.byKey(const ValueKey('inline-wake-plan-editor'));
+      expect(tester.getSize(error).height, greaterThan(40));
+      expect(
+        tester.getRect(calendar).bottom,
+        lessThanOrEqualTo(tester.getRect(editor).top),
+      );
+      expect(
+        tester.getRect(editor).bottom,
+        lessThanOrEqualTo(tester.getRect(error).top),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'switches 3/7-day modes and pinches between bounded hour heights',
     (tester) async {
       await tester.pumpWidget(

@@ -6,9 +6,11 @@
 - work_type: code
 
 ## Goal
+
 - Prevent users from reaching alarm-dependent workflows until Android alarm readiness is verified, with clear full-screen remediation and defensive downstream error handling.
 
 ## Definition of Done
+
 - Startup checks exact-alarm, notification, full-screen-intent, and wake-channel readiness before reconciliation or home display.
 - Missing readiness shows a full-screen gate that opens the correct system flow one item at a time and refreshes after app resume.
 - Android 13+ notification access uses the runtime permission flow, with settings fallback where appropriate.
@@ -18,18 +20,22 @@
 - A temporary near-future wake alarm is created on the connected device, rings through the intended alarm UI, can be stopped, and is removed without leaving changed permission state.
 
 ## Scope / Non-goals
+
 - Scope: shared gateway/capability state, root startup routing, full-screen gate, lifecycle/reconciliation ordering, Android permission intents/callback, downstream permission failure mapping, receiver containment, and one reversible physical-device alarm creation/ringing flow.
 - Non-goals: battery-optimization exemption, OEM-specific autostart instructions, changing the four-condition full-screen-alarm promise, or persisted schema changes.
 
 ## Context (workspace)
+
 - Related files/areas: `lib/app.dart`, platform gateway/bootstrap, alarm health settings, inline save flow, Android alarm bridge/receiver, and corresponding tests.
 - Existing patterns or references: `AlarmHealthController` capability state and native bridge `NativeAlarmCapability` requirement flags.
 - Repo reference docs consulted: root `AGENTS.md`, `docs/coding-agent/lessons.md`; repository rule suite is absent.
 
 ## Open Questions (max 3)
+
 - None blocking.
 
 ## Assumptions
+
 - All four current native readiness conditions remain hard prerequisites because scheduling currently rejects any missing condition and the product promises reliable full-screen wake alarms.
 - The gate requests or opens one missing requirement per user action, then relies on lifecycle resume refresh before proceeding.
 - Battery optimization remains advisory and is not requested.
@@ -37,6 +43,7 @@
 ## Tasks
 
 ### Task_1: Research native alarm readiness and startup ordering
+
 - type: research
 - owns: []
 - depends_on: []
@@ -52,6 +59,7 @@
     detail: "Research covers startup race, Android 31/33/34+ behavior, resume, transport failures, and receiver fallback."
 
 ### Task_2: Implement startup permission readiness gate
+
 - type: impl
 - owns:
   - lib/app.dart
@@ -107,6 +115,7 @@
     detail: "rtk git diff --check"
 
 ### Task_3: Independently review permission and lifecycle safety
+
 - type: review
 - owns: []
 - depends_on: [Task_2]
@@ -126,6 +135,7 @@
     detail: "Review capability authority, lifecycle races, typed failures, native callback cleanup, and receiver fallbacks."
 
 ### Task_4: Validate a real alarm end to end on the connected device
+
 - type: review
 - owns:
   - artifacts/ui/alarm-creation-device/**
@@ -168,6 +178,7 @@
 - known_flakiness: Android system permission/settings screens vary by OEM; device validation must distinguish app behavior from system UI wording.
 
 ## Rollback / Safety
+
 - Restore unconditional home routing and reconciliation timing, leaving existing settings health panel and schedule-time checks; no data/schema rollback is needed.
 
 ## Progress Log (append-only)
@@ -230,6 +241,7 @@
   - User approval: the user authorized creating an alarm; no additional plan or more than one actual ringing event is permitted.
 
 ## Notes
+
 - Risks: multiple gateway provider identity, stale immediate permission results, asynchronous runtime callback lifecycle, reconciliation duplication, permission revocation races, receiver exception containment, and repeated non-fatal AppOps attribution warnings during ringing.
 - Edge cases: unsupported platform, malformed method-channel response, repeated CTA taps, permanent notification denial, activity recreation, resume during request, channel disabled, and permission loss between gate and Save.
 - Quality routing note: L3 because platform permissions gate the primary alarm path and startup ordering can affect persisted scheduling state; security/data-integrity/platform-contract and lifecycle checks are in scope.

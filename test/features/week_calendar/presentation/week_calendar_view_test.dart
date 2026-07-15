@@ -4,6 +4,8 @@ import 'package:calarm/core/time/time.dart';
 import 'package:calarm/features/week_calendar/week_calendar.dart';
 import 'package:calarm/features/wake_plan/domain/wake_plan_domain.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -232,6 +234,203 @@ void main() {
       find.byKey(const ValueKey('week-calendar-draft-segment-draft-1-3')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('publishes draft times and supports screen-reader adjustments', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    var draft = WeekCalendarDraft(
+      id: 'accessible-draft',
+      startAt: DateTime(2026, 7, 8, 10),
+      endAt: DateTime(2026, 7, 8, 11),
+      createdAt: DateTime(2026, 7, 8, 5, 30),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => WeekCalendarView(
+              now: DateTime(2026, 7, 8, 7, 30),
+              initialWeek: WeekRange(
+                start: CalendarDay(year: 2026, month: 7, day: 6),
+              ),
+              draft: draft,
+              onDraftChanged: (value) => setState(() => draft = value),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final body = find.byKey(
+      const ValueKey('week-calendar-draft-body-semantics-accessible-draft'),
+    );
+    expect(
+      tester.getSemantics(body),
+      matchesSemantics(
+        label: 'Wake plan draft',
+        value: 'Start 2026-07-08 10:00, end 2026-07-08 11:00',
+        hasEnabledState: true,
+        isEnabled: true,
+        isFocusable: true,
+        hasIncreaseAction: true,
+        hasDecreaseAction: true,
+      ),
+    );
+    expect(
+      tester
+          .getSemantics(body)
+          .getSemanticsData()
+          .hasAction(SemanticsAction.customAction),
+      isTrue,
+    );
+    final bodyNodeBeforeIncrease = tester.getSemantics(body);
+    bodyNodeBeforeIncrease.owner!.performAction(
+      bodyNodeBeforeIncrease.id,
+      SemanticsAction.increase,
+    );
+    await tester.pump();
+    expect(draft.startAt, DateTime(2026, 7, 8, 10, 5));
+    expect(draft.endAt, DateTime(2026, 7, 8, 11, 5));
+
+    final bodyNode = tester.getSemantics(body);
+    final nextDayAction = CustomSemanticsAction.getIdentifier(
+      const CustomSemanticsAction(label: 'Move to next day'),
+    );
+    bodyNode.owner!.performAction(
+      bodyNode.id,
+      SemanticsAction.customAction,
+      nextDayAction,
+    );
+    await tester.pump();
+    expect(draft.startAt, DateTime(2026, 7, 9, 10, 5));
+    expect(draft.endAt, DateTime(2026, 7, 9, 11, 5));
+
+    final bodyNodeAfterMove = tester.getSemantics(body);
+    bodyNodeAfterMove.owner!.performAction(
+      bodyNodeAfterMove.id,
+      SemanticsAction.customAction,
+      nextDayAction,
+    );
+    await tester.pump();
+    expect(draft.startAt, DateTime(2026, 7, 10, 10, 5));
+    expect(draft.endAt, DateTime(2026, 7, 10, 11, 5));
+
+    final bodyNodeAfterSecondMove = tester.getSemantics(body);
+    bodyNodeAfterSecondMove.owner!.performAction(
+      bodyNodeAfterSecondMove.id,
+      SemanticsAction.increase,
+    );
+    await tester.pump();
+    expect(draft.startAt, DateTime(2026, 7, 10, 10, 10));
+    expect(draft.endAt, DateTime(2026, 7, 10, 11, 10));
+
+    final startHandle = find.byKey(
+      const ValueKey('week-calendar-draft-start-handle-semantics'),
+    );
+    expect(
+      tester.getSemantics(startHandle),
+      matchesSemantics(
+        label: 'Wake plan start',
+        value: '2026-07-10 10:10',
+        hasEnabledState: true,
+        isEnabled: true,
+        isFocusable: true,
+        hasIncreaseAction: true,
+        hasDecreaseAction: true,
+      ),
+    );
+    final startNode = tester.getSemantics(startHandle);
+    startNode.owner!.performAction(startNode.id, SemanticsAction.decrease);
+    await tester.pump();
+    expect(draft.startAt, DateTime(2026, 7, 10, 10, 5));
+
+    final endHandle = find.byKey(
+      const ValueKey('week-calendar-draft-end-handle-semantics'),
+    );
+    expect(
+      tester.getSemantics(endHandle),
+      matchesSemantics(
+        label: 'Wake plan end',
+        value: '2026-07-10 11:10',
+        hasEnabledState: true,
+        isEnabled: true,
+        isFocusable: true,
+        hasIncreaseAction: true,
+        hasDecreaseAction: true,
+      ),
+    );
+    final endNode = tester.getSemantics(endHandle);
+    endNode.owner!.performAction(endNode.id, SemanticsAction.increase);
+    await tester.pump();
+    expect(draft.endAt, DateTime(2026, 7, 10, 11, 15));
+    semantics.dispose();
+  });
+
+  testWidgets('keyboard moves and resizes a draft in five-minute steps', (
+    tester,
+  ) async {
+    var draft = WeekCalendarDraft(
+      id: 'keyboard-draft',
+      startAt: DateTime(2026, 7, 8, 10),
+      endAt: DateTime(2026, 7, 8, 11),
+      createdAt: DateTime(2026, 7, 8, 5, 30),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => WeekCalendarView(
+              now: DateTime(2026, 7, 8, 7, 30),
+              initialWeek: WeekRange(
+                start: CalendarDay(year: 2026, month: 7, day: 6),
+              ),
+              draft: draft,
+              onDraftChanged: (value) => setState(() => draft = value),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('week-calendar-draft-body-keyboard-draft-2')),
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pump();
+    expect(draft.startAt, DateTime(2026, 7, 8, 9, 55));
+    expect(draft.endAt, DateTime(2026, 7, 8, 10, 55));
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    expect(draft.startAt, DateTime(2026, 7, 9, 9, 55));
+    expect(draft.endAt, DateTime(2026, 7, 9, 10, 55));
+    expect(FocusManager.instance.primaryFocus?.debugLabel, 'Wake plan draft');
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    expect(draft.startAt, DateTime(2026, 7, 10, 9, 55));
+    expect(draft.endAt, DateTime(2026, 7, 10, 10, 55));
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pump();
+    expect(draft.startAt, DateTime(2026, 7, 10, 9, 50));
+    expect(draft.endAt, DateTime(2026, 7, 10, 10, 50));
+    expect(FocusManager.instance.primaryFocus?.debugLabel, 'Wake plan draft');
+
+    await tester.tap(
+      find.byKey(const ValueKey('week-calendar-draft-start-handle')),
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    expect(draft.startAt, DateTime(2026, 7, 10, 9, 55));
+
+    await tester.tap(
+      find.byKey(const ValueKey('week-calendar-draft-end-handle')),
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pump();
+    expect(draft.endAt, DateTime(2026, 7, 10, 10, 45));
   });
 
   testWidgets('cross-day body drag restores one-finger vertical scrolling', (

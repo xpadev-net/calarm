@@ -335,3 +335,21 @@ Purpose:
 - fix: Attempt every enabled fallback independently, return aggregate delivery success, and remove the fired native row when every path fails while retaining it after any success.
 - prevention: For event delivery with multiple fallbacks, test both all-failed and partial-success outcomes and tie durable state to aggregate delivery success rather than dispatch initiation.
 - promotion: Repo-local event-delivery lesson; consider shared event-driven guidance if repeated.
+
+### 2026-07-16 - Preserve An Interval Anchor And Duration Separately Across DST
+
+- tags: review, time-boundaries, state-transitions, validation/verification
+- symptom: Reconstructing both draft endpoints at the same wall-clock times after a calendar-day move changed elapsed duration across DST and could push a valid three-hour draft beyond its constructor limit.
+- root cause: Wall-clock preservation was applied independently to both endpoints without identifying the authoritative anchor or separately preserving the interval-duration invariant.
+- fix: Move the start as the calendar-day wall-clock anchor, derive the end from the original elapsed duration, and test both spring-forward and fall-back transition intervals in an explicit DST timezone.
+- prevention: For interval movement across date or timezone boundaries, define the wall-clock anchor and elapsed-duration invariant independently, then test both DST directions including maximum-duration values.
+- promotion: Repo-local time-boundary lesson; consider shared date/time guidance if repeated.
+
+### 2026-07-16 - Keep Focus Identity Stable Across Keyboard-Driven Re-Keying
+
+- tags: review, accessibility, ui-e2e, lifecycle
+- symptom: A keyboard day-move changed a draft segment key, disposed the State-owned FocusNode, and prevented a second arrow-key or screen-reader action without reselecting the draft.
+- root cause: Focus ownership followed a visual day segment whose identity changes during the accessible action instead of the logical draft role.
+- fix: Key focus-bearing draft controls by stable draft and semantic role, and verify consecutive cross-day keyboard actions without another tap.
+- prevention: Any accessibility or keyboard action that can move a control between rendered segments must preserve logical focus identity across the resulting rebuild.
+- promotion: Repo-local accessibility lesson; consider shared Flutter focus guidance if repeated.

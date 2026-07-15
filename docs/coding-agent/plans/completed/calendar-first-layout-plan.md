@@ -6,33 +6,40 @@
 - work_type: code
 
 ## Goal
+
 - Make the weekly calendar the full primary surface and move secondary controls into a header-accessible side drawer.
 
 ## Definition of Done
+
 - The calendar fills the available body area in compact portrait and landscape layouts.
 - Alarm, settings, and wake-plan surfaces remain reachable through an explicit AppBar action.
 - Flutter analysis, targeted tests, and the full test suite pass.
 - Independent review approves the layout and interaction evidence.
 
 ## Scope / Non-goals
+
 - Scope: home scaffold information architecture, calendar height behavior, and affected widget tests.
 - Non-goals: copying Google branding, adding week navigation controls, changing calendar event behavior, or adding a permanent desktop sidebar.
 
 ## Context (workspace)
+
 - Related files/areas: `lib/app.dart`, `lib/features/week_calendar/presentation/week_calendar_placeholder.dart`, and their widget tests.
 - Existing patterns or references: Material 3 Scaffold/AppBar and the existing feature placeholder panels.
 - Repo reference docs consulted: root `AGENTS.md`; repository rule suite is absent.
 
 ## Open Questions (max 3)
+
 - None blocking.
 
 ## Assumptions
+
 - An overlay end drawer is preferable to a permanent sidebar because compact widths must preserve seven calendar columns.
 - Existing secondary panels should remain intact and scroll together inside the drawer.
 
 ## Tasks
 
 ### Task_1: Research the current layout
+
 - type: research
 - owns: []
 - depends_on: []
@@ -48,6 +55,7 @@
     detail: "Research report cites concrete files and responsive constraints."
 
 ### Task_2: Implement the calendar-first scaffold
+
 - type: impl
 - owns:
   - lib/app.dart
@@ -81,6 +89,7 @@
     detail: "rtk flutter test"
 
 ### Task_3: Independently review UI behavior
+
 - type: review
 - owns: []
 - depends_on: [Task_2]
@@ -118,6 +127,7 @@
 - known_flakiness: provider-backed loading requires existing test overrides and settling helpers.
 
 ## Rollback / Safety
+
 - Revert the scaffold/drawer and height calculation changes; no persistence, schema, or API behavior is modified.
 
 ## Progress Log (append-only)
@@ -144,6 +154,7 @@
   - User approval: waived by Orchestrator based on explicit implementation intent and low-risk reversible scope.
 
 ## Notes
+
 - Risks: An active alarm becomes less prominent inside the drawer; retain a permanently visible AppBar affordance.
 - Edge cases: compact landscape height, provider error state, and drawer control width.
 - Quality routing note: L1, low-risk localized Flutter UI change; security, data integrity, migration, concurrency, external dependency, contract, and backend concerns are out of scope.

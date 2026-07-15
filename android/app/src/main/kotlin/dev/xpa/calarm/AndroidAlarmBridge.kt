@@ -30,6 +30,27 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
     private val notificationManager = appContext.getSystemService(NotificationManager::class.java)
     private val store = AlarmStore(appContext)
     private var pendingNotificationPermissionResult: MethodChannel.Result? = null
+    private var requestNotificationRuntimePermission: (Activity, Array<String>, Int) -> Unit =
+        { permissionActivity, permissions, requestCode ->
+            permissionActivity.requestPermissions(permissions, requestCode)
+        }
+    private var launchSettingsActivity: (Intent) -> Unit = { intent ->
+        appContext.startActivity(intent)
+    }
+
+    internal constructor(
+        context: Context,
+        requestNotificationRuntimePermission: (Activity, Array<String>, Int) -> Unit,
+    ) : this(context) {
+        this.requestNotificationRuntimePermission = requestNotificationRuntimePermission
+    }
+
+    internal constructor(
+        context: Context,
+        launchSettingsActivity: (Intent) -> Unit,
+    ) : this(context) {
+        this.launchSettingsActivity = launchSettingsActivity
+    }
 
     fun register(binaryMessenger: BinaryMessenger) {
         ensureAlarmNotificationChannel()
@@ -87,7 +108,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 data = Uri.parse("package:${appContext.packageName}")
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            appContext.startActivity(intent)
+            startSettingsActivity(intent)
         } else if (!notificationRuntimePermissionAllowed() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestNotificationPermission(result)
             return
@@ -96,7 +117,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         } else if (!canUseFullScreenIntent() && Build.VERSION.SDK_INT >= 34) {
             requestFullScreenIntentPermission()
         } else if (!notificationChannelReady() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            appContext.startActivity(appNotificationSettingsIntent())
+            startSettingsActivity(appNotificationSettingsIntent())
         }
 
         result.success(permissionResponse())
@@ -139,12 +160,14 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         preferences.edit().putBoolean(KEY_NOTIFICATION_PERMISSION_REQUESTED, true).apply()
         pendingNotificationPermissionResult = result
         try {
-            permissionActivity.requestPermissions(
+            requestNotificationRuntimePermission(
+                permissionActivity,
                 arrayOf(Manifest.permission.POST_NOTIFICATIONS),
                 NOTIFICATION_PERMISSION_REQUEST_CODE,
             )
         } catch (error: RuntimeException) {
             pendingNotificationPermissionResult = null
+            preferences.edit().putBoolean(KEY_NOTIFICATION_PERMISSION_REQUESTED, false).apply()
             result.error(
                 "UNAVAILABLE",
                 error.message ?: "Notification permission request failed.",
@@ -172,12 +195,16 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             data = Uri.parse("package:${appContext.packageName}")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
+        startSettingsActivity(intent)
+    }
+
+    private fun startSettingsActivity(intent: Intent) {
         try {
-            appContext.startActivity(intent)
+            launchSettingsActivity(intent)
         } catch (_: ActivityNotFoundException) {
-            appContext.startActivity(appDetailsSettingsIntent())
+            launchSettingsActivity(appDetailsSettingsIntent())
         } catch (_: SecurityException) {
-            appContext.startActivity(appDetailsSettingsIntent())
+            launchSettingsActivity(appDetailsSettingsIntent())
         }
     }
 
@@ -666,13 +693,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
     }
 
     private fun requestAppNotificationSettings() {
-        try {
-            appContext.startActivity(appNotificationPermissionSettingsIntent())
-        } catch (_: ActivityNotFoundException) {
-            appContext.startActivity(appDetailsSettingsIntent())
-        } catch (_: SecurityException) {
-            appContext.startActivity(appDetailsSettingsIntent())
-        }
+        startSettingsActivity(appNotificationPermissionSettingsIntent())
     }
 
     private fun mutableResponse(vararg pairs: Pair<String, Any?>): MutableMap<String, Any?> {

@@ -1,5 +1,5 @@
 import 'package:calarm/core/time/time.dart';
-import 'package:calarm/features/week_calendar/week_calendar.dart';
+import 'package:calarm/features/week_calendar/model/week_calendar_interaction.dart';
 import 'package:calarm/features/wake_plan/domain/wake_plan_domain.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -182,6 +182,70 @@ void main() {
       expect(moved.createdAt, draft.createdAt);
     });
 
+    test('keeps wall-clock time when moving across a DST boundary', () {
+      final draft = WeekCalendarDraft(
+        id: 'dst-draft',
+        startAt: DateTime(2026, 3, 7, 12, 10),
+        endAt: DateTime(2026, 3, 7, 13, 10),
+        createdAt: DateTime(2026, 3, 1),
+      );
+
+      final moved = draft.moveBy(days: 1, minutes: 7);
+
+      expect(moved.startAt, DateTime(2026, 3, 8, 12, 15));
+      expect(moved.endAt, DateTime(2026, 3, 8, 13, 15));
+      expect(moved.duration, draft.duration);
+    });
+
+    test('keeps elapsed duration across the spring DST transition', () {
+      final draft = WeekCalendarDraft(
+        id: 'spring-dst-draft',
+        startAt: DateTime(2026, 3, 7, 1, 30),
+        endAt: DateTime(2026, 3, 7, 3),
+        createdAt: DateTime(2026, 3, 1),
+      );
+
+      final moved = draft.moveBy(days: 1, minutes: 0);
+
+      expect(moved.startAt, DateTime(2026, 3, 8, 1, 30));
+      expect(moved.duration, draft.duration);
+      if (moved.startAt.timeZoneOffset != moved.endAt.timeZoneOffset) {
+        expect(moved.endAt, DateTime(2026, 3, 8, 4));
+      }
+    });
+
+    test('keeps maximum duration across the fall DST transition', () {
+      final draft = WeekCalendarDraft(
+        id: 'fall-dst-draft',
+        startAt: DateTime(2026, 10, 31, 0, 30),
+        endAt: DateTime(2026, 10, 31, 3, 30),
+        createdAt: DateTime(2026, 10, 1),
+      );
+
+      final moved = draft.moveBy(days: 1, minutes: 0);
+
+      expect(moved.startAt, DateTime(2026, 11, 1, 0, 30));
+      expect(moved.duration, weekCalendarDraftMaximumDuration);
+      if (moved.startAt.timeZoneOffset != moved.endAt.timeZoneOffset) {
+        expect(moved.endAt, DateTime(2026, 11, 1, 2, 30));
+      }
+    });
+
+    test('moves by calendar days across month and year boundaries', () {
+      final draft = WeekCalendarDraft(
+        id: 'year-boundary-draft',
+        startAt: DateTime(2026, 12, 31, 23, 45),
+        endAt: DateTime(2027, 1, 1, 0, 45),
+        createdAt: DateTime(2026, 12, 1),
+      );
+
+      final moved = draft.moveBy(days: 1, minutes: 0);
+
+      expect(moved.startAt, DateTime(2027, 1, 1, 23, 45));
+      expect(moved.endAt, DateTime(2027, 1, 2, 0, 45));
+      expect(moved.duration, draft.duration);
+    });
+
     test('clamps invalid configured durations into supported bounds', () {
       final short = weekCalendarDraftFromTap(
         id: 'short',
@@ -205,6 +269,95 @@ void main() {
       expect(short.duration, weekCalendarDraftMinimumDuration);
       expect(long.duration, weekCalendarDraftMaximumDuration);
       expect(snapped.duration, const Duration(minutes: 10));
+    });
+  });
+
+  group('clampWeekCalendarDraftToRange', () {
+    WeekCalendarDraft draft(DateTime startAt, DateTime endAt) {
+      return WeekCalendarDraft(
+        id: 'draft',
+        startAt: startAt,
+        endAt: endAt,
+        createdAt: DateTime(2026, 7, 1),
+      );
+    }
+
+    test('moves a draft that partially crosses the start into the range', () {
+      final original = draft(
+        DateTime(2026, 7, 5, 23, 30),
+        DateTime(2026, 7, 6, 0, 30),
+      );
+
+      final clamped = clampWeekCalendarDraftToRange(
+        draft: original,
+        week: week,
+      );
+
+      expect(clamped.startAt, DateTime(2026, 7, 6));
+      expect(clamped.endAt, DateTime(2026, 7, 6, 1));
+      expect(clamped.duration, original.duration);
+    });
+
+    test('moves a draft that partially crosses the end into the range', () {
+      final original = draft(
+        DateTime(2026, 7, 12, 23, 30),
+        DateTime(2026, 7, 13, 0, 30),
+      );
+
+      final clamped = clampWeekCalendarDraftToRange(
+        draft: original,
+        week: week,
+      );
+
+      expect(clamped.startAt, DateTime(2026, 7, 12, 23));
+      expect(clamped.endAt, DateTime(2026, 7, 13));
+      expect(clamped.duration, original.duration);
+    });
+
+    test('moves a draft completely before the range to the start', () {
+      final original = draft(
+        DateTime(2026, 7, 4, 10),
+        DateTime(2026, 7, 4, 11, 30),
+      );
+
+      final clamped = clampWeekCalendarDraftToRange(
+        draft: original,
+        week: week,
+      );
+
+      expect(clamped.startAt, DateTime(2026, 7, 6));
+      expect(clamped.endAt, DateTime(2026, 7, 6, 1, 30));
+      expect(clamped.duration, original.duration);
+    });
+
+    test('moves a draft completely after the range to the end', () {
+      final original = draft(
+        DateTime(2026, 7, 14, 10),
+        DateTime(2026, 7, 14, 11, 30),
+      );
+
+      final clamped = clampWeekCalendarDraftToRange(
+        draft: original,
+        week: week,
+      );
+
+      expect(clamped.startAt, DateTime(2026, 7, 12, 22, 30));
+      expect(clamped.endAt, DateTime(2026, 7, 13));
+      expect(clamped.duration, original.duration);
+    });
+
+    test('returns an in-range draft unchanged', () {
+      final original = draft(
+        DateTime(2026, 7, 8, 10),
+        DateTime(2026, 7, 8, 11, 30),
+      );
+
+      final clamped = clampWeekCalendarDraftToRange(
+        draft: original,
+        week: week,
+      );
+
+      expect(identical(clamped, original), isTrue);
     });
   });
 

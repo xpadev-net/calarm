@@ -128,58 +128,48 @@ class _WeekCalendarPlaceholderState
         ? defaults.requireValue
         : AppSettings.initial();
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final availableHeight = constraints.hasBoundedHeight
-            ? constraints.maxHeight
-            : 420.0;
-        final errorHeight = wakePlans.hasError || defaults.hasError
-            ? 32.0
-            : 0.0;
-        final editorHeight = _draft == null ? 0.0 : 76.0;
-        final preferredCalendarHeight =
-            availableHeight - 48.0 - errorHeight - editorHeight;
-        final calendarHeight = preferredCalendarHeight < 120.0
-            ? 120.0
-            : preferredCalendarHeight;
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SizedBox(
-              height: 40,
-              child: Row(
-                children: [
-                  Text(
-                    'Calendar',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const Spacer(),
-                  _CalendarControlButton(
-                    key: const ValueKey('week-calendar-three-day-button'),
-                    tooltip: 'Show 3 days',
-                    selected: _visibleDays == 3,
-                    label: '3',
-                    onPressed: _draft == null ? () => _setVisibleDays(3) : null,
-                  ),
-                  _CalendarControlButton(
-                    key: const ValueKey('week-calendar-seven-day-button'),
-                    tooltip: 'Show 7 days',
-                    selected: _visibleDays == DateTime.daysPerWeek,
-                    label: '7',
-                    onPressed: _draft == null
-                        ? () => _setVisibleDays(DateTime.daysPerWeek)
-                        : null,
-                  ),
-                ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: 40,
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Calendar',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            WeekCalendarView(
+              _CalendarControlButton(
+                key: const ValueKey('week-calendar-three-day-button'),
+                tooltip: 'Show 3 days',
+                selected: _visibleDays == 3,
+                label: '3',
+                onPressed: _draft == null ? () => _setVisibleDays(3) : null,
+              ),
+              _CalendarControlButton(
+                key: const ValueKey('week-calendar-seven-day-button'),
+                tooltip: 'Show 7 days',
+                selected: _visibleDays == DateTime.daysPerWeek,
+                label: '7',
+                onPressed: _draft == null
+                    ? () => _setVisibleDays(DateTime.daysPerWeek)
+                    : null,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) => WeekCalendarView(
               key: ValueKey<int>(_visibleDays),
               now: _now,
               wakePlans: currentWakePlans,
-              height: calendarHeight,
+              height: constraints.maxHeight,
               hourHeight: _hourHeight,
               visibleDays: _visibleDays,
               onHourHeightChanged: _setHourHeight,
@@ -210,32 +200,32 @@ class _WeekCalendarPlaceholderState
                 );
               },
             ),
-            if (_draft case final draft?)
-              InlineWakePlanEditor(
-                startAt: draft.startAt,
-                endAt: draft.endAt,
-                now: clock(),
-                clock: clock,
-                saving: _savingDraft,
-                submissionAttempted: _draftSubmissionAttempted,
-                error: _draftError,
-                onSave: () => _saveDraft(
-                  context: context,
-                  clock: clock,
-                  defaults: currentDefaults,
-                ),
-                onCancel: _cancelDraft,
-              ),
-            if (wakePlans.hasError || defaults.hasError) ...[
-              const SizedBox(height: 8),
-              Text(
-                _loadErrorText(wakePlans: wakePlans, defaults: defaults),
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ],
-          ],
-        );
-      },
+          ),
+        ),
+        if (_draft case final draft?)
+          InlineWakePlanEditor(
+            startAt: draft.startAt,
+            endAt: draft.endAt,
+            now: clock(),
+            clock: clock,
+            saving: _savingDraft,
+            submissionAttempted: _draftSubmissionAttempted,
+            error: _draftError,
+            onSave: () => _saveDraft(
+              context: context,
+              clock: clock,
+              defaults: currentDefaults,
+            ),
+            onCancel: _cancelDraft,
+          ),
+        if (wakePlans.hasError || defaults.hasError) ...[
+          const SizedBox(height: 8),
+          Text(
+            _loadErrorText(wakePlans: wakePlans, defaults: defaults),
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ],
+      ],
     );
   }
 
