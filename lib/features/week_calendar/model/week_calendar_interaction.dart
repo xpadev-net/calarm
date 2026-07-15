@@ -4,12 +4,151 @@ import '../../wake_plan/domain/wake_plan_domain.dart';
 const int weekCalendarStartMinute = 0;
 const int weekCalendarEndMinute = TimeOfDayMinutes.minutesPerDay;
 const int weekCalendarDefaultScrollMinute = 5 * TimeOfDayMinutes.minutesPerHour;
+const Duration weekCalendarDraftSnapInterval = Duration(minutes: 5);
+const Duration weekCalendarDraftMinimumDuration = Duration(minutes: 5);
+const Duration weekCalendarDraftMaximumDuration = Duration(hours: 3);
+
+class WeekCalendarDraft {
+  WeekCalendarDraft({
+    required this.id,
+    required this.startAt,
+    required this.endAt,
+    required this.createdAt,
+  }) {
+    if (!startAt.isBefore(endAt)) {
+      throw ArgumentError('startAt must be before endAt');
+    }
+    final duration = endAt.difference(startAt);
+    if (duration < weekCalendarDraftMinimumDuration ||
+        duration > weekCalendarDraftMaximumDuration) {
+      throw ArgumentError.value(duration, 'duration', 'must be 5m through 3h');
+    }
+  }
+
+  final String id;
+  final DateTime startAt;
+  final DateTime endAt;
+  final DateTime createdAt;
+
+  Duration get duration => endAt.difference(startAt);
+
+  WeekCalendarDraft moveBy({required int days, required int minutes}) {
+    final interval = weekCalendarDraftSnapInterval.inMinutes;
+    final snappedMinutes = (minutes / interval).round() * interval;
+    final delta = Duration(days: days, minutes: snappedMinutes);
+    return copyWith(startAt: startAt.add(delta), endAt: endAt.add(delta));
+  }
+
+  WeekCalendarDraft resizeStartBy(Duration delta) {
+    final nextStart = _clampDraftStart(startAt.add(delta), endAt);
+    return copyWith(startAt: nextStart);
+  }
+
+  WeekCalendarDraft resizeEndBy(Duration delta) {
+    final nextEnd = _clampDraftEnd(startAt, endAt.add(delta));
+    return copyWith(endAt: nextEnd);
+  }
+
+  WeekCalendarDraft copyWith({DateTime? startAt, DateTime? endAt}) {
+    return WeekCalendarDraft(
+      id: id,
+      startAt: startAt ?? this.startAt,
+      endAt: endAt ?? this.endAt,
+      createdAt: createdAt,
+    );
+  }
+}
+
+WeekCalendarDraft weekCalendarDraftFromTap({
+  required String id,
+  required WeekCalendarTapTarget target,
+  required Duration defaultDuration,
+  required DateTime createdAt,
+}) {
+  final boundedDuration = defaultDuration < weekCalendarDraftMinimumDuration
+      ? weekCalendarDraftMinimumDuration
+      : defaultDuration > weekCalendarDraftMaximumDuration
+      ? weekCalendarDraftMaximumDuration
+      : defaultDuration;
+  final intervalMinutes = weekCalendarDraftSnapInterval.inMinutes;
+  final snappedDuration = Duration(
+    minutes:
+        (boundedDuration.inMinutes / intervalMinutes).round() * intervalMinutes,
+  );
+  final startAt = snapWeekCalendarDraftDateTime(target.dateTime);
+  return WeekCalendarDraft(
+    id: id,
+    startAt: startAt,
+    endAt: startAt.add(snappedDuration),
+    createdAt: createdAt,
+  );
+}
+
+DateTime snapWeekCalendarDraftDateTime(DateTime value) {
+  final interval = weekCalendarDraftSnapInterval.inMinutes;
+  final dayStart = DateTime(value.year, value.month, value.day);
+  final minute = value.difference(dayStart).inMinutes;
+  final snappedMinute = (minute / interval).round() * interval;
+  return dayStart.add(Duration(minutes: snappedMinute));
+}
+
+WeekCalendarDraft clampWeekCalendarDraftToRange({
+  required WeekCalendarDraft draft,
+  required WeekRange week,
+}) {
+  final rangeStart = week.start.startOfDay;
+  final rangeEnd = week.endExclusive.startOfDay;
+  if (!draft.endAt.isAfter(rangeStart)) {
+    return draft.copyWith(
+      startAt: rangeStart,
+      endAt: rangeStart.add(draft.duration),
+    );
+  }
+  if (!draft.startAt.isBefore(rangeEnd)) {
+    return draft.copyWith(
+      startAt: rangeEnd.subtract(draft.duration),
+      endAt: rangeEnd,
+    );
+  }
+  return draft;
+}
+
+DateTime _clampDraftStart(DateTime candidate, DateTime endAt) {
+  final snapped = snapWeekCalendarDraftDateTime(candidate);
+  final earliest = endAt.subtract(weekCalendarDraftMaximumDuration);
+  final latest = endAt.subtract(weekCalendarDraftMinimumDuration);
+  if (snapped.isBefore(earliest)) {
+    return earliest;
+  }
+  if (snapped.isAfter(latest)) {
+    return latest;
+  }
+  return snapped;
+}
+
+DateTime _clampDraftEnd(DateTime startAt, DateTime candidate) {
+  final snapped = snapWeekCalendarDraftDateTime(candidate);
+  final earliest = startAt.add(weekCalendarDraftMinimumDuration);
+  final latest = startAt.add(weekCalendarDraftMaximumDuration);
+  if (snapped.isBefore(earliest)) {
+    return earliest;
+  }
+  if (snapped.isAfter(latest)) {
+    return latest;
+  }
+  return snapped;
+}
 
 class WeekCalendarPage {
   WeekCalendarPage({required this.week});
 
-  factory WeekCalendarPage.fromAnchor(DateTime anchor) {
-    return WeekCalendarPage(week: visibleWeekRange(anchor));
+  factory WeekCalendarPage.fromAnchor(
+    DateTime anchor, {
+    int visibleDays = DateTime.daysPerWeek,
+  }) {
+    return WeekCalendarPage(
+      week: currentCalendarRange(anchor, visibleDays: visibleDays),
+    );
   }
 
   final WeekRange week;
@@ -18,11 +157,32 @@ class WeekCalendarPage {
 
   bool contains(CalendarDay day) => week.contains(day);
 
-  WeekCalendarPage addWeeks(int weeks) {
+  WeekCalendarPage addPages(int pages) {
     return WeekCalendarPage(
-      week: WeekRange(start: week.start.addDays(weeks * DateTime.daysPerWeek)),
+      week: WeekRange(
+        start: week.start.addDays(pages * week.visibleDays),
+        visibleDays: week.visibleDays,
+      ),
     );
   }
+}
+
+WeekRange currentCalendarRange(DateTime anchor, {required int visibleDays}) {
+  if (visibleDays != 3 && visibleDays != DateTime.daysPerWeek) {
+    throw ArgumentError.value(
+      visibleDays,
+      'visibleDays',
+      'must be 3 or ${DateTime.daysPerWeek}',
+    );
+  }
+
+  final anchorDay = CalendarDay.fromDateTime(anchor);
+  return WeekRange(
+    start: visibleDays == DateTime.daysPerWeek
+        ? weekStartSunday(anchorDay)
+        : anchorDay,
+    visibleDays: visibleDays,
+  );
 }
 
 class WeekCalendarScrollTarget {

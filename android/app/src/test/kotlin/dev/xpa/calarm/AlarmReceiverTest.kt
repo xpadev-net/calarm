@@ -59,6 +59,28 @@ class AlarmReceiverTest {
     }
 
     @Test
+    fun `delivery failures are isolated so every alarm fallback is attempted`() {
+        val calls = mutableListOf<String>()
+
+        AlarmReceiver().deliverFallbacks(
+            notification = {
+                calls += "notification"
+                throw SecurityException("notification revoked")
+            },
+            screen = {
+                calls += "screen"
+                throw IllegalStateException("background launch blocked")
+            },
+            vibration = {
+                calls += "vibration"
+                throw SecurityException("vibration revoked")
+            },
+        )
+
+        assertEquals(listOf("notification", "screen", "vibration"), calls)
+    }
+
+    @Test
     fun `alarm clock show intent opens non-ringing detail activity without consuming scheduled alarm`() {
         val platformAlarmId = "android:plan:show"
         val request = alarmRequest(platformAlarmId, vibrationEnabled = true)

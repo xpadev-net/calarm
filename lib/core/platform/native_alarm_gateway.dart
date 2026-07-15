@@ -27,6 +27,27 @@ abstract class NativeAlarmGateway {
   }
 }
 
+enum NativeAlarmCapabilityFailureReason {
+  unavailable,
+  transport,
+  malformedResponse,
+}
+
+class NativeAlarmCapabilityException implements Exception {
+  const NativeAlarmCapabilityException({required this.reason, this.message});
+
+  final NativeAlarmCapabilityFailureReason reason;
+  final String? message;
+
+  @override
+  String toString() {
+    final detail = message;
+    return detail == null
+        ? 'NativeAlarmCapabilityException($reason)'
+        : 'NativeAlarmCapabilityException($reason): $detail';
+  }
+}
+
 enum NativeAlarmPermissionStatus {
   unknown,
   notDetermined,
@@ -93,6 +114,14 @@ class NativeAlarmCapability {
   final bool requiresNotificationChannelSetup;
   final bool supportsTestAlarm;
   final bool supportsInventory;
+
+  bool get isReady =>
+      permissionStatus == NativeAlarmPermissionStatus.authorized &&
+      canScheduleAlarms &&
+      !requiresExactAlarmPermission &&
+      !requiresNotificationPermission &&
+      !requiresFullScreenIntentPermission &&
+      !requiresNotificationChannelSetup;
 }
 
 class NativeAlarmPermissionResult {

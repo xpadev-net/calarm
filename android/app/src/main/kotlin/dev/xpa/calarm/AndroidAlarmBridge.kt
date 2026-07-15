@@ -1,6 +1,7 @@
 package dev.xpa.calarm
 
 import android.Manifest
+import android.app.Activity
 import android.app.AlarmManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -23,10 +24,12 @@ import org.json.JSONException
 import org.json.JSONObject
 
 class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCallHandler {
+    private val activity = context as? Activity
     private val appContext = context.applicationContext
     private val alarmManager = appContext.getSystemService(AlarmManager::class.java)
     private val notificationManager = appContext.getSystemService(NotificationManager::class.java)
     private val store = AlarmStore(appContext)
+    private var pendingNotificationPermissionResult: MethodChannel.Result? = null
 
     fun register(binaryMessenger: BinaryMessenger) {
         ensureAlarmNotificationChannel()
@@ -42,7 +45,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
 
         when (call.method) {
             "getCapability" -> result.success(capabilityResponse())
-            "requestPermissionIfNeeded" -> result.success(requestPermissionResponse())
+            "requestPermissionIfNeeded" -> requestPermission(result)
             "scheduleOccurrences" -> result.success(scheduleOccurrences(arguments))
             "cancelOccurrences", "cancelPlan" -> result.success(cancel(arguments))
             "getInventory" -> {
@@ -78,21 +81,28 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         )
     }
 
-    private fun requestPermissionResponse(): Map<String, Any?> {
+    private fun requestPermission(result: MethodChannel.Result) {
         if (!canScheduleExactAlarms() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
                 data = Uri.parse("package:${appContext.packageName}")
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             appContext.startActivity(intent)
-        } else if (!notificationsAllowed() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            appContext.startActivity(appDetailsSettingsIntent())
+        } else if (!notificationRuntimePermissionAllowed() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestNotificationPermission(result)
+            return
+        } else if (!appNotificationsEnabled() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            requestAppNotificationSettings()
         } else if (!canUseFullScreenIntent() && Build.VERSION.SDK_INT >= 34) {
             requestFullScreenIntentPermission()
         } else if (!notificationChannelReady() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             appContext.startActivity(appNotificationSettingsIntent())
         }
 
+        result.success(permissionResponse())
+    }
+
+    private fun permissionResponse(): Map<String, Any?> {
         val canSchedule = canScheduleExactAlarms() &&
             notificationsAllowed() &&
             canUseFullScreenIntent() &&
@@ -101,6 +111,60 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             "status" to if (canSchedule) "granted" else "denied",
             "permissionStatus" to if (canSchedule) "authorized" else "denied",
         )
+    }
+
+    private fun requestNotificationPermission(result: MethodChannel.Result) {
+        if (pendingNotificationPermissionResult != null) {
+            result.error("REQUEST_IN_PROGRESS", "A notification permission request is already active.", null)
+            return
+        }
+
+        val preferences = appContext.getSharedPreferences(PERMISSION_PREFERENCES, Context.MODE_PRIVATE)
+        val requestedBefore = preferences.getBoolean(KEY_NOTIFICATION_PERMISSION_REQUESTED, false)
+        val permissionActivity = activity
+        if (permissionActivity == null) {
+            requestAppNotificationSettings()
+            result.success(permissionResponse())
+            return
+        }
+        val shouldShowRationale = permissionActivity.shouldShowRequestPermissionRationale(
+            Manifest.permission.POST_NOTIFICATIONS,
+        )
+        if (requestedBefore && !shouldShowRationale) {
+            requestAppNotificationSettings()
+            result.success(permissionResponse())
+            return
+        }
+
+        preferences.edit().putBoolean(KEY_NOTIFICATION_PERMISSION_REQUESTED, true).apply()
+        pendingNotificationPermissionResult = result
+        try {
+            permissionActivity.requestPermissions(
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                NOTIFICATION_PERMISSION_REQUEST_CODE,
+            )
+        } catch (error: RuntimeException) {
+            pendingNotificationPermissionResult = null
+            result.error(
+                "UNAVAILABLE",
+                error.message ?: "Notification permission request failed.",
+                null,
+            )
+        }
+    }
+
+    fun onRequestPermissionsResult(requestCode: Int): Boolean {
+        if (requestCode != NOTIFICATION_PERMISSION_REQUEST_CODE) return false
+        val result = pendingNotificationPermissionResult ?: return true
+        pendingNotificationPermissionResult = null
+        result.success(permissionResponse())
+        return true
+    }
+
+    fun detach() {
+        val result = pendingNotificationPermissionResult ?: return
+        pendingNotificationPermissionResult = null
+        result.error("UNAVAILABLE", "Activity was destroyed during the permission request.", null)
     }
 
     private fun requestFullScreenIntentPermission() {
@@ -553,8 +617,16 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
     }
 
     private fun notificationsAllowed(): Boolean {
+        return notificationRuntimePermissionAllowed() && appNotificationsEnabled()
+    }
+
+    private fun notificationRuntimePermissionAllowed(): Boolean {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             appContext.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun appNotificationsEnabled(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.N || notificationManager.areNotificationsEnabled()
     }
 
     private fun canUseFullScreenIntent(): Boolean {
@@ -583,6 +655,23 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             putExtra(Settings.EXTRA_APP_PACKAGE, appContext.packageName)
             putExtra(Settings.EXTRA_CHANNEL_ID, AlarmNotificationChannel.ID)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+
+    private fun appNotificationPermissionSettingsIntent(): Intent {
+        return Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+            putExtra(Settings.EXTRA_APP_PACKAGE, appContext.packageName)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+
+    private fun requestAppNotificationSettings() {
+        try {
+            appContext.startActivity(appNotificationPermissionSettingsIntent())
+        } catch (_: ActivityNotFoundException) {
+            appContext.startActivity(appDetailsSettingsIntent())
+        } catch (_: SecurityException) {
+            appContext.startActivity(appDetailsSettingsIntent())
         }
     }
 
@@ -673,6 +762,9 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         const val CHANNEL_NAME = "net.xpadev.calarm/native_alarm"
         const val SCHEMA_VERSION = 1
         const val ALARM_CHANNEL_ID = AlarmNotificationChannel.ID
+        private const val NOTIFICATION_PERMISSION_REQUEST_CODE = 7103
+        private const val PERMISSION_PREFERENCES = "native_alarm_permissions"
+        private const val KEY_NOTIFICATION_PERMISSION_REQUESTED = "notification_requested"
     }
 }
 

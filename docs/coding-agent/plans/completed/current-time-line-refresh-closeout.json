@@ -1,0 +1,25 @@
+{
+  "plan_status": "done",
+  "non_trivial": true,
+  "reviewer": {"status": "APPROVED", "waiver": ""},
+  "tasks": [
+    {"id": "Task_1", "status": "done", "waiver": ""},
+    {"id": "Task_2", "status": "done", "waiver": ""},
+    {"id": "Task_3", "status": "done", "waiver": ""}
+  ],
+  "validations": [
+    {"detail": "Dart formatting for four owned files", "required": true, "status": "pass", "waiver": ""},
+    {"detail": "Flutter analyze", "required": true, "status": "pass", "waiver": ""},
+    {"detail": "Focused calendar widget tests (41)", "required": true, "status": "pass", "waiver": ""},
+    {"detail": "Full Flutter test suite with concurrency one (313)", "required": true, "status": "pass", "waiver": ""},
+    {"detail": "Git diff whitespace check", "required": true, "status": "pass", "waiver": ""},
+    {"detail": "Independent minute-boundary, lifecycle, timer uniqueness, disposal, and UI-state preservation review", "required": true, "status": "pass", "waiver": ""}
+  ],
+  "blockers": [],
+  "governance": {
+    "lessons_recorded": true,
+    "repo_rule_updates": [],
+    "harness_migration_candidates": [],
+    "waivers": []
+  }
+}
