@@ -1,0 +1,29 @@
+{
+  "plan_status": "done",
+  "non_trivial": true,
+  "reviewer": {"status": "APPROVED", "waiver": ""},
+  "tasks": [
+    {"id": "Task_1", "status": "done", "waiver": ""},
+    {"id": "Task_2", "status": "done", "waiver": ""},
+    {"id": "Task_3", "status": "done", "waiver": ""},
+    {"id": "Task_4", "status": "done", "waiver": ""}
+  ],
+  "validations": [
+    {"detail": "Dart formatting check", "required": true, "status": "pass", "waiver": ""},
+    {"detail": "Flutter analyze", "required": true, "status": "pass", "waiver": ""},
+    {"detail": "Focused alarm readiness and concurrency tests", "required": true, "status": "pass", "waiver": ""},
+    {"detail": "Full Flutter test suite (309; completion-time snapshot)", "required": true, "status": "pass", "waiver": ""},
+    {"detail": "Android JVM test suite (46; completion-time snapshot)", "required": true, "status": "pass", "waiver": ""},
+    {"detail": "Git diff whitespace check", "required": true, "status": "pass", "waiver": ""},
+    {"detail": "Independent permission, lifecycle, callback, and receiver review", "required": true, "status": "pass", "waiver": ""},
+    {"detail": "Sony XQ-FS44 API 36 denied-startup and permission settings acceptance", "required": true, "status": "pass", "waiver": ""},
+    {"detail": "Sony XQ-FS44 API 36 real calendar plan create, exact schedule, Dozing wake, full-screen ring, stop, delete, native cancel, and state restoration acceptance", "required": true, "status": "pass", "waiver": ""}
+  ],
+  "blockers": [],
+  "governance": {
+    "lessons_recorded": true,
+    "repo_rule_updates": [],
+    "harness_migration_candidates": [],
+    "waivers": []
+  }
+}

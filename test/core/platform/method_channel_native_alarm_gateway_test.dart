@@ -54,6 +54,41 @@ void main() {
   });
 
   test(
+    'getCapability normalizes malformed response to typed failure',
+    () async {
+      _setHandler(channel, calls, (_) => {'schemaVersion': 1});
+
+      await expectLater(
+        gateway.getCapability(),
+        throwsA(
+          isA<NativeAlarmCapabilityException>().having(
+            (error) => error.reason,
+            'reason',
+            NativeAlarmCapabilityFailureReason.malformedResponse,
+          ),
+        ),
+      );
+    },
+  );
+
+  test('getCapability normalizes channel failure to typed failure', () async {
+    _setHandler(channel, calls, (_) {
+      throw PlatformException(code: 'BROKEN', message: 'bridge failed');
+    });
+
+    await expectLater(
+      gateway.getCapability(),
+      throwsA(
+        isA<NativeAlarmCapabilityException>().having(
+          (error) => error.reason,
+          'reason',
+          NativeAlarmCapabilityFailureReason.transport,
+        ),
+      ),
+    );
+  });
+
+  test(
     'getCapability keeps domain default for omitted test alarm support',
     () async {
       _setHandler(channel, calls, (_) {
@@ -182,6 +217,17 @@ void main() {
     expect(result.permissionStatus, NativeAlarmPermissionStatus.authorized);
   });
 
+  test('requestPermission normalizes exceptional response', () async {
+    _setHandler(channel, calls, (_) {
+      throw PlatformException(code: 'UNAVAILABLE');
+    });
+
+    final result = await gateway.requestPermission();
+
+    expect(result.status, NativeAlarmPermissionRequestStatus.unavailable);
+    expect(result.permissionStatus, NativeAlarmPermissionStatus.unknown);
+  });
+
   test(
     'scheduleOccurrences sends fixed payload and correlates partial result',
     () async {
@@ -265,6 +311,23 @@ void main() {
       expect(result.occurrences.first.failureMessage, contains('Exact alarm'));
     },
   );
+
+  test('scheduleOccurrences normalizes malformed result per request', () async {
+    _setHandler(
+      channel,
+      calls,
+      (_) => {'schemaVersion': 1, 'occurrences': 'bad'},
+    );
+
+    final result = await gateway.scheduleOccurrences(_requests());
+
+    expect(result.status, ScheduleResultStatus.failure);
+    expect(result.occurrences, hasLength(2));
+    expect(
+      result.occurrences.map((row) => row.failureReason),
+      everyElement(ScheduleFailureReason.nativeError),
+    );
+  });
 
   test(
     'scheduleOccurrences rejects duplicate requests before native call',
