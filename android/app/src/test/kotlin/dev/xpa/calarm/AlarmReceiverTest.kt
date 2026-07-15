@@ -62,7 +62,7 @@ class AlarmReceiverTest {
     fun `delivery failures are isolated so every alarm fallback is attempted`() {
         val calls = mutableListOf<String>()
 
-        AlarmReceiver().deliverFallbacks(
+        val delivered = AlarmReceiver().deliverFallbacks(
             notification = {
                 calls += "notification"
                 throw SecurityException("notification revoked")
@@ -78,6 +78,43 @@ class AlarmReceiverTest {
         )
 
         assertEquals(listOf("notification", "screen", "vibration"), calls)
+        assertFalse(delivered)
+    }
+
+    @Test
+    fun `all delivery failures remove ringing alarm state`() {
+        val platformAlarmId = "android:plan:undeliverable"
+        val store = AlarmStore(context)
+        assertTrue(store.put(alarmRequest(platformAlarmId, vibrationEnabled = true)))
+        assertTrue(store.markRinging(platformAlarmId))
+
+        AlarmReceiver().deliverAlarm(
+            store = store,
+            platformAlarmId = platformAlarmId,
+            notification = { throw SecurityException("notification revoked") },
+            screen = { throw IllegalStateException("background launch blocked") },
+            vibration = { throw SecurityException("vibration revoked") },
+        )
+
+        assertNull(store.get(platformAlarmId))
+    }
+
+    @Test
+    fun `partial delivery success preserves ringing alarm state`() {
+        val platformAlarmId = "android:plan:partially-delivered"
+        val store = AlarmStore(context)
+        assertTrue(store.put(alarmRequest(platformAlarmId, vibrationEnabled = true)))
+        assertTrue(store.markRinging(platformAlarmId))
+
+        AlarmReceiver().deliverAlarm(
+            store = store,
+            platformAlarmId = platformAlarmId,
+            notification = {},
+            screen = { throw IllegalStateException("background launch blocked") },
+            vibration = { throw SecurityException("vibration revoked") },
+        )
+
+        assertEquals(AlarmState.RINGING, store.get(platformAlarmId)?.state)
     }
 
     @Test

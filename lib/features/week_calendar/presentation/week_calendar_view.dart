@@ -213,7 +213,9 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
       ),
     );
     _pendingScrollOffset = null;
-    _zoomFocalY = null;
+    if (!_pinching) {
+      _zoomFocalY = null;
+    }
   }
 
   void _handlePointerDown(PointerDownEvent event) {

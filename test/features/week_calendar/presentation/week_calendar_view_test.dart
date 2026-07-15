@@ -825,6 +825,55 @@ void main() {
     },
   );
 
+  testWidgets('pinch keeps its focal point across multiple pumped moves', (
+    tester,
+  ) async {
+    var hourHeight = 52.0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) {
+              return WeekCalendarView(
+                now: DateTime(2026, 7, 6, 7, 30),
+                hourHeight: hourHeight,
+                onHourHeightChanged: (value) {
+                  setState(() {
+                    hourHeight = value;
+                  });
+                },
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final surface = find.byKey(const ValueKey('week-calendar-pinch-surface'));
+    final center = tester.getCenter(surface);
+    final first = await tester.createGesture(pointer: 31);
+    final second = await tester.createGesture(pointer: 32);
+    await first.down(center + const Offset(-40, 0));
+    await second.down(center + const Offset(40, 0));
+    await tester.pump();
+
+    await first.moveTo(center + const Offset(-80, 0));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    final heightAfterFirstMove = hourHeight;
+
+    await second.moveTo(center + const Offset(100, 0));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(hourHeight, greaterThan(heightAfterFirstMove));
+
+    await first.up();
+    await second.up();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'cancelled pinch clears focal state before an external height update',
     (tester) async {

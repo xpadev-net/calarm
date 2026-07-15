@@ -317,3 +317,21 @@ Purpose:
 - fix: Route all notification-settings launches through the common fallback helper and add a regression for an unresolved settings intent.
 - prevention: When centralizing fallback behavior, search both the original intent factory and its side-effect call to prove that no direct call site bypasses the helper.
 - promotion: Repo-local platform review lesson; consider shared fallback guidance if repeated.
+
+### 2026-07-16 - Keep Gesture Session State Until The Gesture Ends
+
+- tags: review, ui-e2e, lifecycle, state-transitions
+- symptom: A multi-frame pinch applied its pending scroll after the first move and cleared the focal coordinate while both pointers were still down, so the next move could force-unwrap null.
+- root cause: Per-frame pending-scroll cleanup also cleared gesture-session state even though later pointer events still depended on it.
+- fix: Clear the pending offset after each frame but retain the focal coordinate while pinching; reset it only when the gesture ends or a non-pinch external update completes.
+- prevention: Separate frame-scoped state from gesture-scoped state, and test multi-event gestures with a rendered frame between successive moves.
+- promotion: Repo-local UI interaction lesson; consider shared gesture guidance if repeated.
+
+### 2026-07-16 - Persist Ringing Only After At Least One Delivery Path Succeeds
+
+- tags: review, event-driven, fallback, state-transitions, android
+- symptom: An alarm occurrence was marked ringing before delivery, and all notification, screen, and vibration failures were swallowed, leaving an unreachable ringing row.
+- root cause: Fallback isolation tracked attempts but did not aggregate whether any delivery path actually succeeded before retaining the durable ringing state.
+- fix: Attempt every enabled fallback independently, return aggregate delivery success, and remove the fired native row when every path fails while retaining it after any success.
+- prevention: For event delivery with multiple fallbacks, test both all-failed and partial-success outcomes and tie durable state to aggregate delivery success rather than dispatch initiation.
+- promotion: Repo-local event-delivery lesson; consider shared event-driven guidance if repeated.
