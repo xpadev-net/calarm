@@ -1135,11 +1135,9 @@ class WakePlanService {
         .toList(growable: false);
     final pendingIds = pendingOccurrences.map((occurrence) => occurrence.id);
     final pendingIdSet = pendingIds.toSet();
-    final pendingRequests = _reindexRequests(
-      desiredBundle.requests
-          .where((request) => pendingIdSet.contains(request.occurrenceId))
-          .toList(growable: false),
-    );
+    final pendingRequests = desiredBundle.requests
+        .where((request) => pendingIdSet.contains(request.occurrenceId))
+        .toList(growable: false);
 
     if (pendingOccurrences.isEmpty) {
       if (pendingDisableReconciliation.hasUnresolved) {
@@ -1223,7 +1221,7 @@ class WakePlanService {
   }
 
   bool _isEligibleRecoveryMarker(AlarmOccurrence occurrence, DateTime now) {
-    if (occurrence.scheduledAt.toDateTime().isBefore(now)) {
+    if (!occurrence.scheduledAt.toDateTime().isAfter(now)) {
       return false;
     }
     return occurrence.status == AlarmOccurrenceStatus.userDisablePending ||
