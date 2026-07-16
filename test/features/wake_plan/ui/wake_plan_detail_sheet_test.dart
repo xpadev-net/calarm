@@ -595,6 +595,63 @@ void main() {
     expect(find.text('No future alarms are available.'), findsOneWidget);
   });
 
+  testWidgets('re-arms eligibility refresh when the clock moves backward', (
+    tester,
+  ) async {
+    var liveNow = DateTime(2026, 7, 8, 5, 30);
+    final first = _occurrence(
+      id: 'first-boundary',
+      scheduledAt: DateTime(2026, 7, 8, 5, 31),
+    );
+    final second = _occurrence(
+      id: 'second-boundary',
+      scheduledAt: DateTime(2026, 7, 8, 5, 32),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WakePlanDetailSheet(
+            target: WeekCalendarWakePlanTapTarget(
+              wakePlan: _plan(),
+              targetDay: _targetDay,
+            ),
+            now: liveNow,
+            clock: () => liveNow,
+            defaults: AppSettings.initial(),
+            existingWakePlans: const [],
+            onEdit: (_) async => _successResult(),
+            onDelete: (_) async => _successResult(),
+            onSkipNext: (_) async => _successResult(),
+            onUndoSkipNext: (_) async => _successResult(),
+            loadOccurrences: (_) async => [first, second],
+            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    liveNow = DateTime(2026, 7, 8, 5, 29);
+    await tester.pump(const Duration(minutes: 1));
+    expect(
+      find.byKey(const ValueKey('occurrence-toggle-first-boundary')),
+      findsOneWidget,
+    );
+
+    liveNow = DateTime(2026, 7, 8, 5, 31);
+    await tester.pump(const Duration(minutes: 2));
+    expect(
+      find.byKey(const ValueKey('occurrence-toggle-first-boundary')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('occurrence-toggle-second-boundary')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('keeps occurrence state and shows a useful toggle error', (
     tester,
   ) async {

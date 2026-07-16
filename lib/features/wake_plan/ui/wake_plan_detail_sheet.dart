@@ -346,11 +346,8 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
       if (!mounted) {
         return;
       }
-      final liveNow = widget.clock();
       setState(() {});
-      if (!liveNow.isBefore(scheduledBoundary)) {
-        _scheduleEligibilityRefresh();
-      }
+      _scheduleEligibilityRefresh();
     });
   }
 
