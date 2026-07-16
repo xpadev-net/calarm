@@ -428,6 +428,7 @@
 - depends_on: [Task_1, Task_10, Task_17]
 - acceptance:
   - AlarmKit uses/preserves the contract identity and exposes authoritative scheduled inventory.
+  - Stable reservation-to-platform identity and production `supportsInventory`/`getInventory` routing let a downstream id-less pending-enable reconcile after lost MethodChannel replies without duplicate scheduling or an uncancellable stranded alarm.
   - AlarmKit stop/removal changes become observable to Dart or are recoverable on the next inventory read.
   - Authorization denied, disappeared one-shot alarm, cancel, and corrupt/unknown identity have explicit semantics.
   - Result callbacks are delivered on a Flutter-safe execution context.
@@ -728,6 +729,11 @@
   - Existing worker thread `019f5bac-5671-7022-8a1a-12fa6cc67ee3` could be unarchived but could not be resumed because its archived rollout file was missing.
   - Replacement thread `019f6b02-c520-7601-a7f9-81447e8915d2` started in separate worktree `<CODEX_HOME>/worktrees/a266/calarm` on the existing branch `codex/reviewfix-ios-native-inventory-retry`.
   - The replacement must normally merge current `master`, remediate the two current AlarmKit correctness findings, rerun hosted iOS and exact-head review/hook gates, and never merge PR #48.
+
+- 2026-07-17 Task_12 accepted the Task_2 native recovery prerequisite.
+  - Exact-head Task_2 review proved that a lost iOS schedule reply can leave an id-less `userEnablePending` row while a live native alarm may exist; service-only retry is unsafe and rejecting the operation violates Task_2 acceptance.
+  - Task_12 already owns the required AlarmKit stable identity, authoritative inventory, production routing, and native tests, so the prerequisite is added here instead of expanding PR #52 or creating a conflicting worker.
+  - Required evidence now includes lost-reply/retry/restart stable identity, production `supportsInventory`/`getInventory` full-tuple authority, and downstream reconciliation without duplicate or stranded alarms. PR #52 remains stopped until PR #48 merges.
 
 ## Decision Log
 
