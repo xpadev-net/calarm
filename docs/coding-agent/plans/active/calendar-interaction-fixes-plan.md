@@ -54,6 +54,9 @@
 ## Tasks
 
 ### Task_1: Restore device pinch zoom
+- status: in_progress
+- worker_thread: `019f693a-17e4-7090-b2fb-e4665e77961c`
+- branch: `codex/task-1-calendar-pinch`
 - type: impl
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_view.dart`
@@ -85,6 +88,9 @@
     detail: Deep review, gh-review-hook exit 0, PR merge-gate preflight, and focused rerun before merge.
 
 ### Task_2: Add persistent per-occurrence alarm toggles
+- status: in_progress
+- worker_thread: `019f693a-17b1-78c3-8a0e-30a8ae7c911b`
+- branch: `codex/task-2-occurrence-toggles`
 - type: impl
 - owns:
   - `lib/features/wake_plan/domain/src/alarm_occurrence.dart`
@@ -93,9 +99,11 @@
   - `lib/features/wake_plan/data/src/wake_plan_database.dart`
   - `lib/features/wake_plan/data/src/wake_plan_database.g.dart`
   - `lib/features/wake_plan/ui/wake_plan_detail_sheet.dart`
+  - `lib/features/week_calendar/presentation/week_calendar_placeholder.dart`
   - `test/features/wake_plan/application/wake_plan_service_test.dart`
   - `test/features/wake_plan/data/wake_plan_repository_test.dart`
   - `test/features/wake_plan/ui/wake_plan_detail_sheet_test.dart`
+  - `test/features/week_calendar/presentation/week_calendar_placeholder_test.dart`
 - depends_on: []
 - description: |
   Add a user-disabled occurrence state that survives restart/reconciliation, service-level enable/disable compensation around the native gateway, and switches for eligible concrete occurrences in the tapped plan detail sheet.
@@ -109,7 +117,7 @@
   - kind: command
     required: true
     owner: worker
-    detail: `rtk fvm flutter test test/features/wake_plan/application/wake_plan_service_test.dart test/features/wake_plan/data/wake_plan_repository_test.dart test/features/wake_plan/ui/wake_plan_detail_sheet_test.dart`
+    detail: `rtk fvm flutter test test/features/wake_plan/application/wake_plan_service_test.dart test/features/wake_plan/data/wake_plan_repository_test.dart test/features/wake_plan/ui/wake_plan_detail_sheet_test.dart test/features/week_calendar/presentation/week_calendar_placeholder_test.dart`
   - kind: command
     required: true
     owner: worker
@@ -124,6 +132,7 @@
     detail: Deep review emphasizing reconciliation/state-machine failure paths, gh-review-hook exit 0, and focused rerun before merge.
 
 ### Task_3: Prevent calendar layout shift and recenter only on lifecycle return
+- status: unstarted
 - type: impl
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_view.dart`
@@ -159,6 +168,7 @@
     detail: Deep review, gh-review-hook exit 0, focused rerun, and layout/scroll state evidence before merge.
 
 ### Task_4: Render and resize short ranges exactly
+- status: unstarted
 - type: impl
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_view.dart`
@@ -190,6 +200,7 @@
     detail: Deep review, gh-review-hook exit 0, geometry assertions, and focused rerun before merge.
 
 ### Task_5: Add direct start/end date-time editing
+- status: unstarted
 - type: impl
 - owns:
   - `lib/features/week_calendar/model/week_calendar_interaction.dart`
@@ -226,6 +237,7 @@
     detail: Deep review, gh-review-hook exit 0, model/widget reruns, and focused UI evidence before merge.
 
 ### Task_6: Integrated independent UI and regression review
+- status: unstarted
 - type: review
 - owns: []
 - depends_on: [Task_2, Task_4, Task_5]
@@ -302,6 +314,14 @@
   - Summary: Synced merged PR #50, mapped six requested behaviors, and split work to avoid simultaneous ownership of central calendar files.
   - Validation evidence: Read-only Researcher report with file/symbol anchors, current PR state from `gh`, clean tracked master after fast-forward.
   - Notes: Existing untracked `artifacts/` and completed-plan/report files belong to the user and are excluded from this plan commit.
+- 2026-07-16 Wave 1 started: [Task_1, Task_2]
+  - Summary: Created two separate Codex worktree workers with disjoint calendar-view and wake-plan occurrence ownership.
+  - Validation evidence: Both worker threads remained active after startup/onboarding and reported clean worktrees at the plan baseline.
+  - Notes: Task_1 thread `019f693a-17e4-7090-b2fb-e4665e77961c`; Task_2 thread `019f693a-17b1-78c3-8a0e-30a8ae7c911b`.
+- 2026-07-16 Task_2 ownership expanded: [Task_2]
+  - Summary: Added the existing calendar placeholder wiring file and its focused test so the detail sheet can receive concrete occurrences and service toggle callbacks.
+  - Validation evidence: Worker baseline focused suite passed 84 tests; investigation showed the production service is owned and callbacks are wired only by `WeekCalendarPlaceholder`.
+  - Notes: No Task_2 product files had been changed before this decision; Task_1 owns only the calendar view, and Task_3/5 remain unstarted, so no active ownership conflict is introduced.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
@@ -320,6 +340,11 @@
   - Plan delta (what changed): Require DST-aware tests/documented limitation without broad timezone migration.
   - Tradeoffs considered: Full timezone disambiguation would materially broaden schema and product scope.
   - User approval: no additional approval needed; non-goal recorded.
+- 2026-07-16 Decision: Expand Task_2 for caller wiring instead of splitting.
+  - Trigger / new insight: `WakePlanDetailSheet` has no service access, while `_openDetailSheet` in `WeekCalendarPlaceholder` owns `WakePlanService` and all production callback wiring.
+  - Plan delta (what changed): Added `week_calendar_placeholder.dart` and its focused test to Task_2 ownership and validation.
+  - Tradeoffs considered: A separate integration PR would temporarily land an unusable service/UI contract and add dependency/merge overhead; keeping the single caller seam atomic is smaller and safer. Global/circular imports and test-only callbacks were rejected.
+  - User approval: covered by the approved orchestration scope; no product behavior or acceptance criteria changed.
 
 ## Notes
 - Risks:
