@@ -254,9 +254,7 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
       _minHourHeight,
       _maxHourHeight,
     );
-    if (nextHourHeight == _displayHourHeight) {
-      return;
-    }
+    final hourHeightChanged = nextHourHeight != _displayHourHeight;
     final startFocalY = _zoomFocalY!;
     final focalMinute =
         (startScrollOffset + startFocalY) /
@@ -264,10 +262,12 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
     _pendingScrollOffset =
         (focalMinute * (nextHourHeight / TimeOfDayMinutes.minutesPerHour)) -
         focalPoint.dy;
-    setState(() {
-      _displayHourHeight = nextHourHeight;
-    });
-    widget.onHourHeightChanged?.call(nextHourHeight);
+    if (hourHeightChanged) {
+      setState(() {
+        _displayHourHeight = nextHourHeight;
+      });
+      widget.onHourHeightChanged?.call(nextHourHeight);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _applyPendingScroll();
     });

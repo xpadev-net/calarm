@@ -1192,8 +1192,12 @@ void main() {
     await tester.pump();
     expect(tester.takeException(), isNull);
     expect(hourHeight, greaterThan(heightAfterFirstMove));
+    expect(hourHeight, 92);
+    await first.moveTo(center + const Offset(-80, 40));
+    await second.moveTo(center + const Offset(100, 100));
+    await tester.pump();
     final focalMinuteAfter =
-        (scrollController.offset + focalY + 30) / (hourHeight / 60);
+        (scrollController.offset + focalY + 70) / (hourHeight / 60);
     expect(focalMinuteAfter, closeTo(focalMinuteBefore, 0.01));
 
     await first.up();
