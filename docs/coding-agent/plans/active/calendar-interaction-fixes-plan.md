@@ -54,9 +54,14 @@
 ## Tasks
 
 ### Task_1: Restore device pinch zoom
-- status: in_progress
+- status: blocked
 - worker_thread: `019f693a-17e4-7090-b2fb-e4665e77961c`
 - branch: `codex/task-1-calendar-pinch`
+- pr: `https://github.com/xpadev-net/calarm/pull/51`
+- head: `8c04b077d62a337c429a3bd8dcb5f7240fb66338`
+- blocker: Required physical two-finger validation around 07:30 and 23:00 plus post-end/cancel vertical scroll and horizontal paging cannot run because no touch-capable device/emulator is available.
+- evidence: Focused view 24/24, placeholder 25/25, analyze, diff-check, full Baseline CI, independent `APPROVED_CODE`, worker `gh-review-hook` exit 0, CLEAN/MERGEABLE/not-behind PR, and 5/5 green checks.
+- next_action: Connect/start a touch-capable Android/iOS device or emulator and run the required probe, or obtain an explicit user waiver for this validation item; then re-run final merge preflight.
 - type: impl
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_view.dart`
@@ -322,6 +327,10 @@
   - Summary: Added the existing calendar placeholder wiring file and its focused test so the detail sheet can receive concrete occurrences and service toggle callbacks.
   - Validation evidence: Worker baseline focused suite passed 84 tests; investigation showed the production service is owned and callbacks are wired only by `WeekCalendarPlaceholder`.
   - Notes: No Task_2 product files had been changed before this decision; Task_1 owns only the calendar view, and Task_3/5 remain unstarted, so no active ownership conflict is introduced.
+- 2026-07-16 Task_1 stopped on physical-device evidence: [Task_1]
+  - Summary: PR #51 passed code review, worker/orchestrator-visible automation, focused/full validation, and all remote merge-state gates, but the plan-required real two-finger probe could not be executed.
+  - Validation evidence: Head `8c04b077d62a337c429a3bd8dcb5f7240fb66338`; focused view 24/24; placeholder 25/25; analyze/diff-check/full CI pass; independent Reviewer `APPROVED_CODE`; worker `gh-review-hook` exit 0; PR CLEAN/MERGEABLE/not behind with 5/5 checks green.
+  - Notes: No touch-capable device/emulator is visible; synthetic widget gestures are not accepted as physical evidence. PR remains open and unmerged. Task_3 cannot start until Task_1 merges.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
