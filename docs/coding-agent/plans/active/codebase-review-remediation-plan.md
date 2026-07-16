@@ -403,11 +403,15 @@
   - runtime: `gpt-5.6-luna` / `high`
   - state: interrupted and archived after remaining at a clean detached base for over one hour; one startup resume produced no progress, and no branch, edit, commit, push, or PR was created.
 - replacement_worker:
+  - thread: `019f6b02-c520-7601-a7f9-81447e8915d2`
+  - worktree: `<CODEX_HOME>/worktrees/a266/calarm`
+  - branch: `codex/reviewfix-ios-native-inventory-retry`
+  - runtime: platform default
+  - startup: active beyond replacement worktree setup; open-PR remediation and current-base integration in progress.
+- prior_replacement_worker:
   - thread: `019f5bac-5671-7022-8a1a-12fa6cc67ee3`
   - worktree: `/Users/xpadev/.codex/worktrees/5a01/calarm`
-  - branch: `codex/reviewfix-ios-native-inventory-retry`
-  - runtime: `gpt-5.6-luna` / `high`
-  - startup: active beyond replacement worktree setup; onboarding and implementation in progress.
+  - state: archived rollout missing after unarchive; could not be resumed and was replaced without reusing its worktree.
 - validation_support_task: Task_17
 - current_reviewer:
   - thread: `019f5d9d-66b4-7272-87cd-dce0a97405d8`
@@ -719,6 +723,11 @@
   - Task_17 worker `019f5d9c-7f4d-7b11-91ce-86bdd55c99c4` started in separate worktree `/Users/xpadev/.codex/worktrees/da98/calarm` on branch `codex/reviewfix-ios-runner-xctest-ci` with `gpt-5.6-luna` / `xhigh`; ownership is only `.github/workflows/native-smoke.yml`.
   - Task_12 pushed rollback-recovery remediation head `988f712b3cf05e5381562037ccaf2bc08b5fefb3`; read-only Reviewer `019f5d9d-66b4-7272-87cd-dce0a97405d8` is reviewing that exact code head with Luna High.
   - PR #48 remains unmerged until Task_17 merges, Task_12 incorporates the updated base, the hosted RunnerTests gate passes, and all fresh exact-head worker/orchestrator gates pass.
+
+- 2026-07-16 Task_12 open-PR worker replaced after archived rollout loss.
+  - Existing worker thread `019f5bac-5671-7022-8a1a-12fa6cc67ee3` could be unarchived but could not be resumed because its archived rollout file was missing.
+  - Replacement thread `019f6b02-c520-7601-a7f9-81447e8915d2` started in separate worktree `<CODEX_HOME>/worktrees/a266/calarm` on the existing branch `codex/reviewfix-ios-native-inventory-retry`.
+  - The replacement must normally merge current `master`, remediate the two current AlarmKit correctness findings, rerun hosted iOS and exact-head review/hook gates, and never merge PR #48.
 
 ## Decision Log
 

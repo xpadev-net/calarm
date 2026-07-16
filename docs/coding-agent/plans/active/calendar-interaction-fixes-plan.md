@@ -54,14 +54,16 @@
 ## Tasks
 
 ### Task_1: Restore device pinch zoom
-- status: blocked
-- worker_thread: `019f693a-17e4-7090-b2fb-e4665e77961c`
+- status: in_progress
+- worker_thread: `019f6b02-c629-7463-a341-b9924932b3f9`
+- worker_worktree: `<CODEX_HOME>/worktrees/137a/calarm`
+- replaced_worker_thread: `019f693a-17e4-7090-b2fb-e4665e77961c` (archived rollout missing; replacement started)
 - branch: `codex/task-1-calendar-pinch`
 - pr: `https://github.com/xpadev-net/calarm/pull/51`
 - head: `8c04b077d62a337c429a3bd8dcb5f7240fb66338`
 - blocker: Required physical two-finger validation around 07:30 and 23:00 plus post-end/cancel vertical scroll and horizontal paging cannot run because no touch-capable device/emulator is available.
-- evidence: Focused view 24/24, placeholder 25/25, analyze, diff-check, full Baseline CI, independent `APPROVED_CODE`, worker `gh-review-hook` exit 0, CLEAN/MERGEABLE/not-behind PR, and 5/5 green checks.
-- next_action: Connect/start a touch-capable Android/iOS device or emulator and run the required probe, or obtain an explicit user waiver for this validation item; then re-run final merge preflight.
+- prior_evidence: Focused view 24/24, placeholder 25/25, analyze, diff-check, full Baseline CI, independent `APPROVED_CODE`, worker `gh-review-hook` exit 0, and 5/5 green checks at head `8c04b077d62a337c429a3bd8dcb5f7240fb66338`.
+- next_action: Replacement worker updates the open PR from current `master` with a normal merge, reruns exact-head gates, and attempts the required touch-capable device probe; no waiver is assumed.
 - type: impl
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_view.dart`
@@ -94,8 +96,12 @@
 
 ### Task_2: Add persistent per-occurrence alarm toggles
 - status: in_progress
-- worker_thread: `019f693a-17b1-78c3-8a0e-30a8ae7c911b`
+- worker_thread: `019f6b02-c520-7601-a7f9-816e5b8112e7`
+- worker_worktree: `<CODEX_HOME>/worktrees/dd05/calarm`
+- replaced_worker_thread: `019f693a-17b1-78c3-8a0e-30a8ae7c911b` (archived rollout missing; replacement started)
 - branch: `codex/task-2-occurrence-toggles`
+- pr: `https://github.com/xpadev-net/calarm/pull/52`
+- head_at_replacement: `381675108278333e08dfc12c739bec210936d308`
 - type: impl
 - owns:
   - `lib/features/wake_plan/domain/src/alarm_occurrence.dart`
@@ -331,6 +337,10 @@
   - Summary: PR #51 passed code review, worker/orchestrator-visible automation, focused/full validation, and all remote merge-state gates, but the plan-required real two-finger probe could not be executed.
   - Validation evidence: Head `8c04b077d62a337c429a3bd8dcb5f7240fb66338`; focused view 24/24; placeholder 25/25; analyze/diff-check/full CI pass; independent Reviewer `APPROVED_CODE`; worker `gh-review-hook` exit 0; PR CLEAN/MERGEABLE/not behind with 5/5 checks green.
   - Notes: No touch-capable device/emulator is visible; synthetic widget gestures are not accepted as physical evidence. PR remains open and unmerged. Task_3 cannot start until Task_1 merges.
+- 2026-07-16 open-PR workers replaced after archived rollout loss: [Task_1, Task_2]
+  - Summary: Existing worker threads could be unarchived but could not be resumed because their archived rollout files were missing; replacement Codex worktree workers were started on the existing open-PR branches.
+  - Validation evidence: Task_1 replacement thread `019f6b02-c629-7463-a341-b9924932b3f9` is active in `<CODEX_HOME>/worktrees/137a/calarm`; Task_2 replacement thread `019f6b02-c520-7601-a7f9-816e5b8112e7` is active in `<CODEX_HOME>/worktrees/dd05/calarm`.
+  - Notes: Task_1 must update its behind branch and still satisfy physical multitouch evidence. Task_2 must produce exact-head Worker validation, independent review, hook, probe, and cleanliness evidence. Neither worker may merge.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
