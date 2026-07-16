@@ -571,9 +571,7 @@ void main() {
       });
 
       final result = await gateway.scheduleTestAlarm(
-        NativeTestAlarmScheduleRequest(
-          fireAfter: const Duration(seconds: 30),
-        ),
+        NativeTestAlarmScheduleRequest(fireAfter: const Duration(seconds: 30)),
       );
       expect(result.status, ScheduleResultStatus.failure);
       expect(result.failureReason, ScheduleFailureReason.nativeError);

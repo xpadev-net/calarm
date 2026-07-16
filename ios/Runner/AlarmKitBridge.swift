@@ -20,10 +20,12 @@ final class AlarmKitBridge {
   private let mirrorCoordinator = AlarmMirrorCoordinator.shared
   private var pendingNativeAlarmIds = Set<String>()
   private let nativeClient: (any AlarmKitNativeClient)?
+  private let replacementBeforeCommit: (() throws -> Void)?
 
   init(
     messenger: FlutterBinaryMessenger,
-    nativeClient: (any AlarmKitNativeClient)? = nil
+    nativeClient: (any AlarmKitNativeClient)? = nil,
+    replacementBeforeCommit: (() throws -> Void)? = nil
   ) {
     let methodChannel = FlutterMethodChannel(
       name: nativeAlarmChannelName,
@@ -31,6 +33,7 @@ final class AlarmKitBridge {
     )
     channel = methodChannel
     self.nativeClient = nativeClient
+    self.replacementBeforeCommit = replacementBeforeCommit
     methodChannel.setMethodCallHandler(handle)
     if #available(iOS 26.0, *) {
       alarmObservationTask = Task { @MainActor [weak self] in
@@ -39,9 +42,13 @@ final class AlarmKitBridge {
     }
   }
 
-  init(nativeClient: any AlarmKitNativeClient) {
+  init(
+    nativeClient: any AlarmKitNativeClient,
+    replacementBeforeCommit: (() throws -> Void)? = nil
+  ) {
     channel = nil
     self.nativeClient = nativeClient
+    self.replacementBeforeCommit = replacementBeforeCommit
   }
 
   // Internal so RunnerTests can exercise the exact production MethodChannel
@@ -742,9 +749,10 @@ final class AlarmKitBridge {
         if !existing.matches(request) {
           // The stable reservation may be retried with a recreated occurrence.
           // AlarmKit replaces an alarm scheduled with the same stable UUID.
-          // Keep the prior committed configuration untouched until that call
-          // succeeds: pre-cancelling can destroy the only live alarm when both
-          // replacement and rollback fail.
+          // Persist the prior complete configuration as a non-authoritative
+          // recovery obligation before that external side effect. If the
+          // process loses the reply before committing the replacement tuple,
+          // restart inventory restores this known configuration first.
           let previousRecord = existing
           guard let previousRequest = previousRecord.scheduleRequest() else {
             return ScheduleRow(
@@ -754,6 +762,9 @@ final class AlarmKitBridge {
               failureMessage: "The existing AlarmKit configuration is unavailable for a safe replacement."
             )
           }
+          mirror.removeValue(forKey: platformAlarmId)
+          pendingMirror[platformAlarmId] = previousRecord.requiringNativeRestoration()
+          try saveMirrorState(mirror, pending: pendingMirror)
           do {
             let scheduledPlatformAlarmId = try await nativeClientForAlarmKit().schedule(
               id: alarmId,
@@ -762,18 +773,6 @@ final class AlarmKitBridge {
             guard try canonicalPlatformAlarmId(scheduledPlatformAlarmId) == platformAlarmId else {
               throw MirrorValidationError.invalid
             }
-            mirror[platformAlarmId] = AlarmMirrorRecord(
-              request: request,
-              platformAlarmId: platformAlarmId
-            )
-            pendingMirror.removeValue(forKey: platformAlarmId)
-            try saveMirrorState(mirror, pending: pendingMirror)
-            return ScheduleRow(
-              status: "success",
-              platformAlarmId: platformAlarmId,
-              failureReason: nil,
-              failureMessage: nil
-            )
           } catch {
             var nativeRestored = false
             do {
@@ -812,6 +811,22 @@ final class AlarmKitBridge {
               failureMessage: error.localizedDescription
             )
           }
+
+          // Test seam for the exact external-side-effect/durable-commit
+          // boundary. Production leaves it nil.
+          try replacementBeforeCommit?()
+          mirror[platformAlarmId] = AlarmMirrorRecord(
+            request: request,
+            platformAlarmId: platformAlarmId
+          )
+          pendingMirror.removeValue(forKey: platformAlarmId)
+          try saveMirrorState(mirror, pending: pendingMirror)
+          return ScheduleRow(
+            status: "success",
+            platformAlarmId: platformAlarmId,
+            failureReason: nil,
+            failureMessage: nil
+          )
         }
 
         mirror[platformAlarmId] = AlarmMirrorRecord(
