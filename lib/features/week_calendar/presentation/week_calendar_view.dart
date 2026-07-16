@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
@@ -152,7 +153,6 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
   late double _displayHourHeight;
   bool _didApplyInitialScroll = false;
   double? _pendingScrollOffset;
-  final Map<int, Offset> _pointerPositions = {};
   double? _pinchStartDistance;
   double? _pinchStartHourHeight;
   double? _pinchStartScrollOffset;
@@ -227,43 +227,33 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
     }
   }
 
-  void _handlePointerDown(PointerDownEvent event) {
-    _pointerPositions[event.pointer] = event.localPosition;
-    if (_pointerPositions.length == 2) {
-      _pinchStartDistance = _pointerDistance;
-      _pinchStartHourHeight = _displayHourHeight;
-      _pinchStartScrollOffset = _scrollController.offset;
-      final positions = _pointerPositions.values.take(2).toList();
-      _zoomFocalY = (positions[0].dy + positions[1].dy) / 2;
-      setState(() {
-        _pinching = true;
-        _manipulatingDraft = false;
-      });
-      widget.onPinchStateChanged(true);
-    }
+  void _handlePinchStart(Offset focalPoint, double distance) {
+    _pinchStartDistance = distance;
+    _pinchStartHourHeight = _displayHourHeight;
+    _pinchStartScrollOffset = _scrollController.offset;
+    _zoomFocalY = focalPoint.dy;
+    setState(() {
+      _pinching = true;
+      _manipulatingDraft = false;
+    });
+    widget.onPinchStateChanged(true);
   }
 
-  void _handlePointerMove(PointerMoveEvent event) {
-    if (!_pointerPositions.containsKey(event.pointer)) {
-      return;
-    }
-    _pointerPositions[event.pointer] = event.localPosition;
+  void _handlePinchUpdate(Offset focalPoint, double distance) {
     final startDistance = _pinchStartDistance;
     final startHourHeight = _pinchStartHourHeight;
     final startScrollOffset = _pinchStartScrollOffset;
-    if (_pointerPositions.length < 2 ||
-        startDistance == null ||
+    if (startDistance == null ||
         startDistance == 0 ||
         startHourHeight == null ||
         startScrollOffset == null) {
       return;
     }
 
-    final nextHourHeight =
-        (startHourHeight * (_pointerDistance / startDistance)).clamp(
-          _minHourHeight,
-          _maxHourHeight,
-        );
+    final nextHourHeight = (startHourHeight * (distance / startDistance)).clamp(
+      _minHourHeight,
+      _maxHourHeight,
+    );
     if (nextHourHeight == _displayHourHeight) {
       return;
     }
@@ -283,29 +273,21 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
     });
   }
 
-  void _handlePointerEnd(PointerEvent event) {
+  void _handlePinchEnd() {
     // A cross-day move can replace the draft segment that received the pointer
-    // down before it sees the matching up/cancel. The page-level listener stays
-    // mounted for the whole gesture, so it owns the final cleanup guarantee.
+    // down before it sees the matching up/cancel. The page-level recognizer
+    // stays mounted for the whole gesture, so it owns the cleanup guarantee.
     _setManipulatingDraft(false);
-    _pointerPositions.remove(event.pointer);
-    if (_pointerPositions.length < 2) {
-      _pinchStartDistance = null;
-      _pinchStartHourHeight = null;
-      _pinchStartScrollOffset = null;
-      _zoomFocalY = null;
-      if (_pinching) {
-        setState(() {
-          _pinching = false;
-        });
-        widget.onPinchStateChanged(false);
-      }
+    _pinchStartDistance = null;
+    _pinchStartHourHeight = null;
+    _pinchStartScrollOffset = null;
+    _zoomFocalY = null;
+    if (_pinching) {
+      setState(() {
+        _pinching = false;
+      });
+      widget.onPinchStateChanged(false);
     }
-  }
-
-  double get _pointerDistance {
-    final positions = _pointerPositions.values.take(2).toList();
-    return (positions[0] - positions[1]).distance;
   }
 
   void _setManipulatingDraft(bool manipulating) {
@@ -359,13 +341,22 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
           timeAxisWidth: widget.timeAxisWidth,
         ),
         Expanded(
-          child: Listener(
+          child: RawGestureDetector(
             key: const ValueKey('week-calendar-pinch-surface'),
             behavior: HitTestBehavior.translucent,
-            onPointerDown: _handlePointerDown,
-            onPointerMove: _handlePointerMove,
-            onPointerUp: _handlePointerEnd,
-            onPointerCancel: _handlePointerEnd,
+            gestures: {
+              _TwoPointerScaleGestureRecognizer:
+                  GestureRecognizerFactoryWithHandlers<
+                    _TwoPointerScaleGestureRecognizer
+                  >(_TwoPointerScaleGestureRecognizer.new, (recognizer) {
+                    recognizer
+                      ..onStart = _handlePinchStart
+                      ..onUpdate = _handlePinchUpdate
+                      ..onEnd = _handlePinchEnd
+                      ..shouldContinueWaitingForSecondPointer = () =>
+                          _manipulatingDraft;
+                  }),
+            },
             child: DecoratedBox(
               decoration: BoxDecoration(
                 border: Border.all(color: colorScheme.outlineVariant),
@@ -475,6 +466,162 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
         ),
       ],
     );
+  }
+}
+
+typedef _TwoPointerScaleStart =
+    void Function(Offset focalPoint, double distance);
+typedef _TwoPointerScaleUpdate =
+    void Function(Offset focalPoint, double distance);
+
+/// Gives a second touch a chance to join the first touch before a nested
+/// horizontal or vertical drag wins its gesture arena.
+///
+/// A single touch is released as soon as it moves beyond pan slop, so ordinary
+/// scrolling and paging retain their normal drag behavior.
+class _TwoPointerScaleGestureRecognizer extends OneSequenceGestureRecognizer {
+  _TwoPointerScaleStart? onStart;
+  _TwoPointerScaleUpdate? onUpdate;
+  VoidCallback? onEnd;
+  bool Function()? shouldContinueWaitingForSecondPointer;
+
+  final Map<int, Offset> _positions = {};
+  final Map<int, Offset> _initialPositions = {};
+  final Set<int> _heldPointers = {};
+  bool _accepted = false;
+  bool _resetting = false;
+
+  @override
+  void addAllowedPointer(PointerDownEvent event) {
+    super.addAllowedPointer(event);
+    if (_positions.length >= 2) {
+      resolvePointer(event.pointer, GestureDisposition.rejected);
+      stopTrackingPointer(event.pointer);
+      return;
+    }
+
+    _positions[event.pointer] = event.localPosition;
+    _initialPositions[event.pointer] = event.localPosition;
+    GestureBinding.instance.gestureArena.hold(event.pointer);
+    _heldPointers.add(event.pointer);
+
+    if (_positions.length == 2) {
+      _accepted = true;
+      resolve(GestureDisposition.accepted);
+      _releaseHeldPointers();
+      onStart?.call(_focalPoint, _distance);
+    }
+  }
+
+  @override
+  void handleEvent(PointerEvent event) {
+    if (event is PointerMoveEvent && _positions.containsKey(event.pointer)) {
+      _positions[event.pointer] = event.localPosition;
+      if (_accepted) {
+        onUpdate?.call(_focalPoint, _distance);
+      } else {
+        final initialPosition = _initialPositions[event.pointer]!;
+        if ((event.localPosition - initialPosition).distance >
+                computePanSlop(event.kind, gestureSettings) &&
+            !(shouldContinueWaitingForSecondPointer?.call() ?? false)) {
+          _abandonGesture();
+          return;
+        }
+      }
+    }
+
+    if (event is PointerUpEvent || event is PointerCancelEvent) {
+      final wasAccepted = _accepted;
+      if (!wasAccepted) {
+        resolvePointer(event.pointer, GestureDisposition.rejected);
+      }
+      _positions.remove(event.pointer);
+      _initialPositions.remove(event.pointer);
+      _releaseHeldPointer(event.pointer);
+      stopTrackingPointer(event.pointer);
+      if (wasAccepted && _positions.length < 2) {
+        _finishGesture();
+      } else if (!wasAccepted && _positions.isEmpty) {
+        _releaseHeldPointers();
+      }
+    }
+  }
+
+  Offset get _focalPoint {
+    final positions = _positions.values.take(2).toList();
+    return (positions[0] + positions[1]) / 2;
+  }
+
+  double get _distance {
+    final positions = _positions.values.take(2).toList();
+    return (positions[0] - positions[1]).distance;
+  }
+
+  void _finishGesture() {
+    if (!_accepted) {
+      return;
+    }
+    _accepted = false;
+    _stopTrackingAllPointers();
+    onEnd?.call();
+  }
+
+  void _abandonGesture() {
+    if (_resetting) {
+      return;
+    }
+    _resetting = true;
+    resolve(GestureDisposition.rejected);
+    _releaseHeldPointers();
+    _stopTrackingAllPointers();
+    _accepted = false;
+    _resetting = false;
+  }
+
+  void _stopTrackingAllPointers() {
+    for (final pointer in _positions.keys.toList()) {
+      stopTrackingPointer(pointer);
+    }
+    _positions.clear();
+    _initialPositions.clear();
+  }
+
+  void _releaseHeldPointers() {
+    for (final pointer in _heldPointers.toList()) {
+      _releaseHeldPointer(pointer);
+    }
+  }
+
+  void _releaseHeldPointer(int pointer) {
+    if (_heldPointers.remove(pointer)) {
+      GestureBinding.instance.gestureArena.release(pointer);
+    }
+  }
+
+  @override
+  void acceptGesture(int pointer) {}
+
+  @override
+  void rejectGesture(int pointer) {
+    if (!_accepted) {
+      _abandonGesture();
+    }
+  }
+
+  @override
+  void didStopTrackingLastPointer(int pointer) {}
+
+  @override
+  String get debugDescription => 'two pointer scale';
+
+  @override
+  void dispose() {
+    final wasAccepted = _accepted;
+    _abandonGesture();
+    if (wasAccepted) {
+      onEnd?.call();
+    }
+    super.dispose();
   }
 }
 
