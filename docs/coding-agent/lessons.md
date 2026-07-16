@@ -353,3 +353,12 @@ Purpose:
 - fix: Key focus-bearing draft controls by stable draft and semantic role, and verify consecutive cross-day keyboard actions without another tap.
 - prevention: Any accessibility or keyboard action that can move a control between rendered segments must preserve logical focus identity across the resulting rebuild.
 - promotion: Repo-local accessibility lesson; consider shared Flutter focus guidance if repeated.
+
+### 2026-07-16 - Restart Reviewers That Stop Producing Durable Progress
+
+- tags: workflow/process, delegation, review, validation/verification
+- symptom: An exact-head independent reviewer remained marked running for an extended period without a completion report or other durable progress, while the orchestration loop continued to describe the review as active.
+- root cause: Runtime agent status was treated as sufficient liveness evidence after dispatch, without a bounded follow-up check for reviewer output.
+- fix: Interrupt the stalled reviewer and launch a fresh read-only reviewer against the same immutable head and base.
+- prevention: For bounded independent reviews, require a durable progress or completion signal within the next monitoring window; after one silent extended interval, inspect once, interrupt if still silent, and restart against the exact unchanged SHA rather than repeatedly reporting it as active.
+- promotion: Repo-local orchestration lesson; related to the existing worker-liveness and completion-reconciliation lessons, with reviewer-specific restart handling.
