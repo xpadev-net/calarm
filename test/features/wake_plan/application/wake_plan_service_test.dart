@@ -495,6 +495,191 @@ void main() {
 
   group('WakePlanService reconcileSchedules', () {
     test(
+      'keeps past and exact-now weekly recovery markers terminal while replenishing the future horizon',
+      () async {
+        final exactNow = DateTime(2026, 7, 6, 7);
+        final plan = buildPlan(repeatRule: RepeatRule.weekly({Weekday.monday}));
+        for (final boundary in [
+          (
+            name: 'past',
+            time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 55),
+            id: 'plan-1:20640:415',
+          ),
+          (name: 'exact-now', time: targetTime, id: 'plan-1:20640:420'),
+        ]) {
+          for (final marker in [
+            buildOccurrence(
+              id: boundary.id,
+              time: boundary.time,
+              status: AlarmOccurrenceStatus.userDisablePending,
+              platformAlarmId: 'native-${boundary.name}-off',
+            ),
+            buildOccurrence(
+              id: boundary.id,
+              time: boundary.time,
+              status: AlarmOccurrenceStatus.userEnablePending,
+              platformAlarmId: null,
+            ),
+            buildOccurrence(
+              id: boundary.id,
+              time: boundary.time,
+              status: AlarmOccurrenceStatus.scheduled,
+              platformAlarmId: null,
+            ),
+          ]) {
+            final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+              ..wakePlans = [plan]
+              ..storedOccurrences = [marker];
+            final gateway = FakeNativeAlarmGateway();
+            if (marker.platformAlarmId != null) {
+              gateway.inventoryRows.add(
+                NativeAlarmInventoryRow(
+                  reservationId: marker.id,
+                  occurrenceId: marker.id,
+                  wakePlanId: plan.id,
+                  platformAlarmId: marker.platformAlarmId!,
+                  status: NativeAlarmReservationStatus.scheduled,
+                ),
+              );
+            }
+
+            final results = await service(
+              store: store,
+              gateway: gateway,
+              rollingScheduleDays: 1,
+              clockNow: exactNow,
+            ).reconcileSchedules();
+
+            expect(results, hasLength(1), reason: boundary.name);
+            expect(
+              gateway.cancelledOccurrences.where(
+                (request) => request.occurrenceId == marker.id,
+              ),
+              isEmpty,
+              reason: '${boundary.name}:${marker.status.name}',
+            );
+            expect(
+              gateway.scheduledRequests.where(
+                (request) => request.occurrenceId == marker.id,
+              ),
+              isEmpty,
+              reason: '${boundary.name}:${marker.status.name}',
+            );
+            final persistedMarker = store.storedOccurrences.singleWhere(
+              (occurrence) => occurrence.id == marker.id,
+            );
+            expect(
+              persistedMarker.status,
+              marker.status,
+              reason: '${boundary.name}:${marker.status.name}',
+            );
+            expect(
+              persistedMarker.platformAlarmId,
+              marker.platformAlarmId,
+              reason: '${boundary.name}:${marker.status.name}',
+            );
+            expect(
+              gateway.scheduledRequests,
+              hasLength(4),
+              reason: 'weekly replenishment:${boundary.name}',
+            );
+            expect(
+              gateway.scheduledRequests.every(
+                (request) => request.scheduledAt.isAfter(exactNow),
+              ),
+              isTrue,
+            );
+          }
+        }
+      },
+    );
+
+    test(
+      'recovers strictly-future weekly markers without duplicates',
+      () async {
+        final plan = buildPlan(repeatRule: RepeatRule.weekly({Weekday.monday}));
+        final futureDay = monday.addDays(7);
+        for (final marker in [
+          buildOccurrence(
+            id: 'plan-1:20647:420',
+            day: futureDay,
+            status: AlarmOccurrenceStatus.userDisablePending,
+            platformAlarmId: 'native-future-off',
+          ),
+          buildOccurrence(
+            id: 'plan-1:20647:420',
+            day: futureDay,
+            status: AlarmOccurrenceStatus.userEnablePending,
+            platformAlarmId: null,
+          ),
+          buildOccurrence(
+            id: 'plan-1:20647:420',
+            day: futureDay,
+            status: AlarmOccurrenceStatus.scheduled,
+            platformAlarmId: null,
+          ),
+        ]) {
+          final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+            ..wakePlans = [plan]
+            ..storedOccurrences = [marker];
+          final gateway = FakeNativeAlarmGateway();
+          if (marker.platformAlarmId != null) {
+            gateway.inventoryRows.add(
+              NativeAlarmInventoryRow(
+                reservationId: marker.id,
+                occurrenceId: marker.id,
+                wakePlanId: plan.id,
+                platformAlarmId: marker.platformAlarmId!,
+                status: NativeAlarmReservationStatus.scheduled,
+              ),
+            );
+          }
+
+          await service(
+            store: store,
+            gateway: gateway,
+            rollingScheduleDays: 1,
+            clockNow: DateTime(2026, 7, 6, 7),
+          ).reconcileSchedules();
+
+          final persisted = store.storedOccurrences.singleWhere(
+            (occurrence) => occurrence.id == marker.id,
+          );
+          if (marker.status == AlarmOccurrenceStatus.userDisablePending) {
+            expect(persisted.status, AlarmOccurrenceStatus.userDisabled);
+            expect(
+              gateway.cancelledOccurrences.where(
+                (request) => request.occurrenceId == marker.id,
+              ),
+              hasLength(1),
+            );
+            expect(
+              gateway.scheduledRequests.where(
+                (request) => request.occurrenceId == marker.id,
+              ),
+              isEmpty,
+            );
+          } else {
+            expect(persisted.status, AlarmOccurrenceStatus.scheduled);
+            expect(persisted.platformAlarmId, isNotNull);
+            expect(
+              gateway.scheduledRequests.where(
+                (request) => request.occurrenceId == marker.id,
+              ),
+              hasLength(1),
+            );
+          }
+          expect(
+            gateway.inventoryRows
+                .where((row) => row.occurrenceId == marker.id)
+                .length,
+            lessThanOrEqualTo(1),
+          );
+        }
+      },
+    );
+
+    test(
       'replenishes a horizon and is idempotent across repeated runs',
       () async {
         final plan = buildPlan(
@@ -900,9 +1085,21 @@ void main() {
         rollingScheduleDays: 1,
       ).reconcileSchedules();
 
-      expect(gateway.scheduledRequests, isEmpty);
       expect(
-        store.storedOccurrences.single.status,
+        gateway.scheduledRequests.map((request) => request.occurrenceId),
+        isNot(contains(occurrence.id)),
+      );
+      expect(gateway.scheduledRequests, hasLength(4));
+      expect(
+        gateway.scheduledRequests.every(
+          (request) => request.scheduledAt.isAfter(exactNow),
+        ),
+        isTrue,
+      );
+      expect(
+        store.storedOccurrences
+            .singleWhere((item) => item.id == occurrence.id)
+            .status,
         AlarmOccurrenceStatus.userDisabled,
       );
     });
@@ -960,7 +1157,7 @@ void main() {
       () async {
         final plan = buildPlan();
         final occurrence = buildOccurrence(
-          id: 'future',
+          id: 'plan-1:20640:420',
           platformAlarmId: 'native-future',
         );
         final store = _LoggingWakePlanServiceStore(currentPlan: plan)
@@ -998,7 +1195,7 @@ void main() {
       () async {
         final plan = buildPlan();
         final occurrence = buildOccurrence(
-          id: 'future',
+          id: 'plan-1:20640:420',
           platformAlarmId: 'native-future',
         );
         final store = _LoggingWakePlanServiceStore(currentPlan: plan)
@@ -1026,7 +1223,7 @@ void main() {
     test('persists pending off intent when cancellation throws', () async {
       final plan = buildPlan();
       final occurrence = buildOccurrence(
-        id: 'future-throw',
+        id: 'plan-1:20640:420',
         platformAlarmId: 'native-future-throw',
       );
       final store = _LoggingWakePlanServiceStore(currentPlan: plan)
@@ -2371,6 +2568,93 @@ void main() {
   });
 
   group('WakePlanService editPlan', () {
+    test(
+      'hides and rejects stale disabled identities after timing edits',
+      () async {
+        for (final scenario in [
+          (
+            name: 'target time',
+            oldTime: targetTime,
+            edit: buildPlan(
+              targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+                hour: 7,
+                minute: 30,
+              ),
+            ),
+          ),
+          (
+            name: 'start offset',
+            oldTime: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 45),
+            edit: buildPlan(startOffset: const Duration(minutes: 10)),
+          ),
+          (
+            name: 'interval',
+            oldTime: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 50),
+            edit: buildPlan(interval: const Duration(minutes: 7)),
+          ),
+        ]) {
+          final originalPlan = buildPlan();
+          final staleId =
+              'plan-1:20640:${scenario.oldTime.minutesSinceMidnight}';
+          final staleDisabled = buildOccurrence(
+            id: staleId,
+            time: scenario.oldTime,
+            status: AlarmOccurrenceStatus.userDisabled,
+            platformAlarmId: null,
+          );
+          final store = _LoggingWakePlanServiceStore(currentPlan: originalPlan)
+            ..storedOccurrences = [staleDisabled];
+          final gateway = FakeNativeAlarmGateway();
+          final serviceUnderTest = service(store: store, gateway: gateway);
+
+          final edited = await serviceUnderTest.editPlan(scenario.edit);
+          expect(
+            edited.status,
+            WakePlanSchedulingStatus.scheduled,
+            reason: scenario.name,
+          );
+          final visible = await serviceUnderTest.fetchOccurrencesForPlan(
+            originalPlan.id,
+          );
+          expect(
+            visible,
+            isNotEmpty,
+            reason: 'new canonical occurrences:${scenario.name}',
+          );
+          expect(
+            visible.map((occurrence) => occurrence.id),
+            isNot(contains(staleId)),
+            reason: scenario.name,
+          );
+
+          final scheduledCount = gateway.scheduledRequests.length;
+          final rejected = await serviceUnderTest.setOccurrenceEnabled(
+            wakePlanId: originalPlan.id,
+            occurrenceId: staleId,
+            enabled: true,
+          );
+          expect(
+            rejected.status,
+            AlarmOccurrenceToggleStatus.invalidState,
+            reason: scenario.name,
+          );
+          expect(gateway.scheduledRequests, hasLength(scheduledCount));
+          expect(
+            store.storedOccurrences
+                .singleWhere((occurrence) => occurrence.id == staleId)
+                .status,
+            AlarmOccurrenceStatus.userDisabled,
+            reason: 'durable suppression:${scenario.name}',
+          );
+          expect(
+            gateway.inventoryRows.where((row) => row.occurrenceId == staleId),
+            isEmpty,
+            reason: scenario.name,
+          );
+        }
+      },
+    );
+
     for (final scenario
         in <
           ({

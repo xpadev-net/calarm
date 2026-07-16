@@ -101,7 +101,21 @@ class WakePlanService {
   }
 
   Future<List<AlarmOccurrence>> fetchOccurrencesForPlan(String wakePlanId) {
-    return _coordinator.run(() => _store.fetchOccurrencesForPlan(wakePlanId));
+    return _coordinator.run(() async {
+      final now = _clock();
+      final plan = await _store.fetchWakePlan(wakePlanId);
+      if (plan == null ||
+          !plan.isEnabled ||
+          plan.isDeleted ||
+          plan.status == WakePlanStatus.finished) {
+        return const [];
+      }
+      final canonicalIds = _canonicalFutureOccurrenceIds(plan: plan, now: now);
+      final occurrences = await _store.fetchOccurrencesForPlan(wakePlanId);
+      return occurrences
+          .where((occurrence) => canonicalIds.contains(occurrence.id))
+          .toList(growable: false);
+    });
   }
 
   Future<AlarmOccurrenceToggleResult> setOccurrenceEnabled({
@@ -139,31 +153,6 @@ class WakePlanService {
       );
     }
 
-    if (enabled &&
-        occurrence.status == AlarmOccurrenceStatus.scheduled &&
-        occurrence.hasNativeReservation &&
-        occurrence.scheduledAt.toDateTime().isAfter(now)) {
-      return AlarmOccurrenceToggleResult.success(
-        status: AlarmOccurrenceToggleStatus.enabled,
-        occurrence: occurrence,
-      );
-    }
-    if (!enabled &&
-        occurrence.isUserDisabled &&
-        occurrence.scheduledAt.toDateTime().isAfter(now)) {
-      return AlarmOccurrenceToggleResult.success(
-        status: AlarmOccurrenceToggleStatus.disabled,
-        occurrence: occurrence,
-      );
-    }
-    if (!occurrence.isUserToggleEligibleAt(now)) {
-      return AlarmOccurrenceToggleResult.failure(
-        status: AlarmOccurrenceToggleStatus.invalidState,
-        occurrence: occurrence,
-        warning: 'This alarm occurrence can no longer be changed.',
-      );
-    }
-
     final plan = await _store.fetchWakePlan(wakePlanId);
     if (plan == null ||
         !plan.isEnabled ||
@@ -173,6 +162,30 @@ class WakePlanService {
         status: AlarmOccurrenceToggleStatus.invalidState,
         occurrence: occurrence,
         warning: 'The wake plan is no longer available for scheduling.',
+      );
+    }
+    final canonicalIds = _canonicalFutureOccurrenceIds(plan: plan, now: now);
+    if (!canonicalIds.contains(occurrence.id) ||
+        !occurrence.isUserToggleEligibleAt(now)) {
+      return AlarmOccurrenceToggleResult.failure(
+        status: AlarmOccurrenceToggleStatus.invalidState,
+        occurrence: occurrence,
+        warning: 'This alarm occurrence can no longer be changed.',
+      );
+    }
+
+    if (enabled &&
+        occurrence.status == AlarmOccurrenceStatus.scheduled &&
+        occurrence.hasNativeReservation) {
+      return AlarmOccurrenceToggleResult.success(
+        status: AlarmOccurrenceToggleStatus.enabled,
+        occurrence: occurrence,
+      );
+    }
+    if (!enabled && occurrence.isUserDisabled) {
+      return AlarmOccurrenceToggleResult.success(
+        status: AlarmOccurrenceToggleStatus.disabled,
+        occurrence: occurrence,
       );
     }
 
@@ -1274,6 +1287,16 @@ class WakePlanService {
             !occurrence.hasNativeReservation);
   }
 
+  Set<String> _canonicalFutureOccurrenceIds({
+    required WakePlan plan,
+    required DateTime now,
+  }) {
+    return _buildOccurrenceBundle(plan: plan, now: now).occurrences
+        .where((occurrence) => occurrence.scheduledAt.toDateTime().isAfter(now))
+        .map((occurrence) => occurrence.id)
+        .toSet();
+  }
+
   bool _hasValidNativeReservation(
     AlarmOccurrence? existing,
     AlarmOccurrence desired,
@@ -1320,7 +1343,7 @@ class WakePlanService {
     var hasUnresolved = false;
     for (final occurrence in occurrences) {
       if (occurrence.status != AlarmOccurrenceStatus.userEnablePending ||
-          occurrence.scheduledAt.toDateTime().isBefore(now)) {
+          !occurrence.scheduledAt.toDateTime().isAfter(now)) {
         reconciled.add(occurrence);
         continue;
       }
@@ -1374,7 +1397,7 @@ class WakePlanService {
     var hasUnresolved = false;
     for (final occurrence in occurrences) {
       if (occurrence.status != AlarmOccurrenceStatus.userDisablePending ||
-          occurrence.scheduledAt.toDateTime().isBefore(now)) {
+          !occurrence.scheduledAt.toDateTime().isAfter(now)) {
         reconciled.add(occurrence);
         continue;
       }
@@ -1540,7 +1563,10 @@ class WakePlanService {
       wakePlan: plan,
       startDay: startDay,
       endExclusive: startDay.addDays(_rollingScheduleDays),
-      now: now,
+      // Native alarms must always be strictly future. Advancing the planner's
+      // boundary by the smallest DateTime unit also lets its weekly fallback
+      // search run when the only occurrence in the current horizon is due now.
+      now: now.add(const Duration(microseconds: 1)),
     );
     final createdOccurrences = <AlarmOccurrence>[];
     final requests = <NativeAlarmScheduleRequest>[];
@@ -1550,7 +1576,7 @@ class WakePlanService {
     for (final instance in occurrencePlan.wakeInstances) {
       final uniqueDrafts = instance.occurrences
           .where((draft) {
-            if (draft.scheduledAt.toDateTime().isBefore(now)) {
+            if (!draft.scheduledAt.toDateTime().isAfter(now)) {
               return false;
             }
             return seenScheduleTimes.add(draft.scheduledAt);
