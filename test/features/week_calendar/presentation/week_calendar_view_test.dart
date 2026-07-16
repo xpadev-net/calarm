@@ -1069,6 +1069,15 @@ void main() {
       final focalMinuteAtMaximum =
           (scrollController.offset + focalY) / (hourHeight / 60);
       expect(focalMinuteAtMaximum, closeTo(focalMinuteBefore, 0.01));
+
+      await first.moveTo(center + const Offset(-220, 40));
+      await second.moveTo(center + const Offset(220, 40));
+      final focalMinuteAfterBoundedTranslation =
+          (scrollController.offset + focalY + 40) / (hourHeight / 60);
+      expect(
+        focalMinuteAfterBoundedTranslation,
+        closeTo(focalMinuteBefore, 0.01),
+      );
       await first.up();
       await second.up();
       await tester.pumpAndSettle();

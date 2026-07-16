@@ -157,6 +157,7 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
   double? _pinchStartHourHeight;
   double? _pinchStartScrollOffset;
   double? _zoomFocalY;
+  bool _pinchLayoutPending = false;
   bool _pinching = false;
   bool _manipulatingDraft = false;
   final FocusNode _draftBodyFocusNode = FocusNode(
@@ -263,14 +264,18 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
         (focalMinute * (nextHourHeight / TimeOfDayMinutes.minutesPerHour)) -
         focalPoint.dy;
     if (hourHeightChanged) {
+      _pinchLayoutPending = true;
       setState(() {
         _displayHourHeight = nextHourHeight;
       });
       widget.onHourHeightChanged?.call(nextHourHeight);
-    }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _pinchLayoutPending = false;
+        _applyPendingScroll();
+      });
+    } else if (!_pinchLayoutPending) {
       _applyPendingScroll();
-    });
+    }
   }
 
   void _handlePinchEnd() {
