@@ -183,15 +183,7 @@ class WakePlanRepository {
   ) async {
     final rows =
         await (_database.select(_database.alarmOccurrenceRows)
-              ..where(
-                (row) =>
-                    row.wakePlanId.equals(wakePlanId) &
-                    row.platformAlarmId.isNotNull() &
-                    row.status.isIn([
-                      AlarmOccurrenceStatus.scheduled.name,
-                      AlarmOccurrenceStatus.ringing.name,
-                    ]),
-              )
+              ..where((row) => row.wakePlanId.equals(wakePlanId))
               ..orderBy([
                 (row) => OrderingTerm.asc(row.scheduledAtDays),
                 (row) => OrderingTerm.asc(row.scheduledAtMinutes),
@@ -201,6 +193,15 @@ class WakePlanRepository {
     return rows
         .map(_tryAlarmOccurrenceFromRow)
         .whereType<AlarmOccurrence>()
+        .where(
+          (occurrence) => switch (occurrence.status) {
+            AlarmOccurrenceStatus.scheduled ||
+            AlarmOccurrenceStatus.ringing => occurrence.hasNativeReservation,
+            AlarmOccurrenceStatus.userDisablePending ||
+            AlarmOccurrenceStatus.unknownPersisted => true,
+            _ => false,
+          },
+        )
         .toList(growable: false);
   }
 

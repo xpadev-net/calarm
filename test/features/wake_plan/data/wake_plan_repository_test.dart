@@ -363,6 +363,20 @@ void main() {
           id: 'user-disabled',
           status: AlarmOccurrenceStatus.userDisabled,
         ),
+        buildOccurrence(
+          id: 'pending-off',
+          status: AlarmOccurrenceStatus.userDisablePending,
+          platformAlarmId: 'native-pending-off',
+        ),
+        buildOccurrence(
+          id: 'unknown-with-native',
+          status: AlarmOccurrenceStatus.unknownPersisted,
+          platformAlarmId: 'native-unknown',
+        ),
+        buildOccurrence(
+          id: 'unknown-without-native',
+          status: AlarmOccurrenceStatus.unknownPersisted,
+        ),
       ]);
 
       final reserved = await repository.fetchReservedOccurrencesForPlan(
@@ -371,6 +385,9 @@ void main() {
 
       expect(reserved.map((occurrence) => occurrence.platformAlarmId), [
         'native-1',
+        'native-pending-off',
+        'native-unknown',
+        null,
         'native-2',
         'native-ringing',
       ]);
@@ -411,9 +428,14 @@ void main() {
         start: monday,
         end: monday,
       );
+      final conservativeCancellation = await repository
+          .fetchReservedOccurrencesForPlan('plan-1');
 
       expect(byPlan.map((occurrence) => occurrence.id), ['valid', 'bad-occ']);
       expect(byRange.map((occurrence) => occurrence.id), ['valid', 'bad-occ']);
+      expect(conservativeCancellation.map((occurrence) => occurrence.id), [
+        'bad-occ',
+      ]);
     });
   });
 

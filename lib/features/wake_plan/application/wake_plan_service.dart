@@ -196,92 +196,19 @@ class WakePlanService {
         cancelRequest,
       ]);
     } catch (_) {
-      final observation = await _observeNativeReservation(
-        occurrenceId: occurrence.id,
-        wakePlanId: occurrence.wakePlanId,
+      return _persistPendingDisable(
+        plan: plan,
+        occurrence: occurrence,
+        now: now,
       );
-      final nativeRow = observation.activeRow;
-      if (observation.isAuthoritative && nativeRow == null) {
-        cancelResult = CancelResult.fromRequestResults(
-          requests: [cancelRequest],
-          results: [
-            CancelAlarmResult.success(
-              occurrenceId: cancelRequest.occurrenceId,
-              platformAlarmId: cancelRequest.platformAlarmId,
-              reservationId: cancelRequest.reservationId,
-            ),
-          ],
-        );
-      } else if (observation.isAuthoritative) {
-        final observed = occurrence.copyWith(
-          status: AlarmOccurrenceStatus.scheduled,
-          platformAlarmId: nativeRow!.platformAlarmId,
-          updatedAt: now,
-        );
-        final persistenceError = await _trySaveAlarmOccurrences([observed]);
-        return AlarmOccurrenceToggleResult.failure(
-          status: AlarmOccurrenceToggleStatus.cancelFailed,
-          occurrence: observed,
-          databaseState: persistenceError == null
-              ? WakePlanDatabaseState.persisted
-              : WakePlanDatabaseState.unknown,
-          persistenceError: persistenceError,
-          warning: 'The native alarm is still on after cancellation failed.',
-        );
-      } else {
-        final pendingRecovery = occurrence.copyWith(
-          status: AlarmOccurrenceStatus.scheduled,
-          platformAlarmId: null,
-          updatedAt: now,
-        );
-        final persistenceError = await _trySaveAlarmOccurrences([
-          pendingRecovery,
-        ]);
-        return AlarmOccurrenceToggleResult.failure(
-          status: AlarmOccurrenceToggleStatus.recoveryRequired,
-          occurrence: pendingRecovery,
-          databaseState: persistenceError == null
-              ? WakePlanDatabaseState.persisted
-              : WakePlanDatabaseState.unknown,
-          persistenceError: persistenceError,
-          warning: persistenceError == null
-              ? 'The native cancellation state is unknown and will be reconciled.'
-              : 'The native alarm cancellation and stored state are unknown.',
-        );
-      }
     }
     if (!cancelResult.isSuccess) {
-      final observation = await _observeNativeReservation(
-        occurrenceId: occurrence.id,
-        wakePlanId: occurrence.wakePlanId,
+      return _persistPendingDisable(
+        plan: plan,
+        occurrence: occurrence,
+        now: now,
+        cancelResult: cancelResult,
       );
-      final nativeRow = observation.activeRow;
-      if (observation.isAuthoritative && nativeRow == null) {
-        cancelResult = CancelResult.fromRequestResults(
-          requests: [cancelRequest],
-          results: [
-            CancelAlarmResult.success(
-              occurrenceId: cancelRequest.occurrenceId,
-              platformAlarmId: cancelRequest.platformAlarmId,
-              reservationId: cancelRequest.reservationId,
-            ),
-          ],
-        );
-      } else {
-        final observed = nativeRow == null
-            ? occurrence
-            : occurrence.copyWith(
-                status: AlarmOccurrenceStatus.scheduled,
-                platformAlarmId: nativeRow.platformAlarmId,
-                updatedAt: now,
-              );
-        return AlarmOccurrenceToggleResult.failure(
-          status: AlarmOccurrenceToggleStatus.cancelFailed,
-          occurrence: observed,
-          cancelResult: cancelResult,
-          warning: 'The native alarm could not be turned off.',
-        );
-      }
     }
 
     final disabled = occurrence.copyWith(
@@ -352,6 +279,63 @@ class WakePlanService {
     );
   }
 
+  Future<AlarmOccurrenceToggleResult> _persistPendingDisable({
+    required WakePlan plan,
+    required AlarmOccurrence occurrence,
+    required DateTime now,
+    CancelResult? cancelResult,
+  }) async {
+    final pending = occurrence.copyWith(
+      status: AlarmOccurrenceStatus.userDisablePending,
+      failureReason: null,
+      updatedAt: now,
+    );
+    final persistenceError = await _trySaveAlarmOccurrences([pending]);
+    if (persistenceError != null) {
+      try {
+        final restoration = await _restoreCancelledOccurrences(
+          plan: plan,
+          occurrences: [occurrence],
+          now: now,
+        );
+        return AlarmOccurrenceToggleResult.failure(
+          status: AlarmOccurrenceToggleStatus.recoveryRequired,
+          occurrence: restoration.occurrences.isEmpty
+              ? occurrence
+              : restoration.occurrences.single,
+          cancelResult: cancelResult,
+          compensationScheduleResult: restoration.scheduleResult,
+          databaseState: restoration.databaseStateKnown
+              ? WakePlanDatabaseState.persisted
+              : WakePlanDatabaseState.unknown,
+          persistenceError: _firstPersistenceError([
+            persistenceError,
+            restoration.persistenceError,
+          ]),
+          warning: restoration.isSuccess
+              ? 'The off intent could not be saved, so the alarm was restored.'
+              : 'The off intent and native alarm state require recovery.',
+        );
+      } catch (_) {
+        return AlarmOccurrenceToggleResult.failure(
+          status: AlarmOccurrenceToggleStatus.recoveryRequired,
+          occurrence: occurrence,
+          cancelResult: cancelResult,
+          databaseState: WakePlanDatabaseState.unknown,
+          persistenceError: persistenceError,
+          warning: 'The native cancellation and stored off intent are unknown.',
+        );
+      }
+    }
+    return AlarmOccurrenceToggleResult.failure(
+      status: AlarmOccurrenceToggleStatus.recoveryRequired,
+      occurrence: pending,
+      cancelResult: cancelResult,
+      databaseState: WakePlanDatabaseState.persisted,
+      warning: 'The alarm is still being turned off and will be reconciled.',
+    );
+  }
+
   Future<AlarmOccurrenceToggleResult> _enableOccurrence({
     required WakePlan plan,
     required AlarmOccurrence occurrence,
@@ -392,53 +376,11 @@ class WakePlanService {
     try {
       scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(requests);
     } catch (_) {
-      final observation = await _observeNativeReservation(
-        occurrenceId: occurrence.id,
-        wakePlanId: occurrence.wakePlanId,
-      );
-      final nativeRow = observation.activeRow;
-      if (!observation.isAuthoritative) {
-        return AlarmOccurrenceToggleResult.failure(
-          status: AlarmOccurrenceToggleStatus.recoveryRequired,
-          occurrence: pending,
-          warning:
-              'The native scheduling state is unknown and will be reconciled.',
-        );
-      }
-      if (nativeRow != null) {
-        final observed = pending.copyWith(
-          platformAlarmId: nativeRow.platformAlarmId,
-          updatedAt: now,
-        );
-        final persistenceError = await _trySaveAlarmOccurrences([observed]);
-        if (persistenceError == null) {
-          return AlarmOccurrenceToggleResult.success(
-            status: AlarmOccurrenceToggleStatus.enabled,
-            occurrence: observed,
-          );
-        }
-        return AlarmOccurrenceToggleResult.failure(
-          status: AlarmOccurrenceToggleStatus.recoveryRequired,
-          occurrence: observed,
-          databaseState: WakePlanDatabaseState.unknown,
-          persistenceError: persistenceError,
-          warning:
-              'The native alarm is on, but its enabled state could not be saved.',
-        );
-      }
-      final rollbackPersistenceError = await _trySaveAlarmOccurrences([
-        occurrence.copyWith(updatedAt: now),
-      ]);
       return AlarmOccurrenceToggleResult.failure(
         status: AlarmOccurrenceToggleStatus.recoveryRequired,
-        occurrence: occurrence,
-        databaseState: rollbackPersistenceError == null
-            ? WakePlanDatabaseState.persisted
-            : WakePlanDatabaseState.unknown,
-        persistenceError: rollbackPersistenceError,
-        warning: rollbackPersistenceError == null
-            ? 'The native alarm could not be enabled and remains off.'
-            : 'The native alarm scheduling state is unknown.',
+        occurrence: pending,
+        warning:
+            'The native scheduling state is unknown and will be reconciled.',
       );
     }
     final completed = _applyScheduleResult(
@@ -489,26 +431,20 @@ class WakePlanService {
         ),
       ]);
     } catch (_) {
-      final retryPersistenceError = await _trySaveAlarmOccurrences([completed]);
-      if (retryPersistenceError == null) {
-        return AlarmOccurrenceToggleResult.failure(
-          status: AlarmOccurrenceToggleStatus.scheduleFailed,
-          occurrence: completed,
-          scheduleResult: scheduleResult,
-          warning:
-              'The alarm was enabled, but cancellation recovery is unknown.',
-        );
-      }
+      final uncertain = pending.copyWith(updatedAt: now);
+      final retryPersistenceError = await _trySaveAlarmOccurrences([uncertain]);
       return AlarmOccurrenceToggleResult.failure(
         status: AlarmOccurrenceToggleStatus.recoveryRequired,
-        occurrence: completed,
+        occurrence: uncertain,
         scheduleResult: scheduleResult,
-        databaseState: WakePlanDatabaseState.unknown,
+        databaseState: retryPersistenceError == null
+            ? WakePlanDatabaseState.persisted
+            : WakePlanDatabaseState.unknown,
         persistenceError: _firstPersistenceError([
           completionPersistenceError,
           retryPersistenceError,
         ]),
-        warning: 'The enabled alarm state is unknown and recovery is required.',
+        warning: 'The enabled alarm state is unknown and will be reconciled.',
       );
     }
     if (compensationCancelResult.isSuccess) {
@@ -533,19 +469,20 @@ class WakePlanService {
       );
     }
 
-    final retryPersistenceError = await _trySaveAlarmOccurrences([completed]);
+    final uncertain = pending.copyWith(updatedAt: now);
+    final retryPersistenceError = await _trySaveAlarmOccurrences([uncertain]);
     if (retryPersistenceError == null) {
       return AlarmOccurrenceToggleResult.failure(
-        status: AlarmOccurrenceToggleStatus.scheduleFailed,
-        occurrence: completed,
+        status: AlarmOccurrenceToggleStatus.recoveryRequired,
+        occurrence: uncertain,
         scheduleResult: scheduleResult,
         compensationCancelResult: compensationCancelResult,
-        warning: 'The alarm was enabled, but cancellation recovery failed.',
+        warning: 'The enabled alarm state is unknown and will be reconciled.',
       );
     }
     return AlarmOccurrenceToggleResult.failure(
       status: AlarmOccurrenceToggleStatus.recoveryRequired,
-      occurrence: completed,
+      occurrence: uncertain,
       scheduleResult: scheduleResult,
       compensationCancelResult: compensationCancelResult,
       databaseState: WakePlanDatabaseState.unknown,
@@ -752,6 +689,7 @@ class WakePlanService {
       now: now,
       changeState: WakePlanChangeState.committed,
       cancelResult: cancelResult.cancelResult,
+      existingOccurrences: await _store.fetchOccurrencesForPlan(pendingPlan.id),
     );
     if ((scheduleResult.status == WakePlanSchedulingStatus.scheduleFailed ||
             scheduleResult.status ==
@@ -1116,7 +1054,11 @@ class WakePlanService {
     required WakePlan plan,
     required DateTime now,
   }) async {
-    final existingOccurrences = await _store.fetchOccurrencesForPlan(plan.id);
+    final pendingDisableReconciliation = await _reconcilePendingDisables(
+      occurrences: await _store.fetchOccurrencesForPlan(plan.id),
+      now: now,
+    );
+    final existingOccurrences = pendingDisableReconciliation.occurrences;
     final existingById = {
       for (final occurrence in existingOccurrences) occurrence.id: occurrence,
     };
@@ -1165,6 +1107,14 @@ class WakePlanService {
     );
 
     if (pendingOccurrences.isEmpty) {
+      if (pendingDisableReconciliation.hasUnresolved) {
+        return _pendingDisableRecoveryResult(
+          plan: plan,
+          occurrences: desiredBundle.occurrences
+              .map((desired) => existingById[desired.id] ?? desired)
+              .toList(growable: false),
+        );
+      }
       return _successfulReconciliationResult(
         plan: plan,
         occurrences: desiredBundle.occurrences
@@ -1200,14 +1150,16 @@ class WakePlanService {
     );
     final hasScheduleFailure =
         !scheduleResult.isSuccess || hasFailedOccurrences;
+    final needsRecovery =
+        persistenceError != null || pendingDisableReconciliation.hasUnresolved;
     return WakePlanSchedulingResult(
       wakePlanId: plan.id,
-      status: persistenceError != null
+      status: needsRecovery
           ? WakePlanSchedulingStatus.recoveryRequired
           : hasScheduleFailure
           ? WakePlanSchedulingStatus.scheduleFailed
           : WakePlanSchedulingStatus.scheduled,
-      changeState: persistenceError != null
+      changeState: needsRecovery
           ? WakePlanChangeState.recoveryRequired
           : hasScheduleFailure
           ? WakePlanChangeState.failed
@@ -1218,9 +1170,11 @@ class WakePlanService {
           ? WakePlanDatabaseState.persisted
           : WakePlanDatabaseState.unknown,
       persistenceError: persistenceError,
-      warning: persistenceError != null
+      warning: needsRecovery
           ? WakePlanSchedulingWarning.recoveryRequired(
-              'Reconciled alarm results could not be persisted; recovery is required.',
+              persistenceError != null
+                  ? 'Reconciled alarm results could not be persisted; recovery is required.'
+                  : 'An alarm is still being turned off; recovery is required.',
             )
           : hasScheduleFailure
           ? WakePlanSchedulingWarning.scheduleFailed(scheduleResult)
@@ -1255,6 +1209,7 @@ class WakePlanService {
     }
     final preservesStatus = switch (existing.status) {
       AlarmOccurrenceStatus.userDisabled => !existing.hasNativeReservation,
+      AlarmOccurrenceStatus.userDisablePending => true,
       AlarmOccurrenceStatus.unknownPersisted => true,
       _ => false,
     };
@@ -1262,6 +1217,108 @@ class WakePlanService {
         existing.wakePlanId == desired.wakePlanId &&
         existing.scheduledAt == desired.scheduledAt &&
         !existing.scheduledAt.toDateTime().isBefore(now);
+  }
+
+  Future<_PendingDisableReconciliation> _reconcilePendingDisables({
+    required List<AlarmOccurrence> occurrences,
+    required DateTime now,
+  }) async {
+    final reconciled = <AlarmOccurrence>[];
+    var hasUnresolved = false;
+    for (final occurrence in occurrences) {
+      if (occurrence.status != AlarmOccurrenceStatus.userDisablePending ||
+          occurrence.scheduledAt.toDateTime().isBefore(now)) {
+        reconciled.add(occurrence);
+        continue;
+      }
+
+      var platformAlarmId = occurrence.platformAlarmId;
+      if (platformAlarmId == null) {
+        final observation = await _observeNativeReservation(
+          occurrenceId: occurrence.id,
+          wakePlanId: occurrence.wakePlanId,
+        );
+        platformAlarmId = observation.activeRow?.platformAlarmId;
+      }
+      if (platformAlarmId == null) {
+        hasUnresolved = true;
+        reconciled.add(occurrence);
+        continue;
+      }
+
+      try {
+        final result = await _nativeAlarmGateway.cancelOccurrences([
+          NativeAlarmCancelRequest(
+            occurrenceId: occurrence.id,
+            platformAlarmId: platformAlarmId,
+          ),
+        ]);
+        if (!result.isSuccess) {
+          hasUnresolved = true;
+          reconciled.add(
+            occurrence.copyWith(
+              platformAlarmId: occurrence.platformAlarmId,
+              updatedAt: now,
+            ),
+          );
+          continue;
+        }
+        reconciled.add(
+          occurrence.copyWith(
+            status: AlarmOccurrenceStatus.userDisabled,
+            platformAlarmId: null,
+            updatedAt: now,
+          ),
+        );
+      } catch (_) {
+        hasUnresolved = true;
+        reconciled.add(
+          occurrence.copyWith(
+            platformAlarmId: occurrence.platformAlarmId,
+            updatedAt: now,
+          ),
+        );
+      }
+    }
+    final changed = reconciled
+        .where((occurrence) {
+          final original = occurrences.firstWhere(
+            (item) => item.id == occurrence.id,
+          );
+          return original.status != occurrence.status ||
+              original.platformAlarmId != occurrence.platformAlarmId ||
+              original.updatedAt != occurrence.updatedAt;
+        })
+        .toList(growable: false);
+    if (changed.isNotEmpty) {
+      final persistenceError = await _trySaveAlarmOccurrences(changed);
+      if (persistenceError != null) {
+        hasUnresolved = true;
+      }
+    }
+    return _PendingDisableReconciliation(
+      occurrences: reconciled,
+      hasUnresolved: hasUnresolved,
+    );
+  }
+
+  WakePlanSchedulingResult _pendingDisableRecoveryResult({
+    required WakePlan plan,
+    required List<AlarmOccurrence> occurrences,
+  }) {
+    return WakePlanSchedulingResult(
+      wakePlanId: plan.id,
+      status: WakePlanSchedulingStatus.recoveryRequired,
+      changeState: WakePlanChangeState.recoveryRequired,
+      scheduleResult: ScheduleResult.fromRequestResults(
+        requests: const [],
+        results: const [],
+      ),
+      occurrences: occurrences,
+      warning: WakePlanSchedulingWarning.recoveryRequired(
+        'An alarm is still being turned off; recovery is required.',
+      ),
+    );
   }
 
   WakePlanSchedulingResult _successfulReconciliationResult({
@@ -1447,11 +1504,63 @@ class WakePlanService {
         .toList(growable: false);
     final cancellableFutureReserved = futureReserved
         .where((occurrence) => occurrence.platformAlarmId != null)
-        .toList(growable: false);
-    return _cancelOccurrences(
-      occurrences: cancellableFutureReserved,
+        .toList(growable: true);
+    final cancellableIds = cancellableFutureReserved
+        .map((occurrence) => occurrence.id)
+        .toSet();
+    final unresolvedWithoutId = <AlarmOccurrence>[];
+    final discoveredPlatformIds = <String>{};
+    for (final occurrence in futureReserved) {
+      final needsConservativeCancellation =
+          (occurrence.status == AlarmOccurrenceStatus.unknownPersisted ||
+              occurrence.status == AlarmOccurrenceStatus.userDisablePending) &&
+          !occurrence.scheduledAt.toDateTime().isBefore(now) &&
+          !cancellableIds.contains(occurrence.id);
+      if (!needsConservativeCancellation) {
+        continue;
+      }
+      if (occurrence.platformAlarmId != null) {
+        cancellableFutureReserved.add(occurrence);
+        cancellableIds.add(occurrence.id);
+        continue;
+      }
+      final observation = await _observeNativeReservation(
+        occurrenceId: occurrence.id,
+        wakePlanId: occurrence.wakePlanId,
+      );
+      final discoveredId = observation.activeRow?.platformAlarmId;
+      if (discoveredId == null) {
+        unresolvedWithoutId.add(occurrence);
+        continue;
+      }
+      cancellableFutureReserved.add(
+        occurrence.copyWith(platformAlarmId: discoveredId, updatedAt: now),
+      );
+      cancellableIds.add(occurrence.id);
+      discoveredPlatformIds.add(occurrence.id);
+    }
+    final cancellation = await _cancelOccurrences(
+      occurrences: List.unmodifiable(cancellableFutureReserved),
       now: now,
       usePlanCancel: usePlanCancel,
+      clearPlatformIdOnFailureFor: discoveredPlatformIds,
+    );
+    if (unresolvedWithoutId.isEmpty) {
+      return cancellation;
+    }
+    return _CancelFutureResult(
+      cancelResult: cancellation.cancelResult,
+      persistedOccurrences: _mergeOccurrenceStates(
+        cancellation.persistedOccurrences,
+        unresolvedWithoutId,
+      ),
+      successfullyCancelledOccurrences:
+          cancellation.successfullyCancelledOccurrences,
+      databaseStateKnown: false,
+      persistenceError: _firstPersistenceError([
+        cancellation.persistenceError,
+        'A conservatively decoded alarm has no verifiable native identity.',
+      ]),
     );
   }
 
@@ -1459,6 +1568,7 @@ class WakePlanService {
     required List<AlarmOccurrence> occurrences,
     required DateTime now,
     required bool usePlanCancel,
+    Set<String> clearPlatformIdOnFailureFor = const {},
   }) async {
     final cancellableOccurrences = occurrences
         .where((occurrence) => occurrence.platformAlarmId != null)
@@ -1472,9 +1582,26 @@ class WakePlanService {
         )
         .toList(growable: false);
 
-    final cancelResult = usePlanCancel
-        ? await _nativeAlarmGateway.cancelPlan(requests)
-        : await _nativeAlarmGateway.cancelOccurrences(requests);
+    CancelResult cancelResult;
+    try {
+      cancelResult = usePlanCancel
+          ? await _nativeAlarmGateway.cancelPlan(requests)
+          : await _nativeAlarmGateway.cancelOccurrences(requests);
+    } catch (error) {
+      cancelResult = CancelResult.fromRequestResults(
+        requests: requests,
+        results: [
+          for (final request in requests)
+            CancelAlarmResult.failure(
+              occurrenceId: request.occurrenceId,
+              platformAlarmId: request.platformAlarmId,
+              reservationId: request.reservationId,
+              reason: CancelFailureReason.nativeError,
+              message: 'Native cancellation response failed: $error',
+            ),
+        ],
+      );
+    }
     final successKeys = cancelResult.alarms
         .where((alarm) => alarm.isSuccess)
         .map(_cancelKey)
@@ -1490,8 +1617,15 @@ class WakePlanService {
             platformAlarmId: occurrence.platformAlarmId!,
           );
           if (successKeys.contains(key)) {
+            final status = switch (occurrence.status) {
+              AlarmOccurrenceStatus.unknownPersisted =>
+                AlarmOccurrenceStatus.unknownPersisted,
+              AlarmOccurrenceStatus.userDisablePending =>
+                AlarmOccurrenceStatus.userDisabled,
+              _ => AlarmOccurrenceStatus.cancelled,
+            };
             return occurrence.copyWith(
-              status: AlarmOccurrenceStatus.cancelled,
+              status: status,
               platformAlarmId: null,
               updatedAt: now,
             );
@@ -1499,6 +1633,10 @@ class WakePlanService {
           if (failureKeys.contains(key)) {
             return occurrence.copyWith(
               status: occurrence.status,
+              platformAlarmId:
+                  clearPlatformIdOnFailureFor.contains(occurrence.id)
+                  ? null
+                  : occurrence.platformAlarmId,
               failureReason: null,
               updatedAt: now,
             );
@@ -1559,7 +1697,40 @@ class WakePlanService {
       return const _RestorationResult(scheduleResult: null, occurrences: []);
     }
 
-    final pendingOccurrences = occurrences
+    final preservedSuppressions = occurrences
+        .where(
+          (occurrence) =>
+              occurrence.status == AlarmOccurrenceStatus.unknownPersisted ||
+              occurrence.status == AlarmOccurrenceStatus.userDisablePending ||
+              occurrence.status == AlarmOccurrenceStatus.userDisabled,
+        )
+        .map(
+          (occurrence) => occurrence.copyWith(
+            status:
+                occurrence.status == AlarmOccurrenceStatus.userDisablePending
+                ? AlarmOccurrenceStatus.userDisabled
+                : occurrence.status,
+            platformAlarmId: null,
+            updatedAt: now,
+          ),
+        )
+        .toList(growable: false);
+    final restorableOccurrences = occurrences
+        .where(
+          (occurrence) =>
+              occurrence.status != AlarmOccurrenceStatus.unknownPersisted &&
+              occurrence.status != AlarmOccurrenceStatus.userDisablePending &&
+              occurrence.status != AlarmOccurrenceStatus.userDisabled,
+        )
+        .toList(growable: false);
+    if (restorableOccurrences.isEmpty) {
+      return _RestorationResult(
+        scheduleResult: null,
+        occurrences: preservedSuppressions,
+      );
+    }
+
+    final pendingOccurrences = restorableOccurrences
         .map(
           (occurrence) => occurrence.copyWith(
             status: AlarmOccurrenceStatus.scheduled,
@@ -1571,7 +1742,7 @@ class WakePlanService {
         .toList(growable: false);
     final restorationRequests = _buildRestorationRequests(
       plan: plan,
-      occurrences: occurrences,
+      occurrences: restorableOccurrences,
       now: now,
     );
     if (restorationRequests == null) {
@@ -1594,7 +1765,10 @@ class WakePlanService {
       );
       return _RestorationResult(
         scheduleResult: scheduleResult,
-        occurrences: restoredOccurrences,
+        occurrences: _mergeOccurrenceStates(
+          preservedSuppressions,
+          restoredOccurrences,
+        ),
         databaseStateKnown: persistenceError == null,
         persistenceError: persistenceError,
       );
@@ -1612,7 +1786,10 @@ class WakePlanService {
     );
     return _RestorationResult(
       scheduleResult: scheduleResult,
-      occurrences: restoredOccurrences,
+      occurrences: _mergeOccurrenceStates(
+        preservedSuppressions,
+        restoredOccurrences,
+      ),
       databaseStateKnown: persistenceError == null,
       persistenceError: persistenceError,
     );
@@ -1880,6 +2057,16 @@ class _NativeReservationObservation {
   final NativeAlarmInventoryRow? activeRow;
 }
 
+class _PendingDisableReconciliation {
+  const _PendingDisableReconciliation({
+    required this.occurrences,
+    required this.hasUnresolved,
+  });
+
+  final List<AlarmOccurrence> occurrences;
+  final bool hasUnresolved;
+}
+
 enum AlarmOccurrenceToggleStatus {
   enabled,
   disabled,
@@ -2112,7 +2299,12 @@ class _RestorationResult {
               occurrences.every(
                 (occurrence) =>
                     occurrence.status == AlarmOccurrenceStatus.scheduled &&
-                    occurrence.platformAlarmId != null,
+                        occurrence.platformAlarmId != null ||
+                    occurrence.status ==
+                            AlarmOccurrenceStatus.unknownPersisted &&
+                        occurrence.platformAlarmId == null ||
+                    occurrence.status == AlarmOccurrenceStatus.userDisabled &&
+                        occurrence.platformAlarmId == null,
               ));
 }
 

@@ -3,6 +3,7 @@ import '../../../../core/time/time.dart';
 enum AlarmOccurrenceStatus {
   scheduled,
   userDisabled,
+  userDisablePending,
   unknownPersisted,
   ringing,
   dismissed,
@@ -181,6 +182,7 @@ void _validateTimestamps({
   switch (status) {
     case AlarmOccurrenceStatus.scheduled:
     case AlarmOccurrenceStatus.userDisabled:
+    case AlarmOccurrenceStatus.userDisablePending:
     case AlarmOccurrenceStatus.expired:
     case AlarmOccurrenceStatus.cancelled:
     case AlarmOccurrenceStatus.failed:
