@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/time/time.dart';
@@ -57,6 +59,7 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
   bool _loadingOccurrences = true;
   List<AlarmOccurrence> _occurrences = const [];
   final Set<String> _updatingOccurrenceIds = {};
+  Timer? _eligibilityTimer;
   String? _occurrenceLoadError;
   String? _warning;
 
@@ -69,8 +72,15 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
   }
 
   @override
+  void dispose() {
+    _eligibilityTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final plan = _wakePlan;
+    final liveNow = widget.clock();
     final nextFire = wakePlanNextFireLabel(plan: plan, now: widget.now);
     final nextTargetDay = nextWakePlanTargetDay(plan: plan, now: widget.now);
     final hasSkip = plan.skipNextDate != null;
@@ -78,9 +88,7 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
         _deleting || _updatingSkip || _updatingOccurrenceIds.isNotEmpty;
     final toggleableOccurrences =
         _occurrences
-            .where(
-              (occurrence) => occurrence.isUserToggleEligibleAt(widget.now),
-            )
+            .where((occurrence) => occurrence.isUserToggleEligibleAt(liveNow))
             .toList(growable: false)
           ..sort(
             (left, right) => left.scheduledAt.compareTo(right.scheduledAt),
@@ -256,6 +264,7 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
         _occurrences = occurrences;
         _loadingOccurrences = false;
       });
+      _scheduleEligibilityRefresh();
     } catch (error, stackTrace) {
       debugPrint(
         'WakePlanDetailSheet occurrence load failed: $error\n$stackTrace',
@@ -301,6 +310,7 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
         _updatingOccurrenceIds.remove(occurrence.id);
         _warning = result.warning;
       });
+      _scheduleEligibilityRefresh();
     } catch (error, stackTrace) {
       debugPrint(
         'WakePlanDetailSheet occurrence update failed: $error\n$stackTrace',
@@ -313,6 +323,35 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
         _warning = 'The alarm occurrence could not be updated.';
       });
     }
+  }
+
+  void _scheduleEligibilityRefresh() {
+    _eligibilityTimer?.cancel();
+    final now = widget.clock();
+    DateTime? nextBoundary;
+    for (final occurrence in _occurrences) {
+      if (!occurrence.isUserToggleEligibleAt(now)) {
+        continue;
+      }
+      final boundary = occurrence.scheduledAt.toDateTime();
+      if (nextBoundary == null || boundary.isBefore(nextBoundary)) {
+        nextBoundary = boundary;
+      }
+    }
+    if (nextBoundary == null) {
+      return;
+    }
+    final scheduledBoundary = nextBoundary;
+    _eligibilityTimer = Timer(scheduledBoundary.difference(now), () {
+      if (!mounted) {
+        return;
+      }
+      final liveNow = widget.clock();
+      setState(() {});
+      if (!liveNow.isBefore(scheduledBoundary)) {
+        _scheduleEligibilityRefresh();
+      }
+    });
   }
 
   Future<void> _openEditSheet() async {

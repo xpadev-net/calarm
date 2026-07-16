@@ -513,6 +513,55 @@ void main() {
     },
   );
 
+  testWidgets('removes a toggle when an open sheet crosses its alarm time', (
+    tester,
+  ) async {
+    var liveNow = DateTime(2026, 7, 8, 5, 30);
+    final occurrence = _occurrence(
+      id: 'boundary',
+      scheduledAt: DateTime(2026, 7, 8, 5, 31),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WakePlanDetailSheet(
+            target: WeekCalendarWakePlanTapTarget(
+              wakePlan: _plan(),
+              targetDay: _targetDay,
+            ),
+            now: liveNow,
+            clock: () => liveNow,
+            defaults: AppSettings.initial(),
+            existingWakePlans: const [],
+            onEdit: (_) async => _successResult(),
+            onDelete: (_) async => _successResult(),
+            onSkipNext: (_) async => _successResult(),
+            onUndoSkipNext: (_) async => _successResult(),
+            loadOccurrences: (_) async => [occurrence],
+            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('occurrence-toggle-boundary')),
+      findsOneWidget,
+    );
+
+    liveNow = DateTime(2026, 7, 8, 5, 31);
+    await tester.pump(const Duration(minutes: 1));
+
+    expect(
+      find.byKey(const ValueKey('occurrence-toggle-boundary')),
+      findsNothing,
+    );
+    expect(find.text('No future alarms are available.'), findsOneWidget);
+  });
+
   testWidgets('keeps occurrence state and shows a useful toggle error', (
     tester,
   ) async {

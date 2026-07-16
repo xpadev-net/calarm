@@ -394,7 +394,7 @@ class WakePlanRepository {
         day: _calendarDayFromEpochDays(row.scheduledAtDays)!,
         time: TimeOfDayMinutes.fromMinutesSinceMidnight(row.scheduledAtMinutes),
       ),
-      status: AlarmOccurrenceStatus.values.byName(row.status),
+      status: _decodeAlarmOccurrenceStatus(row.status),
       platformAlarmId: row.platformAlarmId,
       firedAt: row.firedAt,
       dismissedAt: row.dismissedAt,
@@ -414,6 +414,15 @@ class WakePlanRepository {
     } on ArgumentError {
       return null;
     }
+  }
+
+  AlarmOccurrenceStatus _decodeAlarmOccurrenceStatus(String value) {
+    for (final status in AlarmOccurrenceStatus.values) {
+      if (status.name == value) {
+        return status;
+      }
+    }
+    return AlarmOccurrenceStatus.unknownPersisted;
   }
 
   AppSettingsRowsCompanion _appSettingsCompanion(AppSettings settings) {

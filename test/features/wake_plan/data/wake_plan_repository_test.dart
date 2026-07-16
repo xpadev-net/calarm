@@ -395,14 +395,16 @@ void main() {
       ]);
     });
 
-    test('isolates malformed occurrence rows', () async {
+    test('decodes unknown occurrence statuses conservatively', () async {
       await repository.saveWakePlan(buildPlan());
       await repository.saveAlarmOccurrences([buildOccurrence(id: 'valid')]);
       await database
           .into(database.alarmOccurrenceRows)
           .insert(_malformedOccurrenceCompanion());
 
-      expect(await repository.fetchAlarmOccurrence('bad-occ'), isNull);
+      final unknown = await repository.fetchAlarmOccurrence('bad-occ');
+      expect(unknown, isNotNull);
+      expect(unknown!.status, AlarmOccurrenceStatus.unknownPersisted);
 
       final byPlan = await repository.fetchOccurrencesForPlan('plan-1');
       final byRange = await repository.fetchOccurrencesForCalendarRange(
@@ -410,8 +412,8 @@ void main() {
         end: monday,
       );
 
-      expect(byPlan.map((occurrence) => occurrence.id), ['valid']);
-      expect(byRange.map((occurrence) => occurrence.id), ['valid']);
+      expect(byPlan.map((occurrence) => occurrence.id), ['valid', 'bad-occ']);
+      expect(byRange.map((occurrence) => occurrence.id), ['valid', 'bad-occ']);
     });
   });
 

@@ -3,6 +3,7 @@ import '../../../../core/time/time.dart';
 enum AlarmOccurrenceStatus {
   scheduled,
   userDisabled,
+  unknownPersisted,
   ringing,
   dismissed,
   missed,
@@ -149,6 +150,9 @@ void _validateFailureReason({
   required AlarmOccurrenceStatus status,
   required String? failureReason,
 }) {
+  if (status == AlarmOccurrenceStatus.unknownPersisted) {
+    return;
+  }
   if (status == AlarmOccurrenceStatus.failed &&
       (failureReason == null || failureReason.trim().isEmpty)) {
     throw ArgumentError.value(
@@ -171,6 +175,9 @@ void _validateTimestamps({
   required DateTime? firedAt,
   required DateTime? dismissedAt,
 }) {
+  if (status == AlarmOccurrenceStatus.unknownPersisted) {
+    return;
+  }
   switch (status) {
     case AlarmOccurrenceStatus.scheduled:
     case AlarmOccurrenceStatus.userDisabled:
@@ -191,6 +198,8 @@ void _validateTimestamps({
           'is only valid for dismissed occurrences',
         );
       }
+    case AlarmOccurrenceStatus.unknownPersisted:
+      throw StateError('unknownPersisted is handled before the switch');
     case AlarmOccurrenceStatus.ringing:
       if (firedAt == null) {
         throw ArgumentError.value(
