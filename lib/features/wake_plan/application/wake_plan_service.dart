@@ -1026,11 +1026,9 @@ class WakePlanService {
     final pendingIdSet = pendingIds.toSet();
     final pendingRequests = existingOccurrences == null
         ? occurrenceBundle.requests
-        : _reindexRequests(
-            occurrenceBundle.requests
-                .where((request) => pendingIdSet.contains(request.occurrenceId))
-                .toList(growable: false),
-          );
+        : occurrenceBundle.requests
+              .where((request) => pendingIdSet.contains(request.occurrenceId))
+              .toList(growable: false);
     await _store.saveAlarmOccurrences(pendingOccurrences);
 
     final scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(
@@ -1347,11 +1345,12 @@ class WakePlanService {
       );
     }
 
+    final originalById = {
+      for (final occurrence in occurrences) occurrence.id: occurrence,
+    };
     final changed = reconciled
         .where((occurrence) {
-          final original = occurrences.firstWhere(
-            (item) => item.id == occurrence.id,
-          );
+          final original = originalById[occurrence.id]!;
           return original.status != occurrence.status ||
               original.platformAlarmId != occurrence.platformAlarmId ||
               original.updatedAt != occurrence.updatedAt;
@@ -1438,11 +1437,12 @@ class WakePlanService {
         );
       }
     }
+    final originalById = {
+      for (final occurrence in occurrences) occurrence.id: occurrence,
+    };
     final changed = reconciled
         .where((occurrence) {
-          final original = occurrences.firstWhere(
-            (item) => item.id == occurrence.id,
-          );
+          final original = originalById[occurrence.id]!;
           return original.status != occurrence.status ||
               original.platformAlarmId != occurrence.platformAlarmId ||
               original.updatedAt != occurrence.updatedAt;
@@ -1502,24 +1502,6 @@ class WakePlanService {
       ),
       occurrences: occurrences,
     );
-  }
-
-  List<NativeAlarmScheduleRequest> _reindexRequests(
-    List<NativeAlarmScheduleRequest> requests,
-  ) {
-    return [
-      for (var index = 0; index < requests.length; index += 1)
-        NativeAlarmScheduleRequest(
-          occurrenceId: requests[index].occurrenceId,
-          wakePlanId: requests[index].wakePlanId,
-          scheduledAt: requests[index].scheduledAt,
-          targetAt: requests[index].targetAt,
-          indexInPlan: index,
-          totalInPlan: requests.length,
-          soundId: requests[index].soundId,
-          vibrationEnabled: requests[index].vibrationEnabled,
-        ),
-    ];
   }
 
   bool _requiresFutureOccurrence(WakePlan plan) {

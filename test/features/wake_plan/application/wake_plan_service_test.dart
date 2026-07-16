@@ -2563,6 +2563,76 @@ void main() {
     );
 
     test(
+      'preserves canonical metadata when editing around a disabled occurrence',
+      () async {
+        final originalPlan = buildPlan();
+        final occurrences = [
+          buildOccurrence(
+            id: 'plan-1:20640:405',
+            time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 45),
+            platformAlarmId: 'native-405',
+          ),
+          buildOccurrence(
+            id: 'plan-1:20640:410',
+            time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 50),
+            platformAlarmId: null,
+            status: AlarmOccurrenceStatus.userDisabled,
+          ),
+          buildOccurrence(
+            id: 'plan-1:20640:415',
+            time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 55),
+            platformAlarmId: 'native-415',
+          ),
+          buildOccurrence(
+            id: 'plan-1:20640:420',
+            platformAlarmId: 'native-420',
+          ),
+        ];
+        final store = _LoggingWakePlanServiceStore(currentPlan: originalPlan)
+          ..reservedOccurrences = [
+            occurrences[0],
+            occurrences[2],
+            occurrences[3],
+          ]
+          ..storedOccurrences = occurrences;
+        final gateway = FakeNativeAlarmGateway();
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+        ).editPlan(originalPlan.copyWith(soundId: 'edited-sound'));
+
+        expect(result.status, WakePlanSchedulingStatus.scheduled);
+        expect(
+          gateway.scheduledRequests.map((request) => request.occurrenceId),
+          ['plan-1:20640:405', 'plan-1:20640:415', 'plan-1:20640:420'],
+        );
+        expect(
+          gateway.scheduledRequests.map((request) => request.reservationId),
+          ['plan-1:20640:405', 'plan-1:20640:415', 'plan-1:20640:420'],
+        );
+        expect(
+          gateway.scheduledRequests.map((request) => request.indexInPlan),
+          [0, 2, 3],
+        );
+        expect(
+          gateway.scheduledRequests.map((request) => request.totalInPlan),
+          everyElement(4),
+        );
+        expect(
+          gateway.scheduledRequests.map((request) => request.targetAt),
+          everyElement(DateTime(2026, 7, 6, 7)),
+        );
+        expect(
+          store.storedOccurrences
+              .singleWhere((occurrence) => occurrence.id == 'plan-1:20640:410')
+              .status,
+          AlarmOccurrenceStatus.userDisabled,
+        );
+      },
+    );
+
+    test(
       'does not schedule replacements when old future alarm cancellation fails',
       () async {
         final originalPlan = buildPlan(
