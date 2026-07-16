@@ -660,7 +660,7 @@ final class AlarmKitBridge {
     var mirrorEntryPresent = false
     var pendingEntryCreated = false
     do {
-      let mirrorSnapshot: MirrorSnapshot
+      var mirrorSnapshot: MirrorSnapshot
       do {
         mirrorSnapshot = try loadMirrorSnapshot()
       } catch {
