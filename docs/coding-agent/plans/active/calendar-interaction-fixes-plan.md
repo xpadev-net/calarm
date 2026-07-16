@@ -95,13 +95,16 @@
     detail: Deep review, gh-review-hook exit 0, PR merge-gate preflight, and focused rerun before merge.
 
 ### Task_2: Add persistent per-occurrence alarm toggles
-- status: in_progress
+- status: stopped
 - worker_thread: `019f6b02-c520-7601-a7f9-816e5b8112e7`
 - worker_worktree: `<CODEX_HOME>/worktrees/dd05/calarm`
 - replaced_worker_thread: `019f693a-17b1-78c3-8a0e-30a8ae7c911b` (archived rollout missing; replacement started)
 - branch: `codex/task-2-occurrence-toggles`
 - pr: `https://github.com/xpadev-net/calarm/pull/52`
 - head_at_replacement: `381675108278333e08dfc12c739bec210936d308`
+- stop_reason: Exact-head independent review proved that an iOS lost MethodChannel schedule reply can leave an id-less `userEnablePending` row permanently hidden while an unknown native alarm remains live; an in-scope service-only retry can duplicate alarms and rejecting re-enable would violate acceptance.
+- prerequisite: `docs/coding-agent/plans/active/codebase-review-remediation-plan.md` Task_12 / PR #48 must merge stable reservation-to-platform identity plus authoritative iOS inventory before Task_2 resumes.
+- resume_action: Integrate the prerequisite merge normally, rerun the exact restart/native-state probe and focused suites, obtain fresh independent review, run worker/orchestrator hooks, and re-enter merge preflight.
 - type: impl
 - owns:
   - `lib/features/wake_plan/domain/src/alarm_occurrence.dart`
@@ -341,6 +344,10 @@
   - Summary: Existing worker threads could be unarchived but could not be resumed because their archived rollout files were missing; replacement Codex worktree workers were started on the existing open-PR branches.
   - Validation evidence: Task_1 replacement thread `019f6b02-c629-7463-a341-b9924932b3f9` is active in `<CODEX_HOME>/worktrees/137a/calarm`; Task_2 replacement thread `019f6b02-c520-7601-a7f9-816e5b8112e7` is active in `<CODEX_HOME>/worktrees/dd05/calarm`.
   - Notes: Task_1 must update its behind branch and still satisfy physical multitouch evidence. Task_2 must produce exact-head Worker validation, independent review, hook, probe, and cleanliness evidence. Neither worker may merge.
+- 2026-07-17 Task_2 stopped for native recovery prerequisite: [Task_2]
+  - Summary: Exact-head review of PR #52 found that iOS reply loss can strand id-less `userEnablePending` state while a live native alarm may exist; Task_2 cannot satisfy recoverability without stable native identity and authoritative inventory.
+  - Validation evidence: Head `381675108278333e08dfc12c739bec210936d308` remained clean/local-remote matched; focused four-suite validation passed 161 tests, analyze passed, and restart/reconciliation probe passed. Worker intentionally did not run the hook or claim merge-ready after the blocker was confirmed.
+  - Decomposition: PR #52 stays stopped without iOS edits. The prerequisite is assigned to the existing non-overlapping native owner, codebase-remediation Task_12 / PR #48; Task_2 resumes only after that PR merges and all exact-head gates are rerun.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
