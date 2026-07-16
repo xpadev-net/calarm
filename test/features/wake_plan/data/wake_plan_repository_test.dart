@@ -369,6 +369,11 @@ void main() {
           platformAlarmId: 'native-pending-off',
         ),
         buildOccurrence(
+          id: 'pending-on',
+          status: AlarmOccurrenceStatus.userEnablePending,
+          platformAlarmId: 'native-pending-on',
+        ),
+        buildOccurrence(
           id: 'unknown-with-native',
           status: AlarmOccurrenceStatus.unknownPersisted,
           platformAlarmId: 'native-unknown',
@@ -386,6 +391,7 @@ void main() {
       expect(reserved.map((occurrence) => occurrence.platformAlarmId), [
         'native-1',
         'native-pending-off',
+        'native-pending-on',
         'native-unknown',
         null,
         'native-2',

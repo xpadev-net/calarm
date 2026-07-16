@@ -361,6 +361,39 @@ void main() {
     expect(clockCalls, greaterThan(0));
   });
 
+  testWidgets('next-fire label follows the live injected clock', (
+    tester,
+  ) async {
+    final initialNow = DateTime(2026, 7, 8, 5, 30);
+    final liveNow = DateTime(2026, 7, 8, 8);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WakePlanDetailSheet(
+            target: WeekCalendarWakePlanTapTarget(
+              wakePlan: _plan(repeatRule: RepeatRule.oneTime(_targetDay)),
+              targetDay: _targetDay,
+            ),
+            now: initialNow,
+            clock: () => liveNow,
+            defaults: AppSettings.initial(),
+            existingWakePlans: const [],
+            onEdit: (_) async => _successResult(),
+            onDelete: (_) async => _successResult(),
+            onSkipNext: (_) async => _successResult(),
+            onUndoSkipNext: (_) async => _successResult(),
+            loadOccurrences: _emptyOccurrences,
+            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('No future alarm'), findsOneWidget);
+  });
+
   testWidgets('blocks one-time edit when the injected clock is past target', (
     tester,
   ) async {

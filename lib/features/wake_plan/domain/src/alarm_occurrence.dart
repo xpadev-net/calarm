@@ -4,6 +4,7 @@ enum AlarmOccurrenceStatus {
   scheduled,
   userDisabled,
   userDisablePending,
+  userEnablePending,
   unknownPersisted,
   ringing,
   dismissed,
@@ -183,6 +184,7 @@ void _validateTimestamps({
     case AlarmOccurrenceStatus.scheduled:
     case AlarmOccurrenceStatus.userDisabled:
     case AlarmOccurrenceStatus.userDisablePending:
+    case AlarmOccurrenceStatus.userEnablePending:
     case AlarmOccurrenceStatus.expired:
     case AlarmOccurrenceStatus.cancelled:
     case AlarmOccurrenceStatus.failed:

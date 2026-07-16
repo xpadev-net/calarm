@@ -81,8 +81,8 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
   Widget build(BuildContext context) {
     final plan = _wakePlan;
     final liveNow = widget.clock();
-    final nextFire = wakePlanNextFireLabel(plan: plan, now: widget.now);
-    final nextTargetDay = nextWakePlanTargetDay(plan: plan, now: widget.now);
+    final nextFire = wakePlanNextFireLabel(plan: plan, now: liveNow);
+    final nextTargetDay = nextWakePlanTargetDay(plan: plan, now: liveNow);
     final hasSkip = plan.skipNextDate != null;
     final actionsDisabled =
         _deleting || _updatingSkip || _updatingOccurrenceIds.isNotEmpty;

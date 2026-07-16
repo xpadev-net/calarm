@@ -198,6 +198,7 @@ class WakePlanRepository {
             AlarmOccurrenceStatus.scheduled ||
             AlarmOccurrenceStatus.ringing => occurrence.hasNativeReservation,
             AlarmOccurrenceStatus.userDisablePending ||
+            AlarmOccurrenceStatus.userEnablePending ||
             AlarmOccurrenceStatus.unknownPersisted => true,
             _ => false,
           },
