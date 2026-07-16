@@ -362,3 +362,12 @@ Purpose:
 - fix: Interrupt the stalled reviewer and launch a fresh read-only reviewer against the same immutable head and base.
 - prevention: For bounded independent reviews, require a durable progress or completion signal within the next monitoring window; after one silent extended interval, inspect once, interrupt if still silent, and restart against the exact unchanged SHA rather than repeatedly reporting it as active.
 - promotion: Repo-local orchestration lesson; related to the existing worker-liveness and completion-reconciliation lessons, with reviewer-specific restart handling.
+
+### 2026-07-16 - Freeze The Base During Exact-Head Review
+
+- tags: workflow/process, review, validation/verification, git
+- symptom: A replacement exact-head review was started and then immediately made stale by pushing an orchestrator-owned lessons commit to the PR base branch.
+- root cause: Mandatory lesson persistence was handled after reviewer dispatch instead of completing parent-owned base mutations before fixing the review SHA/base pair.
+- fix: Stop the now-stale reviewer, finish the parent documentation commit, integrate the final base into the worker branch normally, and then launch a fresh exact-head review.
+- prevention: Before dispatching any exact-head reviewer, complete or defer every known parent-owned base-branch mutation and record the immutable head/base pair; do not push the base again until the review gate completes.
+- promotion: Repo-local orchestration lesson; candidate for a shared exact-head review preflight if repeated elsewhere.
