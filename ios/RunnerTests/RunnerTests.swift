@@ -701,7 +701,7 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
-  func testBridgeSharedMirrorCoordinatorSerializesCrossInstanceObserverCancel() async {
+  func testBridgeObserverPruneMakesSubsequentTupleCancelFailClosed() async {
     let fakeA = FakeAlarmKitNativeClient()
     let fakeB = FakeAlarmKitNativeClient()
     let bridgeA = AlarmKitBridge(nativeClient: fakeA)
@@ -713,20 +713,15 @@ class RunnerTests: XCTestCase {
     let initialResult = await bridgeB.scheduleAlarm(request)
     XCTAssertEqual(initialResult.status, "success")
 
-    let cancel = Task { @MainActor in
-      await bridgeB.cancelAlarm([
-        "occurrenceId": request.occurrenceId,
-        "reservationId": request.reservationId,
-        "platformAlarmId": id.uppercased(),
-      ])
-    }
-    let observer = Task { @MainActor in
-      await bridgeA.reconcileMirror(withNativeAlarmIds: [])
-    }
-    let cancelResult = await cancel.value
-    XCTAssertEqual(cancelResult["status"] as? String, "success")
-    await observer.value
-    XCTAssertTrue(fakeB.nativeAlarmIds.isEmpty)
+    await bridgeA.reconcileMirror(withNativeAlarmIds: [])
+    let cancelResult = await bridgeB.cancelAlarm([
+      "occurrenceId": request.occurrenceId,
+      "reservationId": request.reservationId,
+      "platformAlarmId": id.uppercased(),
+    ])
+    XCTAssertEqual(cancelResult["status"] as? String, "failure")
+    XCTAssertEqual(cancelResult["failureReason"] as? String, "invalidRequest")
+    XCTAssertTrue(fakeB.nativeAlarmIds.contains(id.uppercased()))
     XCTAssertFalse(mirrorContains(id))
   }
 
@@ -1304,7 +1299,7 @@ class RunnerTests: XCTestCase {
     let collisionResult = await stableBridge.scheduleOccurrence(collisionPayload)
     XCTAssertEqual(collisionResult["status"] as? String, "success")
     XCTAssertEqual(stableFake.scheduleAttempts, 2)
-    XCTAssertEqual(stableFake.cancelCalls, 1)
+    XCTAssertEqual(stableFake.cancelCalls, 0)
     XCTAssertGreaterThanOrEqual(stableFake.inventoryCalls, 2)
     XCTAssertTrue(mirrorContains(stablePlatformAlarmId))
   }
@@ -1358,8 +1353,9 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(fake.scheduleAttempts, 1)
     XCTAssertTrue(mirrorContains(id))
 
-    // If the native alarm is already present, the same pending tuple is
-    // promoted without a second native schedule call.
+    // A legacy pending row without a complete configuration cannot prove
+    // which same-UUID native configuration is live, so fail closed instead
+    // of promoting it from UUID presence alone.
     clearMirror()
     UserDefaults.standard.set(
       mirrorData([id: sameTupleRecord]),
@@ -1369,10 +1365,11 @@ class RunnerTests: XCTestCase {
     fake.nativeAlarmIds.insert(id.uppercased())
     let nativePresentBridge = AlarmKitBridge(nativeClient: fake)
     let nativePresent = await nativePresentBridge.scheduleAlarm(request)
-    XCTAssertEqual(nativePresent.status, "success")
+    XCTAssertEqual(nativePresent.status, "failure")
+    XCTAssertEqual(nativePresent.failureReason, "unknown")
     XCTAssertEqual(fake.scheduleAttempts, 1)
-    XCTAssertTrue(mirrorContains(id))
-    XCTAssertFalse(pendingMirrorContains(id))
+    XCTAssertFalse(mirrorContains(id))
+    XCTAssertTrue(pendingMirrorContains(id))
   }
 
   @available(iOS 26.0, *)
@@ -2270,7 +2267,7 @@ private func makeScheduleRequest(
 private func makeSchedulePayload(
   occurrenceId: String = "occurrence-1"
 ) -> [String: Any?] {
-  let date = "2030-04-05T06:07:08Z"
+  let date = "2030-04-05T06:07:08.000Z"
   return [
     "occurrenceId": occurrenceId,
     "wakePlanId": "wake-plan-1",

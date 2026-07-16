@@ -930,14 +930,19 @@ final class AlarmKitBridge {
     in snapshot: MirrorSnapshot,
     restrictedTo platformAlarmIds: Set<String>? = nil
   ) async throws -> (snapshot: MirrorSnapshot, didRestore: Bool) {
+    let recordsToRestore = snapshot.pendingNormalized.filter {
+      $0.value.requiresNativeRestoration == true
+        && (platformAlarmIds == nil || platformAlarmIds?.contains($0.key) == true)
+    }
+    guard !recordsToRestore.isEmpty else {
+      return (snapshot, false)
+    }
+
     var mirror = snapshot.normalized
     var pendingMirror = snapshot.pendingNormalized
     var didRestore = false
 
-    for (platformAlarmId, record) in snapshot.pendingNormalized
-      where record.requiresNativeRestoration == true
-        && (platformAlarmIds == nil || platformAlarmIds?.contains(platformAlarmId) == true)
-    {
+    for (platformAlarmId, record) in recordsToRestore {
       guard let alarmId = UUID(uuidString: platformAlarmId),
         let recoveryRequest = record.scheduleRequest()
       else { throw MirrorValidationError.invalid }
