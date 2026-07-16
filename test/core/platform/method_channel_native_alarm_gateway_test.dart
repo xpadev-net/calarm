@@ -559,7 +559,7 @@ void main() {
     expect(result.platformAlarmId, isNull);
   });
 
-  test('scheduleTestAlarm rejects an empty or malformed failure id', () async {
+  test('scheduleTestAlarm drops an empty or malformed failure id', () async {
     for (final value in ['', 42]) {
       _setHandler(channel, calls, (_) {
         return {
@@ -570,14 +570,14 @@ void main() {
         };
       });
 
-      await expectLater(
-        gateway.scheduleTestAlarm(
-          NativeTestAlarmScheduleRequest(
-            fireAfter: const Duration(seconds: 30),
-          ),
+      final result = await gateway.scheduleTestAlarm(
+        NativeTestAlarmScheduleRequest(
+          fireAfter: const Duration(seconds: 30),
         ),
-        throwsFormatException,
       );
+      expect(result.status, ScheduleResultStatus.failure);
+      expect(result.failureReason, ScheduleFailureReason.nativeError);
+      expect(result.platformAlarmId, isNull);
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, null);
     }
