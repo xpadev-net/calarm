@@ -257,13 +257,13 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
     if (nextHourHeight == _displayHourHeight) {
       return;
     }
-    final focalY = _zoomFocalY!;
+    final startFocalY = _zoomFocalY!;
     final focalMinute =
-        (startScrollOffset + focalY) /
+        (startScrollOffset + startFocalY) /
         (startHourHeight / TimeOfDayMinutes.minutesPerHour);
     _pendingScrollOffset =
         (focalMinute * (nextHourHeight / TimeOfDayMinutes.minutesPerHour)) -
-        focalY;
+        focalPoint.dy;
     setState(() {
       _displayHourHeight = nextHourHeight;
     });

@@ -1067,7 +1067,7 @@ void main() {
 
       expect(hourHeight, 92);
       final focalMinuteAtMaximum =
-          (scrollController.offset + firstPinchFocalY) / (hourHeight / 60);
+          (scrollController.offset + focalY) / (hourHeight / 60);
       expect(focalMinuteAtMaximum, closeTo(focalMinuteBefore, 0.01));
       await first.up();
       await second.up();
@@ -1079,6 +1079,7 @@ void main() {
       final third = await tester.createGesture(pointer: 73);
       final fourth = await tester.createGesture(pointer: 74);
       await third.down(center - const Offset(120, 0));
+      await tester.pump(const Duration(milliseconds: 50));
       await fourth.down(center + const Offset(120, 0));
       await third.moveTo(center - const Offset(20, 0));
       await fourth.moveTo(center + const Offset(20, 0));
@@ -1170,6 +1171,12 @@ void main() {
 
     final surface = find.byKey(const ValueKey('week-calendar-pinch-surface'));
     final center = tester.getCenter(surface);
+    final focalY = tester.getSize(surface).height / 2;
+    final scrollController = tester
+        .widget<SingleChildScrollView>(find.byType(SingleChildScrollView))
+        .controller!;
+    final focalMinuteBefore =
+        (scrollController.offset + focalY) / (hourHeight / 60);
     final first = await tester.createGesture(pointer: 31);
     final second = await tester.createGesture(pointer: 32);
     await first.down(center + const Offset(-40, 0));
@@ -1181,10 +1188,13 @@ void main() {
     expect(tester.takeException(), isNull);
     final heightAfterFirstMove = hourHeight;
 
-    await second.moveTo(center + const Offset(100, 0));
+    await second.moveTo(center + const Offset(100, 60));
     await tester.pump();
     expect(tester.takeException(), isNull);
     expect(hourHeight, greaterThan(heightAfterFirstMove));
+    final focalMinuteAfter =
+        (scrollController.offset + focalY + 30) / (hourHeight / 60);
+    expect(focalMinuteAfter, closeTo(focalMinuteBefore, 0.01));
 
     await first.up();
     await second.up();
