@@ -1647,6 +1647,7 @@ void main() {
           expect(reconciled, isEmpty, reason: scenario.name);
           expect(gateway.cancelledOccurrences, isEmpty, reason: scenario.name);
           expect(gateway.scheduledRequests, isEmpty, reason: scenario.name);
+          expect(store.savedOccurrences, isEmpty, reason: scenario.name);
           expect(
             store.storedOccurrences.single.status,
             scenario.occurrence.status,
