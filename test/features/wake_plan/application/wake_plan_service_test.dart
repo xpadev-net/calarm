@@ -68,6 +68,19 @@ void main() {
     );
   }
 
+  NativeAlarmInventoryRow inventoryRow(
+    AlarmOccurrence occurrence, {
+    required String platformAlarmId,
+  }) {
+    return NativeAlarmInventoryRow(
+      reservationId: occurrence.id,
+      occurrenceId: occurrence.id,
+      wakePlanId: occurrence.wakePlanId,
+      platformAlarmId: platformAlarmId,
+      status: NativeAlarmReservationStatus.scheduled,
+    );
+  }
+
   WakePlanService service({
     required _LoggingWakePlanServiceStore store,
     required FakeNativeAlarmGateway gateway,
@@ -3145,7 +3158,14 @@ void main() {
           gateway: gateway,
         ).editPlan(editedPlan);
 
-        expect(result.status, WakePlanSchedulingStatus.cancelFailed);
+        expect(result.status, WakePlanSchedulingStatus.recoveryRequired);
+        expect(result.changeState, WakePlanChangeState.recoveryRequired);
+        expect(
+          result.warning!.kind,
+          WakePlanSchedulingWarningKind.recoveryRequired,
+        );
+        expect(result.databaseState, WakePlanDatabaseState.persisted);
+        expect(result.persistenceError, isNull);
         expect(gateway.scheduledRequests, isEmpty);
         expect(
           store.storedOccurrences.single.status,
@@ -3223,12 +3243,30 @@ void main() {
 
           expect(
             mutation.status,
-            WakePlanSchedulingStatus.cancelFailed,
+            WakePlanSchedulingStatus.recoveryRequired,
             reason: scenario.name,
           );
+          expect(
+            mutation.changeState,
+            WakePlanChangeState.recoveryRequired,
+            reason: scenario.name,
+          );
+          expect(
+            mutation.warning!.kind,
+            WakePlanSchedulingWarningKind.recoveryRequired,
+            reason: scenario.name,
+          );
+          expect(
+            mutation.databaseState,
+            WakePlanDatabaseState.persisted,
+            reason: scenario.name,
+          );
+          expect(mutation.persistenceError, isNull, reason: scenario.name);
           expect(store.deletedPlanIds, isEmpty, reason: scenario.name);
           expect(
-            store.storedOccurrences.single.status,
+            store.storedOccurrences
+                .singleWhere((item) => item.id == occurrence.id)
+                .status,
             AlarmOccurrenceStatus.userEnablePending,
             reason: scenario.name,
           );
@@ -3259,6 +3297,122 @@ void main() {
             ),
             hasLength(1),
             reason: scenario.name,
+          );
+        }
+      },
+    );
+
+    test(
+      'keeps duplicate native reservations unresolved across recovery and mutations',
+      () async {
+        for (final pendingStatus in [
+          AlarmOccurrenceStatus.userDisablePending,
+          AlarmOccurrenceStatus.userEnablePending,
+        ]) {
+          final plan = buildPlan();
+          final occurrence = buildOccurrence(
+            id: 'plan-1:20640:420',
+            status: pendingStatus,
+            platformAlarmId: 'native-a',
+          );
+          final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+            ..wakePlans = [plan]
+            ..storedOccurrences = [occurrence];
+          final gateway = FakeNativeAlarmGateway()
+            ..inventoryRows.addAll([
+              inventoryRow(occurrence, platformAlarmId: 'native-a'),
+              inventoryRow(occurrence, platformAlarmId: 'native-b'),
+            ]);
+
+          final result = await service(
+            store: store,
+            gateway: gateway,
+            rollingScheduleDays: 1,
+          ).reconcileSchedules();
+
+          expect(
+            result.single.status,
+            WakePlanSchedulingStatus.recoveryRequired,
+            reason: pendingStatus.name,
+          );
+          expect(
+            store.storedOccurrences
+                .singleWhere((item) => item.id == occurrence.id)
+                .status,
+            pendingStatus,
+            reason: pendingStatus.name,
+          );
+          expect(
+            gateway.cancelledOccurrences,
+            isEmpty,
+            reason: pendingStatus.name,
+          );
+          expect(
+            gateway.scheduledRequests,
+            isEmpty,
+            reason: pendingStatus.name,
+          );
+          expect(
+            gateway.inventoryRows,
+            hasLength(2),
+            reason: pendingStatus.name,
+          );
+        }
+
+        for (final operation in ['edit', 'delete']) {
+          final plan = buildPlan(
+            repeatRule: RepeatRule.weekly({Weekday.monday}),
+          );
+          final occurrence = buildOccurrence(
+            id: 'plan-1:20640:420',
+            platformAlarmId: 'native-a',
+          );
+          final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+            ..reservedOccurrences = [occurrence]
+            ..storedOccurrences = [occurrence];
+          final gateway = FakeNativeAlarmGateway()
+            ..inventoryRows.addAll([
+              inventoryRow(occurrence, platformAlarmId: 'native-a'),
+              inventoryRow(occurrence, platformAlarmId: 'native-b'),
+            ]);
+
+          final result = operation == 'edit'
+              ? await service(
+                  store: store,
+                  gateway: gateway,
+                  rollingScheduleDays: 1,
+                ).editPlan(plan.copyWith(soundId: 'edited'))
+              : await service(
+                  store: store,
+                  gateway: gateway,
+                  rollingScheduleDays: 1,
+                ).deletePlan(plan.id);
+
+          expect(
+            result.status,
+            WakePlanSchedulingStatus.recoveryRequired,
+            reason: operation,
+          );
+          expect(
+            result.changeState,
+            WakePlanChangeState.recoveryRequired,
+            reason: operation,
+          );
+          expect(
+            result.databaseState,
+            WakePlanDatabaseState.persisted,
+            reason: operation,
+          );
+          expect(result.persistenceError, isNull, reason: operation);
+          expect(store.deletedPlanIds, isEmpty, reason: operation);
+          expect(gateway.cancelledOccurrences, isEmpty, reason: operation);
+          expect(gateway.cancelledPlans, isEmpty, reason: operation);
+          expect(gateway.scheduledRequests, isEmpty, reason: operation);
+          expect(gateway.inventoryRows, hasLength(2), reason: operation);
+          expect(
+            store.storedOccurrences.single.status,
+            AlarmOccurrenceStatus.scheduled,
+            reason: operation,
           );
         }
       },

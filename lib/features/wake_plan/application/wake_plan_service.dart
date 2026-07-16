@@ -526,16 +526,40 @@ class WakePlanService {
     required String occurrenceId,
     required String wakePlanId,
   }) async {
+    final inventory = await _loadNativeInventory();
+    return _observeNativeReservationInInventory(
+      occurrenceId: occurrenceId,
+      wakePlanId: wakePlanId,
+      inventory: inventory,
+    );
+  }
+
+  Future<_NativeInventorySnapshot?> _loadNativeInventory() async {
     NativeAlarmInventoryResult inventory;
     try {
       inventory = await _nativeAlarmGateway.getInventory();
     } catch (_) {
+      return null;
+    }
+    if (!inventory.isSuccess && inventory.rows.isEmpty) {
+      return null;
+    }
+    return _NativeInventorySnapshot(
+      rows: inventory.rows,
+      isAuthoritative: inventory.isSuccess,
+    );
+  }
+
+  _NativeReservationObservation _observeNativeReservationInInventory({
+    required String occurrenceId,
+    required String wakePlanId,
+    required _NativeInventorySnapshot? inventory,
+  }) {
+    if (inventory == null) {
       return const _NativeReservationObservation.unavailable();
     }
-    if (!inventory.isSuccess) {
-      return const _NativeReservationObservation.unavailable();
-    }
-    NativeAlarmInventoryRow? activeRow;
+    final exactRowsByPlatformId = <String, NativeAlarmInventoryRow>{};
+    final activeRowsByPlatformId = <String, NativeAlarmInventoryRow>{};
     var hasConflictingIdentity = false;
     for (final row in inventory.rows) {
       final isRelated =
@@ -549,15 +573,21 @@ class WakePlanService {
         hasConflictingIdentity = true;
         continue;
       }
+      exactRowsByPlatformId[row.platformAlarmId] = row;
       if (row.status == NativeAlarmReservationStatus.scheduled ||
           row.status == NativeAlarmReservationStatus.ringing) {
-        activeRow = row;
+        activeRowsByPlatformId[row.platformAlarmId] = row;
       }
     }
-    if (hasConflictingIdentity) {
+    if (hasConflictingIdentity || exactRowsByPlatformId.length > 1) {
+      return const _NativeReservationObservation.ambiguous();
+    }
+    if (!inventory.isAuthoritative) {
       return const _NativeReservationObservation.unavailable();
     }
-    return _NativeReservationObservation.authoritative(activeRow: activeRow);
+    return _NativeReservationObservation.authoritative(
+      activeRow: activeRowsByPlatformId.values.firstOrNull,
+    );
   }
 
   Future<WakePlanSchedulingResult> _createPlan(WakePlan plan) async {
@@ -709,7 +739,9 @@ class WakePlanService {
         restoration.occurrences,
       );
       final isRecoveryRequired =
-          persistenceError != null || !restoration.isSuccess;
+          cancelResult.hasUnresolvedNativeState ||
+          persistenceError != null ||
+          !restoration.isSuccess;
       return _failedMutationResult(
         wakePlanId: pendingPlan.id,
         status: isRecoveryRequired
@@ -788,7 +820,9 @@ class WakePlanService {
         planPersistenceError,
       ]);
       final isRecoveryRequired =
-          persistenceError != null || !restoration.isSuccess;
+          cancelResult.hasUnresolvedNativeState ||
+          persistenceError != null ||
+          !restoration.isSuccess;
       final recoveredOccurrences = _mergeOccurrenceStates(
         replacementCancellation.persistedOccurrences,
         restoration.occurrences,
@@ -849,7 +883,9 @@ class WakePlanService {
         restoration.persistenceError,
       ]);
       final isRecoveryRequired =
-          persistenceError != null || !restoration.isSuccess;
+          cancelResult.hasUnresolvedNativeState ||
+          persistenceError != null ||
+          !restoration.isSuccess;
       return _failedMutationResult(
         wakePlanId: wakePlanId,
         status: isRecoveryRequired
@@ -1403,6 +1439,19 @@ class WakePlanService {
       }
 
       var platformAlarmId = occurrence.platformAlarmId;
+      if (platformAlarmId != null) {
+        final observation = await _observeNativeReservation(
+          occurrenceId: occurrence.id,
+          wakePlanId: occurrence.wakePlanId,
+        );
+        if (observation.hasAmbiguousActiveRows) {
+          hasUnresolved = true;
+          reconciled.add(occurrence);
+          continue;
+        }
+        platformAlarmId =
+            observation.activeRow?.platformAlarmId ?? platformAlarmId;
+      }
       if (platformAlarmId == null) {
         final observation = await _observeNativeReservation(
           occurrenceId: occurrence.id,
@@ -1677,16 +1726,32 @@ class WakePlanService {
           return !occurrence.scheduledAt.toDateTime().isBefore(now);
         })
         .toList(growable: false);
-    final cancellableFutureReserved = futureReserved
-        .where((occurrence) => occurrence.platformAlarmId != null)
-        .toList(growable: true);
-    final cancellableIds = cancellableFutureReserved
-        .map((occurrence) => occurrence.id)
-        .toSet();
+    final inventory = futureReserved.isEmpty
+        ? const _NativeInventorySnapshot(
+            rows: <NativeAlarmInventoryRow>[],
+            isAuthoritative: true,
+          )
+        : await _loadNativeInventory();
+    final cancellableFutureReserved = <AlarmOccurrence>[];
+    final cancellableIds = <String>{};
     final unresolvedWithoutId = <AlarmOccurrence>[];
     final resolvedWithoutId = <AlarmOccurrence>[];
     final discoveredPlatformIds = <String>{};
     for (final occurrence in futureReserved) {
+      final observation = _observeNativeReservationInInventory(
+        occurrenceId: occurrence.id,
+        wakePlanId: occurrence.wakePlanId,
+        inventory: inventory,
+      );
+      if (observation.hasAmbiguousActiveRows) {
+        unresolvedWithoutId.add(occurrence);
+        continue;
+      }
+      if (occurrence.platformAlarmId != null) {
+        cancellableFutureReserved.add(occurrence);
+        cancellableIds.add(occurrence.id);
+        continue;
+      }
       final needsConservativeCancellation =
           (occurrence.status == AlarmOccurrenceStatus.unknownPersisted ||
               occurrence.status == AlarmOccurrenceStatus.userDisablePending ||
@@ -1701,10 +1766,6 @@ class WakePlanService {
         cancellableIds.add(occurrence.id);
         continue;
       }
-      final observation = await _observeNativeReservation(
-        occurrenceId: occurrence.id,
-        wakePlanId: occurrence.wakePlanId,
-      );
       final discoveredId = observation.activeRow?.platformAlarmId;
       if (discoveredId == null) {
         if (!observation.isAuthoritative) {
@@ -1766,14 +1827,13 @@ class WakePlanService {
             .toList(growable: false),
       ),
       databaseStateKnown:
-          unresolvedWithoutId.isEmpty &&
-          cancellation.databaseStateKnown &&
-          resolvedPersistenceError == null,
+          cancellation.databaseStateKnown && resolvedPersistenceError == null,
+      hasUnresolvedNativeState:
+          cancellation.hasUnresolvedNativeState ||
+          unresolvedWithoutId.isNotEmpty,
       persistenceError: _firstPersistenceError([
         cancellation.persistenceError,
         resolvedPersistenceError,
-        if (unresolvedWithoutId.isNotEmpty)
-          'A conservatively decoded alarm has no verifiable native identity.',
       ]),
     );
   }
@@ -1882,6 +1942,7 @@ class WakePlanService {
       cancelResult: cancelResult,
       persistedOccurrences: persistedOccurrences,
       databaseStateKnown: persistenceError == null,
+      hasUnresolvedNativeState: cancellationResponseUncertain,
       persistenceError: persistenceError,
       successfullyCancelledOccurrences: cancellableOccurrences
           .where((occurrence) {
@@ -1911,6 +1972,7 @@ class WakePlanService {
         cancellation.persistedOccurrences,
       ),
       databaseStateKnown: cancellation.databaseStateKnown,
+      hasUnresolvedNativeState: cancellation.hasUnresolvedNativeState,
       persistenceError: cancellation.persistenceError,
       successfullyCancelledOccurrences:
           cancellation.successfullyCancelledOccurrences,
@@ -2312,14 +2374,32 @@ class _WakePlanServiceCoordinator {
 
 class _NativeReservationObservation {
   const _NativeReservationObservation.authoritative({this.activeRow})
-    : isAuthoritative = true;
+    : isAuthoritative = true,
+      hasAmbiguousActiveRows = false;
 
   const _NativeReservationObservation.unavailable()
     : isAuthoritative = false,
+      hasAmbiguousActiveRows = false,
+      activeRow = null;
+
+  const _NativeReservationObservation.ambiguous()
+    : isAuthoritative = false,
+      hasAmbiguousActiveRows = true,
       activeRow = null;
 
   final bool isAuthoritative;
+  final bool hasAmbiguousActiveRows;
   final NativeAlarmInventoryRow? activeRow;
+}
+
+class _NativeInventorySnapshot {
+  const _NativeInventorySnapshot({
+    required this.rows,
+    required this.isAuthoritative,
+  });
+
+  final List<NativeAlarmInventoryRow> rows;
+  final bool isAuthoritative;
 }
 
 class _PendingDisableReconciliation {
@@ -2544,6 +2624,7 @@ class _CancelFutureResult {
     required this.persistedOccurrences,
     required this.successfullyCancelledOccurrences,
     this.databaseStateKnown = true,
+    this.hasUnresolvedNativeState = false,
     this.persistenceError,
   });
 
@@ -2551,11 +2632,16 @@ class _CancelFutureResult {
   final List<AlarmOccurrence> persistedOccurrences;
   final List<AlarmOccurrence> successfullyCancelledOccurrences;
   final bool databaseStateKnown;
+  final bool hasUnresolvedNativeState;
   final String? persistenceError;
 
-  bool get isSuccess => cancelResult.isSuccess && persistenceError == null;
+  bool get isSuccess =>
+      cancelResult.isSuccess &&
+      !hasUnresolvedNativeState &&
+      persistenceError == null;
 
-  bool get nativeCancellationComplete => cancelResult.isSuccess;
+  bool get nativeCancellationComplete =>
+      cancelResult.isSuccess && !hasUnresolvedNativeState;
 }
 
 class _RestorationResult {
