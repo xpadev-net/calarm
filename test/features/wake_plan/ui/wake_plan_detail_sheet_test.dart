@@ -32,6 +32,8 @@ void main() {
             },
             onSkipNext: (_) async => _successResult(),
             onUndoSkipNext: (_) async => _successResult(),
+            loadOccurrences: _emptyOccurrences,
+            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
           ),
         ),
       ),
@@ -80,6 +82,8 @@ void main() {
             onDelete: (_) async => _successResult(),
             onSkipNext: (_) async => _successResult(),
             onUndoSkipNext: (_) async => _successResult(),
+            loadOccurrences: _emptyOccurrences,
+            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
           ),
         ),
       ),
@@ -116,6 +120,8 @@ void main() {
             onDelete: (_) async => _successResult(),
             onSkipNext: (_) async => _successResult(),
             onUndoSkipNext: (_) async => _successResult(),
+            loadOccurrences: _emptyOccurrences,
+            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
           ),
         ),
       ),
@@ -150,6 +156,8 @@ void main() {
               restored = plan;
               return _successResult();
             },
+            loadOccurrences: _emptyOccurrences,
+            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
           ),
         ),
       ),
@@ -185,6 +193,8 @@ void main() {
               return _successResult();
             },
             onUndoSkipNext: (_) async => _successResult(),
+            loadOccurrences: _emptyOccurrences,
+            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
           ),
         ),
       ),
@@ -226,6 +236,8 @@ void main() {
               restored = plan;
               return _successResult();
             },
+            loadOccurrences: _emptyOccurrences,
+            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
           ),
         ),
       ),
@@ -265,6 +277,8 @@ void main() {
             onDelete: (_) async => _successResult(),
             onSkipNext: (_) async => _successResult(),
             onUndoSkipNext: (_) async => _successResult(),
+            loadOccurrences: _emptyOccurrences,
+            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
           ),
         ),
       ),
@@ -321,6 +335,8 @@ void main() {
             onDelete: (_) async => _successResult(),
             onSkipNext: (_) async => _successResult(),
             onUndoSkipNext: (_) async => _successResult(),
+            loadOccurrences: _emptyOccurrences,
+            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
           ),
         ),
       ),
@@ -371,6 +387,8 @@ void main() {
             onDelete: (_) async => _successResult(),
             onSkipNext: (_) async => _successResult(),
             onUndoSkipNext: (_) async => _successResult(),
+            loadOccurrences: _emptyOccurrences,
+            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
           ),
         ),
       ),
@@ -391,6 +409,164 @@ void main() {
       isNull,
     );
     expect(edited, isFalse);
+  });
+
+  testWidgets(
+    'lists future eligible occurrences including the final alarm and toggles it',
+    (tester) async {
+      final now = DateTime(2026, 7, 8, 5, 30);
+      final plan = _plan();
+      final finalOccurrence = _occurrence(
+        id: 'final',
+        scheduledAt: DateTime(2026, 7, 8, 7),
+      );
+      AlarmOccurrence? toggled;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: WakePlanDetailSheet(
+              target: WeekCalendarWakePlanTapTarget(
+                wakePlan: plan,
+                targetDay: _targetDay,
+              ),
+              now: now,
+              clock: () => now,
+              defaults: AppSettings.initial(),
+              existingWakePlans: const [],
+              onEdit: (_) async => _successResult(),
+              onDelete: (_) async => _successResult(),
+              onSkipNext: (_) async => _successResult(),
+              onUndoSkipNext: (_) async => _successResult(),
+              loadOccurrences: (_) async => [
+                _occurrence(id: 'past', scheduledAt: DateTime(2026, 7, 8, 5)),
+                _occurrence(id: 'future', scheduledAt: DateTime(2026, 7, 8, 6)),
+                finalOccurrence,
+                _occurrence(
+                  id: 'ringing',
+                  scheduledAt: DateTime(2026, 7, 8, 6, 30),
+                  status: AlarmOccurrenceStatus.ringing,
+                  firedAt: now,
+                ),
+                _occurrence(
+                  id: 'dismissed',
+                  scheduledAt: DateTime(2026, 7, 8, 6, 45),
+                  status: AlarmOccurrenceStatus.dismissed,
+                  firedAt: now,
+                  dismissedAt: now,
+                ),
+              ],
+              onSetOccurrenceEnabled:
+                  ({
+                    required wakePlanId,
+                    required occurrenceId,
+                    required enabled,
+                  }) async {
+                    expect(wakePlanId, plan.id);
+                    expect(occurrenceId, finalOccurrence.id);
+                    expect(enabled, isFalse);
+                    toggled = finalOccurrence.copyWith(
+                      status: AlarmOccurrenceStatus.userDisabled,
+                      platformAlarmId: null,
+                      updatedAt: now,
+                    );
+                    return AlarmOccurrenceToggleResult.success(
+                      status: AlarmOccurrenceToggleStatus.disabled,
+                      occurrence: toggled!,
+                    );
+                  },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('occurrence-toggle-future')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('occurrence-toggle-final')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('occurrence-toggle-past')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('occurrence-toggle-ringing')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('occurrence-toggle-dismissed')),
+        findsNothing,
+      );
+
+      final finalToggle = find.byKey(const ValueKey('occurrence-toggle-final'));
+      await tester.ensureVisible(finalToggle);
+      await tester.tap(finalToggle);
+      await tester.pumpAndSettle();
+
+      expect(toggled?.status, AlarmOccurrenceStatus.userDisabled);
+      expect(tester.widget<SwitchListTile>(finalToggle).value, isFalse);
+      expect(find.text('Off'), findsOneWidget);
+    },
+  );
+
+  testWidgets('keeps occurrence state and shows a useful toggle error', (
+    tester,
+  ) async {
+    final now = DateTime(2026, 7, 8, 5, 30);
+    final occurrence = _occurrence(
+      id: 'future',
+      scheduledAt: DateTime(2026, 7, 8, 6),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WakePlanDetailSheet(
+            target: WeekCalendarWakePlanTapTarget(
+              wakePlan: _plan(),
+              targetDay: _targetDay,
+            ),
+            now: now,
+            clock: () => now,
+            defaults: AppSettings.initial(),
+            existingWakePlans: const [],
+            onEdit: (_) async => _successResult(),
+            onDelete: (_) async => _successResult(),
+            onSkipNext: (_) async => _successResult(),
+            onUndoSkipNext: (_) async => _successResult(),
+            loadOccurrences: (_) async => [occurrence],
+            onSetOccurrenceEnabled:
+                ({
+                  required wakePlanId,
+                  required occurrenceId,
+                  required enabled,
+                }) async {
+                  return AlarmOccurrenceToggleResult.failure(
+                    status: AlarmOccurrenceToggleStatus.cancelFailed,
+                    occurrence: occurrence,
+                    warning: 'The native alarm could not be turned off.',
+                  );
+                },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final toggle = find.byKey(const ValueKey('occurrence-toggle-future'));
+    await tester.ensureVisible(toggle);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+    expect(
+      find.text('The native alarm could not be turned off.'),
+      findsOneWidget,
+    );
   });
 }
 
@@ -413,6 +589,40 @@ WakePlan _plan({RepeatRule? repeatRule}) {
     createdAt: now,
     updatedAt: now,
   );
+}
+
+AlarmOccurrence _occurrence({
+  required String id,
+  required DateTime scheduledAt,
+  AlarmOccurrenceStatus status = AlarmOccurrenceStatus.scheduled,
+  DateTime? firedAt,
+  DateTime? dismissedAt,
+}) {
+  return AlarmOccurrence(
+    id: id,
+    wakePlanId: 'plan-1',
+    scheduledAt: DateMinute.fromDateTime(scheduledAt),
+    status: status,
+    platformAlarmId: status == AlarmOccurrenceStatus.scheduled
+        ? 'native-$id'
+        : null,
+    firedAt: firedAt,
+    dismissedAt: dismissedAt,
+    createdAt: scheduledAt.subtract(const Duration(days: 1)),
+    updatedAt: scheduledAt.subtract(const Duration(days: 1)),
+  );
+}
+
+Future<List<AlarmOccurrence>> _emptyOccurrences(String wakePlanId) async {
+  return const [];
+}
+
+Future<AlarmOccurrenceToggleResult> _unexpectedOccurrenceToggle({
+  required String wakePlanId,
+  required String occurrenceId,
+  required bool enabled,
+}) {
+  throw StateError('No occurrence toggle was expected in this test.');
 }
 
 WakePlanSchedulingResult _successResult() {

@@ -48,7 +48,7 @@ void main() {
     required String id,
     CalendarDay? day,
     TimeOfDayMinutes? time,
-    String platformAlarmId = 'native-old',
+    String? platformAlarmId = 'native-old',
     AlarmOccurrenceStatus status = AlarmOccurrenceStatus.scheduled,
     DateTime? firedAt,
     DateTime? dismissedAt,
@@ -778,6 +778,393 @@ void main() {
         result.single.warning!.message,
         'No future alarm occurrence could be scheduled.',
       );
+      expect(gateway.scheduledRequests, isEmpty);
+    });
+  });
+
+  group('WakePlanService occurrence toggles', () {
+    test(
+      'off survives reconciliation and restart before exact re-enable',
+      () async {
+        final plan = buildPlan(repeatRule: RepeatRule.weekly({Weekday.monday}));
+        final occurrence = buildOccurrence(
+          id: 'plan-1:20640:420',
+          platformAlarmId: 'native-final',
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan]
+          ..storedOccurrences = [occurrence];
+        final gateway = FakeNativeAlarmGateway()
+          ..inventoryRows.add(
+            NativeAlarmInventoryRow(
+              reservationId: occurrence.id,
+              occurrenceId: occurrence.id,
+              wakePlanId: plan.id,
+              platformAlarmId: 'native-final',
+              status: NativeAlarmReservationStatus.scheduled,
+            ),
+          );
+        final firstService = service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 1,
+        );
+
+        final disabled = await firstService.setOccurrenceEnabled(
+          wakePlanId: plan.id,
+          occurrenceId: occurrence.id,
+          enabled: false,
+        );
+
+        expect(disabled.status, AlarmOccurrenceToggleStatus.disabled);
+        expect(disabled.occurrence!.status, AlarmOccurrenceStatus.userDisabled);
+        expect(gateway.inventoryRows, isEmpty);
+
+        gateway.scheduledRequests.clear();
+        await firstService.reconcileSchedules();
+        expect(
+          gateway.scheduledRequests.map((request) => request.occurrenceId),
+          isNot(contains(occurrence.id)),
+        );
+
+        gateway.scheduledRequests.clear();
+        final restartedService = service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 1,
+        );
+        await restartedService.reconcileSchedules();
+        expect(
+          gateway.scheduledRequests.map((request) => request.occurrenceId),
+          isNot(contains(occurrence.id)),
+        );
+
+        gateway.scheduledRequests.clear();
+        final enabled = await restartedService.setOccurrenceEnabled(
+          wakePlanId: plan.id,
+          occurrenceId: occurrence.id,
+          enabled: true,
+        );
+
+        expect(enabled.status, AlarmOccurrenceToggleStatus.enabled);
+        expect(gateway.scheduledRequests, hasLength(1));
+        expect(gateway.scheduledRequests.single.occurrenceId, occurrence.id);
+        expect(
+          gateway.scheduledRequests.single.scheduledAt,
+          DateTime(2026, 7, 6, 7),
+        );
+        expect(
+          gateway.scheduledRequests.single.targetAt,
+          DateTime(2026, 7, 6, 7),
+        );
+        expect(
+          gateway.inventoryRows.where(
+            (row) => row.occurrenceId == occurrence.id,
+          ),
+          hasLength(1),
+        );
+
+        await Future.wait([
+          restartedService.setOccurrenceEnabled(
+            wakePlanId: plan.id,
+            occurrenceId: occurrence.id,
+            enabled: true,
+          ),
+          restartedService.setOccurrenceEnabled(
+            wakePlanId: plan.id,
+            occurrenceId: occurrence.id,
+            enabled: true,
+          ),
+        ]);
+        expect(gateway.scheduledRequests, hasLength(1));
+      },
+    );
+
+    test('does not resurrect a disabled occurrence exactly at now', () async {
+      final exactNow = DateTime(2026, 7, 6, 7);
+      final plan = buildPlan(repeatRule: RepeatRule.weekly({Weekday.monday}));
+      final occurrence = buildOccurrence(
+        id: 'plan-1:20640:420',
+        status: AlarmOccurrenceStatus.userDisabled,
+        platformAlarmId: null,
+      );
+      final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+        ..wakePlans = [plan]
+        ..storedOccurrences = [occurrence];
+      final gateway = FakeNativeAlarmGateway();
+
+      await service(
+        store: store,
+        gateway: gateway,
+        clockNow: exactNow,
+        rollingScheduleDays: 1,
+      ).reconcileSchedules();
+
+      expect(gateway.scheduledRequests, isEmpty);
+      expect(
+        store.storedOccurrences.single.status,
+        AlarmOccurrenceStatus.userDisabled,
+      );
+    });
+
+    test(
+      're-enables a cross-midnight occurrence with its owning target',
+      () async {
+        final crossMidnightNow = DateTime(2026, 7, 6, 23);
+        final targetDay = CalendarDay(year: 2026, month: 7, day: 7);
+        final plan = buildPlan(
+          targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+            hour: 0,
+            minute: 10,
+          ),
+          startOffset: const Duration(minutes: 30),
+          interval: const Duration(minutes: 10),
+          repeatRule: RepeatRule.oneTime(targetDay),
+        );
+        final occurrence = buildOccurrence(
+          id: 'plan-1:20640:1420',
+          day: monday,
+          time: TimeOfDayMinutes.fromHourMinute(hour: 23, minute: 40),
+          status: AlarmOccurrenceStatus.userDisabled,
+          platformAlarmId: null,
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..storedOccurrences = [occurrence];
+        final gateway = FakeNativeAlarmGateway();
+
+        final result =
+            await service(
+              store: store,
+              gateway: gateway,
+              clockNow: crossMidnightNow,
+            ).setOccurrenceEnabled(
+              wakePlanId: plan.id,
+              occurrenceId: occurrence.id,
+              enabled: true,
+            );
+
+        expect(result.status, AlarmOccurrenceToggleStatus.enabled);
+        expect(
+          gateway.scheduledRequests.single.scheduledAt,
+          DateTime(2026, 7, 6, 23, 40),
+        );
+        expect(
+          gateway.scheduledRequests.single.targetAt,
+          DateTime(2026, 7, 7, 0, 10),
+        );
+      },
+    );
+
+    test(
+      'leaves native and stored state unchanged when cancellation fails',
+      () async {
+        final plan = buildPlan();
+        final occurrence = buildOccurrence(
+          id: 'future',
+          platformAlarmId: 'native-future',
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..storedOccurrences = [occurrence];
+        final gateway = FakeNativeAlarmGateway()
+          ..cancelFailurePlatformAlarmIds.add('native-future');
+
+        final result = await service(store: store, gateway: gateway)
+            .setOccurrenceEnabled(
+              wakePlanId: plan.id,
+              occurrenceId: occurrence.id,
+              enabled: false,
+            );
+
+        expect(result.status, AlarmOccurrenceToggleStatus.cancelFailed);
+        expect(
+          store.storedOccurrences.single.status,
+          AlarmOccurrenceStatus.scheduled,
+        );
+        expect(store.storedOccurrences.single.platformAlarmId, 'native-future');
+      },
+    );
+
+    test(
+      'restores the native reservation when disabled persistence fails',
+      () async {
+        final plan = buildPlan();
+        final occurrence = buildOccurrence(
+          id: 'future',
+          platformAlarmId: 'native-future',
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..storedOccurrences = [occurrence]
+          ..failSaveAlarmOccurrencesAtCalls.add(1);
+        final gateway = FakeNativeAlarmGateway();
+
+        final result = await service(store: store, gateway: gateway)
+            .setOccurrenceEnabled(
+              wakePlanId: plan.id,
+              occurrenceId: occurrence.id,
+              enabled: false,
+            );
+
+        expect(result.status, AlarmOccurrenceToggleStatus.recoveryRequired);
+        expect(result.compensationScheduleResult!.isSuccess, isTrue);
+        expect(
+          store.storedOccurrences.single.status,
+          AlarmOccurrenceStatus.scheduled,
+        );
+        expect(store.storedOccurrences.single.platformAlarmId, isNotNull);
+      },
+    );
+
+    test(
+      'surfaces a thrown native cancellation without changing storage',
+      () async {
+        final plan = buildPlan();
+        final occurrence = buildOccurrence(
+          id: 'future-throw',
+          platformAlarmId: 'native-future-throw',
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..storedOccurrences = [occurrence];
+        final gateway = _ThrowingOccurrenceGateway(throwOnCancel: true);
+
+        final result = await service(store: store, gateway: gateway)
+            .setOccurrenceEnabled(
+              wakePlanId: plan.id,
+              occurrenceId: occurrence.id,
+              enabled: false,
+            );
+
+        expect(result.status, AlarmOccurrenceToggleStatus.recoveryRequired);
+        expect(result.warning, contains('cancellation state is unknown'));
+        expect(store.storedOccurrences.single, same(occurrence));
+      },
+    );
+
+    test(
+      'cancels a newly scheduled alarm when its result cannot persist',
+      () async {
+        final plan = buildPlan();
+        final occurrence = buildOccurrence(
+          id: 'plan-1:20640:420',
+          status: AlarmOccurrenceStatus.userDisabled,
+          platformAlarmId: null,
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..storedOccurrences = [occurrence]
+          ..failSaveAlarmOccurrencesAtCalls.add(2);
+        final gateway = FakeNativeAlarmGateway();
+
+        final result = await service(store: store, gateway: gateway)
+            .setOccurrenceEnabled(
+              wakePlanId: plan.id,
+              occurrenceId: occurrence.id,
+              enabled: true,
+            );
+
+        expect(result.status, AlarmOccurrenceToggleStatus.recoveryRequired);
+        expect(result.compensationCancelResult!.isSuccess, isTrue);
+        expect(gateway.inventoryRows, isEmpty);
+        expect(
+          store.storedOccurrences.single.status,
+          AlarmOccurrenceStatus.userDisabled,
+        );
+      },
+    );
+
+    test('rolls back to user-disabled when native scheduling throws', () async {
+      final plan = buildPlan();
+      final occurrence = buildOccurrence(
+        id: 'plan-1:20640:420',
+        status: AlarmOccurrenceStatus.userDisabled,
+        platformAlarmId: null,
+      );
+      final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+        ..storedOccurrences = [occurrence];
+      final gateway = _ThrowingOccurrenceGateway(throwOnSchedule: true);
+
+      final result = await service(store: store, gateway: gateway)
+          .setOccurrenceEnabled(
+            wakePlanId: plan.id,
+            occurrenceId: occurrence.id,
+            enabled: true,
+          );
+
+      expect(result.status, AlarmOccurrenceToggleStatus.recoveryRequired);
+      expect(result.warning, contains('remains off'));
+      expect(
+        store.storedOccurrences.single.status,
+        AlarmOccurrenceStatus.userDisabled,
+      );
+      expect(gateway.inventoryRows, isEmpty);
+    });
+
+    test(
+      'persists the enabled reservation when compensation cancellation throws',
+      () async {
+        final plan = buildPlan();
+        final occurrence = buildOccurrence(
+          id: 'plan-1:20640:420',
+          status: AlarmOccurrenceStatus.userDisabled,
+          platformAlarmId: null,
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..storedOccurrences = [occurrence]
+          ..failSaveAlarmOccurrencesAtCalls.add(2);
+        final gateway = _ThrowingOccurrenceGateway(throwOnCancel: true);
+
+        final result = await service(store: store, gateway: gateway)
+            .setOccurrenceEnabled(
+              wakePlanId: plan.id,
+              occurrenceId: occurrence.id,
+              enabled: true,
+            );
+
+        expect(result.status, AlarmOccurrenceToggleStatus.scheduleFailed);
+        expect(result.warning, contains('cancellation recovery is unknown'));
+        expect(
+          store.storedOccurrences.single.status,
+          AlarmOccurrenceStatus.scheduled,
+        );
+        expect(store.storedOccurrences.single.platformAlarmId, isNotNull);
+      },
+    );
+
+    test('rejects past, ringing, and dismissed occurrence mutations', () async {
+      final plan = buildPlan();
+      final past = buildOccurrence(
+        id: 'past',
+        time: TimeOfDayMinutes.fromHourMinute(hour: 5, minute: 30),
+      );
+      final pastDisabled = buildOccurrence(
+        id: 'past-disabled',
+        time: TimeOfDayMinutes.fromHourMinute(hour: 5, minute: 30),
+        status: AlarmOccurrenceStatus.userDisabled,
+        platformAlarmId: null,
+      );
+      final ringing = buildOccurrence(
+        id: 'ringing',
+        status: AlarmOccurrenceStatus.ringing,
+        firedAt: now,
+      );
+      final dismissed = buildOccurrence(
+        id: 'dismissed',
+        status: AlarmOccurrenceStatus.dismissed,
+        firedAt: now,
+        dismissedAt: now,
+      );
+      final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+        ..storedOccurrences = [past, pastDisabled, ringing, dismissed];
+      final gateway = FakeNativeAlarmGateway();
+      final wakePlanService = service(store: store, gateway: gateway);
+
+      for (final occurrence in store.storedOccurrences) {
+        final result = await wakePlanService.setOccurrenceEnabled(
+          wakePlanId: plan.id,
+          occurrenceId: occurrence.id,
+          enabled: false,
+        );
+        expect(result.status, AlarmOccurrenceToggleStatus.invalidState);
+      }
+      expect(gateway.cancelledOccurrences, isEmpty);
       expect(gateway.scheduledRequests, isEmpty);
     });
   });
@@ -2290,6 +2677,36 @@ class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
 
 extension on NativeAlarmCancelRequest {
   String get idLabel => '$occurrenceId/$platformAlarmId';
+}
+
+class _ThrowingOccurrenceGateway extends FakeNativeAlarmGateway {
+  _ThrowingOccurrenceGateway({
+    this.throwOnCancel = false,
+    this.throwOnSchedule = false,
+  });
+
+  final bool throwOnCancel;
+  final bool throwOnSchedule;
+
+  @override
+  Future<CancelResult> cancelOccurrences(
+    List<NativeAlarmCancelRequest> alarms,
+  ) {
+    if (throwOnCancel) {
+      throw StateError('injected cancellation exception');
+    }
+    return super.cancelOccurrences(alarms);
+  }
+
+  @override
+  Future<ScheduleResult> scheduleOccurrences(
+    List<NativeAlarmScheduleRequest> occurrences,
+  ) {
+    if (throwOnSchedule) {
+      throw StateError('injected scheduling exception');
+    }
+    return super.scheduleOccurrences(occurrences);
+  }
 }
 
 class _MissingScheduleRowsGateway extends FakeNativeAlarmGateway {

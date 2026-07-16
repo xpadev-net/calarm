@@ -303,6 +303,25 @@ void main() {
       },
     );
 
+    test('round-trips the distinct user-disabled occurrence state', () async {
+      await repository.saveWakePlan(buildPlan());
+      await repository.saveAlarmOccurrences([
+        buildOccurrence(
+          id: 'disabled-occurrence',
+          status: AlarmOccurrenceStatus.userDisabled,
+        ),
+      ]);
+
+      final fetched = await repository.fetchAlarmOccurrence(
+        'disabled-occurrence',
+      );
+
+      expect(fetched, isNotNull);
+      expect(fetched!.status, AlarmOccurrenceStatus.userDisabled);
+      expect(fetched.platformAlarmId, isNull);
+      expect(fetched.isUserDisabled, isTrue);
+    });
+
     test(
       'reports missing occurrences when storing platform alarm id',
       () async {
@@ -339,6 +358,10 @@ void main() {
           day: tuesday,
           status: AlarmOccurrenceStatus.cancelled,
           platformAlarmId: 'native-stale',
+        ),
+        buildOccurrence(
+          id: 'user-disabled',
+          status: AlarmOccurrenceStatus.userDisabled,
         ),
       ]);
 

@@ -1208,6 +1208,88 @@ void main() {
     );
   });
 
+  testWidgets(
+    'detail occurrence toggle updates repository and native inventory',
+    (tester) async {
+      final gateway = FakeNativeAlarmGateway();
+      final now = DateTime(2026, 7, 8, 5, 30);
+      final plan = _plan(
+        id: 'occurrence-toggle',
+        targetDay: CalendarDay(year: 2026, month: 7, day: 9),
+      );
+      final setupService = WakePlanService(
+        repository: repository,
+        nativeAlarmGateway: gateway,
+        clock: () => now,
+      );
+      await setupService.createPlan(plan);
+      final occurrence = (await repository.fetchOccurrencesForPlan(
+        plan.id,
+      )).last;
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            weekCalendarRepositoryProvider.overrideWith(
+              (ref) async => repository,
+            ),
+            wakePlanDefaultsRepositoryProvider.overrideWith(
+              (ref) async => repository,
+            ),
+            weekCalendarNativeAlarmGatewayProvider.overrideWith(
+              (ref) => gateway,
+            ),
+            weekCalendarClockProvider.overrideWith(
+              (ref) =>
+                  () => now,
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: WeekCalendarPlaceholder()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final calendar = tester.widget<WeekCalendarView>(
+        find.byType(WeekCalendarView),
+      );
+      calendar.onWakePlanTap!(
+        WeekCalendarWakePlanTapTarget(
+          wakePlan: plan,
+          targetDay: CalendarDay(year: 2026, month: 7, day: 9),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final toggle = find.byKey(ValueKey('occurrence-toggle-${occurrence.id}'));
+      await tester.ensureVisible(toggle);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+
+      final disabled = await repository.fetchAlarmOccurrence(occurrence.id);
+      expect(disabled!.status, AlarmOccurrenceStatus.userDisabled);
+      expect(disabled.platformAlarmId, isNull);
+      expect(
+        gateway.inventoryRows.map((row) => row.occurrenceId),
+        isNot(contains(occurrence.id)),
+      );
+      expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+
+      final enabled = await repository.fetchAlarmOccurrence(occurrence.id);
+      expect(enabled!.status, AlarmOccurrenceStatus.scheduled);
+      expect(enabled.platformAlarmId, isNotNull);
+      expect(
+        gateway.inventoryRows.where((row) => row.occurrenceId == occurrence.id),
+        hasLength(1),
+      );
+      expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+    },
+  );
+
   testWidgets('editing weekly plan from past block preserves repeat weekdays', (
     tester,
   ) async {
