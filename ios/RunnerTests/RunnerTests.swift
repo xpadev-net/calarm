@@ -42,6 +42,7 @@ class RunnerTests: XCTestCase {
     let fake = FakeAlarmKitNativeClient()
     fake.gateFirstSchedule = true
     fake.failFirstSchedule = true
+    fake.gatedScheduleAttempts = [2]
     let bridge = AlarmKitBridge(nativeClient: fake)
     let request = makeScheduleRequest()
     clearMirror()
@@ -55,7 +56,9 @@ class RunnerTests: XCTestCase {
 
     let platformAlarmId = calarmPlatformAlarmId(for: request.reservationId)
     let firstResult = await first.value
+    while !fake.gatedScheduleStartedAttempts.contains(2) { await Task.yield() }
     XCTAssertFalse(mirrorContains(platformAlarmId))
+    fake.allowGatedSchedules = true
     let secondResult = await second.value
     XCTAssertEqual(firstResult.failureReason, "nativeError")
     XCTAssertEqual(secondResult.status, "success")

@@ -1200,7 +1200,8 @@ final class AlarmKitBridge {
     let pendingArtifact = decodeRecoveryArtifact(
       pendingData,
       allowEnvelope: false,
-      requireGeneration: false
+      requireGeneration: false,
+      asPending: true
     )
 
     let artifacts = [committedArtifact, envelopeArtifact, pendingArtifact]
@@ -1270,7 +1271,8 @@ final class AlarmKitBridge {
   private func decodeRecoveryArtifact(
     _ data: Data?,
     allowEnvelope: Bool,
-    requireGeneration: Bool
+    requireGeneration: Bool,
+    asPending: Bool = false
   ) -> RecoveryMirrorArtifact {
     guard let data else { return RecoveryMirrorArtifact() }
     do {
@@ -1290,8 +1292,16 @@ final class AlarmKitBridge {
           isValid: true
         )
       }
+      let records = try validatedMirror(decodeMirrorMap(data))
+      if asPending {
+        return RecoveryMirrorArtifact(
+          pending: records,
+          isPresent: true,
+          isValid: true
+        )
+      }
       return RecoveryMirrorArtifact(
-        committed: try validatedMirror(decodeMirrorMap(data)),
+        committed: records,
         isPresent: true,
         isValid: true,
         isPlainProjection: true
