@@ -1119,6 +1119,87 @@ void main() {
     );
 
     test(
+      'reports pending-off persistence failure and completes it after restart',
+      () async {
+        final plan = buildPlan(repeatRule: RepeatRule.weekly({Weekday.monday}));
+        final occurrence = buildOccurrence(
+          id: 'plan-1:20640:420',
+          platformAlarmId: 'native-pending-off',
+          status: AlarmOccurrenceStatus.userDisablePending,
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan]
+          ..storedOccurrences = [occurrence]
+          ..failSaveAlarmOccurrencesAtCalls.add(1);
+        final gateway = FakeNativeAlarmGateway()
+          ..inventoryRows.add(
+            NativeAlarmInventoryRow(
+              reservationId: occurrence.id,
+              occurrenceId: occurrence.id,
+              wakePlanId: plan.id,
+              platformAlarmId: occurrence.platformAlarmId!,
+              status: NativeAlarmReservationStatus.scheduled,
+            ),
+          );
+
+        final failedPersistence = await service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 1,
+        ).reconcileSchedules();
+
+        expect(
+          failedPersistence.single.status,
+          WakePlanSchedulingStatus.recoveryRequired,
+        );
+        expect(
+          failedPersistence.single.databaseState,
+          WakePlanDatabaseState.unknown,
+        );
+        expect(failedPersistence.single.persistenceError, isNotNull);
+        expect(
+          failedPersistence.single.occurrences
+              .singleWhere((item) => item.id == occurrence.id)
+              .status,
+          AlarmOccurrenceStatus.userDisablePending,
+        );
+        expect(
+          store.storedOccurrences
+              .singleWhere((item) => item.id == occurrence.id)
+              .status,
+          AlarmOccurrenceStatus.userDisablePending,
+        );
+        expect(
+          gateway.inventoryRows.where(
+            (row) => row.occurrenceId == occurrence.id,
+          ),
+          isEmpty,
+        );
+
+        final afterRestart = await service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 1,
+        ).reconcileSchedules();
+
+        expect(afterRestart.single.status, WakePlanSchedulingStatus.scheduled);
+        expect(afterRestart.single.persistenceError, isNull);
+        expect(
+          store.storedOccurrences
+              .singleWhere((item) => item.id == occurrence.id)
+              .status,
+          AlarmOccurrenceStatus.userDisabled,
+        );
+        expect(
+          gateway.scheduledRequests.where(
+            (request) => request.occurrenceId == occurrence.id,
+          ),
+          isEmpty,
+        );
+      },
+    );
+
+    test(
       'restores on when uncertain cancellation off intent cannot persist',
       () async {
         final plan = buildPlan();
@@ -1792,6 +1873,146 @@ void main() {
   });
 
   group('WakePlanService editPlan', () {
+    for (final scenario
+        in <
+          ({
+            String name,
+            Object error,
+            bool applyNativeSideEffect,
+            bool failRestorationPersistence,
+          })
+        >[
+          (
+            name: 'throws before its side effect',
+            error: StateError('injected pre-schedule response exception'),
+            applyNativeSideEffect: false,
+            failRestorationPersistence: false,
+          ),
+          (
+            name: 'throws after its side effect',
+            error: StateError('injected post-schedule response exception'),
+            applyNativeSideEffect: true,
+            failRestorationPersistence: false,
+          ),
+          (
+            name:
+                'returns a malformed response after its side effect and persistence fails',
+            error: const FormatException(
+              'injected malformed schedule response',
+            ),
+            applyNativeSideEffect: true,
+            failRestorationPersistence: true,
+          ),
+        ]) {
+      test(
+        'restores the prior plan when partial-cancel compensation ${scenario.name}',
+        () async {
+          final originalPlan = buildPlan(
+            repeatRule: RepeatRule.weekly({Weekday.monday}),
+          );
+          final editedPlan = buildPlan(
+            targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+              hour: 7,
+              minute: 30,
+            ),
+            repeatRule: RepeatRule.weekly({Weekday.monday}),
+          );
+          final first = buildOccurrence(
+            id: 'plan-1:20640:415',
+            time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 55),
+            platformAlarmId: 'native-old-1',
+          );
+          final second = buildOccurrence(
+            id: 'plan-1:20640:420',
+            platformAlarmId: 'native-old-2',
+          );
+          final store = _LoggingWakePlanServiceStore(currentPlan: originalPlan)
+            ..wakePlans = [originalPlan]
+            ..reservedOccurrences = [first, second]
+            ..storedOccurrences = [first, second];
+          if (scenario.failRestorationPersistence) {
+            store.failSaveAlarmOccurrencesAtCalls.add(2);
+          }
+          final gateway =
+              _OneShotRestorationExceptionGateway(
+                  error: scenario.error,
+                  applyNativeSideEffect: scenario.applyNativeSideEffect,
+                )
+                ..cancelFailurePlatformAlarmIds.add(second.platformAlarmId!)
+                ..inventoryRows.addAll([
+                  NativeAlarmInventoryRow(
+                    reservationId: first.id,
+                    occurrenceId: first.id,
+                    wakePlanId: originalPlan.id,
+                    platformAlarmId: first.platformAlarmId!,
+                    status: NativeAlarmReservationStatus.scheduled,
+                  ),
+                  NativeAlarmInventoryRow(
+                    reservationId: second.id,
+                    occurrenceId: second.id,
+                    wakePlanId: originalPlan.id,
+                    platformAlarmId: second.platformAlarmId!,
+                    status: NativeAlarmReservationStatus.scheduled,
+                  ),
+                ]);
+
+          final result = await service(
+            store: store,
+            gateway: gateway,
+            rollingScheduleDays: 1,
+          ).editPlan(editedPlan);
+
+          expect(result.status, WakePlanSchedulingStatus.recoveryRequired);
+          expect(result.changeState, WakePlanChangeState.recoveryRequired);
+          expect(result.compensationScheduleResult!.isSuccess, isFalse);
+          expect(
+            result.databaseState,
+            scenario.failRestorationPersistence
+                ? WakePlanDatabaseState.unknown
+                : WakePlanDatabaseState.persisted,
+          );
+          expect(
+            result.persistenceError,
+            scenario.failRestorationPersistence ? isNotNull : isNull,
+          );
+          expect(store.currentPlan!.targetTime, originalPlan.targetTime);
+          final compensationSave = store.operations.indexOf(
+            'saveAlarmOccurrences:1',
+          );
+          final previousPlanSave = store.operations.lastIndexOf(
+            'saveWakePlan:plan-1',
+          );
+          expect(compensationSave, greaterThanOrEqualTo(0));
+          expect(previousPlanSave, greaterThan(compensationSave));
+
+          final reconciliation = await service(
+            store: store,
+            gateway: gateway,
+            rollingScheduleDays: 1,
+          ).reconcileSchedules();
+
+          expect(
+            reconciliation.single.status,
+            WakePlanSchedulingStatus.scheduled,
+          );
+          expect(store.currentPlan!.targetTime, originalPlan.targetTime);
+          expect(gateway.inventoryRows.map((row) => row.occurrenceId).toSet(), {
+            'plan-1:20640:405',
+            'plan-1:20640:410',
+            'plan-1:20640:415',
+            'plan-1:20640:420',
+          });
+          expect(gateway.inventoryRows, hasLength(4));
+          expect(
+            gateway.scheduledRequests.where(
+              (request) => request.occurrenceId == first.id,
+            ),
+            scenario.applyNativeSideEffect ? hasLength(2) : hasLength(1),
+          );
+        },
+      );
+    }
+
     test(
       'persists pending plan, cancels old future alarms, then schedules new occurrences',
       () async {
@@ -3563,6 +3784,31 @@ class _PostSideEffectThrowingGateway extends FakeNativeAlarmGateway {
       throw StateError('injected post-schedule response exception');
     }
     return result;
+  }
+}
+
+class _OneShotRestorationExceptionGateway extends FakeNativeAlarmGateway {
+  _OneShotRestorationExceptionGateway({
+    required this.error,
+    required this.applyNativeSideEffect,
+  });
+
+  final Object error;
+  final bool applyNativeSideEffect;
+  var _didThrow = false;
+
+  @override
+  Future<ScheduleResult> scheduleOccurrences(
+    List<NativeAlarmScheduleRequest> occurrences,
+  ) async {
+    if (_didThrow) {
+      return super.scheduleOccurrences(occurrences);
+    }
+    _didThrow = true;
+    if (applyNativeSideEffect) {
+      await super.scheduleOccurrences(occurrences);
+    }
+    throw error;
   }
 }
 

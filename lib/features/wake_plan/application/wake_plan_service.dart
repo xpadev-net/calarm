@@ -1064,6 +1064,13 @@ class WakePlanService {
     };
     final desiredBundle = _buildOccurrenceBundle(plan: plan, now: now);
     if (desiredBundle.occurrences.isEmpty) {
+      if (pendingDisableReconciliation.hasUnresolved) {
+        return _pendingDisableRecoveryResult(
+          plan: plan,
+          occurrences: existingOccurrences,
+          persistenceError: pendingDisableReconciliation.persistenceError,
+        );
+      }
       if (plan.skipNextDate != null) {
         return _successfulReconciliationResult(
           plan: plan,
@@ -1113,6 +1120,7 @@ class WakePlanService {
           occurrences: desiredBundle.occurrences
               .map((desired) => existingById[desired.id] ?? desired)
               .toList(growable: false),
+          persistenceError: pendingDisableReconciliation.persistenceError,
         );
       }
       return _successfulReconciliationResult(
@@ -1132,9 +1140,13 @@ class WakePlanService {
       scheduleResult: scheduleResult,
       updatedAt: now,
     );
-    final persistenceError = await _trySaveAlarmOccurrences(
+    final schedulePersistenceError = await _trySaveAlarmOccurrences(
       completedOccurrences,
     );
+    final persistenceError = _firstPersistenceError([
+      pendingDisableReconciliation.persistenceError,
+      schedulePersistenceError,
+    ]);
 
     final completedById = {
       for (final occurrence in completedOccurrences) occurrence.id: occurrence,
@@ -1290,21 +1302,24 @@ class WakePlanService {
               original.updatedAt != occurrence.updatedAt;
         })
         .toList(growable: false);
+    String? persistenceError;
     if (changed.isNotEmpty) {
-      final persistenceError = await _trySaveAlarmOccurrences(changed);
+      persistenceError = await _trySaveAlarmOccurrences(changed);
       if (persistenceError != null) {
         hasUnresolved = true;
       }
     }
     return _PendingDisableReconciliation(
-      occurrences: reconciled,
+      occurrences: persistenceError == null ? reconciled : occurrences,
       hasUnresolved: hasUnresolved,
+      persistenceError: persistenceError,
     );
   }
 
   WakePlanSchedulingResult _pendingDisableRecoveryResult({
     required WakePlan plan,
     required List<AlarmOccurrence> occurrences,
+    String? persistenceError,
   }) {
     return WakePlanSchedulingResult(
       wakePlanId: plan.id,
@@ -1315,8 +1330,14 @@ class WakePlanService {
         results: const [],
       ),
       occurrences: occurrences,
+      databaseState: persistenceError == null
+          ? WakePlanDatabaseState.persisted
+          : WakePlanDatabaseState.unknown,
+      persistenceError: persistenceError,
       warning: WakePlanSchedulingWarning.recoveryRequired(
-        'An alarm is still being turned off; recovery is required.',
+        persistenceError == null
+            ? 'An alarm is still being turned off; recovery is required.'
+            : 'The completed alarm cancellation could not be persisted; recovery is required.',
       ),
     );
   }
@@ -1773,9 +1794,34 @@ class WakePlanService {
         persistenceError: persistenceError,
       );
     }
-    final scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(
-      restorationRequests,
-    );
+    ScheduleResult scheduleResult;
+    try {
+      scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(
+        restorationRequests,
+      );
+    } catch (error) {
+      scheduleResult = ScheduleResult.fromOccurrences([
+        for (final occurrence in pendingOccurrences)
+          ScheduleOccurrenceResult.failure(
+            occurrenceId: occurrence.id,
+            wakePlanId: occurrence.wakePlanId,
+            reason: ScheduleFailureReason.nativeError,
+            message: 'Native alarm restoration response was uncertain: $error',
+          ),
+      ]);
+      final persistenceError = await _trySaveAlarmOccurrences(
+        pendingOccurrences,
+      );
+      return _RestorationResult(
+        scheduleResult: scheduleResult,
+        occurrences: _mergeOccurrenceStates(
+          preservedSuppressions,
+          pendingOccurrences,
+        ),
+        databaseStateKnown: persistenceError == null,
+        persistenceError: persistenceError,
+      );
+    }
     final restoredOccurrences = _applyScheduleResult(
       occurrences: pendingOccurrences,
       scheduleResult: scheduleResult,
@@ -2061,10 +2107,12 @@ class _PendingDisableReconciliation {
   const _PendingDisableReconciliation({
     required this.occurrences,
     required this.hasUnresolved,
+    this.persistenceError,
   });
 
   final List<AlarmOccurrence> occurrences;
   final bool hasUnresolved;
+  final String? persistenceError;
 }
 
 enum AlarmOccurrenceToggleStatus {
