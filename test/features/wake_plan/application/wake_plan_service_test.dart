@@ -1595,6 +1595,16 @@ void main() {
                 ),
               ),
               (
+                name: 'past-scheduled-null',
+                plan: buildPlan(),
+                occurrence: buildOccurrence(
+                  id: 'plan-1:20640:330',
+                  time: TimeOfDayMinutes.fromHourMinute(hour: 5, minute: 30),
+                  status: AlarmOccurrenceStatus.scheduled,
+                  platformAlarmId: null,
+                ),
+              ),
+              (
                 name: 'finished-plan',
                 plan: buildPlan(status: WakePlanStatus.finished),
                 occurrence: buildOccurrence(
@@ -1643,6 +1653,134 @@ void main() {
             reason: scenario.name,
           );
         }
+      },
+    );
+
+    test(
+      'isolates a mixed one-time recovery batch with canonical metadata',
+      () async {
+        final plan = buildPlan();
+        final pendingOff = buildOccurrence(
+          id: 'plan-1:20640:405',
+          time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 45),
+          status: AlarmOccurrenceStatus.userDisablePending,
+          platformAlarmId: 'native-pending-off',
+        );
+        final desiredOn = buildOccurrence(
+          id: 'plan-1:20640:415',
+          time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 55),
+          status: AlarmOccurrenceStatus.scheduled,
+          platformAlarmId: null,
+        );
+        final unrelated = buildOccurrence(
+          id: 'plan-1:unrelated',
+          time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 50),
+          status: AlarmOccurrenceStatus.scheduled,
+          platformAlarmId: null,
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan]
+          ..storedOccurrences = [pendingOff, desiredOn, unrelated];
+        final gateway = FakeNativeAlarmGateway()
+          ..inventoryRows.addAll([
+            NativeAlarmInventoryRow(
+              reservationId: pendingOff.id,
+              occurrenceId: pendingOff.id,
+              wakePlanId: plan.id,
+              platformAlarmId: pendingOff.platformAlarmId!,
+              status: NativeAlarmReservationStatus.scheduled,
+            ),
+            NativeAlarmInventoryRow(
+              reservationId: desiredOn.id,
+              occurrenceId: desiredOn.id,
+              wakePlanId: plan.id,
+              platformAlarmId: 'platform-${desiredOn.id}',
+              status: NativeAlarmReservationStatus.scheduled,
+            ),
+            NativeAlarmInventoryRow(
+              reservationId: unrelated.id,
+              occurrenceId: unrelated.id,
+              wakePlanId: plan.id,
+              platformAlarmId: 'stale-unrelated-a',
+              status: NativeAlarmReservationStatus.scheduled,
+            ),
+            NativeAlarmInventoryRow(
+              reservationId: unrelated.id,
+              occurrenceId: unrelated.id,
+              wakePlanId: plan.id,
+              platformAlarmId: 'stale-unrelated-b',
+              status: NativeAlarmReservationStatus.scheduled,
+            ),
+          ]);
+
+        final reconciled = await service(
+          store: store,
+          gateway: gateway,
+        ).reconcileSchedules();
+
+        expect(reconciled, hasLength(1));
+        expect(
+          gateway.cancelledOccurrences.map((request) => request.occurrenceId),
+          [pendingOff.id],
+        );
+        expect(
+          gateway.scheduledRequests.map((request) => request.occurrenceId),
+          [desiredOn.id],
+        );
+        expect(gateway.scheduledRequests.single.reservationId, desiredOn.id);
+        expect(gateway.scheduledRequests.single.indexInPlan, 2);
+        expect(gateway.scheduledRequests.single.totalInPlan, 4);
+        expect(
+          gateway.scheduledRequests.single.targetAt,
+          DateTime(2026, 7, 6, 7),
+        );
+        expect(
+          gateway.scheduledRequests.map((request) => request.occurrenceId),
+          isNot(contains('plan-1:20640:410')),
+        );
+        expect(
+          gateway.scheduledRequests.map((request) => request.occurrenceId),
+          isNot(contains('plan-1:20640:420')),
+        );
+
+        final storedById = {
+          for (final occurrence in store.storedOccurrences)
+            occurrence.id: occurrence,
+        };
+        expect(
+          storedById[pendingOff.id]!.status,
+          AlarmOccurrenceStatus.userDisabled,
+        );
+        expect(storedById[pendingOff.id]!.platformAlarmId, isNull);
+        expect(
+          storedById[desiredOn.id]!.status,
+          AlarmOccurrenceStatus.scheduled,
+        );
+        expect(
+          storedById[desiredOn.id]!.platformAlarmId,
+          'platform-${desiredOn.id}',
+        );
+        expect(storedById[unrelated.id]!.status, unrelated.status);
+        expect(storedById[unrelated.id]!.platformAlarmId, isNull);
+
+        expect(
+          gateway.inventoryRows.where(
+            (row) => row.occurrenceId == pendingOff.id,
+          ),
+          isEmpty,
+        );
+        expect(
+          gateway.inventoryRows.where(
+            (row) => row.occurrenceId == desiredOn.id,
+          ),
+          hasLength(1),
+        );
+        expect(
+          gateway.inventoryRows
+              .where((row) => row.occurrenceId == unrelated.id)
+              .map((row) => row.platformAlarmId),
+          ['stale-unrelated-a', 'stale-unrelated-b'],
+        );
       },
     );
 
