@@ -54,6 +54,9 @@
 ## Tasks
 
 ### Task_1: Restore device pinch zoom
+- status: in_progress
+- worker_thread: `019f693a-17e4-7090-b2fb-e4665e77961c`
+- branch: `codex/task-1-calendar-pinch`
 - type: impl
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_view.dart`
@@ -85,6 +88,9 @@
     detail: Deep review, gh-review-hook exit 0, PR merge-gate preflight, and focused rerun before merge.
 
 ### Task_2: Add persistent per-occurrence alarm toggles
+- status: in_progress
+- worker_thread: `019f693a-17b1-78c3-8a0e-30a8ae7c911b`
+- branch: `codex/task-2-occurrence-toggles`
 - type: impl
 - owns:
   - `lib/features/wake_plan/domain/src/alarm_occurrence.dart`
@@ -124,6 +130,7 @@
     detail: Deep review emphasizing reconciliation/state-machine failure paths, gh-review-hook exit 0, and focused rerun before merge.
 
 ### Task_3: Prevent calendar layout shift and recenter only on lifecycle return
+- status: unstarted
 - type: impl
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_view.dart`
@@ -159,6 +166,7 @@
     detail: Deep review, gh-review-hook exit 0, focused rerun, and layout/scroll state evidence before merge.
 
 ### Task_4: Render and resize short ranges exactly
+- status: unstarted
 - type: impl
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_view.dart`
@@ -190,6 +198,7 @@
     detail: Deep review, gh-review-hook exit 0, geometry assertions, and focused rerun before merge.
 
 ### Task_5: Add direct start/end date-time editing
+- status: unstarted
 - type: impl
 - owns:
   - `lib/features/week_calendar/model/week_calendar_interaction.dart`
@@ -226,6 +235,7 @@
     detail: Deep review, gh-review-hook exit 0, model/widget reruns, and focused UI evidence before merge.
 
 ### Task_6: Integrated independent UI and regression review
+- status: unstarted
 - type: review
 - owns: []
 - depends_on: [Task_2, Task_4, Task_5]
@@ -302,6 +312,10 @@
   - Summary: Synced merged PR #50, mapped six requested behaviors, and split work to avoid simultaneous ownership of central calendar files.
   - Validation evidence: Read-only Researcher report with file/symbol anchors, current PR state from `gh`, clean tracked master after fast-forward.
   - Notes: Existing untracked `artifacts/` and completed-plan/report files belong to the user and are excluded from this plan commit.
+- 2026-07-16 Wave 1 started: [Task_1, Task_2]
+  - Summary: Created two separate Codex worktree workers with disjoint calendar-view and wake-plan occurrence ownership.
+  - Validation evidence: Both worker threads remained active after startup/onboarding and reported clean worktrees at the plan baseline.
+  - Notes: Task_1 thread `019f693a-17e4-7090-b2fb-e4665e77961c`; Task_2 thread `019f693a-17b1-78c3-8a0e-30a8ae7c911b`.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
