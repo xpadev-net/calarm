@@ -598,11 +598,32 @@ class WakePlanService {
     for (final plan in plans) {
       if (!plan.isEnabled ||
           plan.isDeleted ||
-          plan.status == WakePlanStatus.finished ||
-          plan.repeatRule.type != RepeatType.weekly) {
+          plan.status == WakePlanStatus.finished) {
         continue;
       }
-      results.add(await _reconcilePlan(plan: plan, now: now));
+      if (plan.repeatRule.type == RepeatType.weekly) {
+        results.add(await _reconcilePlan(plan: plan, now: now));
+        continue;
+      }
+
+      final persistedOccurrences = await _store.fetchOccurrencesForPlan(
+        plan.id,
+      );
+      final recoveryOccurrenceIds = persistedOccurrences
+          .where((occurrence) => _isEligibleRecoveryMarker(occurrence, now))
+          .map((occurrence) => occurrence.id)
+          .toSet();
+      if (recoveryOccurrenceIds.isEmpty) {
+        continue;
+      }
+      results.add(
+        await _reconcilePlan(
+          plan: plan,
+          now: now,
+          persistedOccurrences: persistedOccurrences,
+          scheduleCandidateIds: recoveryOccurrenceIds,
+        ),
+      );
     }
 
     return results;
@@ -1053,9 +1074,12 @@ class WakePlanService {
   Future<WakePlanSchedulingResult> _reconcilePlan({
     required WakePlan plan,
     required DateTime now,
+    List<AlarmOccurrence>? persistedOccurrences,
+    Set<String>? scheduleCandidateIds,
   }) async {
     final pendingDisableReconciliation = await _reconcilePendingDisables(
-      occurrences: await _store.fetchOccurrencesForPlan(plan.id),
+      occurrences:
+          persistedOccurrences ?? await _store.fetchOccurrencesForPlan(plan.id),
       now: now,
     );
     final existingOccurrences = pendingDisableReconciliation.occurrences;
@@ -1091,6 +1115,10 @@ class WakePlanService {
             return null;
           }
           if (_hasValidNativeReservation(existing, desired, now)) {
+            return null;
+          }
+          if (scheduleCandidateIds != null &&
+              !scheduleCandidateIds.contains(desired.id)) {
             return null;
           }
           if (existing == null) {
@@ -1192,6 +1220,15 @@ class WakePlanService {
           ? WakePlanSchedulingWarning.scheduleFailed(scheduleResult)
           : null,
     );
+  }
+
+  bool _isEligibleRecoveryMarker(AlarmOccurrence occurrence, DateTime now) {
+    if (occurrence.scheduledAt.toDateTime().isBefore(now)) {
+      return false;
+    }
+    return occurrence.status == AlarmOccurrenceStatus.userDisablePending ||
+        (occurrence.status == AlarmOccurrenceStatus.scheduled &&
+            !occurrence.hasNativeReservation);
   }
 
   bool _hasValidNativeReservation(
