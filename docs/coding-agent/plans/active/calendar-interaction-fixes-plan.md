@@ -99,9 +99,11 @@
   - `lib/features/wake_plan/data/src/wake_plan_database.dart`
   - `lib/features/wake_plan/data/src/wake_plan_database.g.dart`
   - `lib/features/wake_plan/ui/wake_plan_detail_sheet.dart`
+  - `lib/features/week_calendar/presentation/week_calendar_placeholder.dart`
   - `test/features/wake_plan/application/wake_plan_service_test.dart`
   - `test/features/wake_plan/data/wake_plan_repository_test.dart`
   - `test/features/wake_plan/ui/wake_plan_detail_sheet_test.dart`
+  - `test/features/week_calendar/presentation/week_calendar_placeholder_test.dart`
 - depends_on: []
 - description: |
   Add a user-disabled occurrence state that survives restart/reconciliation, service-level enable/disable compensation around the native gateway, and switches for eligible concrete occurrences in the tapped plan detail sheet.
@@ -115,7 +117,7 @@
   - kind: command
     required: true
     owner: worker
-    detail: `rtk fvm flutter test test/features/wake_plan/application/wake_plan_service_test.dart test/features/wake_plan/data/wake_plan_repository_test.dart test/features/wake_plan/ui/wake_plan_detail_sheet_test.dart`
+    detail: `rtk fvm flutter test test/features/wake_plan/application/wake_plan_service_test.dart test/features/wake_plan/data/wake_plan_repository_test.dart test/features/wake_plan/ui/wake_plan_detail_sheet_test.dart test/features/week_calendar/presentation/week_calendar_placeholder_test.dart`
   - kind: command
     required: true
     owner: worker
@@ -316,6 +318,10 @@
   - Summary: Created two separate Codex worktree workers with disjoint calendar-view and wake-plan occurrence ownership.
   - Validation evidence: Both worker threads remained active after startup/onboarding and reported clean worktrees at the plan baseline.
   - Notes: Task_1 thread `019f693a-17e4-7090-b2fb-e4665e77961c`; Task_2 thread `019f693a-17b1-78c3-8a0e-30a8ae7c911b`.
+- 2026-07-16 Task_2 ownership expanded: [Task_2]
+  - Summary: Added the existing calendar placeholder wiring file and its focused test so the detail sheet can receive concrete occurrences and service toggle callbacks.
+  - Validation evidence: Worker baseline focused suite passed 84 tests; investigation showed the production service is owned and callbacks are wired only by `WeekCalendarPlaceholder`.
+  - Notes: No Task_2 product files had been changed before this decision; Task_1 owns only the calendar view, and Task_3/5 remain unstarted, so no active ownership conflict is introduced.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
@@ -334,6 +340,11 @@
   - Plan delta (what changed): Require DST-aware tests/documented limitation without broad timezone migration.
   - Tradeoffs considered: Full timezone disambiguation would materially broaden schema and product scope.
   - User approval: no additional approval needed; non-goal recorded.
+- 2026-07-16 Decision: Expand Task_2 for caller wiring instead of splitting.
+  - Trigger / new insight: `WakePlanDetailSheet` has no service access, while `_openDetailSheet` in `WeekCalendarPlaceholder` owns `WakePlanService` and all production callback wiring.
+  - Plan delta (what changed): Added `week_calendar_placeholder.dart` and its focused test to Task_2 ownership and validation.
+  - Tradeoffs considered: A separate integration PR would temporarily land an unusable service/UI contract and add dependency/merge overhead; keeping the single caller seam atomic is smaller and safer. Global/circular imports and test-only callbacks were rejected.
+  - User approval: covered by the approved orchestration scope; no product behavior or acceptance criteria changed.
 
 ## Notes
 - Risks:
