@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.util.Log
 
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -21,11 +22,61 @@ class AlarmReceiver : BroadcastReceiver() {
             !request.hasCanonicalPlatformAlarmId()
         ) return
         if (!store.markRinging(platformAlarmId)) return
-        showAlarmNotification(context, platformAlarmId)
-        openAlarmScreen(context, platformAlarmId)
-        if (request.vibrationEnabled) {
-            vibrate(context)
+        deliverAlarm(
+            store = store,
+            platformAlarmId = platformAlarmId,
+            notification = { showAlarmNotification(context, platformAlarmId) },
+            screen = { openAlarmScreen(context, platformAlarmId) },
+            vibration = if (request.vibrationEnabled) ({ vibrate(context) }) else null,
+        )
+    }
+
+    internal fun deliverAlarm(
+        store: AlarmStore,
+        platformAlarmId: String,
+        notification: () -> Unit,
+        screen: () -> Unit,
+        vibration: (() -> Unit)?,
+    ) {
+        if (deliverFallbacks(notification, screen, vibration)) return
+        if (!store.remove(platformAlarmId)) {
+            Log.e(TAG, "Failed to remove an undeliverable ringing alarm from native storage.")
         }
+    }
+
+    internal fun deliverFallbacks(
+        notification: () -> Unit,
+        screen: () -> Unit,
+        vibration: (() -> Unit)?,
+    ): Boolean {
+        var delivered = false
+        try {
+            notification()
+            delivered = true
+        } catch (error: SecurityException) {
+            Log.w(TAG, "Notification permission was revoked while delivering an alarm.", error)
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "Alarm notification delivery failed.", error)
+        }
+        try {
+            screen()
+            delivered = true
+        } catch (error: SecurityException) {
+            Log.w(TAG, "Full-screen alarm access was revoked while delivering an alarm.", error)
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "Alarm screen delivery failed.", error)
+        }
+        if (vibration != null) {
+            try {
+                vibration()
+                delivered = true
+            } catch (error: SecurityException) {
+                Log.w(TAG, "Vibration permission was unavailable while delivering an alarm.", error)
+            } catch (error: RuntimeException) {
+                Log.w(TAG, "Alarm vibration failed.", error)
+            }
+        }
+        return delivered
     }
 
     private fun showAlarmNotification(context: Context, platformAlarmId: String) {
@@ -58,12 +109,7 @@ class AlarmReceiver : BroadcastReceiver() {
     }
 
     private fun openAlarmScreen(context: Context, platformAlarmId: String) {
-        try {
-            context.startActivity(AlarmIntents.stopActivityIntent(context, platformAlarmId))
-        } catch (_: RuntimeException) {
-            // Keep the full-screen notification pending intent as the supported
-            // fallback when the OS blocks a background activity launch.
-        }
+        context.startActivity(AlarmIntents.stopActivityIntent(context, platformAlarmId))
     }
 
     private fun vibrate(context: Context) {
@@ -79,5 +125,9 @@ class AlarmReceiver : BroadcastReceiver() {
             @Suppress("DEPRECATION")
             vibrator.vibrate(1_000)
         }
+    }
+
+    private companion object {
+        const val TAG = "CalarmAlarmReceiver"
     }
 }

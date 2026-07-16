@@ -16,53 +16,107 @@ class MethodChannelNativeAlarmGateway implements NativeAlarmGateway {
 
   @override
   Future<NativeAlarmCapability> getCapability() async {
-    final response = await _invokeMap('getCapability', _basePayload());
-    _verifySchemaVersion(response);
-    return NativeAlarmCapability(
-      permissionStatus: _permissionStatus(
-        _requiredString(response, 'permissionStatus'),
-      ),
-      canScheduleAlarms: _requiredBool(response, 'canScheduleAlarms'),
-      canRequestPermission: _requiredBool(response, 'canRequestPermission'),
-      maxPendingAlarms: _optionalInt(response, 'maxPendingAlarms'),
-      requiresExactAlarmPermission: _optionalBool(
-        response,
-        'requiresExactAlarmPermission',
-      ),
-      requiresNotificationPermission: _optionalBool(
-        response,
-        'requiresNotificationPermission',
-      ),
-      requiresFullScreenIntentPermission: _optionalBool(
-        response,
-        'requiresFullScreenIntentPermission',
-      ),
-      requiresNotificationChannelSetup: _optionalBool(
-        response,
-        'requiresNotificationChannelSetup',
-      ),
-      supportsTestAlarm: _optionalBool(
-        response,
-        'supportsTestAlarm',
-        defaultValue: true,
-      ),
-      supportsInventory: _optionalBool(response, 'supportsInventory'),
-    );
+    try {
+      final response = await _invokeMap('getCapability', _basePayload());
+      _verifySchemaVersion(response);
+      return NativeAlarmCapability(
+        permissionStatus: _permissionStatus(
+          _requiredString(response, 'permissionStatus'),
+        ),
+        canScheduleAlarms: _requiredBool(response, 'canScheduleAlarms'),
+        canRequestPermission: _requiredBool(response, 'canRequestPermission'),
+        maxPendingAlarms: _optionalInt(response, 'maxPendingAlarms'),
+        requiresExactAlarmPermission: _optionalBool(
+          response,
+          'requiresExactAlarmPermission',
+        ),
+        requiresNotificationPermission: _optionalBool(
+          response,
+          'requiresNotificationPermission',
+        ),
+        requiresFullScreenIntentPermission: _optionalBool(
+          response,
+          'requiresFullScreenIntentPermission',
+        ),
+        requiresNotificationChannelSetup: _optionalBool(
+          response,
+          'requiresNotificationChannelSetup',
+        ),
+        supportsTestAlarm: _optionalBool(
+          response,
+          'supportsTestAlarm',
+          defaultValue: true,
+        ),
+        supportsInventory: _optionalBool(response, 'supportsInventory'),
+      );
+    } on MissingPluginException catch (error) {
+      throw NativeAlarmCapabilityException(
+        reason: NativeAlarmCapabilityFailureReason.unavailable,
+        message: error.message,
+      );
+    } on PlatformException catch (error) {
+      throw NativeAlarmCapabilityException(
+        reason: NativeAlarmCapabilityFailureReason.transport,
+        message: error.message ?? error.code,
+      );
+    } on FormatException catch (error) {
+      throw NativeAlarmCapabilityException(
+        reason: NativeAlarmCapabilityFailureReason.malformedResponse,
+        message: error.message,
+      );
+    } on ArgumentError catch (error) {
+      throw NativeAlarmCapabilityException(
+        reason: NativeAlarmCapabilityFailureReason.malformedResponse,
+        message: error.message?.toString(),
+      );
+    } on TypeError catch (error) {
+      throw NativeAlarmCapabilityException(
+        reason: NativeAlarmCapabilityFailureReason.malformedResponse,
+        message: error.toString(),
+      );
+    }
   }
 
   @override
   Future<NativeAlarmPermissionResult> requestPermission() async {
-    final response = await _invokeMap(
-      'requestPermissionIfNeeded',
-      _basePayload(),
-    );
-    _verifySchemaVersion(response);
-    return NativeAlarmPermissionResult(
-      status: _permissionRequestStatus(_requiredString(response, 'status')),
-      permissionStatus: _permissionStatus(
-        _requiredString(response, 'permissionStatus'),
-      ),
-    );
+    try {
+      final response = await _invokeMap(
+        'requestPermissionIfNeeded',
+        _basePayload(),
+      );
+      _verifySchemaVersion(response);
+      return NativeAlarmPermissionResult(
+        status: _permissionRequestStatus(_requiredString(response, 'status')),
+        permissionStatus: _permissionStatus(
+          _requiredString(response, 'permissionStatus'),
+        ),
+      );
+    } on MissingPluginException {
+      return const NativeAlarmPermissionResult(
+        status: NativeAlarmPermissionRequestStatus.unavailable,
+        permissionStatus: NativeAlarmPermissionStatus.unavailable,
+      );
+    } on PlatformException {
+      return const NativeAlarmPermissionResult(
+        status: NativeAlarmPermissionRequestStatus.unavailable,
+        permissionStatus: NativeAlarmPermissionStatus.unknown,
+      );
+    } on FormatException {
+      return const NativeAlarmPermissionResult(
+        status: NativeAlarmPermissionRequestStatus.unavailable,
+        permissionStatus: NativeAlarmPermissionStatus.unknown,
+      );
+    } on ArgumentError {
+      return const NativeAlarmPermissionResult(
+        status: NativeAlarmPermissionRequestStatus.unavailable,
+        permissionStatus: NativeAlarmPermissionStatus.unknown,
+      );
+    } on TypeError {
+      return const NativeAlarmPermissionResult(
+        status: NativeAlarmPermissionRequestStatus.unavailable,
+        permissionStatus: NativeAlarmPermissionStatus.unknown,
+      );
+    }
   }
 
   @override
@@ -84,6 +138,12 @@ class MethodChannelNativeAlarmGateway implements NativeAlarmGateway {
         requests: occurrences,
         results: results,
       );
+    } on MissingPluginException catch (error) {
+      return _scheduleFailureForRequests(
+        occurrences,
+        ScheduleFailureReason.unavailable,
+        error.message,
+      );
     } on PlatformException catch (error) {
       return ScheduleResult.fromRequestResults(
         requests: occurrences,
@@ -98,6 +158,24 @@ class MethodChannelNativeAlarmGateway implements NativeAlarmGateway {
               ),
             )
             .toList(),
+      );
+    } on FormatException catch (error) {
+      return _scheduleFailureForRequests(
+        occurrences,
+        ScheduleFailureReason.nativeError,
+        error.message,
+      );
+    } on ArgumentError catch (error) {
+      return _scheduleFailureForRequests(
+        occurrences,
+        ScheduleFailureReason.nativeError,
+        error.message?.toString(),
+      );
+    } on TypeError catch (error) {
+      return _scheduleFailureForRequests(
+        occurrences,
+        ScheduleFailureReason.nativeError,
+        error.toString(),
       );
     }
   }
@@ -139,10 +217,30 @@ class MethodChannelNativeAlarmGateway implements NativeAlarmGateway {
         message: _optionalString(response, 'failureMessage'),
         platformAlarmId: _optionalString(response, 'platformAlarmId'),
       );
+    } on MissingPluginException catch (error) {
+      return TestAlarmScheduleResult.failure(
+        reason: ScheduleFailureReason.unavailable,
+        message: error.message,
+      );
     } on PlatformException catch (error) {
       return TestAlarmScheduleResult.failure(
         reason: _scheduleFailureReason(error.code),
         message: error.message,
+      );
+    } on FormatException catch (error) {
+      return TestAlarmScheduleResult.failure(
+        reason: ScheduleFailureReason.nativeError,
+        message: error.message,
+      );
+    } on ArgumentError catch (error) {
+      return TestAlarmScheduleResult.failure(
+        reason: ScheduleFailureReason.nativeError,
+        message: error.message?.toString(),
+      );
+    } on TypeError catch (error) {
+      return TestAlarmScheduleResult.failure(
+        reason: ScheduleFailureReason.nativeError,
+        message: error.toString(),
       );
     }
   }
@@ -204,6 +302,12 @@ class MethodChannelNativeAlarmGateway implements NativeAlarmGateway {
         requests: alarms,
         results: results,
       );
+    } on MissingPluginException catch (error) {
+      return _cancelFailureForRequests(
+        alarms,
+        CancelFailureReason.unavailable,
+        error.message,
+      );
     } on PlatformException catch (error) {
       return CancelResult.fromRequestResults(
         requests: alarms,
@@ -219,6 +323,24 @@ class MethodChannelNativeAlarmGateway implements NativeAlarmGateway {
             )
             .toList(),
       );
+    } on FormatException catch (error) {
+      return _cancelFailureForRequests(
+        alarms,
+        CancelFailureReason.nativeError,
+        error.message,
+      );
+    } on ArgumentError catch (error) {
+      return _cancelFailureForRequests(
+        alarms,
+        CancelFailureReason.nativeError,
+        error.message?.toString(),
+      );
+    } on TypeError catch (error) {
+      return _cancelFailureForRequests(
+        alarms,
+        CancelFailureReason.nativeError,
+        error.toString(),
+      );
     }
   }
 
@@ -229,6 +351,48 @@ class MethodChannelNativeAlarmGateway implements NativeAlarmGateway {
     final response = await _channel.invokeMethod<Object?>(method, arguments);
     return _asMap(response, '$method result');
   }
+}
+
+ScheduleResult _scheduleFailureForRequests(
+  List<NativeAlarmScheduleRequest> requests,
+  ScheduleFailureReason reason,
+  String? message,
+) {
+  return ScheduleResult.fromRequestResults(
+    requests: requests,
+    results: requests
+        .map(
+          (request) => ScheduleOccurrenceResult.failure(
+            occurrenceId: request.occurrenceId,
+            wakePlanId: request.wakePlanId,
+            reservationId: request.reservationId,
+            reason: reason,
+            message: message,
+          ),
+        )
+        .toList(),
+  );
+}
+
+CancelResult _cancelFailureForRequests(
+  List<NativeAlarmCancelRequest> requests,
+  CancelFailureReason reason,
+  String? message,
+) {
+  return CancelResult.fromRequestResults(
+    requests: requests,
+    results: requests
+        .map(
+          (request) => CancelAlarmResult.failure(
+            occurrenceId: request.occurrenceId,
+            platformAlarmId: request.platformAlarmId,
+            reservationId: request.reservationId,
+            reason: reason,
+            message: message,
+          ),
+        )
+        .toList(),
+  );
 }
 
 Map<String, Object?> _basePayload() {
