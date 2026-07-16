@@ -105,6 +105,8 @@
 - stop_reason: Exact-head independent review proved that an iOS lost MethodChannel schedule reply can leave an id-less `userEnablePending` row permanently hidden while an unknown native alarm remains live; an in-scope service-only retry can duplicate alarms and rejecting re-enable would violate acceptance.
 - prerequisite: `docs/coding-agent/plans/active/codebase-review-remediation-plan.md` Task_12 / PR #48 must merge stable reservation-to-platform identity plus authoritative iOS inventory before Task_2 resumes.
 - resume_action: Integrate the prerequisite merge normally, rerun the exact restart/native-state probe and focused suites, obtain fresh independent review, run worker/orchestrator hooks, and re-enter merge preflight.
+- stopped_worker_archived: true
+- pr_dependency_note: Confirmed in PR #52 description; no code/history change accompanied the metadata update.
 - type: impl
 - owns:
   - `lib/features/wake_plan/domain/src/alarm_occurrence.dart`
@@ -348,6 +350,7 @@
   - Summary: Exact-head review of PR #52 found that iOS reply loss can strand id-less `userEnablePending` state while a live native alarm may exist; Task_2 cannot satisfy recoverability without stable native identity and authoritative inventory.
   - Validation evidence: Head `381675108278333e08dfc12c739bec210936d308` remained clean/local-remote matched; focused four-suite validation passed 161 tests, analyze passed, and restart/reconciliation probe passed. Worker intentionally did not run the hook or claim merge-ready after the blocker was confirmed.
   - Decomposition: PR #52 stays stopped without iOS edits. The prerequisite is assigned to the existing non-overlapping native owner, codebase-remediation Task_12 / PR #48; Task_2 resumes only after that PR merges and all exact-head gates are rerun.
+  - Closeout: PR description now records the dependency and required post-prerequisite gates. Branch/local/remote remained exactly `381675108278333e08dfc12c739bec210936d308`, no hook or merge occurred, and replacement worker `019f6b02-c520-7601-a7f9-816e5b8112e7` was archived.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
