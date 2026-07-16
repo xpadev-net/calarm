@@ -92,6 +92,55 @@ void main() {
     },
   );
 
+  testWidgets(
+    'failed schedule ID is not cancelled before full tuple correlation',
+    (_) async {
+      const channel = MethodChannel(nativeAlarmChannelName);
+      var cancelCalls = 0;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            if (call.method == 'getInventory') {
+              return {
+                'schemaVersion': nativeAlarmChannelSchemaVersion,
+                'reservations': [
+                  {
+                    'reservationId': 'foreign-reservation',
+                    'occurrenceId': 'foreign-occurrence',
+                    'wakePlanId': 'foreign-plan',
+                    'platformAlarmId': 'failed-platform-id',
+                    'status': 'scheduled',
+                  },
+                ],
+              };
+            }
+            if (call.method == 'cancelOccurrences') {
+              cancelCalls++;
+              throw StateError('Uncorrelated cleanup must not cancel.');
+            }
+            throw MissingPluginException('Unexpected ${call.method}');
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
+
+      final verified = await _bestEffortCleanupTestAlarm(
+        gateway: MethodChannelNativeAlarmGateway(channel: channel),
+        occurrenceId: 'failed-occurrence',
+        reservationId: 'failed-reservation',
+        platformAlarmId: 'failed-platform-id',
+        expectedWakePlanId: 'failed-plan',
+        allowPlatformIdTupleDiscovery: false,
+        platform: 'test',
+        evidenceLabel: 'TEST',
+        cleanupLabel: 'failedSchedule',
+      );
+
+      expect(verified, isFalse);
+      expect(cancelCalls, 0);
+    },
+  );
+
   testWidgets('native alarm MethodChannel smoke', (_) async {
     final gateway = MethodChannelNativeAlarmGateway();
     const platform = String.fromEnvironment(
@@ -120,6 +169,14 @@ void main() {
       'supportsTestAlarm': capability.supportsTestAlarm,
       'supportsInventory': capability.supportsInventory,
     });
+    if (platform.toLowerCase().contains('ios')) {
+      expect(
+        capability.supportsInventory,
+        isTrue,
+        reason:
+            'The production iOS MethodChannel must expose authoritative inventory for lost-reply reconciliation.',
+      );
+    }
 
     final scheduleRequest = NativeAlarmScheduleRequest(
       occurrenceId: 'ci-smoke-occurrence',
@@ -206,7 +263,7 @@ void main() {
         );
       }
 
-      if (scheduledPlatformAlarmId != null) {
+      if (scheduleSucceeded && scheduledPlatformAlarmId != null) {
         final cancelResult = await gateway
             .cancelOccurrences([
               NativeAlarmCancelRequest(
