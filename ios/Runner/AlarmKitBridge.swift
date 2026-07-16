@@ -925,6 +925,7 @@ final class AlarmKitBridge {
     nativeClient ?? SystemAlarmKitClient()
   }
 
+  @available(iOS 26.0, *)
   private func restoreRequiredNativeConfigurations(
     in snapshot: MirrorSnapshot,
     restrictedTo platformAlarmIds: Set<String>? = nil
