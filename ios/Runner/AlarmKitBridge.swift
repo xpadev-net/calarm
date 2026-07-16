@@ -804,6 +804,23 @@ final class AlarmKitBridge {
             mirror.removeValue(forKey: platformAlarmId)
             pendingMirror[platformAlarmId] = previousRecord.requiringNativeRestoration()
             try? saveMirrorState(mirror, pending: pendingMirror)
+
+            // Use the durable recovery path immediately as a final bounded
+            // restoration attempt. This closes the double-failure window for
+            // transient native errors without inventing an unbounded retry;
+            // if AlarmKit remains unavailable, the same pending record stays
+            // fail-closed for restart/inventory recovery.
+            if let recovery = try? await restoreRequiredNativeConfigurations(
+              in: loadMirrorSnapshot(),
+              restrictedTo: Set([platformAlarmId])
+            ), recovery.didRestore {
+              return ScheduleRow(
+                status: "failure",
+                platformAlarmId: platformAlarmId,
+                failureReason: "nativeError",
+                failureMessage: error.localizedDescription
+              )
+            }
             return ScheduleRow(
               status: "failure",
               platformAlarmId: nil,
