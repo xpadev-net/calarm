@@ -782,6 +782,22 @@ final class AlarmKitBridge {
         pendingMirror.removeValue(forKey: platformAlarmId)
 
         if !existing.matches(request) {
+          // A complete pending row can represent an initial schedule that
+          // mutated AlarmKit before its reply was lost. Native presence proves
+          // that old UUID is still the safe active alarm. Promote that exact
+          // tuple before journaling a replacement so every restart sees the
+          // old side in committed ownership and no stale pending row survives
+          // either commitNew() or retainOld().
+          if committedExisting == nil {
+            guard pendingExisting == existing,
+              existing.scheduleRequest() != nil
+            else {
+              throw MirrorValidationError.invalid
+            }
+            mirror[platformAlarmId] = existing
+            try saveMirrorState(mirror, pending: pendingMirror)
+          }
+
           // A replacement uses a distinct, durably journaled UUID. The old
           // alarm stays authoritative and native-present until the new alarm
           // is verified, so no finite native failure can create a missed-fire

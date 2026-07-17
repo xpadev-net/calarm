@@ -1268,6 +1268,64 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
+  func testBridgeChangedRetryPromotesUncertainPendingBeforeReplacementJournal() async {
+    let fake = FakeAlarmKitNativeClient()
+    fake.failFirstSchedule = true
+    fake.insertBeforeFailFirstSchedule = true
+    let original = makeScheduleRequest("reservation-pending-replacement")
+    let replacement = makeScheduleRequest(
+      "reservation-pending-replacement",
+      occurrenceId: "occurrence-pending-replacement"
+    )
+    let oldPlatformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
+    let interruptedBridge = AlarmKitBridge(
+      nativeClient: fake,
+      replacementAfterVerifiedBeforeRetire: {
+        throw FakeAlarmKitNativeClient.FakeError.scheduleFailed
+      }
+    )
+    clearMirror()
+    defer { clearMirror() }
+
+    let initial = await interruptedBridge.scheduleAlarm(original)
+    XCTAssertEqual(initial.status, "failure")
+    XCTAssertEqual(initial.platformAlarmId, oldPlatformAlarmId)
+    XCTAssertTrue(pendingMirrorContains(oldPlatformAlarmId))
+    XCTAssertFalse(mirrorContains(oldPlatformAlarmId))
+
+    // Retry a changed tuple directly, without an intervening inventory read.
+    // The verified candidate reply is then lost before the old UUID retires.
+    let interruptedReplacement = await interruptedBridge.scheduleAlarm(replacement)
+    XCTAssertEqual(interruptedReplacement.status, "failure")
+    XCTAssertNil(interruptedReplacement.platformAlarmId)
+    XCTAssertEqual(fake.scheduleAttempts, 2)
+    XCTAssertEqual(fake.nativeAlarmIds.count, 2)
+    XCTAssertTrue(mirrorContains(oldPlatformAlarmId))
+    XCTAssertFalse(pendingMirrorContains(oldPlatformAlarmId))
+    XCTAssertNotNil(UserDefaults.standard.data(forKey: replacementJournalKey))
+
+    let restartedBridge = AlarmKitBridge(nativeClient: fake)
+    let inventory = await inventoryValue(restartedBridge)
+    let rows = (inventory as? [String: Any?])?["reservations"]
+      as? [[String: Any?]]
+    XCTAssertEqual(rows?.count, 1)
+    XCTAssertEqual(rows?.first?["reservationId"] as? String, replacement.reservationId)
+    XCTAssertEqual(rows?.first?["occurrenceId"] as? String, replacement.occurrenceId)
+    let activePlatformAlarmId = rows?.first?["platformAlarmId"] as? String
+    XCTAssertNotNil(activePlatformAlarmId)
+    XCTAssertNotEqual(activePlatformAlarmId, oldPlatformAlarmId)
+    XCTAssertEqual(fake.nativeAlarmIds.count, 1)
+    XCTAssertFalse(fake.nativeAlarmIds.contains(oldPlatformAlarmId.uppercased()))
+    XCTAssertNil(UserDefaults.standard.data(forKey: replacementJournalKey))
+
+    let retry = await restartedBridge.scheduleAlarm(replacement)
+    XCTAssertEqual(retry.status, "success")
+    XCTAssertEqual(retry.platformAlarmId, activePlatformAlarmId)
+    XCTAssertEqual(fake.scheduleAttempts, 2)
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
   func testBridgeMalformedOrDuplicateCleanupKeepsCommittedBytesAndPendingRecovery() async {
     let request = makeScheduleRequest("reservation-invalid-cleanup")
     let id = calarmPlatformAlarmId(for: request.reservationId)
