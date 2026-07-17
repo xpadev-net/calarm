@@ -704,6 +704,10 @@ class _TwoPointerScaleGestureRecognizer extends OneSequenceGestureRecognizer {
 
 enum _DraftDragMode { move, resizeStart, resizeEnd }
 
+const _draftHandleHitWidth = 48.0;
+const _draftHandleHitHeight = 48.0;
+const _draftHandleOverflow = _draftHandleHitHeight / 2;
+
 class _DraftSegment {
   const _DraftSegment({
     required this.dayIndex,
@@ -812,9 +816,58 @@ class _DraftBlockState extends State<_DraftBlock> {
     if (_activePointer != null || !widget.interactionEnabled) {
       return;
     }
+    switch (mode) {
+      case _DraftDragMode.move:
+        widget.bodyFocusNode?.requestFocus();
+      case _DraftDragMode.resizeStart:
+        widget.startFocusNode?.requestFocus();
+      case _DraftDragMode.resizeEnd:
+        widget.endFocusNode?.requestFocus();
+    }
     _activePointer = event.pointer;
     _lastPointerPosition = event.position;
     _startManipulation(mode);
+  }
+
+  _DraftDragMode _dragModeForPosition(
+    Offset position, {
+    required double width,
+    required double height,
+  }) {
+    final startRect = Rect.fromLTWH(
+      0,
+      0,
+      _draftHandleHitWidth,
+      _draftHandleHitHeight,
+    );
+    final endRect = Rect.fromLTWH(
+      width - _draftHandleHitWidth,
+      height,
+      _draftHandleHitWidth,
+      _draftHandleHitHeight,
+    );
+    final hitsStart =
+        widget.segment.containsStart && startRect.contains(position);
+    final hitsEnd = widget.segment.containsEnd && endRect.contains(position);
+    if (hitsStart && hitsEnd) {
+      final startDistance = (position - startRect.center).distanceSquared;
+      final endDistance = (position - endRect.center).distanceSquared;
+      if (startDistance == endDistance) {
+        return position.dy <= height / 2 + _draftHandleOverflow
+            ? _DraftDragMode.resizeStart
+            : _DraftDragMode.resizeEnd;
+      }
+      return startDistance < endDistance
+          ? _DraftDragMode.resizeStart
+          : _DraftDragMode.resizeEnd;
+    }
+    if (hitsStart) {
+      return _DraftDragMode.resizeStart;
+    }
+    if (hitsEnd) {
+      return _DraftDragMode.resizeEnd;
+    }
+    return _DraftDragMode.move;
   }
 
   void _movePointer(PointerMoveEvent event) {
@@ -907,33 +960,22 @@ class _DraftBlockState extends State<_DraftBlock> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final height = (widget.segment.durationMinutes * widget.pixelsPerMinute)
-        .clamp(24, double.infinity)
-        .toDouble();
-    final bodyListener = Listener(
-      behavior: HitTestBehavior.opaque,
-      onPointerDown: (event) {
-        widget.bodyFocusNode?.requestFocus();
-        _beginPointer(event, _DraftDragMode.move);
-      },
-      onPointerMove: _movePointer,
-      onPointerUp: _endPointer,
-      onPointerCancel: _endPointer,
-      child: DecoratedBox(
-        key: ValueKey(
-          'week-calendar-draft-body-${widget.draft.id}-'
-          '${widget.segment.dayIndex}',
-        ),
-        decoration: BoxDecoration(
-          color: colorScheme.tertiaryContainer.withValues(alpha: 0.28),
-          border: Border.all(color: colorScheme.tertiary, width: 2),
-          borderRadius: BorderRadius.circular(8),
-        ),
+    final height = widget.segment.durationMinutes * widget.pixelsPerMinute;
+    final width = (widget.dayWidth - 4).clamp(0, double.infinity).toDouble();
+    final bodyDecoration = DecoratedBox(
+      key: ValueKey(
+        'week-calendar-draft-body-${widget.draft.id}-'
+        '${widget.segment.dayIndex}',
+      ),
+      decoration: BoxDecoration(
+        color: colorScheme.tertiaryContainer.withValues(alpha: 0.28),
+        border: Border.all(color: colorScheme.tertiary, width: 2),
+        borderRadius: BorderRadius.circular(8),
       ),
     );
     final bodyFocusNode = widget.bodyFocusNode;
     final body = bodyFocusNode == null
-        ? bodyListener
+        ? bodyDecoration
         : Focus(
             focusNode: bodyFocusNode,
             canRequestFocus: widget.interactionEnabled,
@@ -965,7 +1007,7 @@ class _DraftBlockState extends State<_DraftBlock> {
                           _adjustDraft(_DraftDragMode.move, days: 1),
                     }
                   : null,
-              child: bodyListener,
+              child: bodyDecoration,
             ),
           );
     return Positioned(
@@ -974,48 +1016,66 @@ class _DraftBlockState extends State<_DraftBlock> {
         '${widget.segment.dayIndex}',
       ),
       left: widget.segment.dayIndex * widget.dayWidth + 2,
-      top: widget.segment.topMinute * widget.pixelsPerMinute - 14,
-      width: (widget.dayWidth - 4).clamp(0, double.infinity),
-      height: height + 28,
+      top:
+          widget.segment.topMinute * widget.pixelsPerMinute -
+          _draftHandleOverflow,
+      width: width,
+      height: height + _draftHandleHitHeight,
       child: IgnorePointer(
         ignoring: !widget.interactionEnabled,
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Positioned(top: 14, left: 0, right: 0, height: height, child: body),
-            if (widget.segment.containsStart)
-              _DraftHandleControl(
-                key: const ValueKey('week-calendar-draft-start-handle'),
-                top: 0,
-                color: colorScheme.tertiary,
-                alignStart: true,
-                mode: _DraftDragMode.resizeStart,
-                onPointerDown: _beginPointer,
-                onPointerMove: _movePointer,
-                onPointerEnd: _endPointer,
-                value: _accessibleDateTime(widget.draft.startAt),
-                interactionEnabled: widget.interactionEnabled,
-                focusNode: widget.startFocusNode!,
-                onAdjustMinutes: (minutes) =>
-                    _adjustDraft(_DraftDragMode.resizeStart, minutes: minutes),
+        child: Listener(
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: (event) => _beginPointer(
+            event,
+            _dragModeForPosition(
+              event.localPosition,
+              width: width,
+              height: height,
+            ),
+          ),
+          onPointerMove: _movePointer,
+          onPointerUp: _endPointer,
+          onPointerCancel: _endPointer,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned(
+                top: _draftHandleOverflow,
+                left: 0,
+                right: 0,
+                height: height,
+                child: body,
               ),
-            if (widget.segment.containsEnd)
-              _DraftHandleControl(
-                key: const ValueKey('week-calendar-draft-end-handle'),
-                top: height,
-                color: colorScheme.tertiary,
-                alignStart: false,
-                mode: _DraftDragMode.resizeEnd,
-                onPointerDown: _beginPointer,
-                onPointerMove: _movePointer,
-                onPointerEnd: _endPointer,
-                value: _accessibleDateTime(widget.draft.endAt),
-                interactionEnabled: widget.interactionEnabled,
-                focusNode: widget.endFocusNode!,
-                onAdjustMinutes: (minutes) =>
-                    _adjustDraft(_DraftDragMode.resizeEnd, minutes: minutes),
-              ),
-          ],
+              if (widget.segment.containsStart)
+                _DraftHandleControl(
+                  key: const ValueKey('week-calendar-draft-start-handle'),
+                  top: 0,
+                  color: colorScheme.tertiary,
+                  alignStart: true,
+                  mode: _DraftDragMode.resizeStart,
+                  value: _accessibleDateTime(widget.draft.startAt),
+                  interactionEnabled: widget.interactionEnabled,
+                  focusNode: widget.startFocusNode!,
+                  onAdjustMinutes: (minutes) => _adjustDraft(
+                    _DraftDragMode.resizeStart,
+                    minutes: minutes,
+                  ),
+                ),
+              if (widget.segment.containsEnd)
+                _DraftHandleControl(
+                  key: const ValueKey('week-calendar-draft-end-handle'),
+                  top: height,
+                  color: colorScheme.tertiary,
+                  alignStart: false,
+                  mode: _DraftDragMode.resizeEnd,
+                  value: _accessibleDateTime(widget.draft.endAt),
+                  interactionEnabled: widget.interactionEnabled,
+                  focusNode: widget.endFocusNode!,
+                  onAdjustMinutes: (minutes) =>
+                      _adjustDraft(_DraftDragMode.resizeEnd, minutes: minutes),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -1029,9 +1089,6 @@ class _DraftHandleControl extends StatefulWidget {
     required this.color,
     required this.alignStart,
     required this.mode,
-    required this.onPointerDown,
-    required this.onPointerMove,
-    required this.onPointerEnd,
     required this.value,
     required this.interactionEnabled,
     required this.focusNode,
@@ -1042,10 +1099,6 @@ class _DraftHandleControl extends StatefulWidget {
   final Color color;
   final bool alignStart;
   final _DraftDragMode mode;
-  final void Function(PointerDownEvent event, _DraftDragMode mode)
-  onPointerDown;
-  final void Function(PointerMoveEvent event) onPointerMove;
-  final void Function(PointerEvent event) onPointerEnd;
   final String value;
   final bool interactionEnabled;
   final FocusNode focusNode;
@@ -1076,8 +1129,8 @@ class _DraftHandleControlState extends State<_DraftHandleControl> {
       top: widget.top,
       left: widget.alignStart ? 0 : null,
       right: widget.alignStart ? null : 0,
-      width: 24,
-      height: 28,
+      width: _draftHandleHitWidth,
+      height: _draftHandleHitHeight,
       child: Focus(
         focusNode: widget.focusNode,
         canRequestFocus: widget.interactionEnabled,
@@ -1103,26 +1156,16 @@ class _DraftHandleControlState extends State<_DraftHandleControl> {
           onDecrease: widget.interactionEnabled
               ? () => widget.onAdjustMinutes(-5)
               : null,
-          child: Listener(
-            behavior: HitTestBehavior.opaque,
-            onPointerDown: (event) {
-              widget.focusNode.requestFocus();
-              widget.onPointerDown(event, widget.mode);
-            },
-            onPointerMove: widget.onPointerMove,
-            onPointerUp: widget.onPointerEnd,
-            onPointerCancel: widget.onPointerEnd,
-            child: Center(
-              child: Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  color: widget.color,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.surface,
-                    width: 2,
-                  ),
+          child: Center(
+            child: Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                color: widget.color,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.surface,
+                  width: 2,
                 ),
               ),
             ),

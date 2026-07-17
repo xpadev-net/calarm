@@ -718,6 +718,135 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final hourHeight in const [36.0, 52.0, 92.0]) {
+    for (final durationMinutes in const [5, 10, 15, 30]) {
+      testWidgets('$durationMinutes-minute draft has exact outline height at '
+          '$hourHeight px/hour', (tester) async {
+        final draft = WeekCalendarDraft(
+          id: 'short-draft',
+          startAt: DateTime(2026, 7, 8, 10),
+          endAt: DateTime(
+            2026,
+            7,
+            8,
+            10,
+          ).add(Duration(minutes: durationMinutes)),
+          createdAt: DateTime(2026, 7, 8, 5, 30),
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: WeekCalendarView(
+                now: DateTime(2026, 7, 8, 7, 30),
+                initialWeek: WeekRange(
+                  start: CalendarDay(year: 2026, month: 7, day: 6),
+                ),
+                draft: draft,
+                hourHeight: hourHeight,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final body = find.byKey(
+          const ValueKey('week-calendar-draft-body-short-draft-2'),
+        );
+        final expectedHeight = durationMinutes * hourHeight / 60;
+
+        expect(tester.getSize(body).height, closeTo(expectedHeight, 0.001));
+        expect(
+          tester.getSize(body).height / (hourHeight / 60),
+          closeTo(draft.duration.inMinutes, 0.001),
+        );
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
+  for (final hourHeight in const [36.0, 52.0, 92.0]) {
+    testWidgets(
+      'overlapping handles resize to exact durations at $hourHeight px/hour',
+      (tester) async {
+        var draft = WeekCalendarDraft(
+          id: 'overlapping-handles-draft',
+          startAt: DateTime(2026, 7, 8, 10),
+          endAt: DateTime(2026, 7, 8, 10, 5),
+          createdAt: DateTime(2026, 7, 8, 5, 30),
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Align(
+                alignment: Alignment.topLeft,
+                child: SizedBox(
+                  width: 390,
+                  child: StatefulBuilder(
+                    builder: (context, setState) => WeekCalendarView(
+                      now: DateTime(2026, 7, 8, 7, 30),
+                      initialWeek: WeekRange(
+                        start: CalendarDay(year: 2026, month: 7, day: 6),
+                      ),
+                      draft: draft,
+                      hourHeight: hourHeight,
+                      onDraftChanged: (value) => setState(() => draft = value),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final pixelsPerMinute = hourHeight / 60;
+        final startHandle = find.byKey(
+          const ValueKey('week-calendar-draft-start-handle'),
+        );
+        final endHandle = find.byKey(
+          const ValueKey('week-calendar-draft-end-handle'),
+        );
+        expect(tester.getSize(startHandle), const Size(48, 48));
+        expect(tester.getSize(endHandle), const Size(48, 48));
+        expect(
+          tester.getRect(startHandle).overlaps(tester.getRect(endHandle)),
+          isTrue,
+        );
+
+        await _rawDrag(
+          tester,
+          startHandle,
+          Offset(0, -5 * pixelsPerMinute),
+          pointer: 41,
+        );
+        expect(draft.startAt, DateTime(2026, 7, 8, 9, 55));
+        expect(draft.endAt, DateTime(2026, 7, 8, 10, 5));
+        expect(draft.duration, const Duration(minutes: 10));
+
+        await _rawDrag(
+          tester,
+          endHandle,
+          Offset(0, 5 * pixelsPerMinute),
+          pointer: 42,
+        );
+        expect(draft.startAt, DateTime(2026, 7, 8, 9, 55));
+        expect(draft.endAt, DateTime(2026, 7, 8, 10, 10));
+        expect(draft.duration, const Duration(minutes: 15));
+
+        final body = find.byKey(
+          const ValueKey(
+            'week-calendar-draft-body-overlapping-handles-draft-2',
+          ),
+        );
+        expect(
+          tester.getSize(body).height,
+          closeTo(draft.duration.inMinutes * pixelsPerMinute, 0.001),
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   for (final hourHeight in const [52.0, 36.0]) {
     testWidgets(
       'raw pointers move body and resize both handles at $hourHeight px/hour',
@@ -763,7 +892,7 @@ void main() {
             tester.getSize(find.byType(CustomPaint).last).width / 7;
         await _rawDragFrom(
           tester,
-          Offset(bodyRect.right - 4, bodyRect.top + 5),
+          bodyRect.center,
           Offset(dayWidth, 0),
           pointer: 52,
         );
