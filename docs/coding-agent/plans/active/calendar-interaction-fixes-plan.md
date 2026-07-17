@@ -194,7 +194,10 @@
     detail: Deep review, gh-review-hook exit 0, focused rerun, and layout/scroll state evidence before merge.
 
 ### Task_4: Render and resize short ranges exactly
-- status: unstarted
+- status: in_progress
+- worker_thread: `019f7160-b4bb-76e1-8008-dda5ac52fb57`
+- worker_worktree: `<CODEX_HOME>/worktrees/40d4/calarm`
+- branch: `codex/task-4-short-range-geometry`
 - type: impl
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_view.dart`
@@ -226,7 +229,10 @@
     detail: Deep review, gh-review-hook exit 0, geometry assertions, and focused rerun before merge.
 
 ### Task_5: Add direct start/end date-time editing
-- status: unstarted
+- status: in_progress
+- worker_thread: `019f7160-b55e-7de3-a090-4939aecb3e55`
+- worker_worktree: `<CODEX_HOME>/worktrees/291e/calarm`
+- branch: `codex/task-5-direct-datetime-editing`
 - type: impl
 - owns:
   - `lib/features/week_calendar/model/week_calendar_interaction.dart`
@@ -369,6 +375,10 @@
   - Summary: PR #53 merged after exact-head orchestrator preflight, deep review, review hook, focused/full validation, and instrumented lifecycle/layout probes.
   - Validation evidence: Head `904480fec7f463b6a25d632f32e32decd33ea548`; merge commit `36b2bb81b66faf66e6b352b9ba3032f9ca729c1f`; focused 56/56 and full 337/337 tests; analyze/format/diff-check pass; worker and orchestrator hook exit 0; three orchestrator review perspectives approved with no findings; PR CLEAN/APPROVED/current base with 5/5 checks green.
   - Notes: Same-day and cross-day near-23:00 interactions preserved page, vertical offset, and grid position; foreground resume recentered exactly once while minute ticks, provider rebuilds, and draft edits did not. Worker `019f6c5b-8ed7-78f0-aa9d-9a4bcc957a73` archived.
+- 2026-07-17 Wave 3 started: [Task_4, Task_5]
+  - Summary: Started separate worktree workers for exact short-range geometry and direct date-time editing after Task_3 merged.
+  - Validation evidence: Both workers remained active after startup and loaded their bounded ownership, acceptance, validation, review, and PR lifecycle instructions.
+  - Notes: Task_4 thread `019f7160-b4bb-76e1-8008-dda5ac52fb57` uses `<CODEX_HOME>/worktrees/40d4/calarm`; Task_5 thread `019f7160-b55e-7de3-a090-4939aecb3e55` uses `<CODEX_HOME>/worktrees/291e/calarm`. Their planned file ownership is disjoint, and both are disjoint from active native Task_12.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
