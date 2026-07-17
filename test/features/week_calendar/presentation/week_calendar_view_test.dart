@@ -162,6 +162,47 @@ void main() {
     },
   );
 
+  testWidgets('resume page uses the initial range stride', (tester) async {
+    var recenterRequest = 0;
+    late StateSetter updateHarness;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) {
+              updateHarness = setState;
+              return WeekCalendarView(
+                now: DateTime(2026, 7, 8, 18),
+                initialWeek: WeekRange(
+                  start: CalendarDay(year: 2026, month: 7, day: 1),
+                  visibleDays: 3,
+                ),
+                recenterRequest: recenterRequest,
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    updateHarness(() {
+      recenterRequest += 1;
+    });
+    await tester.pumpAndSettle();
+
+    final pageController = tester
+        .widget<PageView>(find.byType(PageView))
+        .controller!;
+    final scrollController = tester
+        .widget<SingleChildScrollView>(
+          find.byType(SingleChildScrollView).hitTestable(),
+        )
+        .controller!;
+    expect(pageController.page, 10002);
+    expect(scrollController.offset, 912);
+  });
+
   for (final testCase in [
     (
       name: 'three-day',

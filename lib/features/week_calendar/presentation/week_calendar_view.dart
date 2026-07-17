@@ -103,6 +103,7 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
         itemBuilder: (context, index) {
           final week = _initialCalendarPage.addPages(index - _initialPage).week;
           return _WeekCalendarWeekPage(
+            key: ValueKey<CalendarDay>(week.start),
             week: week,
             now: widget.now,
             wakePlans: widget.wakePlans,
@@ -153,13 +154,15 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
           ),
         )
         .inDays;
-    final pageDelta = (daysFromInitial / widget.visibleDays).floor();
+    final pageDelta = (daysFromInitial / _initialCalendarPage.week.visibleDays)
+        .floor();
     return _initialPage + pageDelta;
   }
 }
 
 class _WeekCalendarWeekPage extends StatefulWidget {
   const _WeekCalendarWeekPage({
+    super.key,
     required this.week,
     required this.now,
     required this.wakePlans,
