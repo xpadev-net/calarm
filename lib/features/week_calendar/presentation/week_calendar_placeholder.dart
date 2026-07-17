@@ -77,6 +77,7 @@ class _WeekCalendarPlaceholderState
   late DateTime _now;
   Timer? _minuteBoundaryTimer;
   bool _isActive = false;
+  int _recenterRequest = 0;
 
   @override
   void initState() {
@@ -93,8 +94,9 @@ class _WeekCalendarPlaceholderState
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.resumed:
+        final shouldRecenter = !_isActive;
         _isActive = true;
-        _refreshNow();
+        _refreshNow(recenter: shouldRecenter);
         _scheduleMinuteBoundaryRefresh();
         return;
       case AppLifecycleState.inactive:
@@ -185,6 +187,7 @@ class _WeekCalendarPlaceholderState
               },
               draftInteractionEnabled:
                   !_savingDraft && !_draftSubmissionAttempted,
+              recenterRequest: _recenterRequest,
               onTargetTap: (target) {
                 _createDraft(target: target, defaults: currentDefaults);
               },
@@ -229,16 +232,19 @@ class _WeekCalendarPlaceholderState
     );
   }
 
-  void _refreshNow() {
+  void _refreshNow({bool recenter = false}) {
     if (!mounted) {
       return;
     }
     final nextNow = ref.read(weekCalendarClockProvider)();
-    if (nextNow == _now) {
+    if (nextNow == _now && !recenter) {
       return;
     }
     setState(() {
       _now = nextNow;
+      if (recenter) {
+        _recenterRequest += 1;
+      }
     });
   }
 

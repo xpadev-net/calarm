@@ -28,6 +28,7 @@ class WeekCalendarView extends StatefulWidget {
     this.draft,
     this.onDraftChanged,
     this.draftInteractionEnabled = true,
+    this.recenterRequest = 0,
   });
 
   final DateTime now;
@@ -42,6 +43,7 @@ class WeekCalendarView extends StatefulWidget {
   final WeekCalendarDraft? draft;
   final WeekCalendarDraftChanged? onDraftChanged;
   final bool draftInteractionEnabled;
+  final int recenterRequest;
 
   @override
   State<WeekCalendarView> createState() => _WeekCalendarViewState();
@@ -53,6 +55,8 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
 
   late final WeekCalendarPage _initialCalendarPage;
   late final PageController _pageController;
+  late int _appliedRecenterRequest;
+  late int _recenterPageIndex;
   bool _pinching = false;
 
   @override
@@ -64,6 +68,21 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
           currentCalendarRange(widget.now, visibleDays: widget.visibleDays),
     );
     _pageController = PageController(initialPage: _initialPage);
+    _appliedRecenterRequest = widget.recenterRequest;
+    _recenterPageIndex = _pageIndexForDay(CalendarDay.fromDateTime(widget.now));
+  }
+
+  @override
+  void didUpdateWidget(covariant WeekCalendarView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.recenterRequest != widget.recenterRequest) {
+      _recenterPageIndex = _pageIndexForDay(
+        CalendarDay.fromDateTime(widget.now),
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _applyRecenterRequest();
+      });
+    }
   }
 
   @override
@@ -84,6 +103,7 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
         itemBuilder: (context, index) {
           final week = _initialCalendarPage.addPages(index - _initialPage).week;
           return _WeekCalendarWeekPage(
+            key: ValueKey<CalendarDay>(week.start),
             week: week,
             now: widget.now,
             wakePlans: widget.wakePlans,
@@ -96,6 +116,9 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
             draft: widget.draft,
             onDraftChanged: widget.onDraftChanged,
             draftInteractionEnabled: widget.draftInteractionEnabled,
+            recenterRequest: index == _recenterPageIndex
+                ? widget.recenterRequest
+                : null,
           );
         },
       ),
@@ -110,10 +133,36 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
       _pinching = pinching;
     });
   }
+
+  void _applyRecenterRequest() {
+    if (!mounted ||
+        _appliedRecenterRequest == widget.recenterRequest ||
+        !_pageController.hasClients) {
+      return;
+    }
+    _pageController.jumpToPage(_recenterPageIndex);
+    _appliedRecenterRequest = widget.recenterRequest;
+  }
+
+  int _pageIndexForDay(CalendarDay day) {
+    final daysFromInitial = DateTime.utc(day.year, day.month, day.day)
+        .difference(
+          DateTime.utc(
+            _initialCalendarPage.week.start.year,
+            _initialCalendarPage.week.start.month,
+            _initialCalendarPage.week.start.day,
+          ),
+        )
+        .inDays;
+    final pageDelta = (daysFromInitial / _initialCalendarPage.week.visibleDays)
+        .floor();
+    return _initialPage + pageDelta;
+  }
 }
 
 class _WeekCalendarWeekPage extends StatefulWidget {
   const _WeekCalendarWeekPage({
+    super.key,
     required this.week,
     required this.now,
     required this.wakePlans,
@@ -126,6 +175,7 @@ class _WeekCalendarWeekPage extends StatefulWidget {
     required this.draft,
     required this.onDraftChanged,
     required this.draftInteractionEnabled,
+    required this.recenterRequest,
   });
 
   final WeekRange week;
@@ -140,6 +190,7 @@ class _WeekCalendarWeekPage extends StatefulWidget {
   final WeekCalendarDraft? draft;
   final WeekCalendarDraftChanged? onDraftChanged;
   final bool draftInteractionEnabled;
+  final int? recenterRequest;
 
   @override
   State<_WeekCalendarWeekPage> createState() => _WeekCalendarWeekPageState();
@@ -151,7 +202,7 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
 
   late final ScrollController _scrollController;
   late double _displayHourHeight;
-  bool _didApplyInitialScroll = false;
+  int? _appliedRecenterRequest;
   double? _pendingScrollOffset;
   double? _pinchStartDistance;
   double? _pinchStartHourHeight;
@@ -182,9 +233,7 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
       pixelsPerMinute: _pixelsPerMinute,
     );
     _scrollController = ScrollController(initialScrollOffset: target.offset);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _applyInitialScroll();
-    });
+    _appliedRecenterRequest = widget.recenterRequest;
   }
 
   @override
@@ -203,10 +252,10 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
         _applyPendingScroll();
       });
     }
-    if (oldWidget.week.start != widget.week.start) {
-      _didApplyInitialScroll = false;
+    if (widget.recenterRequest != null &&
+        oldWidget.recenterRequest != widget.recenterRequest) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _applyInitialScroll();
+        _applyRecenterScroll();
       });
     }
   }
@@ -313,8 +362,10 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
     super.dispose();
   }
 
-  void _applyInitialScroll() {
-    if (!mounted || _didApplyInitialScroll || !_scrollController.hasClients) {
+  void _applyRecenterScroll() {
+    if (!mounted ||
+        _appliedRecenterRequest == widget.recenterRequest ||
+        !_scrollController.hasClients) {
       return;
     }
     final target = initialWeekCalendarScrollTarget(
@@ -327,7 +378,7 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
       _scrollController.position.maxScrollExtent,
     );
     _scrollController.jumpTo(boundedOffset);
-    _didApplyInitialScroll = true;
+    _appliedRecenterRequest = widget.recenterRequest;
   }
 
   @override
@@ -375,7 +426,7 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
                     controller: _scrollController,
                     physics: _pinching || _manipulatingDraft
                         ? const NeverScrollableScrollPhysics()
-                        : null,
+                        : const _PreserveVisibleTimeScrollPhysics(),
                     child: SizedBox(
                       height: _displayHourHeight * TimeOfDayMinutes.hoursPerDay,
                       child: Row(
@@ -471,6 +522,27 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
         ),
       ],
     );
+  }
+}
+
+class _PreserveVisibleTimeScrollPhysics extends ScrollPhysics {
+  const _PreserveVisibleTimeScrollPhysics({super.parent});
+
+  @override
+  _PreserveVisibleTimeScrollPhysics applyTo(ScrollPhysics? ancestor) {
+    return _PreserveVisibleTimeScrollPhysics(parent: buildParent(ancestor));
+  }
+
+  @override
+  double adjustPositionForNewDimensions({
+    required ScrollMetrics oldPosition,
+    required ScrollMetrics newPosition,
+    required bool isScrolling,
+    required double velocity,
+  }) {
+    return oldPosition.pixels
+        .clamp(newPosition.minScrollExtent, newPosition.maxScrollExtent)
+        .toDouble();
   }
 }
 
@@ -1271,6 +1343,7 @@ class _TimeGrid extends StatelessWidget {
         now.hour * TimeOfDayMinutes.minutesPerHour + now.minute;
 
     return CustomPaint(
+      key: const ValueKey('week-calendar-time-grid'),
       painter: _TimeGridPainter(
         lineColor: colorScheme.outlineVariant,
         dayLineColor: colorScheme.outline,
