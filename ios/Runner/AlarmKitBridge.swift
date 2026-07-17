@@ -10,6 +10,7 @@ private let nativeAlarmMirrorKey = "net.xpadev.calarm/native_alarm_mirror"
 private let nativeAlarmPendingMirrorKey = "net.xpadev.calarm/native_alarm_pending_mirror"
 private let nativeAlarmMirrorEnvelopeKey = "net.xpadev.calarm/native_alarm_mirror_envelope"
 private let nativeAlarmMirrorTransactionKey = "net.xpadev.calarm/native_alarm_mirror_transaction"
+private let nativeAlarmReplacementJournalKey = "net.xpadev.calarm/native_alarm_replacement_journal"
 private let nativeAlarmMirrorEnvelopeVersion = 1
 
 @MainActor
@@ -21,11 +22,13 @@ final class AlarmKitBridge {
   private var pendingNativeAlarmIds = Set<String>()
   private let nativeClient: (any AlarmKitNativeClient)?
   private let replacementBeforeCommit: (() throws -> Void)?
+  private let replacementAfterVerifiedBeforeRetire: (() throws -> Void)?
 
   init(
     messenger: FlutterBinaryMessenger,
     nativeClient: (any AlarmKitNativeClient)? = nil,
-    replacementBeforeCommit: (() throws -> Void)? = nil
+    replacementBeforeCommit: (() throws -> Void)? = nil,
+    replacementAfterVerifiedBeforeRetire: (() throws -> Void)? = nil
   ) {
     let methodChannel = FlutterMethodChannel(
       name: nativeAlarmChannelName,
@@ -34,6 +37,7 @@ final class AlarmKitBridge {
     channel = methodChannel
     self.nativeClient = nativeClient
     self.replacementBeforeCommit = replacementBeforeCommit
+    self.replacementAfterVerifiedBeforeRetire = replacementAfterVerifiedBeforeRetire
     methodChannel.setMethodCallHandler(handle)
     if #available(iOS 26.0, *) {
       alarmObservationTask = Task { @MainActor [weak self] in
@@ -44,11 +48,13 @@ final class AlarmKitBridge {
 
   init(
     nativeClient: any AlarmKitNativeClient,
-    replacementBeforeCommit: (() throws -> Void)? = nil
+    replacementBeforeCommit: (() throws -> Void)? = nil,
+    replacementAfterVerifiedBeforeRetire: (() throws -> Void)? = nil
   ) {
     channel = nil
     self.nativeClient = nativeClient
     self.replacementBeforeCommit = replacementBeforeCommit
+    self.replacementAfterVerifiedBeforeRetire = replacementAfterVerifiedBeforeRetire
   }
 
   // Internal so RunnerTests can exercise the exact production MethodChannel
@@ -186,6 +192,13 @@ final class AlarmKitBridge {
     }
 
     do {
+      if try loadReplacementJournal() != nil {
+        mirrorSnapshot = try await reconcileReplacementJournal(
+          in: mirrorSnapshot,
+          nativeAlarms: alarms
+        )
+        alarms = try nativeClientForAlarmKit().inventory()
+      }
       let recovery = try await restoreRequiredNativeConfigurations(
         in: mirrorSnapshot
       )
@@ -558,6 +571,9 @@ final class AlarmKitBridge {
         let recoveryAlarms = try nativeClientForAlarmKit().inventory()
         mirrorSnapshot = try recoverMirrorSnapshot(from: recoveryAlarms)
       }
+      if try loadReplacementJournal() != nil {
+        mirrorSnapshot = try await reconcileReplacementJournal(in: mirrorSnapshot)
+      }
       var mirror = mirrorSnapshot.normalized
       var pendingMirror = mirrorSnapshot.pendingNormalized
       let ownedRecord = mirror[platformAlarmId] ?? pendingMirror[platformAlarmId]
@@ -647,8 +663,8 @@ final class AlarmKitBridge {
       )
     }
 
-    let platformAlarmId = calarmPlatformAlarmId(for: request.reservationId)
-    guard let alarmId = UUID(uuidString: platformAlarmId) else {
+    var platformAlarmId = calarmPlatformAlarmId(for: request.reservationId)
+    guard var alarmId = UUID(uuidString: platformAlarmId) else {
       return ScheduleRow(
         status: "failure",
         platformAlarmId: nil,
@@ -683,6 +699,9 @@ final class AlarmKitBridge {
           )
         }
       }
+      if try loadReplacementJournal() != nil {
+        mirrorSnapshot = try await reconcileReplacementJournal(in: mirrorSnapshot)
+      }
       if mirrorSnapshot.pendingNormalized[platformAlarmId]?.requiresNativeRestoration == true {
         mirrorSnapshot = try await restoreRequiredNativeConfigurations(
           in: mirrorSnapshot,
@@ -691,6 +710,22 @@ final class AlarmKitBridge {
       }
       var mirror = mirrorSnapshot.normalized
       var pendingMirror = mirrorSnapshot.pendingNormalized
+      let committedReservationMatches = mirror.filter {
+        $0.value.reservationId == request.reservationId
+      }
+      let pendingReservationMatches = pendingMirror.filter {
+        $0.value.reservationId == request.reservationId
+      }
+      guard committedReservationMatches.count + pendingReservationMatches.count <= 1 else {
+        throw MirrorValidationError.invalid
+      }
+      if let active = committedReservationMatches.first ?? pendingReservationMatches.first {
+        platformAlarmId = active.key
+        guard let activeAlarmId = UUID(uuidString: platformAlarmId) else {
+          throw MirrorValidationError.invalid
+        }
+        alarmId = activeAlarmId
+      }
       let committedExisting = mirror[platformAlarmId]
       let pendingExisting = pendingMirror[platformAlarmId]
       if let committedExisting,
@@ -747,80 +782,62 @@ final class AlarmKitBridge {
         pendingMirror.removeValue(forKey: platformAlarmId)
 
         if !existing.matches(request) {
-          // The stable reservation may be retried with a recreated occurrence.
-          // AlarmKit replaces an alarm scheduled with the same stable UUID.
-          // Persist the prior complete configuration as a non-authoritative
-          // recovery obligation before that external side effect. If the
-          // process loses the reply before committing the replacement tuple,
-          // restart inventory restores this known configuration first.
-          let previousRecord = existing
-          guard let previousRequest = previousRecord.scheduleRequest() else {
-            return ScheduleRow(
-              status: "failure",
-              platformAlarmId: platformAlarmId,
-              failureReason: "unknown",
-              failureMessage: "The existing AlarmKit configuration is unavailable for a safe replacement."
-            )
+          // A replacement uses a distinct, durably journaled UUID. The old
+          // alarm stays authoritative and native-present until the new alarm
+          // is verified, so no finite native failure can create a missed-fire
+          // gap. The journal keeps both exact tuples owned across restart.
+          let candidatePlatformAlarmId = try canonicalPlatformAlarmId(UUID().uuidString)
+          guard let candidateAlarmId = UUID(uuidString: candidatePlatformAlarmId) else {
+            throw MirrorValidationError.invalid
           }
-          mirror.removeValue(forKey: platformAlarmId)
-          pendingMirror[platformAlarmId] = previousRecord.requiringNativeRestoration()
-          try saveMirrorState(mirror, pending: pendingMirror)
+          let candidateRecord = AlarmMirrorRecord(
+            request: request,
+            platformAlarmId: candidatePlatformAlarmId
+          )
+          var journal = AlarmReplacementJournal(
+            old: existing,
+            new: candidateRecord,
+            phase: .staging
+          )
+          try saveReplacementJournal(journal)
           do {
             let scheduledPlatformAlarmId = try await nativeClientForAlarmKit().schedule(
-              id: alarmId,
+              id: candidateAlarmId,
               request: request
             )
-            guard try canonicalPlatformAlarmId(scheduledPlatformAlarmId) == platformAlarmId else {
+            guard try canonicalPlatformAlarmId(scheduledPlatformAlarmId)
+              == candidatePlatformAlarmId
+            else {
               throw MirrorValidationError.invalid
             }
+            // Test seam for the external-side-effect/durable-phase boundary.
+            try replacementBeforeCommit?()
+            journal = journal.advancing(to: .newVerified)
+            try saveReplacementJournal(journal)
           } catch {
-            var nativeRestored = false
-            do {
-              let restoredPlatformAlarmId = try await nativeClientForAlarmKit().schedule(
-                id: alarmId,
-                request: previousRequest
-              )
-              nativeRestored = try canonicalPlatformAlarmId(restoredPlatformAlarmId) == platformAlarmId
-            } catch {
-              nativeRestored = false
-            }
+            let resolved = try? await reconcileReplacementJournal(
+              in: loadMirrorSnapshot()
+            )
+            let activeRecord = resolved?.normalized.values.first(where: {
+              $0.reservationId == request.reservationId
+            })
+            let activeId = activeRecord?.matches(request) == true
+              ? activeRecord?.platformAlarmId
+              : nil
+            return ScheduleRow(
+              status: "failure",
+              platformAlarmId: activeId,
+              failureReason: "nativeError",
+              failureMessage: error.localizedDescription
+            )
+          }
 
-            if nativeRestored {
-              mirror[platformAlarmId] = previousRecord
-              pendingMirror.removeValue(forKey: platformAlarmId)
-              try? saveMirrorState(mirror, pending: pendingMirror)
-              return ScheduleRow(
-                status: "failure",
-                platformAlarmId: platformAlarmId,
-                failureReason: "nativeError",
-                failureMessage: error.localizedDescription
-              )
-            }
-
-            // A thrown same-ID replacement followed by a thrown rollback is
-            // ambiguous even when the UUID remains native-present: inventory
-            // cannot reveal which configuration won. Keep the old complete
-            // configuration only as a non-reportable recovery obligation.
-            mirror.removeValue(forKey: platformAlarmId)
-            pendingMirror[platformAlarmId] = previousRecord.requiringNativeRestoration()
-            try? saveMirrorState(mirror, pending: pendingMirror)
-
-            // Use the durable recovery path immediately as a final bounded
-            // restoration attempt. This closes the double-failure window for
-            // transient native errors without inventing an unbounded retry;
-            // if AlarmKit remains unavailable, the same pending record stays
-            // fail-closed for restart/inventory recovery.
-            if let recovery = try? await restoreRequiredNativeConfigurations(
-              in: loadMirrorSnapshot(),
-              restrictedTo: Set([platformAlarmId])
-            ), recovery.didRestore {
-              return ScheduleRow(
-                status: "failure",
-                platformAlarmId: platformAlarmId,
-                failureReason: "nativeError",
-                failureMessage: error.localizedDescription
-              )
-            }
+          do {
+            try replacementAfterVerifiedBeforeRetire?()
+          } catch {
+            // Test seam for process loss after the verified journal is
+            // durable but before the old UUID is retired. Preserve the
+            // journal and both owned native identities for restart recovery.
             return ScheduleRow(
               status: "failure",
               platformAlarmId: nil,
@@ -829,20 +846,20 @@ final class AlarmKitBridge {
             )
           }
 
-          // Test seam for the exact external-side-effect/durable-commit
-          // boundary. Production leaves it nil.
-          try replacementBeforeCommit?()
-          mirror[platformAlarmId] = AlarmMirrorRecord(
-            request: request,
-            platformAlarmId: platformAlarmId
-          )
-          pendingMirror.removeValue(forKey: platformAlarmId)
-          try saveMirrorState(mirror, pending: pendingMirror)
+          let resolved = try await reconcileReplacementJournal(in: loadMirrorSnapshot())
+          if resolved.normalized[candidatePlatformAlarmId] == candidateRecord {
+            return ScheduleRow(
+              status: "success",
+              platformAlarmId: candidatePlatformAlarmId,
+              failureReason: nil,
+              failureMessage: nil
+            )
+          }
           return ScheduleRow(
-            status: "success",
-            platformAlarmId: platformAlarmId,
-            failureReason: nil,
-            failureMessage: nil
+            status: "failure",
+            platformAlarmId: nil,
+            failureReason: "nativeError",
+            failureMessage: "AlarmKit could not retire the prior alarm safely."
           )
         }
 
@@ -916,7 +933,10 @@ final class AlarmKitBridge {
         : .uncertain
       return ScheduleRow(
         status: "failure",
-        platformAlarmId: cleanup == .nativePresent ? platformAlarmId : nil,
+        platformAlarmId: cleanup == .nativePresent
+          && mirrorOwnsMatchingTuple(platformAlarmId, request: request)
+          ? platformAlarmId
+          : nil,
         failureReason: "osConstraint",
         failureMessage: "AlarmKit maximum pending alarm limit was reached."
       )
@@ -930,7 +950,10 @@ final class AlarmKitBridge {
         : .uncertain
       return ScheduleRow(
         status: "failure",
-        platformAlarmId: cleanup == .nativePresent ? platformAlarmId : nil,
+        platformAlarmId: cleanup == .nativePresent
+          && mirrorOwnsMatchingTuple(platformAlarmId, request: request)
+          ? platformAlarmId
+          : nil,
         failureReason: "nativeError",
         failureMessage: error.localizedDescription
       )
@@ -998,6 +1021,11 @@ final class AlarmKitBridge {
   }
 
   private func reconcileMirrorInMirrorTransaction(withNativeAlarmIds nativeAlarmIds: [String]) async {
+    // Replacement recovery owns both UUID roles. Observer snapshots cannot
+    // safely choose an active row or prune either identity mid-handover.
+    guard UserDefaults.standard.data(forKey: nativeAlarmReplacementJournalKey) == nil else {
+      return
+    }
     guard let mirrorSnapshot = try? loadMirrorSnapshot(),
       let canonicalIds = try? authoritativeNativeAlarmIds(
         nativeAlarmIds,
@@ -1267,8 +1295,12 @@ final class AlarmKitBridge {
     let canonicalIds = try canonicalNativeAlarmIds(
       nativeAlarms.map { $0.platformAlarmId }
     )
-    let candidateIds = Set(normalizedCommitted.keys)
+    var candidateIds = Set(normalizedCommitted.keys)
       .union(normalizedPending.keys)
+    if let replacement = try loadReplacementJournal() {
+      candidateIds.insert(replacement.old.platformAlarmId)
+      candidateIds.insert(replacement.new.platformAlarmId)
+    }
     guard Set(canonicalIds).subtracting(candidateIds).isEmpty else {
       throw NativeSnapshotValidationError.unknownIdentity
     }
@@ -1533,10 +1565,150 @@ final class AlarmKitBridge {
     UserDefaults.standard.set(envelopeData, forKey: nativeAlarmMirrorEnvelopeKey)
   }
 
+  private func validatedReplacementJournal(
+    _ journal: AlarmReplacementJournal
+  ) throws -> AlarmReplacementJournal {
+    let oldMap = try validatedMirror([journal.old.platformAlarmId: journal.old])
+    let newMap = try validatedMirror([journal.new.platformAlarmId: journal.new])
+    guard let old = oldMap.values.first,
+      let new = newMap.values.first,
+      old.platformAlarmId != new.platformAlarmId,
+      old.reservationId == new.reservationId,
+      old.wakePlanId == new.wakePlanId,
+      old.requiresNativeRestoration != true,
+      new.requiresNativeRestoration != true,
+      old.scheduleRequest() != nil,
+      new.scheduleRequest() != nil
+    else { throw MirrorValidationError.invalid }
+    return AlarmReplacementJournal(old: old, new: new, phase: journal.phase)
+  }
+
+  private func loadReplacementJournal() throws -> AlarmReplacementJournal? {
+    guard let data = UserDefaults.standard.data(forKey: nativeAlarmReplacementJournalKey) else {
+      return nil
+    }
+    return try validatedReplacementJournal(
+      JSONDecoder().decode(AlarmReplacementJournal.self, from: data)
+    )
+  }
+
+  private func saveReplacementJournal(_ journal: AlarmReplacementJournal) throws {
+    let validated = try validatedReplacementJournal(journal)
+    UserDefaults.standard.set(
+      try JSONEncoder().encode(validated),
+      forKey: nativeAlarmReplacementJournalKey
+    )
+  }
+
+  private func clearReplacementJournal() {
+    UserDefaults.standard.removeObject(forKey: nativeAlarmReplacementJournalKey)
+  }
+
+  @available(iOS 26.0, *)
+  private func reconcileReplacementJournal(
+    in snapshot: MirrorSnapshot,
+    nativeAlarms suppliedAlarms: [NativeAlarmSnapshot]? = nil
+  ) async throws -> MirrorSnapshot {
+    guard let journal = try loadReplacementJournal() else { return snapshot }
+    var mirror = snapshot.normalized
+    let pendingMirror = snapshot.pendingNormalized
+    let oldId = journal.old.platformAlarmId
+    let newId = journal.new.platformAlarmId
+    guard let oldUUID = UUID(uuidString: oldId),
+      let newUUID = UUID(uuidString: newId),
+      mirror[oldId] == journal.old || mirror[newId] == journal.new
+    else {
+      throw MirrorValidationError.invalid
+    }
+
+    func nativeIds(_ alarms: [NativeAlarmSnapshot]) throws -> Set<String> {
+      try Set(canonicalNativeAlarmIds(alarms.map { $0.platformAlarmId }))
+    }
+
+    var ids = try nativeIds(suppliedAlarms ?? nativeClientForAlarmKit().inventory())
+    let knownIds = Set(snapshot.normalized.keys)
+      .union(snapshot.pendingNormalized.keys)
+      .union([oldId, newId])
+    guard ids.subtracting(knownIds).isEmpty else {
+      throw NativeSnapshotValidationError.unknownIdentity
+    }
+
+    func commitNew() throws -> MirrorSnapshot {
+      mirror.removeValue(forKey: oldId)
+      mirror[newId] = journal.new
+      try saveMirrorState(mirror, pending: pendingMirror)
+      clearReplacementJournal()
+      return try loadMirrorSnapshot()
+    }
+
+    func retainOld() throws -> MirrorSnapshot {
+      guard ids.contains(oldId), !ids.contains(newId) else {
+        throw MirrorValidationError.invalid
+      }
+      mirror.removeValue(forKey: newId)
+      mirror[oldId] = journal.old
+      try saveMirrorState(mirror, pending: pendingMirror)
+      clearReplacementJournal()
+      return try loadMirrorSnapshot()
+    }
+
+    if mirror[newId] == journal.new {
+      if ids.contains(oldId) {
+        do { try nativeClientForAlarmKit().cancel(id: oldUUID) } catch {}
+        ids = try nativeIds(nativeClientForAlarmKit().inventory())
+        guard !ids.contains(oldId) else { throw MirrorValidationError.invalid }
+      }
+      guard ids.contains(newId) else { throw MirrorValidationError.invalid }
+      clearReplacementJournal()
+      return try loadMirrorSnapshot()
+    }
+
+    switch journal.phase {
+    case .staging:
+      if ids.contains(oldId) {
+        if ids.contains(newId) {
+          do { try nativeClientForAlarmKit().cancel(id: newUUID) } catch {}
+          ids = try nativeIds(nativeClientForAlarmKit().inventory())
+        }
+        return try retainOld()
+      }
+      if ids.contains(newId) {
+        return try commitNew()
+      }
+      throw MirrorValidationError.invalid
+
+    case .newVerified:
+      if ids.contains(newId), ids.contains(oldId) {
+        do { try nativeClientForAlarmKit().cancel(id: oldUUID) } catch {}
+        ids = try nativeIds(nativeClientForAlarmKit().inventory())
+      }
+      if ids.contains(newId), !ids.contains(oldId) {
+        return try commitNew()
+      }
+      if ids.contains(oldId) {
+        if ids.contains(newId) {
+          do { try nativeClientForAlarmKit().cancel(id: newUUID) } catch {}
+          ids = try nativeIds(nativeClientForAlarmKit().inventory())
+        }
+        return try retainOld()
+      }
+      throw MirrorValidationError.invalid
+    }
+  }
+
   private enum ScheduleFailureCleanupOutcome: Equatable {
     case nativePresent
     case nativeAbsent
     case uncertain
+  }
+
+  private func mirrorOwnsMatchingTuple(
+    _ platformAlarmId: String,
+    request: ScheduleRequest
+  ) -> Bool {
+    guard let snapshot = try? loadMirrorSnapshot() else { return false }
+    return (snapshot.normalized[platformAlarmId]
+      ?? snapshot.pendingNormalized[platformAlarmId])?.matches(request) == true
   }
 
   @available(iOS 26.0, *)
@@ -1773,6 +1945,21 @@ private struct AlarmMirrorRecord: Codable, Equatable {
           ? true
           : nil
     )
+  }
+}
+
+private enum AlarmReplacementPhase: String, Codable {
+  case staging
+  case newVerified
+}
+
+private struct AlarmReplacementJournal: Codable, Equatable {
+  let old: AlarmMirrorRecord
+  let new: AlarmMirrorRecord
+  let phase: AlarmReplacementPhase
+
+  func advancing(to phase: AlarmReplacementPhase) -> AlarmReplacementJournal {
+    AlarmReplacementJournal(old: old, new: new, phase: phase)
   }
 }
 
