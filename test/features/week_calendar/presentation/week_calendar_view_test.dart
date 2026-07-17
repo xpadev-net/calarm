@@ -96,6 +96,72 @@ void main() {
     );
   });
 
+  testWidgets(
+    'non-current initial range is deterministic and resume request recenters once',
+    (tester) async {
+      var now = DateTime(2026, 7, 8, 5, 30);
+      var recenterRequest = 0;
+      late StateSetter updateHarness;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                updateHarness = setState;
+                return WeekCalendarView(
+                  now: now,
+                  initialWeek: WeekRange(
+                    start: CalendarDay(year: 2026, month: 7, day: 1),
+                  ),
+                  recenterRequest: recenterRequest,
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      var pageController = tester
+          .widget<PageView>(find.byType(PageView))
+          .controller!;
+      var scrollController = tester
+          .widget<SingleChildScrollView>(
+            find.byType(SingleChildScrollView).hitTestable(),
+          )
+          .controller!;
+      expect(pageController.page, 10000);
+      expect(scrollController.offset, 184);
+
+      scrollController.jumpTo(600);
+      now = DateTime(2026, 7, 15, 18);
+      updateHarness(() {
+        recenterRequest += 1;
+      });
+      await tester.pumpAndSettle();
+
+      pageController = tester
+          .widget<PageView>(find.byType(PageView))
+          .controller!;
+      scrollController = tester
+          .widget<SingleChildScrollView>(
+            find.byType(SingleChildScrollView).hitTestable(),
+          )
+          .controller!;
+      expect(pageController.page, 10002);
+      expect(scrollController.offset, 912);
+
+      scrollController.jumpTo(600);
+      updateHarness(() {
+        now = DateTime(2026, 7, 15, 18, 1);
+      });
+      await tester.pump();
+
+      expect(pageController.page, 10002);
+      expect(scrollController.offset, 600);
+    },
+  );
+
   testWidgets('converts a grid tap into a calendar day and five-minute time', (
     tester,
   ) async {

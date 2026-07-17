@@ -342,6 +342,170 @@ void main() {
     },
   );
 
+  for (final testCase in [
+    (
+      name: 'same-day',
+      time: TimeOfDayMinutes.fromHourMinute(hour: 22, minute: 30),
+    ),
+    (
+      name: 'cross-day',
+      time: TimeOfDayMinutes.fromHourMinute(hour: 23, minute: 30),
+    ),
+  ]) {
+    testWidgets(
+      '${testCase.name} near-23:00 tap preserves scroll grid and date page',
+      (tester) async {
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              weekCalendarRepositoryProvider.overrideWith(
+                (ref) async => repository,
+              ),
+              wakePlanDefaultsRepositoryProvider.overrideWith(
+                (ref) async => repository,
+              ),
+              weekCalendarClockProvider.overrideWith(
+                (ref) =>
+                    () => DateTime(2026, 7, 8, 18),
+              ),
+            ],
+            child: const MaterialApp(
+              home: Scaffold(
+                body: SizedBox(height: 720, child: WeekCalendarPlaceholder()),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final pageController = tester
+            .widget<PageView>(find.byType(PageView))
+            .controller!;
+        final scrollController = tester
+            .widget<SingleChildScrollView>(
+              find.byType(SingleChildScrollView).hitTestable(),
+            )
+            .controller!;
+        scrollController.jumpTo(scrollController.position.maxScrollExtent);
+        await tester.pump();
+        final pageBefore = pageController.page;
+        final offsetBefore = scrollController.offset;
+        final gridBefore = tester.getTopLeft(
+          find.byKey(const ValueKey('week-calendar-time-grid')).first,
+        );
+
+        _calendar(tester).onTargetTap!(
+          WeekCalendarTapTarget(
+            day: CalendarDay(year: 2026, month: 7, day: 8),
+            time: testCase.time,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(InlineWakePlanEditor), findsOneWidget);
+        expect(pageController.page, pageBefore);
+        expect(scrollController.offset, offsetBefore);
+        expect(
+          tester.getTopLeft(
+            find.byKey(const ValueKey('week-calendar-time-grid')).first,
+          ),
+          gridBefore,
+        );
+        final draft = _calendar(tester).draft!;
+        expect(
+          draft.endAt.day != draft.startAt.day,
+          testCase.name == 'cross-day',
+        );
+
+        _calendar(tester).onDraftChanged!(draft.moveBy(days: 0, minutes: -5));
+        await tester.pump();
+        expect(pageController.page, pageBefore);
+        expect(scrollController.offset, offsetBefore);
+
+        await tester.tap(find.byKey(const ValueKey('inline-wake-plan-cancel')));
+        await tester.pumpAndSettle();
+        expect(pageController.page, pageBefore);
+        expect(scrollController.offset, offsetBefore);
+      },
+    );
+  }
+
+  testWidgets('foreground return recenters once while other rebuilds do not', (
+    tester,
+  ) async {
+    var currentNow = DateTime(2026, 7, 8, 5, 30, 45);
+    addTearDown(() {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    });
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          weekCalendarRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          wakePlanDefaultsRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          weekCalendarClockProvider.overrideWith(
+            (ref) =>
+                () => currentNow,
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(
+            body: SizedBox(height: 480, child: WeekCalendarPlaceholder()),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(PageView), const Offset(-600, 0));
+    await tester.pumpAndSettle();
+    var pageController = tester
+        .widget<PageView>(find.byType(PageView))
+        .controller!;
+    var scrollController = tester
+        .widget<SingleChildScrollView>(
+          find.byType(SingleChildScrollView).hitTestable(),
+        )
+        .controller!;
+    scrollController.jumpTo(600);
+    await tester.pump();
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    currentNow = DateTime(2026, 7, 8, 18);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+
+    expect(_calendar(tester).recenterRequest, 1);
+    pageController = tester.widget<PageView>(find.byType(PageView)).controller!;
+    scrollController = tester
+        .widget<SingleChildScrollView>(
+          find.byType(SingleChildScrollView).hitTestable(),
+        )
+        .controller!;
+    expect(pageController.page, 10000);
+    expect(scrollController.offset, 840);
+
+    scrollController.jumpTo(600);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    ProviderScope.containerOf(
+      tester.element(find.byType(WeekCalendarPlaceholder)),
+    ).invalidate(weekCalendarWakePlansProvider);
+    await tester.pumpAndSettle();
+    expect(_calendar(tester).recenterRequest, 1);
+    expect(pageController.page, 10000);
+    expect(scrollController.offset, 600);
+
+    currentNow = DateTime(2026, 7, 8, 18, 1);
+    await tester.pump(const Duration(seconds: 15));
+    expect(_calendar(tester).recenterRequest, 1);
+    expect(pageController.page, 10000);
+    expect(scrollController.offset, 600);
+  });
+
   test(
     'loads future plans outside the current visible week for paging',
     () async {
