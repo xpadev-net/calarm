@@ -54,16 +54,17 @@
 ## Tasks
 
 ### Task_1: Restore device pinch zoom
-- status: in_progress
+- status: complete
 - worker_thread: `019f6b02-c629-7463-a341-b9924932b3f9`
 - worker_worktree: `<CODEX_HOME>/worktrees/137a/calarm`
 - replaced_worker_thread: `019f693a-17e4-7090-b2fb-e4665e77961c` (archived rollout missing; replacement started)
 - branch: `codex/task-1-calendar-pinch`
 - pr: `https://github.com/xpadev-net/calarm/pull/51`
-- head: `8c04b077d62a337c429a3bd8dcb5f7240fb66338`
-- blocker: Required physical two-finger validation around 07:30 and 23:00 plus post-end/cancel vertical scroll and horizontal paging cannot run because no touch-capable device/emulator is available.
-- prior_evidence: Focused view 24/24, placeholder 25/25, analyze, diff-check, full Baseline CI, independent `APPROVED_CODE`, worker `gh-review-hook` exit 0, and 5/5 green checks at head `8c04b077d62a337c429a3bd8dcb5f7240fb66338`.
-- next_action: Replacement worker updates the open PR from current `master` with a normal merge, reruns exact-head gates, and attempts the required touch-capable device probe; no waiver is assumed.
+- head: `efe1b3826bb2998bac1748d8c7caac1173bd5b9c`
+- merge_commit: `64eb66a227ded39eddc4d905e4718eb7bc25e5ae`
+- merged_at: `2026-07-16T19:15:07Z`
+- evidence: Focused view 24/24, full Flutter suite 330/330, analyze, diff-check, independent exact-head UI and tests/concurrency reviews with no findings, worker and orchestrator `gh-review-hook` exit 0, 5/5 green checks, CLEAN/APPROVED/current base, and isolated Android API 34 two-pointer probes at 07:30 and 23:00 with focal stability plus post-end vertical scroll and horizontal paging.
+- worker_archived: true
 - type: impl
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_view.dart`
@@ -148,7 +149,10 @@
     detail: Deep review emphasizing reconciliation/state-machine failure paths, gh-review-hook exit 0, and focused rerun before merge.
 
 ### Task_3: Prevent calendar layout shift and recenter only on lifecycle return
-- status: unstarted
+- status: in_progress
+- worker_thread: `019f6c5b-8ed7-78f0-aa9d-9a4bcc957a73`
+- worker_worktree: `<CODEX_HOME>/worktrees/8862/calarm`
+- branch: `codex/task-3-calendar-lifecycle`
 - type: impl
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_view.dart`
@@ -351,6 +355,10 @@
   - Validation evidence: Head `381675108278333e08dfc12c739bec210936d308` remained clean/local-remote matched; focused four-suite validation passed 161 tests, analyze passed, and restart/reconciliation probe passed. Worker intentionally did not run the hook or claim merge-ready after the blocker was confirmed.
   - Decomposition: PR #52 stays stopped without iOS edits. The prerequisite is assigned to the existing non-overlapping native owner, codebase-remediation Task_12 / PR #48; Task_2 resumes only after that PR merges and all exact-head gates are rerun.
   - Closeout: PR description now records the dependency and required post-prerequisite gates. Branch/local/remote remained exactly `381675108278333e08dfc12c739bec210936d308`, no hook or merge occurred, and replacement worker `019f6b02-c520-7601-a7f9-816e5b8112e7` was archived.
+- 2026-07-17 Task_1 merged and Task_3 started: [Task_1, Task_3]
+  - Summary: PR #51 merged after exact-head orchestrator preflight, deep review, hook, full validation, and isolated two-pointer device evidence; the completed worker was archived and the now-unblocked Task_3 worker was started from the merge result.
+  - Validation evidence: PR #51 head `efe1b3826bb2998bac1748d8c7caac1173bd5b9c`; merge commit `64eb66a227ded39eddc4d905e4718eb7bc25e5ae`; focused 24/24 and full 330/330 tests; analyze/diff-check pass; worker and orchestrator hook exit 0; two independent orchestrator review perspectives found no actionable issues; API 34 probes passed at 07:30 and 23:00 with scroll/page recovery.
+  - Notes: Task_1 worker `019f6b02-c629-7463-a341-b9924932b3f9` archived. Task_3 worker `019f6c5b-8ed7-78f0-aa9d-9a4bcc957a73` is active in `<CODEX_HOME>/worktrees/8862/calarm` on planned branch `codex/task-3-calendar-lifecycle`; it must report before stopping and may not merge.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
