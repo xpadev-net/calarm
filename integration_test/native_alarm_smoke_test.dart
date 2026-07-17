@@ -141,6 +141,57 @@ void main() {
     },
   );
 
+  testWidgets(
+    'failed schedule same-tuple ID remains non-authoritative for cleanup',
+    (_) async {
+      const channel = MethodChannel(nativeAlarmChannelName);
+      var cancelCalls = 0;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            if (call.method == 'getInventory') {
+              return {
+                'schemaVersion': nativeAlarmChannelSchemaVersion,
+                'reservations': [
+                  {
+                    'reservationId': 'failed-reservation',
+                    'occurrenceId': 'failed-occurrence',
+                    'wakePlanId': 'failed-plan',
+                    'platformAlarmId': 'stale-failed-platform-id',
+                    'status': 'scheduled',
+                  },
+                ],
+              };
+            }
+            if (call.method == 'cancelOccurrences') {
+              cancelCalls++;
+              throw StateError('A failed schedule cannot authorize cleanup.');
+            }
+            throw MissingPluginException('Unexpected ${call.method}');
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
+
+      final verified = await _bestEffortCleanupTestAlarm(
+        gateway: MethodChannelNativeAlarmGateway(channel: channel),
+        occurrenceId: 'failed-occurrence',
+        reservationId: 'failed-reservation',
+        platformAlarmId: null,
+        expectedWakePlanId: 'failed-plan',
+        allowTupleFallback: false,
+        allowPlatformIdTupleDiscovery: false,
+        cancelBeforeVerification: false,
+        platform: 'test',
+        evidenceLabel: 'TEST',
+        cleanupLabel: 'failedScheduleSameTuple',
+      );
+
+      expect(verified, isFalse);
+      expect(cancelCalls, 0);
+    },
+  );
+
   testWidgets('native alarm MethodChannel smoke', (_) async {
     final gateway = MethodChannelNativeAlarmGateway();
     const platform = String.fromEnvironment(
@@ -304,13 +355,19 @@ void main() {
       }
     } finally {
       if (!scheduleCleanupVerified) {
+        // A failed schedule row is not cancellation authority, even when its
+        // platform ID currently resolves to the requested full tuple: it may
+        // be stale identity from an older alarm. Only prove absence on failure;
+        // never discover or cancel a candidate from the failed result.
         scheduleCleanupVerified = await _bestEffortCleanupTestAlarm(
           gateway: gateway,
           occurrenceId: scheduleRequest.occurrenceId,
           reservationId: scheduleRequest.reservationId,
-          platformAlarmId: scheduledPlatformAlarmId,
+          platformAlarmId: scheduleSucceeded ? scheduledPlatformAlarmId : null,
           expectedWakePlanId: scheduleRequest.wakePlanId,
+          allowTupleFallback: scheduleSucceeded,
           allowPlatformIdTupleDiscovery: false,
+          cancelBeforeVerification: scheduleSucceeded,
           platform: platform,
           evidenceLabel: evidenceLabel,
           cleanupLabel: 'schedule',
@@ -318,8 +375,8 @@ void main() {
       }
     }
     // A non-throwing lifecycle may continue as BLOCKED only after cleanup
-    // authoritatively proves absence. This also covers failure results that
-    // returned or revealed a recoverable platform ID.
+    // authoritatively proves absence. Failure results never authorize cleanup
+    // cancellation from their returned or tuple-discovered platform ID.
     if (!scheduleCleanupVerified) {
       throw StateError(
         'Native schedule cleanup could not be authoritatively verified.',
