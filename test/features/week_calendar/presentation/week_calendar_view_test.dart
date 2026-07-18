@@ -918,8 +918,8 @@ void main() {
             find.byKey(const ValueKey('week-calendar-pinch-surface')),
           );
 
-        expect(tester.getSize(handle).width, closeTo(48, 0.001));
-        expect(tester.getSize(handle).height, closeTo(48, 0.001));
+          expect(tester.getSize(handle).width, closeTo(48, 0.001));
+          expect(tester.getSize(handle).height, closeTo(48, 0.001));
           expect(surfaceRect.contains(edgePoint), isTrue);
           await _rawDragFrom(
             tester,
