@@ -403,12 +403,16 @@
   - runtime: `gpt-5.6-luna` / `high`
   - state: interrupted and archived after remaining at a clean detached base for over one hour; one startup resume produced no progress, and no branch, edit, commit, push, or PR was created.
 - replacement_worker:
-  - thread: `019f6b02-c520-7601-a7f9-81447e8915d2`
-  - worktree: `<CODEX_HOME>/worktrees/a266/calarm`
+  - thread: `019f7575-c7db-7420-a088-2ba9cdd95d2d`
+  - worktree: `<CODEX_HOME>/worktrees/1a9a/calarm`
   - branch: `codex/reviewfix-ios-native-inventory-retry`
   - runtime: platform default
-  - startup: active beyond replacement worktree setup; open-PR remediation and current-base integration in progress.
+  - startup: active beyond replacement worktree setup; availability-first handover and stale-inventory remediation in progress.
 - prior_replacement_worker:
+  - thread: `019f6b02-c520-7601-a7f9-81447e8915d2`
+  - worktree: `<CODEX_HOME>/worktrees/a266/calarm`
+  - state: produced the bounded AlarmKit transition proof, then its rollout file disappeared after automatic archival; an unarchive/resume attempt could not resolve the rollout and the task was archived again before replacement.
+- earlier_replacement_worker:
   - thread: `019f5bac-5671-7022-8a1a-12fa6cc67ee3`
   - worktree: `/Users/xpadev/.codex/worktrees/5a01/calarm`
   - state: archived rollout missing after unarchive; could not be resumed and was replaced without reusing its worktree.
@@ -428,7 +432,8 @@
 - depends_on: [Task_1, Task_10, Task_17]
 - acceptance:
   - AlarmKit uses/preserves the contract identity and exposes authoritative scheduled inventory.
-  - Stable reservation-to-platform identity and production `supportsInventory`/`getInventory` routing let a downstream id-less pending-enable reconcile after lost MethodChannel replies without duplicate scheduling or an uncancellable stranded alarm.
+  - Stable reservation-to-platform identity and production `supportsInventory`/`getInventory` routing let a downstream id-less pending-enable reconcile after lost MethodChannel replies without an uncancellable stranded alarm.
+  - Replacement uses schedule-new-before-retire-old so at least one exact owned alarm remains scheduled; because the installed public AlarmKit interface has no atomic replace primitive, the bounded duplicate-delivery window is minimized, documented, and converges through old-alarm retirement or restart inventory reconciliation rather than being mislabeled impossible-to-guarantee no-duplicate behavior.
   - AlarmKit stop/removal changes become observable to Dart or are recoverable on the next inventory read.
   - Authorization denied, disappeared one-shot alarm, cancel, and corrupt/unknown identity have explicit semantics.
   - Result callbacks are delivered on a Flutter-safe execution context.
@@ -742,6 +747,17 @@
   - The decision does not waive current-schema correctness: authoritative inventory must be refreshed inside serialized pruning, and the supported AlarmKit design must still address process-death behavior around old/new alarm handover without assuming an atomic same-ID replacement primitive.
   - If the platform cannot eliminate both missed-fire and duplicate-fire windows, the worker must return a concrete proof and bounded product guarantee for orchestrator review rather than preserve compatibility-driven complexity.
 
+- 2026-07-18 Task_12 adopted the supported availability-first AlarmKit handover guarantee.
+  - The worker inspected the installed AlarmKit 26.5 public interface and found only per-ID schedule, cancel, stop, pause, resume, authoritative alarms, and alarm updates; it exposes no atomic replace/swap/transaction or initially-disabled creation primitive.
+  - Finite transition proof: retiring the old alarm first admits process death with no live alarm and a missed fire; scheduling the candidate first admits process death with both alarms and a possible duplicate; journals and inventory cannot run while the process is dead, and undocumented same-ID replacement is forbidden.
+  - Accepted current-platform guarantee: schedule the candidate before retiring the old alarm, preserve at least one exact owned alarm, minimize and document the duplicate window, then converge through old retirement or restart reconciliation. No Dart/database decomposition can create the missing OS atomic primitive.
+  - Separate required remediation remains: observer/start events are wake hints, authoritative inventory is fetched inside `mirrorCoordinator` before every pruning path, read/validation failure retains state, and the post-journal second refetch plus gated stale-snapshot regressions remain mandatory.
+
+- 2026-07-18 Task_12 worker replaced after post-report rollout loss.
+  - Worker `019f6b02-c520-7601-a7f9-81447e8915d2` delivered the bounded transition proof and was automatically archived; its archived rollout file was then missing, so neither the accepted continuation prompt nor a bounded unarchive/resume could be delivered.
+  - The unrecoverable task was archived again to prevent concurrent branch edits. Replacement worker `019f7575-c7db-7420-a088-2ba9cdd95d2d` started from the same existing PR branch in a fresh worktree and owns the same seven-file Task_12 scope.
+  - The replacement was instructed to preserve all existing branch edits/history, normally merge current master, implement the recorded availability-first and stale-inventory fixes, refresh every exact-head gate, and never merge or rewrite history.
+
 ## Decision Log
 
 - 2026-07-18 Decision: pre-release backward compatibility is not required for Task_12 native state.
@@ -750,6 +766,13 @@
   - Non-waiver: AlarmKit's non-atomic schedule/cancel boundary and stale-inventory race remain correctness requirements independent of serialization compatibility.
   - Default if platform proof shows both delivery guarantees cannot coexist: return the evidence and a narrow availability-first recommendation with the duplicate window minimized and documented; do not silently weaken acceptance.
   - User approval: explicit on 2026-07-18.
+
+- 2026-07-18 Decision: prefer no missed fire over an impossible current-platform no-duplicate guarantee.
+  - Trigger: the Task_12 bounded interface inspection and transition matrix proved that every supported two-call AlarmKit replacement ordering has one process-death intermediate state, and no atomic replacement primitive exists in the installed public API.
+  - Scope effect: Task_12 stays within its seven approved files and implements schedule-new-before-retire-old plus authoritative restart convergence; no Dart/database task is added because it cannot alter native process-death atomicity.
+  - Acceptance delta: remove the absolute no-duplicate claim, require a minimized/documented duplicate window, forbid unsupported same-ID replacement assumptions, and retain all exact-identity, ownership, inventory, and cleanup guarantees.
+  - Revisit condition: strengthen the guarantee only when a supported AlarmKit atomic replace/swap primitive becomes available and is covered by native tests.
+  - User approval: follows the explicitly recorded availability-first default after the user removed compatibility constraints; no additional scope or destructive action is introduced.
 
 - 2026-07-14 Decision: split the missing hosted RunnerTests execution gate into Task_17 before Task_12 can merge.
   - Trigger: the Task_12 worker and nineteenth-review preparation confirmed that the iOS native-smoke job does not run `xcodebuild test`; the checked-in RunnerTests therefore lacked the plan-required remote execution evidence.

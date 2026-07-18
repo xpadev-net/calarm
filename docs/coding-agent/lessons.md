@@ -388,3 +388,12 @@ Purpose:
 - fix: Record the user's no-backward-compatibility decision, permit a current-schema-only native-state design within Task_12 ownership, and keep platform atomicity and current-schema recovery as separate correctness gates.
 - prevention: Before adding or retaining migration/legacy-format complexity in a pre-release product, confirm whether compatibility is required; when it is not, remove that constraint explicitly without using it to waive current-state correctness or expand ownership.
 - promotion: Repo-local pre-release design rule; consider shared architecture guidance if the same assumption recurs across projects.
+
+### 2026-07-18 - Prove Platform Atomicity Before Requiring Atomic Replacement Semantics
+
+- tags: review, external-integration, state-transitions, architecture/design, validation/verification
+- symptom: Task acceptance required both no missed fire and no duplicate fire across process death during AlarmKit replacement, although the public platform interface exposes only separate schedule and cancel operations.
+- root cause: Product-level atomic replacement semantics were specified without first mapping every intermediate state permitted by the installed platform API.
+- fix: Inspect the supported interface, enumerate both operation orderings and their process-death states, then adopt schedule-new-before-retire-old with a bounded duplicate window and restart convergence because availability is the chosen invariant.
+- prevention: Before requiring atomic semantics over a multi-call external API, identify a documented atomic primitive or produce a failure matrix; if none exists, explicitly choose the preserved invariant, bound the unavoidable window, and forbid undocumented behavior assumptions.
+- promotion: Repo-local external-integration lesson; candidate for shared event-driven/platform-contract guidance.
