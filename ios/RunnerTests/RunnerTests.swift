@@ -1588,7 +1588,7 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
-  func testBridgeLegacyCancelUsesStoredReservationWhenPayloadOmitsIt() async {
+  func testBridgeCancelRequiresReservationBeforeNativeMutation() async {
     let fake = FakeAlarmKitNativeClient()
     let bridge = AlarmKitBridge(nativeClient: fake)
     let request = makeScheduleRequest()
@@ -1602,11 +1602,12 @@ class RunnerTests: XCTestCase {
       "occurrenceId": request.occurrenceId,
       "platformAlarmId": platformAlarmId.uppercased(),
     ])
-    XCTAssertEqual(result["status"] as? String, "success")
-    XCTAssertEqual(result["reservationId"] as? String, request.occurrenceId)
+    XCTAssertEqual(result["status"] as? String, "failure")
+    XCTAssertEqual(result["failureReason"] as? String, "invalidRequest")
+    XCTAssertEqual(result["reservationId"] as? String, "")
     XCTAssertEqual(result["platformAlarmId"] as? String, platformAlarmId.uppercased())
-    XCTAssertTrue(fake.nativeAlarmIds.isEmpty)
-    XCTAssertFalse(mirrorContains(platformAlarmId))
+    XCTAssertEqual(fake.cancelCalls, 0)
+    XCTAssertEqual(fake.nativeAlarmIds, Set([platformAlarmId.uppercased()]))
   }
 
   @available(iOS 26.0, *)
@@ -1814,7 +1815,7 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
-  func testBridgeRejectsExplicitEmptyReservationAndWrongOwner() async {
+  func testBridgeRejectsInvalidOrMismatchedCancelOwnershipAndAllowsExactOwner() async {
     let fake = FakeAlarmKitNativeClient()
     let bridge = AlarmKitBridge(nativeClient: fake)
     let request = makeScheduleRequest("reservation-cancel-owner")
@@ -1824,44 +1825,94 @@ class RunnerTests: XCTestCase {
 
     let scheduleResult = await bridge.scheduleAlarm(request)
     XCTAssertEqual(scheduleResult.status, "success")
-    let wrongOwner = await bridge.cancelAlarm([
-      "occurrenceId": request.occurrenceId,
-      "reservationId": "wrong-owner",
-      "platformAlarmId": platformAlarmId.uppercased(),
-    ])
-    XCTAssertEqual(wrongOwner["failureReason"] as? String, "invalidRequest")
-    XCTAssertEqual(fake.cancelCalls, 0)
-    XCTAssertTrue(mirrorContains(platformAlarmId))
+    let wrongPlatformAlarmId = UUID().uuidString
+    fake.nativeAlarmIds.insert(wrongPlatformAlarmId)
+    let invalidPayloads: [[String: Any?]] = [
+      [
+        "occurrenceId": request.occurrenceId,
+        "reservationId": "",
+        "platformAlarmId": platformAlarmId.uppercased(),
+      ],
+      [
+        "occurrenceId": request.occurrenceId,
+        "reservationId": " \n\t ",
+        "platformAlarmId": platformAlarmId.uppercased(),
+      ],
+      [
+        "occurrenceId": request.occurrenceId,
+        "reservationId": "wrong-owner",
+        "platformAlarmId": platformAlarmId.uppercased(),
+      ],
+      [
+        "occurrenceId": "wrong-occurrence",
+        "reservationId": request.reservationId,
+        "platformAlarmId": platformAlarmId.uppercased(),
+      ],
+      [
+        "occurrenceId": request.occurrenceId,
+        "reservationId": request.reservationId,
+        "platformAlarmId": wrongPlatformAlarmId.lowercased(),
+      ],
+    ]
+    for payload in invalidPayloads {
+      let result = await bridge.cancelAlarm(payload)
+      XCTAssertEqual(result["status"] as? String, "failure")
+      XCTAssertEqual(result["failureReason"] as? String, "invalidRequest")
+      XCTAssertEqual(fake.cancelCalls, 0)
+      XCTAssertTrue(mirrorContains(platformAlarmId))
+    }
+    XCTAssertEqual(
+      fake.nativeAlarmIds,
+      Set([platformAlarmId.uppercased(), wrongPlatformAlarmId])
+    )
 
-    let emptyReservation = await bridge.cancelAlarm([
+    let valid = await bridge.cancelAlarm([
       "occurrenceId": request.occurrenceId,
-      "reservationId": "",
+      "reservationId": request.reservationId,
       "platformAlarmId": platformAlarmId.uppercased(),
     ])
-    XCTAssertEqual(emptyReservation["failureReason"] as? String, "invalidRequest")
-    XCTAssertEqual(fake.cancelCalls, 0)
-    XCTAssertTrue(mirrorContains(platformAlarmId))
+    XCTAssertEqual(valid["status"] as? String, "success")
+    XCTAssertEqual(fake.cancelCalls, 1)
+    XCTAssertEqual(fake.nativeAlarmIds, Set([wrongPlatformAlarmId]))
+    XCTAssertFalse(mirrorContains(platformAlarmId))
   }
 
   @available(iOS 26.0, *)
   @MainActor
-  func testBridgeKeepsMirrorlessLegacyUuidCancellationCompatible() async {
+  func testBridgeCancelsExactOwnedPendingAlarm() async throws {
     let fake = FakeAlarmKitNativeClient()
-    let bridge = AlarmKitBridge(nativeClient: fake)
-    let legacyId = UUID().uuidString
+    fake.inventoryError = true
+    let request = makeScheduleRequest("reservation-pending-cancel")
+    let platformAlarmId = calarmPlatformAlarmId(for: request.reservationId)
     clearMirror()
     defer { clearMirror() }
-    fake.nativeAlarmIds.insert(legacyId)
+    UserDefaults.standard.set(
+      try completeMirrorData([
+        platformAlarmId: [
+          "reservationId": request.reservationId,
+          "occurrenceId": request.occurrenceId,
+          "wakePlanId": request.wakePlanId,
+          "platformAlarmId": platformAlarmId,
+          "scheduledAt": request.scheduledAt.timeIntervalSinceReferenceDate,
+          "targetAt": request.targetAt.timeIntervalSinceReferenceDate,
+          "soundId": request.soundId,
+          "vibrationEnabled": request.vibrationEnabled,
+        ]
+      ]),
+      forKey: pendingMirrorKey
+    )
+    fake.nativeAlarmIds.insert(platformAlarmId.uppercased())
+    let bridge = AlarmKitBridge(nativeClient: fake)
 
     let result = await bridge.cancelAlarm([
-      "occurrenceId": "legacy-occurrence",
-      "platformAlarmId": legacyId.lowercased(),
+      "occurrenceId": request.occurrenceId,
+      "reservationId": request.reservationId,
+      "platformAlarmId": platformAlarmId.uppercased(),
     ])
     XCTAssertEqual(result["status"] as? String, "success")
     XCTAssertEqual(fake.cancelCalls, 1)
     XCTAssertTrue(fake.nativeAlarmIds.isEmpty)
-    XCTAssertTrue(committedMirrorObject()?.isEmpty == true)
-    XCTAssertEqual(mirrorEnvelopeVersion(), 1)
+    XCTAssertFalse(pendingMirrorContains(platformAlarmId))
   }
 
   @available(iOS 26.0, *)
@@ -2061,13 +2112,13 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
-  func testBridgeRollbackProjectionRemainsReadableAndDoesNotResurrectOldRows() async {
+  func testBridgeCurrentProjectionDoesNotResurrectCancelledRows() async {
     let fake = FakeAlarmKitNativeClient()
-    let bridge = AlarmKitBridge(nativeClient: fake)
     let request = makeScheduleRequest("reservation-rollback-projection")
     let id = calarmPlatformAlarmId(for: request.reservationId)
     clearMirror()
     defer { clearMirror() }
+    let bridge = AlarmKitBridge(nativeClient: fake)
 
     let scheduleResult = await bridge.scheduleAlarm(request)
     XCTAssertEqual(scheduleResult.status, "success")
@@ -2079,41 +2130,9 @@ class RunnerTests: XCTestCase {
     )
     XCTAssertEqual(mirrorEnvelopeVersion(), 1)
 
-    // Simulate an older binary updating the committed projection after the
-    // new writer published its envelope. The new reader must honor that
-    // mutation rather than resurrecting stale envelope fields.
-    let legacyUpdatedRecord: [String: String] = [
+    let cancelResult = await bridge.cancelAlarm([
+      "occurrenceId": request.occurrenceId,
       "reservationId": request.reservationId,
-      "occurrenceId": request.occurrenceId,
-      "wakePlanId": request.wakePlanId,
-      "platformAlarmId": id,
-    ]
-    UserDefaults.standard.set(
-      mirrorData([id: legacyUpdatedRecord]),
-      forKey: mirrorKey
-    )
-    let restartedAfterLegacyRewrite = AlarmKitBridge(nativeClient: fake)
-    let updatedInventory = await inventoryValue(restartedAfterLegacyRewrite)
-    let updatedRows = (updatedInventory as? [String: Any?])?["reservations"]
-      as? [[String: Any?]]
-    XCTAssertEqual(
-      updatedRows?.first?["occurrenceId"] as? String,
-      request.occurrenceId
-    )
-
-    let migratedEnvelope = try! XCTUnwrap(mirrorEnvelopeObject())
-    let migratedRecord = try! XCTUnwrap(
-      (migratedEnvelope["committed"] as? [String: Any])?[id] as? [String: Any]
-    )
-    XCTAssertNotNil(migratedRecord["scheduledAt"])
-    XCTAssertNotNil(migratedRecord["targetAt"])
-    XCTAssertEqual(migratedRecord["soundId"] as? String, request.soundId)
-    XCTAssertEqual(migratedRecord["vibrationEnabled"] as? Bool, request.vibrationEnabled)
-
-    // A legacy caller omits reservationId. The recovered identity remains
-    // cancellable, and a restart must not resurrect it after native removal.
-    let cancelResult = await restartedAfterLegacyRewrite.cancelAlarm([
-      "occurrenceId": request.occurrenceId,
       "platformAlarmId": id.uppercased(),
     ])
     XCTAssertEqual(cancelResult["status"] as? String, "success")

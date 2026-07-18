@@ -467,24 +467,18 @@ final class AlarmKitBridge {
         message: "occurrenceId is required."
       )
     }
-    let requestedReservationId: String?
-    if payload.keys.contains("reservationId") {
-      guard let suppliedReservationId = stringValue(payloadValue(payload, "reservationId")),
-        !suppliedReservationId.isEmpty
-      else {
-        return cancelFailureRow(
-          occurrenceId: occurrenceId,
-          reservationId: occurrenceId,
-          platformAlarmId: stringValue(payloadValue(payload, "platformAlarmId")) ?? "",
-          reason: "invalidRequest",
-          message: "reservationId must be a non-empty string when supplied."
-        )
-      }
-      requestedReservationId = suppliedReservationId
-    } else {
-      requestedReservationId = nil
+    guard let requestedReservationId = stringValue(payloadValue(payload, "reservationId")),
+      !requestedReservationId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    else {
+      return cancelFailureRow(
+        occurrenceId: occurrenceId,
+        reservationId: stringValue(payloadValue(payload, "reservationId")) ?? "",
+        platformAlarmId: stringValue(payloadValue(payload, "platformAlarmId")) ?? "",
+        reason: "invalidRequest",
+        message: "reservationId must be a non-empty string."
+      )
     }
-    let responseReservationId = requestedReservationId ?? occurrenceId
+    let responseReservationId = requestedReservationId
     // Cancel rows are correlated by the caller's exact (occurrenceId,
     // platformAlarmId) tuple in Dart. Keep the accepted caller spelling in
     // the response while using the canonical UUID text for native ownership
@@ -536,7 +530,7 @@ final class AlarmKitBridge {
   @available(iOS 26.0, *)
   private func performCancelAlarm(
     occurrenceId: String,
-    requestedReservationId: String?,
+    requestedReservationId: String,
     responseReservationId: String,
     platformAlarmId: String,
     responsePlatformAlarmId: String,
@@ -557,7 +551,7 @@ final class AlarmKitBridge {
   @available(iOS 26.0, *)
   private func performCancelAlarmInMirrorTransaction(
     occurrenceId: String,
-    requestedReservationId: String?,
+    requestedReservationId: String,
     responseReservationId: String,
     platformAlarmId: String,
     responsePlatformAlarmId: String,
@@ -571,43 +565,29 @@ final class AlarmKitBridge {
         let recoveryAlarms = try nativeClientForAlarmKit().inventory()
         mirrorSnapshot = try recoverMirrorSnapshot(from: recoveryAlarms)
       }
+      if let failure = cancelOwnershipFailure(
+        in: mirrorSnapshot,
+        occurrenceId: occurrenceId,
+        reservationId: requestedReservationId,
+        platformAlarmId: platformAlarmId,
+        responsePlatformAlarmId: responsePlatformAlarmId
+      ) {
+        return failure
+      }
       if try loadReplacementJournal() != nil {
         mirrorSnapshot = try await reconcileReplacementJournal(in: mirrorSnapshot)
       }
+      if let failure = cancelOwnershipFailure(
+        in: mirrorSnapshot,
+        occurrenceId: occurrenceId,
+        reservationId: requestedReservationId,
+        platformAlarmId: platformAlarmId,
+        responsePlatformAlarmId: responsePlatformAlarmId
+      ) {
+        return failure
+      }
       var mirror = mirrorSnapshot.normalized
       var pendingMirror = mirrorSnapshot.pendingNormalized
-      let ownedRecord = mirror[platformAlarmId] ?? pendingMirror[platformAlarmId]
-      if requestedReservationId != nil && ownedRecord == nil {
-        return cancelFailureRow(
-          occurrenceId: occurrenceId,
-          reservationId: responseReservationId,
-          platformAlarmId: responsePlatformAlarmId,
-          reason: "invalidRequest",
-          message: "AlarmKit identity ownership could not be verified."
-        )
-      }
-      if ownedRecord?.requiresNativeRestoration == true {
-        return cancelFailureRow(
-          occurrenceId: occurrenceId,
-          reservationId: responseReservationId,
-          platformAlarmId: responsePlatformAlarmId,
-          reason: "unknown",
-          message: "AlarmKit identity must be restored before it can be cancelled."
-        )
-      }
-      if let record = ownedRecord,
-        record.occurrenceId != occurrenceId
-          || (requestedReservationId != nil
-            && record.reservationId != requestedReservationId)
-      {
-        return cancelFailureRow(
-          occurrenceId: occurrenceId,
-          reservationId: responseReservationId,
-          platformAlarmId: responsePlatformAlarmId,
-          reason: "invalidRequest",
-          message: "AlarmKit identity does not match the requested reservation."
-        )
-      }
       try nativeClientForAlarmKit().cancel(id: alarmId)
       mirror.removeValue(forKey: platformAlarmId)
       pendingMirror.removeValue(forKey: platformAlarmId)
@@ -626,6 +606,49 @@ final class AlarmKitBridge {
         message: error.localizedDescription
       )
     }
+  }
+
+  private func cancelOwnershipFailure(
+    in mirrorSnapshot: MirrorSnapshot,
+    occurrenceId: String,
+    reservationId: String,
+    platformAlarmId: String,
+    responsePlatformAlarmId: String
+  ) -> [String: Any?]? {
+    guard
+      let ownedRecord = mirrorSnapshot.normalized[platformAlarmId]
+        ?? mirrorSnapshot.pendingNormalized[platformAlarmId]
+    else {
+      return cancelFailureRow(
+        occurrenceId: occurrenceId,
+        reservationId: reservationId,
+        platformAlarmId: responsePlatformAlarmId,
+        reason: "invalidRequest",
+        message: "AlarmKit identity ownership could not be verified."
+      )
+    }
+    if ownedRecord.requiresNativeRestoration == true {
+      return cancelFailureRow(
+        occurrenceId: occurrenceId,
+        reservationId: reservationId,
+        platformAlarmId: responsePlatformAlarmId,
+        reason: "unknown",
+        message: "AlarmKit identity must be restored before it can be cancelled."
+      )
+    }
+    guard ownedRecord.reservationId == reservationId,
+      ownedRecord.occurrenceId == occurrenceId,
+      ownedRecord.platformAlarmId == platformAlarmId
+    else {
+      return cancelFailureRow(
+        occurrenceId: occurrenceId,
+        reservationId: reservationId,
+        platformAlarmId: responsePlatformAlarmId,
+        reason: "invalidRequest",
+        message: "AlarmKit identity does not match the requested reservation."
+      )
+    }
+    return nil
   }
 
   func scheduleAlarm(_ request: ScheduleRequest) async -> ScheduleRow {
