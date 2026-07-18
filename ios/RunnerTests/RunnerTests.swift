@@ -521,6 +521,109 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
+  func testBridgeClearsStaleCommittedNewJournalAfterResolvedAlarmDisappears() async {
+    let fake = FakeAlarmKitNativeClient()
+    let original = makeScheduleRequest("reservation-stale-committed-new-journal")
+    let replacement = makeScheduleRequest(
+      original.reservationId,
+      occurrenceId: "occurrence-stale-committed-new-journal"
+    )
+    clearMirror()
+    defer { clearMirror() }
+
+    let interruptedBridge = AlarmKitBridge(
+      nativeClient: fake,
+      replacementAfterVerifiedBeforeRetire: {
+        throw FakeAlarmKitNativeClient.FakeError.scheduleFailed
+      }
+    )
+    let originalResult = await interruptedBridge.scheduleAlarm(original)
+    let replacementResult = await interruptedBridge.scheduleAlarm(replacement)
+    XCTAssertEqual(originalResult.status, "success")
+    XCTAssertEqual(replacementResult.status, "failure")
+    let staleJournal = try! XCTUnwrap(
+      UserDefaults.standard.data(forKey: replacementJournalKey)
+    )
+
+    // Production reconciliation commits the verified candidate. Reinstalling
+    // the captured journal models process loss after that mirror save and
+    // before the adjacent journal clear.
+    let recoveredBridge = AlarmKitBridge(nativeClient: fake)
+    let recoveredInventory = await inventoryValue(recoveredBridge)
+    let recoveredRows = (recoveredInventory as? [String: Any?])?["reservations"]
+      as? [[String: Any?]]
+    XCTAssertEqual(recoveredRows?.first?["occurrenceId"] as? String, replacement.occurrenceId)
+    XCTAssertNil(UserDefaults.standard.data(forKey: replacementJournalKey))
+    UserDefaults.standard.set(staleJournal, forKey: replacementJournalKey)
+
+    fake.nativeAlarmIds.removeAll()
+    fake.scheduledRequests.removeAll()
+    let restartedBridge = AlarmKitBridge(nativeClient: fake)
+    let emptyInventory = await inventoryValue(restartedBridge)
+    let emptyRows = (emptyInventory as? [String: Any?])?["reservations"]
+      as? [[String: Any?]]
+    XCTAssertEqual(emptyRows?.count, 0)
+    XCTAssertNil(UserDefaults.standard.data(forKey: replacementJournalKey))
+    guard let recoveredPlatformAlarmId = recoveredRows?.first?["platformAlarmId"] as? String else {
+      XCTFail("Expected the recovered candidate platform identity.")
+      return
+    }
+    XCTAssertFalse(mirrorContains(recoveredPlatformAlarmId))
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testBridgeClearsStaleRetainedOldJournalAfterResolvedAlarmDisappears() async {
+    let fake = FakeAlarmKitNativeClient()
+    fake.inventoryErrorOnCall = 3
+    let original = makeScheduleRequest("reservation-stale-retained-old-journal")
+    let replacement = makeScheduleRequest(
+      original.reservationId,
+      occurrenceId: "occurrence-stale-retained-old-journal"
+    )
+    let oldPlatformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
+    clearMirror()
+    defer { clearMirror() }
+
+    let interruptedBridge = AlarmKitBridge(
+      nativeClient: fake,
+      replacementBeforeCommit: {
+        throw FakeAlarmKitNativeClient.FakeError.scheduleFailed
+      }
+    )
+    let originalResult = await interruptedBridge.scheduleAlarm(original)
+    let replacementResult = await interruptedBridge.scheduleAlarm(replacement)
+    XCTAssertEqual(originalResult.status, "success")
+    XCTAssertEqual(replacementResult.status, "failure")
+    let staleJournal = try! XCTUnwrap(
+      UserDefaults.standard.data(forKey: replacementJournalKey)
+    )
+
+    // Production staging recovery retires the candidate and retains the old
+    // alarm. Reinstalling the journal recreates the same save/clear crash gap.
+    fake.inventoryErrorOnCall = nil
+    let recoveredBridge = AlarmKitBridge(nativeClient: fake)
+    let recoveredInventory = await inventoryValue(recoveredBridge)
+    let recoveredRows = (recoveredInventory as? [String: Any?])?["reservations"]
+      as? [[String: Any?]]
+    XCTAssertEqual(recoveredRows?.first?["occurrenceId"] as? String, original.occurrenceId)
+    XCTAssertEqual(recoveredRows?.first?["platformAlarmId"] as? String, oldPlatformAlarmId)
+    XCTAssertNil(UserDefaults.standard.data(forKey: replacementJournalKey))
+    UserDefaults.standard.set(staleJournal, forKey: replacementJournalKey)
+
+    fake.nativeAlarmIds.removeAll()
+    fake.scheduledRequests.removeAll()
+    let restartedBridge = AlarmKitBridge(nativeClient: fake)
+    let emptyInventory = await inventoryValue(restartedBridge)
+    let emptyRows = (emptyInventory as? [String: Any?])?["reservations"]
+      as? [[String: Any?]]
+    XCTAssertEqual(emptyRows?.count, 0)
+    XCTAssertNil(UserDefaults.standard.data(forKey: replacementJournalKey))
+    XCTAssertFalse(mirrorContains(oldPlatformAlarmId))
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
   func testBridgeUnresolvedDuplicateFailsClosedUntilOwnedCleanupSucceeds() async {
     let fake = FakeAlarmKitNativeClient()
     fake.failedCancelAttempts = [1, 2, 3, 4]

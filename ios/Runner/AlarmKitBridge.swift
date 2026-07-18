@@ -1668,6 +1668,17 @@ final class AlarmKitBridge {
       return try loadMirrorSnapshot()
     }
 
+    // AlarmKit's inventory is authoritative. A process can terminate after
+    // commitNew()/retainOld() saves the resolved mirror but before it clears
+    // this journal, and the retained one-shot can then fire or stop before
+    // the next launch. Neither owned UUID remaining is therefore a valid
+    // terminal state, not an ambiguous handover. Clear the stale journal so
+    // the caller can prune the resolved mirror against the empty snapshot.
+    if !ids.contains(oldId), !ids.contains(newId) {
+      clearReplacementJournal()
+      return try loadMirrorSnapshot()
+    }
+
     if mirror[newId] == journal.new {
       if ids.contains(oldId) {
         do { try nativeClientForAlarmKit().cancel(id: oldUUID) } catch {}
