@@ -54,14 +54,17 @@
 ## Tasks
 
 ### Task_1: Restore device pinch zoom
-- status: blocked
-- worker_thread: `019f693a-17e4-7090-b2fb-e4665e77961c`
+- status: complete
+- worker_thread: `019f6b02-c629-7463-a341-b9924932b3f9`
+- worker_worktree: `<CODEX_HOME>/worktrees/137a/calarm`
+- replaced_worker_thread: `019f693a-17e4-7090-b2fb-e4665e77961c` (archived rollout missing; replacement started)
 - branch: `codex/task-1-calendar-pinch`
 - pr: `https://github.com/xpadev-net/calarm/pull/51`
-- head: `8c04b077d62a337c429a3bd8dcb5f7240fb66338`
-- blocker: Required physical two-finger validation around 07:30 and 23:00 plus post-end/cancel vertical scroll and horizontal paging cannot run because no touch-capable device/emulator is available.
-- evidence: Focused view 24/24, placeholder 25/25, analyze, diff-check, full Baseline CI, independent `APPROVED_CODE`, worker `gh-review-hook` exit 0, CLEAN/MERGEABLE/not-behind PR, and 5/5 green checks.
-- next_action: Connect/start a touch-capable Android/iOS device or emulator and run the required probe, or obtain an explicit user waiver for this validation item; then re-run final merge preflight.
+- head: `efe1b3826bb2998bac1748d8c7caac1173bd5b9c`
+- merge_commit: `64eb66a227ded39eddc4d905e4718eb7bc25e5ae`
+- merged_at: `2026-07-16T19:15:07Z`
+- evidence: Focused view 24/24, full Flutter suite 330/330, analyze, diff-check, independent exact-head UI and tests/concurrency reviews with no findings, worker and orchestrator `gh-review-hook` exit 0, 5/5 green checks, CLEAN/APPROVED/current base, and isolated Android API 34 two-pointer probes at 07:30 and 23:00 with focal stability plus post-end vertical scroll and horizontal paging.
+- worker_archived: true
 - type: impl
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_view.dart`
@@ -94,8 +97,19 @@
 
 ### Task_2: Add persistent per-occurrence alarm toggles
 - status: in_progress
-- worker_thread: `019f693a-17b1-78c3-8a0e-30a8ae7c911b`
+- worker_thread: `019f6b02-c520-7601-a7f9-816e5b8112e7`
+- worker_worktree: `<CODEX_HOME>/worktrees/dd05/calarm`
+- resumed_worker_thread: `019f764b-6b12-7151-970b-8e49283635f0`
+- resumed_worker_worktree: `<CODEX_HOME>/worktrees/f66b/calarm`
+- replaced_worker_thread: `019f693a-17b1-78c3-8a0e-30a8ae7c911b` (archived rollout missing; replacement started)
 - branch: `codex/task-2-occurrence-toggles`
+- pr: `https://github.com/xpadev-net/calarm/pull/52`
+- head_at_replacement: `381675108278333e08dfc12c739bec210936d308`
+- stop_reason: Exact-head independent review proved that an iOS lost MethodChannel schedule reply can leave an id-less `userEnablePending` row permanently hidden while an unknown native alarm remains live; an in-scope service-only retry can duplicate alarms and rejecting re-enable would violate acceptance.
+- prerequisite: satisfied by Task_12 / PR #48 merge commit `2d3ceb1c786aa0b44e6da90457c164df6afbe11e`, which provides stable reservation-to-platform identity plus authoritative iOS inventory.
+- resume_action: Replacement worker normally integrates current master, reruns the exact restart/native-state probe and focused/full suites, obtains fresh independent review, runs the worker hook, and re-enters orchestrator merge preflight.
+- stopped_worker_archived: true
+- pr_dependency_note: Confirmed in PR #52 description; no code/history change accompanied the metadata update.
 - type: impl
 - owns:
   - `lib/features/wake_plan/domain/src/alarm_occurrence.dart`
@@ -137,7 +151,16 @@
     detail: Deep review emphasizing reconciliation/state-machine failure paths, gh-review-hook exit 0, and focused rerun before merge.
 
 ### Task_3: Prevent calendar layout shift and recenter only on lifecycle return
-- status: unstarted
+- status: complete
+- worker_thread: `019f6c5b-8ed7-78f0-aa9d-9a4bcc957a73`
+- worker_worktree: `<CODEX_HOME>/worktrees/8862/calarm`
+- branch: `codex/task-3-calendar-lifecycle`
+- pr: `https://github.com/xpadev-net/calarm/pull/53`
+- head: `904480fec7f463b6a25d632f32e32decd33ea548`
+- merge_commit: `36b2bb81b66faf66e6b352b9ba3032f9ca729c1f`
+- merged_at: `2026-07-17T18:36:07Z`
+- evidence: Focused calendar widget tests 56/56, full Flutter suite 337/337, analyze, format, and diff-check passed; same-day/cross-day near-23:00 geometry and offset probes plus 18:00 foreground exactly-once recenter passed; worker and orchestrator `gh-review-hook` exited 0; three exact-head orchestrator review perspectives found no actionable findings; PR was CLEAN, APPROVED, current-base, and 5/5 checks green.
+- worker_archived: true
 - type: impl
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_view.dart`
@@ -173,7 +196,13 @@
     detail: Deep review, gh-review-hook exit 0, focused rerun, and layout/scroll state evidence before merge.
 
 ### Task_4: Render and resize short ranges exactly
-- status: unstarted
+- status: in_progress
+- worker_thread: `019f7160-b4bb-76e1-8008-dda5ac52fb57`
+- worker_worktree: `<CODEX_HOME>/worktrees/40d4/calarm`
+- replacement_worker_thread: `019f764b-bebe-7ff3-847d-0681414a3b1e`
+- replacement_worker_worktree: `<CODEX_HOME>/worktrees/7f05/calarm`
+- replacement_reason: Prior worker could be unarchived but could not resume because its archived rollout file was missing; replacement continues the unchanged PR branch without history rewrite.
+- branch: `codex/task-4-short-range-geometry`
 - type: impl
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_view.dart`
@@ -205,7 +234,16 @@
     detail: Deep review, gh-review-hook exit 0, geometry assertions, and focused rerun before merge.
 
 ### Task_5: Add direct start/end date-time editing
-- status: unstarted
+- status: complete
+- worker_thread: `019f7160-b55e-7de3-a090-4939aecb3e55`
+- worker_worktree: `<CODEX_HOME>/worktrees/291e/calarm`
+- branch: `codex/task-5-direct-datetime-editing`
+- pr: `https://github.com/xpadev-net/calarm/pull/55`
+- head: `976458798d539565bccfc7caf6746a85c3be7e99`
+- merge_commit: `47eb07a7ef8cf66cbc07e0c417bb622f891aa588`
+- merged_at: `2026-07-18T07:32:14Z`
+- evidence: Focused model/editor/placeholder suites 71/71, full Flutter suite 354/354 with concurrency 1, analyze, format, diff-check, worker review-hook iteration 2 and orchestrator `gh-review-hook 55` exit 0, three independent exact-head orchestrator reviews with no findings, Greptile Confidence 5/5, 5/5 green checks, CLEAN/APPROVED/current base, and widget instrumentation for same-day, 23:55→00:10, reversed, over-3-hour, past-end, cross-month/year, timezone semantics, picker flow, and scroll stability.
+- worker_archived: true
 - type: impl
 - owns:
   - `lib/features/week_calendar/model/week_calendar_interaction.dart`
@@ -331,6 +369,35 @@
   - Summary: PR #51 passed code review, worker/orchestrator-visible automation, focused/full validation, and all remote merge-state gates, but the plan-required real two-finger probe could not be executed.
   - Validation evidence: Head `8c04b077d62a337c429a3bd8dcb5f7240fb66338`; focused view 24/24; placeholder 25/25; analyze/diff-check/full CI pass; independent Reviewer `APPROVED_CODE`; worker `gh-review-hook` exit 0; PR CLEAN/MERGEABLE/not behind with 5/5 checks green.
   - Notes: No touch-capable device/emulator is visible; synthetic widget gestures are not accepted as physical evidence. PR remains open and unmerged. Task_3 cannot start until Task_1 merges.
+- 2026-07-16 open-PR workers replaced after archived rollout loss: [Task_1, Task_2]
+  - Summary: Existing worker threads could be unarchived but could not be resumed because their archived rollout files were missing; replacement Codex worktree workers were started on the existing open-PR branches.
+  - Validation evidence: Task_1 replacement thread `019f6b02-c629-7463-a341-b9924932b3f9` is active in `<CODEX_HOME>/worktrees/137a/calarm`; Task_2 replacement thread `019f6b02-c520-7601-a7f9-816e5b8112e7` is active in `<CODEX_HOME>/worktrees/dd05/calarm`.
+  - Notes: Task_1 must update its behind branch and still satisfy physical multitouch evidence. Task_2 must produce exact-head Worker validation, independent review, hook, probe, and cleanliness evidence. Neither worker may merge.
+- 2026-07-17 Task_2 stopped for native recovery prerequisite: [Task_2]
+  - Summary: Exact-head review of PR #52 found that iOS reply loss can strand id-less `userEnablePending` state while a live native alarm may exist; Task_2 cannot satisfy recoverability without stable native identity and authoritative inventory.
+  - Validation evidence: Head `381675108278333e08dfc12c739bec210936d308` remained clean/local-remote matched; focused four-suite validation passed 161 tests, analyze passed, and restart/reconciliation probe passed. Worker intentionally did not run the hook or claim merge-ready after the blocker was confirmed.
+  - Decomposition: PR #52 stays stopped without iOS edits. The prerequisite is assigned to the existing non-overlapping native owner, codebase-remediation Task_12 / PR #48; Task_2 resumes only after that PR merges and all exact-head gates are rerun.
+  - Closeout: PR description now records the dependency and required post-prerequisite gates. Branch/local/remote remained exactly `381675108278333e08dfc12c739bec210936d308`, no hook or merge occurred, and replacement worker `019f6b02-c520-7601-a7f9-816e5b8112e7` was archived.
+- 2026-07-17 Task_1 merged and Task_3 started: [Task_1, Task_3]
+  - Summary: PR #51 merged after exact-head orchestrator preflight, deep review, hook, full validation, and isolated two-pointer device evidence; the completed worker was archived and the now-unblocked Task_3 worker was started from the merge result.
+  - Validation evidence: PR #51 head `efe1b3826bb2998bac1748d8c7caac1173bd5b9c`; merge commit `64eb66a227ded39eddc4d905e4718eb7bc25e5ae`; focused 24/24 and full 330/330 tests; analyze/diff-check pass; worker and orchestrator hook exit 0; two independent orchestrator review perspectives found no actionable issues; API 34 probes passed at 07:30 and 23:00 with scroll/page recovery.
+  - Notes: Task_1 worker `019f6b02-c629-7463-a341-b9924932b3f9` archived. Task_3 worker `019f6c5b-8ed7-78f0-aa9d-9a4bcc957a73` is active in `<CODEX_HOME>/worktrees/8862/calarm` on planned branch `codex/task-3-calendar-lifecycle`; it must report before stopping and may not merge.
+- 2026-07-17 Task_3 merged and archived: [Task_3]
+  - Summary: PR #53 merged after exact-head orchestrator preflight, deep review, review hook, focused/full validation, and instrumented lifecycle/layout probes.
+  - Validation evidence: Head `904480fec7f463b6a25d632f32e32decd33ea548`; merge commit `36b2bb81b66faf66e6b352b9ba3032f9ca729c1f`; focused 56/56 and full 337/337 tests; analyze/format/diff-check pass; worker and orchestrator hook exit 0; three orchestrator review perspectives approved with no findings; PR CLEAN/APPROVED/current base with 5/5 checks green.
+  - Notes: Same-day and cross-day near-23:00 interactions preserved page, vertical offset, and grid position; foreground resume recentered exactly once while minute ticks, provider rebuilds, and draft edits did not. Worker `019f6c5b-8ed7-78f0-aa9d-9a4bcc957a73` archived.
+- 2026-07-17 Wave 3 started: [Task_4, Task_5]
+  - Summary: Started separate worktree workers for exact short-range geometry and direct date-time editing after Task_3 merged.
+  - Validation evidence: Both workers remained active after startup and loaded their bounded ownership, acceptance, validation, review, and PR lifecycle instructions.
+  - Notes: Task_4 thread `019f7160-b4bb-76e1-8008-dda5ac52fb57` uses `<CODEX_HOME>/worktrees/40d4/calarm`; Task_5 thread `019f7160-b55e-7de3-a090-4939aecb3e55` uses `<CODEX_HOME>/worktrees/291e/calarm`. Their planned file ownership is disjoint, and both are disjoint from active native Task_12.
+- 2026-07-18 Task_5 merged and archived: [Task_5]
+  - Summary: PR #55 merged after exact-head orchestrator preflight, deep review, review hook, focused/full validation, and direct-edit boundary instrumentation.
+  - Validation evidence: Head `976458798d539565bccfc7caf6746a85c3be7e99`; merge commit `47eb07a7ef8cf66cbc07e0c417bb622f891aa588`; focused 71/71 and full 354/354 tests; analyze/format/diff-check pass; worker and orchestrator hook exit 0; three orchestrator review perspectives approved with no findings; PR CLEAN/APPROVED/current base with 5/5 checks green.
+  - Notes: Canonical snapped endpoints govern display and Save validity, invalid transient ranges remain repairable, and direct input preserves the documented local DateTime semantics. Worker `019f7160-b55e-7de3-a090-4939aecb3e55` archived.
+- 2026-07-19 Task_12 dependency merged; Task_2 resumed and Task_4 worker replaced: [Task_2, Task_4]
+  - Summary: PR #48 merged the native stable-identity and authoritative-inventory prerequisite, so Task_2 restarted on its existing PR branch. Task_4's archived worker rollout was missing and could not accept the dependency-release handoff, so a replacement worker continued PR #54 from the same branch.
+  - Validation evidence: PR #48 merge commit `2d3ceb1c786aa0b44e6da90457c164df6afbe11e`; Task_2 replacement thread `019f764b-6b12-7151-970b-8e49283635f0` active in `<CODEX_HOME>/worktrees/f66b/calarm`; Task_4 replacement thread `019f764b-bebe-7ff3-847d-0681414a3b1e` active in `<CODEX_HOME>/worktrees/7f05/calarm`.
+  - Notes: Both replacements must normally merge current master, preserve open-PR history, refresh exact-head validation/review/check/hook evidence, and never merge. The old Task_4 worker `019f7160-b4bb-76e1-8008-dda5ac52fb57` was archived again after the rollout-path failure.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 

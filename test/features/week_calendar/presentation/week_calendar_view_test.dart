@@ -96,6 +96,179 @@ void main() {
     );
   });
 
+  testWidgets(
+    'non-current initial range is deterministic and resume request recenters once',
+    (tester) async {
+      var now = DateTime(2026, 7, 8, 5, 30);
+      var recenterRequest = 0;
+      late StateSetter updateHarness;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                updateHarness = setState;
+                return WeekCalendarView(
+                  now: now,
+                  initialWeek: WeekRange(
+                    start: CalendarDay(year: 2026, month: 7, day: 1),
+                  ),
+                  recenterRequest: recenterRequest,
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      var pageController = tester
+          .widget<PageView>(find.byType(PageView))
+          .controller!;
+      var scrollController = tester
+          .widget<SingleChildScrollView>(
+            find.byType(SingleChildScrollView).hitTestable(),
+          )
+          .controller!;
+      expect(pageController.page, 10000);
+      expect(scrollController.offset, 184);
+
+      scrollController.jumpTo(600);
+      now = DateTime(2026, 7, 15, 18);
+      updateHarness(() {
+        recenterRequest += 1;
+      });
+      await tester.pumpAndSettle();
+
+      pageController = tester
+          .widget<PageView>(find.byType(PageView))
+          .controller!;
+      scrollController = tester
+          .widget<SingleChildScrollView>(
+            find.byType(SingleChildScrollView).hitTestable(),
+          )
+          .controller!;
+      expect(pageController.page, 10002);
+      expect(scrollController.offset, 912);
+
+      scrollController.jumpTo(600);
+      updateHarness(() {
+        now = DateTime(2026, 7, 15, 18, 1);
+      });
+      await tester.pump();
+
+      expect(pageController.page, 10002);
+      expect(scrollController.offset, 600);
+    },
+  );
+
+  testWidgets('resume page uses the initial range stride', (tester) async {
+    var recenterRequest = 0;
+    late StateSetter updateHarness;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) {
+              updateHarness = setState;
+              return WeekCalendarView(
+                now: DateTime(2026, 7, 8, 18),
+                initialWeek: WeekRange(
+                  start: CalendarDay(year: 2026, month: 7, day: 1),
+                  visibleDays: 3,
+                ),
+                recenterRequest: recenterRequest,
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    updateHarness(() {
+      recenterRequest += 1;
+    });
+    await tester.pumpAndSettle();
+
+    final pageController = tester
+        .widget<PageView>(find.byType(PageView))
+        .controller!;
+    final scrollController = tester
+        .widget<SingleChildScrollView>(
+          find.byType(SingleChildScrollView).hitTestable(),
+        )
+        .controller!;
+    expect(pageController.page, 10002);
+    expect(scrollController.offset, 912);
+  });
+
+  for (final testCase in [
+    (
+      name: 'three-day',
+      visibleDays: 3,
+      start: CalendarDay(year: 2026, month: 7, day: 9),
+    ),
+    (
+      name: 'seven-day',
+      visibleDays: DateTime.daysPerWeek,
+      start: CalendarDay(year: 2026, month: 7, day: 5),
+    ),
+  ]) {
+    testWidgets('${testCase.name} midnight tick after resume never recenters', (
+      tester,
+    ) async {
+      var now = DateTime(2026, 7, 11, 23, 59);
+      var recenterRequest = 0;
+      late StateSetter updateHarness;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                updateHarness = setState;
+                return WeekCalendarView(
+                  now: now,
+                  initialWeek: WeekRange(
+                    start: testCase.start,
+                    visibleDays: testCase.visibleDays,
+                  ),
+                  visibleDays: testCase.visibleDays,
+                  recenterRequest: recenterRequest,
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      updateHarness(() {
+        recenterRequest += 1;
+      });
+      await tester.pumpAndSettle();
+
+      final pageController = tester
+          .widget<PageView>(find.byType(PageView))
+          .controller!;
+      final scrollController = tester
+          .widget<SingleChildScrollView>(
+            find.byType(SingleChildScrollView).hitTestable(),
+          )
+          .controller!;
+      scrollController.jumpTo(600);
+      await tester.pump();
+
+      updateHarness(() {
+        now = DateTime(2026, 7, 12);
+      });
+      await tester.pump();
+
+      expect(pageController.page, 10000);
+      expect(scrollController.offset, 600);
+    });
+  }
+
   testWidgets('converts a grid tap into a calendar day and five-minute time', (
     tester,
   ) async {
@@ -1024,6 +1197,135 @@ void main() {
     },
   );
 
+  testWidgets(
+    'a second touch within pan slop wins the arena at both zoom bounds',
+    (tester) async {
+      var hourHeight = 52.0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) => WeekCalendarView(
+                now: DateTime(2026, 7, 6, 7, 30),
+                hourHeight: hourHeight,
+                onHourHeightChanged: (value) {
+                  setState(() => hourHeight = value);
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final surface = find.byKey(const ValueKey('week-calendar-pinch-surface'));
+      final center = tester.getCenter(surface);
+      final focalY = tester.getSize(surface).height / 2;
+      final firstPinchFocalY = focalY + 3;
+      final scrollController = tester
+          .widget<SingleChildScrollView>(find.byType(SingleChildScrollView))
+          .controller!;
+      final focalMinuteBefore =
+          (scrollController.offset + firstPinchFocalY) / (hourHeight / 60);
+
+      final first = await tester.createGesture(pointer: 71);
+      final second = await tester.createGesture(pointer: 72);
+      await first.down(center - const Offset(40, 0));
+      await first.moveTo(center - const Offset(45, -6));
+      await tester.pump();
+      await second.down(center + const Offset(40, 0));
+      await first.moveTo(center - const Offset(220, 0));
+      await second.moveTo(center + const Offset(220, 0));
+      await tester.pumpAndSettle();
+
+      expect(hourHeight, 92);
+      final focalMinuteAtMaximum =
+          (scrollController.offset + focalY) / (hourHeight / 60);
+      expect(focalMinuteAtMaximum, closeTo(focalMinuteBefore, 0.01));
+
+      await first.moveTo(center + const Offset(-220, 40));
+      await second.moveTo(center + const Offset(220, 40));
+      final focalMinuteAfterBoundedTranslation =
+          (scrollController.offset + focalY + 40) / (hourHeight / 60);
+      expect(
+        focalMinuteAfterBoundedTranslation,
+        closeTo(focalMinuteBefore, 0.01),
+      );
+      await first.up();
+      await second.up();
+      await tester.pumpAndSettle();
+
+      final focalMinuteBeforeMinimum =
+          (scrollController.offset + focalY) / (hourHeight / 60);
+
+      final third = await tester.createGesture(pointer: 73);
+      final fourth = await tester.createGesture(pointer: 74);
+      await third.down(center - const Offset(120, 0));
+      await tester.pump(const Duration(milliseconds: 50));
+      await fourth.down(center + const Offset(120, 0));
+      await third.moveTo(center - const Offset(20, 0));
+      await fourth.moveTo(center + const Offset(20, 0));
+      await tester.pumpAndSettle();
+
+      expect(hourHeight, 36);
+      final focalMinuteAtMinimum =
+          (scrollController.offset + focalY) / (hourHeight / 60);
+      expect(focalMinuteAtMinimum, closeTo(focalMinuteBeforeMinimum, 0.01));
+      await third.up();
+      await fourth.up();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('pinch around 23:00 preserves the focal minute', (tester) async {
+    var hourHeight = 52.0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => WeekCalendarView(
+              now: DateTime(2026, 7, 6, 23),
+              hourHeight: hourHeight,
+              onHourHeightChanged: (value) {
+                setState(() => hourHeight = value);
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final surface = find.byKey(const ValueKey('week-calendar-pinch-surface'));
+    final scrollController = tester
+        .widget<SingleChildScrollView>(find.byType(SingleChildScrollView))
+        .controller!;
+    const targetMinute = 23 * 60.0;
+    final focalY = (targetMinute * (hourHeight / 60)) - scrollController.offset;
+    expect(focalY, inInclusiveRange(0, tester.getSize(surface).height));
+    final focalPoint =
+        tester.getTopLeft(surface) +
+        Offset(tester.getSize(surface).width / 2, focalY);
+
+    final first = await tester.createGesture(pointer: 75);
+    final second = await tester.createGesture(pointer: 76);
+    await first.down(focalPoint - const Offset(40, 0));
+    await second.down(focalPoint + const Offset(40, 0));
+    await first.moveTo(focalPoint - const Offset(180, 0));
+    await second.moveTo(focalPoint + const Offset(180, 0));
+    await tester.pumpAndSettle();
+
+    expect(hourHeight, 92);
+    final focalMinuteAfter =
+        (scrollController.offset + focalY) / (hourHeight / 60);
+    expect(focalMinuteAfter, closeTo(targetMinute, 0.01));
+    await first.up();
+    await second.up();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('pinch keeps its focal point across multiple pumped moves', (
     tester,
   ) async {
@@ -1051,6 +1353,12 @@ void main() {
 
     final surface = find.byKey(const ValueKey('week-calendar-pinch-surface'));
     final center = tester.getCenter(surface);
+    final focalY = tester.getSize(surface).height / 2;
+    final scrollController = tester
+        .widget<SingleChildScrollView>(find.byType(SingleChildScrollView))
+        .controller!;
+    final focalMinuteBefore =
+        (scrollController.offset + focalY) / (hourHeight / 60);
     final first = await tester.createGesture(pointer: 31);
     final second = await tester.createGesture(pointer: 32);
     await first.down(center + const Offset(-40, 0));
@@ -1062,10 +1370,17 @@ void main() {
     expect(tester.takeException(), isNull);
     final heightAfterFirstMove = hourHeight;
 
-    await second.moveTo(center + const Offset(100, 0));
+    await second.moveTo(center + const Offset(100, 60));
     await tester.pump();
     expect(tester.takeException(), isNull);
     expect(hourHeight, greaterThan(heightAfterFirstMove));
+    expect(hourHeight, 92);
+    await first.moveTo(center + const Offset(-80, 40));
+    await second.moveTo(center + const Offset(100, 100));
+    await tester.pump();
+    final focalMinuteAfter =
+        (scrollController.offset + focalY + 70) / (hourHeight / 60);
+    expect(focalMinuteAfter, closeTo(focalMinuteBefore, 0.01));
 
     await first.up();
     await second.up();
@@ -1098,7 +1413,7 @@ void main() {
       final scrollController = tester
           .widget<SingleChildScrollView>(find.byType(SingleChildScrollView))
           .controller!;
-      final beforeTopMinute = scrollController.offset / (hourHeight / 60);
+      final initialScrollOffset = scrollController.offset;
       final surface = find.byKey(const ValueKey('week-calendar-pinch-surface'));
       final center = tester.getCenter(surface);
       final first = await tester.createGesture(pointer: 21);
@@ -1114,6 +1429,14 @@ void main() {
         tester.widget<PageView>(find.byType(PageView)).physics,
         isNot(isA<NeverScrollableScrollPhysics>()),
       );
+      await tester.dragFrom(
+        tester.getTopLeft(surface) + const Offset(24, 120),
+        const Offset(0, -80),
+      );
+      await tester.pumpAndSettle();
+      expect(scrollController.offset, greaterThan(initialScrollOffset));
+      final beforeTopMinute = scrollController.offset / (hourHeight / 60);
+
       updateHarness(() {
         hourHeight = 92;
       });

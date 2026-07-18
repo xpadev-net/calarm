@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
@@ -27,6 +28,7 @@ class WeekCalendarView extends StatefulWidget {
     this.draft,
     this.onDraftChanged,
     this.draftInteractionEnabled = true,
+    this.recenterRequest = 0,
   });
 
   final DateTime now;
@@ -41,6 +43,7 @@ class WeekCalendarView extends StatefulWidget {
   final WeekCalendarDraft? draft;
   final WeekCalendarDraftChanged? onDraftChanged;
   final bool draftInteractionEnabled;
+  final int recenterRequest;
 
   @override
   State<WeekCalendarView> createState() => _WeekCalendarViewState();
@@ -52,6 +55,8 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
 
   late final WeekCalendarPage _initialCalendarPage;
   late final PageController _pageController;
+  late int _appliedRecenterRequest;
+  late int _recenterPageIndex;
   bool _pinching = false;
 
   @override
@@ -63,6 +68,21 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
           currentCalendarRange(widget.now, visibleDays: widget.visibleDays),
     );
     _pageController = PageController(initialPage: _initialPage);
+    _appliedRecenterRequest = widget.recenterRequest;
+    _recenterPageIndex = _pageIndexForDay(CalendarDay.fromDateTime(widget.now));
+  }
+
+  @override
+  void didUpdateWidget(covariant WeekCalendarView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.recenterRequest != widget.recenterRequest) {
+      _recenterPageIndex = _pageIndexForDay(
+        CalendarDay.fromDateTime(widget.now),
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _applyRecenterRequest();
+      });
+    }
   }
 
   @override
@@ -83,6 +103,7 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
         itemBuilder: (context, index) {
           final week = _initialCalendarPage.addPages(index - _initialPage).week;
           return _WeekCalendarWeekPage(
+            key: ValueKey<CalendarDay>(week.start),
             week: week,
             now: widget.now,
             wakePlans: widget.wakePlans,
@@ -95,6 +116,9 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
             draft: widget.draft,
             onDraftChanged: widget.onDraftChanged,
             draftInteractionEnabled: widget.draftInteractionEnabled,
+            recenterRequest: index == _recenterPageIndex
+                ? widget.recenterRequest
+                : null,
           );
         },
       ),
@@ -109,10 +133,36 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
       _pinching = pinching;
     });
   }
+
+  void _applyRecenterRequest() {
+    if (!mounted ||
+        _appliedRecenterRequest == widget.recenterRequest ||
+        !_pageController.hasClients) {
+      return;
+    }
+    _pageController.jumpToPage(_recenterPageIndex);
+    _appliedRecenterRequest = widget.recenterRequest;
+  }
+
+  int _pageIndexForDay(CalendarDay day) {
+    final daysFromInitial = DateTime.utc(day.year, day.month, day.day)
+        .difference(
+          DateTime.utc(
+            _initialCalendarPage.week.start.year,
+            _initialCalendarPage.week.start.month,
+            _initialCalendarPage.week.start.day,
+          ),
+        )
+        .inDays;
+    final pageDelta = (daysFromInitial / _initialCalendarPage.week.visibleDays)
+        .floor();
+    return _initialPage + pageDelta;
+  }
 }
 
 class _WeekCalendarWeekPage extends StatefulWidget {
   const _WeekCalendarWeekPage({
+    super.key,
     required this.week,
     required this.now,
     required this.wakePlans,
@@ -125,6 +175,7 @@ class _WeekCalendarWeekPage extends StatefulWidget {
     required this.draft,
     required this.onDraftChanged,
     required this.draftInteractionEnabled,
+    required this.recenterRequest,
   });
 
   final WeekRange week;
@@ -139,6 +190,7 @@ class _WeekCalendarWeekPage extends StatefulWidget {
   final WeekCalendarDraft? draft;
   final WeekCalendarDraftChanged? onDraftChanged;
   final bool draftInteractionEnabled;
+  final int? recenterRequest;
 
   @override
   State<_WeekCalendarWeekPage> createState() => _WeekCalendarWeekPageState();
@@ -150,13 +202,13 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
 
   late final ScrollController _scrollController;
   late double _displayHourHeight;
-  bool _didApplyInitialScroll = false;
+  int? _appliedRecenterRequest;
   double? _pendingScrollOffset;
-  final Map<int, Offset> _pointerPositions = {};
   double? _pinchStartDistance;
   double? _pinchStartHourHeight;
   double? _pinchStartScrollOffset;
   double? _zoomFocalY;
+  bool _pinchLayoutPending = false;
   bool _pinching = false;
   bool _manipulatingDraft = false;
   final FocusNode _draftBodyFocusNode = FocusNode(
@@ -181,9 +233,7 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
       pixelsPerMinute: _pixelsPerMinute,
     );
     _scrollController = ScrollController(initialScrollOffset: target.offset);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _applyInitialScroll();
-    });
+    _appliedRecenterRequest = widget.recenterRequest;
   }
 
   @override
@@ -202,10 +252,10 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
         _applyPendingScroll();
       });
     }
-    if (oldWidget.week.start != widget.week.start) {
-      _didApplyInitialScroll = false;
+    if (widget.recenterRequest != null &&
+        oldWidget.recenterRequest != widget.recenterRequest) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _applyInitialScroll();
+        _applyRecenterScroll();
       });
     }
   }
@@ -227,85 +277,71 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
     }
   }
 
-  void _handlePointerDown(PointerDownEvent event) {
-    _pointerPositions[event.pointer] = event.localPosition;
-    if (_pointerPositions.length == 2) {
-      _pinchStartDistance = _pointerDistance;
-      _pinchStartHourHeight = _displayHourHeight;
-      _pinchStartScrollOffset = _scrollController.offset;
-      final positions = _pointerPositions.values.take(2).toList();
-      _zoomFocalY = (positions[0].dy + positions[1].dy) / 2;
-      setState(() {
-        _pinching = true;
-        _manipulatingDraft = false;
-      });
-      widget.onPinchStateChanged(true);
-    }
+  void _handlePinchStart(Offset focalPoint, double distance) {
+    _pinchStartDistance = distance;
+    _pinchStartHourHeight = _displayHourHeight;
+    _pinchStartScrollOffset = _scrollController.offset;
+    _zoomFocalY = focalPoint.dy;
+    setState(() {
+      _pinching = true;
+      _manipulatingDraft = false;
+    });
+    widget.onPinchStateChanged(true);
   }
 
-  void _handlePointerMove(PointerMoveEvent event) {
-    if (!_pointerPositions.containsKey(event.pointer)) {
-      return;
-    }
-    _pointerPositions[event.pointer] = event.localPosition;
+  void _handlePinchUpdate(Offset focalPoint, double distance) {
     final startDistance = _pinchStartDistance;
     final startHourHeight = _pinchStartHourHeight;
     final startScrollOffset = _pinchStartScrollOffset;
-    if (_pointerPositions.length < 2 ||
-        startDistance == null ||
+    if (startDistance == null ||
         startDistance == 0 ||
         startHourHeight == null ||
         startScrollOffset == null) {
       return;
     }
 
-    final nextHourHeight =
-        (startHourHeight * (_pointerDistance / startDistance)).clamp(
-          _minHourHeight,
-          _maxHourHeight,
-        );
-    if (nextHourHeight == _displayHourHeight) {
-      return;
-    }
-    final focalY = _zoomFocalY!;
+    final nextHourHeight = (startHourHeight * (distance / startDistance)).clamp(
+      _minHourHeight,
+      _maxHourHeight,
+    );
+    final hourHeightChanged = nextHourHeight != _displayHourHeight;
+    final startFocalY = _zoomFocalY!;
     final focalMinute =
-        (startScrollOffset + focalY) /
+        (startScrollOffset + startFocalY) /
         (startHourHeight / TimeOfDayMinutes.minutesPerHour);
     _pendingScrollOffset =
         (focalMinute * (nextHourHeight / TimeOfDayMinutes.minutesPerHour)) -
-        focalY;
-    setState(() {
-      _displayHourHeight = nextHourHeight;
-    });
-    widget.onHourHeightChanged?.call(nextHourHeight);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+        focalPoint.dy;
+    if (hourHeightChanged) {
+      _pinchLayoutPending = true;
+      setState(() {
+        _displayHourHeight = nextHourHeight;
+      });
+      widget.onHourHeightChanged?.call(nextHourHeight);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _pinchLayoutPending = false;
+        _applyPendingScroll();
+      });
+    } else if (!_pinchLayoutPending) {
       _applyPendingScroll();
-    });
-  }
-
-  void _handlePointerEnd(PointerEvent event) {
-    // A cross-day move can replace the draft segment that received the pointer
-    // down before it sees the matching up/cancel. The page-level listener stays
-    // mounted for the whole gesture, so it owns the final cleanup guarantee.
-    _setManipulatingDraft(false);
-    _pointerPositions.remove(event.pointer);
-    if (_pointerPositions.length < 2) {
-      _pinchStartDistance = null;
-      _pinchStartHourHeight = null;
-      _pinchStartScrollOffset = null;
-      _zoomFocalY = null;
-      if (_pinching) {
-        setState(() {
-          _pinching = false;
-        });
-        widget.onPinchStateChanged(false);
-      }
     }
   }
 
-  double get _pointerDistance {
-    final positions = _pointerPositions.values.take(2).toList();
-    return (positions[0] - positions[1]).distance;
+  void _handlePinchEnd() {
+    // A cross-day move can replace the draft segment that received the pointer
+    // down before it sees the matching up/cancel. The page-level recognizer
+    // stays mounted for the whole gesture, so it owns the cleanup guarantee.
+    _setManipulatingDraft(false);
+    _pinchStartDistance = null;
+    _pinchStartHourHeight = null;
+    _pinchStartScrollOffset = null;
+    _zoomFocalY = null;
+    if (_pinching) {
+      setState(() {
+        _pinching = false;
+      });
+      widget.onPinchStateChanged(false);
+    }
   }
 
   void _setManipulatingDraft(bool manipulating) {
@@ -326,8 +362,10 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
     super.dispose();
   }
 
-  void _applyInitialScroll() {
-    if (!mounted || _didApplyInitialScroll || !_scrollController.hasClients) {
+  void _applyRecenterScroll() {
+    if (!mounted ||
+        _appliedRecenterRequest == widget.recenterRequest ||
+        !_scrollController.hasClients) {
       return;
     }
     final target = initialWeekCalendarScrollTarget(
@@ -340,7 +378,7 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
       _scrollController.position.maxScrollExtent,
     );
     _scrollController.jumpTo(boundedOffset);
-    _didApplyInitialScroll = true;
+    _appliedRecenterRequest = widget.recenterRequest;
   }
 
   @override
@@ -359,13 +397,22 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
           timeAxisWidth: widget.timeAxisWidth,
         ),
         Expanded(
-          child: Listener(
+          child: RawGestureDetector(
             key: const ValueKey('week-calendar-pinch-surface'),
             behavior: HitTestBehavior.translucent,
-            onPointerDown: _handlePointerDown,
-            onPointerMove: _handlePointerMove,
-            onPointerUp: _handlePointerEnd,
-            onPointerCancel: _handlePointerEnd,
+            gestures: {
+              _TwoPointerScaleGestureRecognizer:
+                  GestureRecognizerFactoryWithHandlers<
+                    _TwoPointerScaleGestureRecognizer
+                  >(_TwoPointerScaleGestureRecognizer.new, (recognizer) {
+                    recognizer
+                      ..onStart = _handlePinchStart
+                      ..onUpdate = _handlePinchUpdate
+                      ..onEnd = _handlePinchEnd
+                      ..shouldContinueWaitingForSecondPointer = () =>
+                          _manipulatingDraft;
+                  }),
+            },
             child: DecoratedBox(
               decoration: BoxDecoration(
                 border: Border.all(color: colorScheme.outlineVariant),
@@ -379,7 +426,7 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
                     controller: _scrollController,
                     physics: _pinching || _manipulatingDraft
                         ? const NeverScrollableScrollPhysics()
-                        : null,
+                        : const _PreserveVisibleTimeScrollPhysics(),
                     child: SizedBox(
                       height: _displayHourHeight * TimeOfDayMinutes.hoursPerDay,
                       child: Row(
@@ -475,6 +522,183 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
         ),
       ],
     );
+  }
+}
+
+class _PreserveVisibleTimeScrollPhysics extends ScrollPhysics {
+  const _PreserveVisibleTimeScrollPhysics({super.parent});
+
+  @override
+  _PreserveVisibleTimeScrollPhysics applyTo(ScrollPhysics? ancestor) {
+    return _PreserveVisibleTimeScrollPhysics(parent: buildParent(ancestor));
+  }
+
+  @override
+  double adjustPositionForNewDimensions({
+    required ScrollMetrics oldPosition,
+    required ScrollMetrics newPosition,
+    required bool isScrolling,
+    required double velocity,
+  }) {
+    return oldPosition.pixels
+        .clamp(newPosition.minScrollExtent, newPosition.maxScrollExtent)
+        .toDouble();
+  }
+}
+
+typedef _TwoPointerScaleStart =
+    void Function(Offset focalPoint, double distance);
+typedef _TwoPointerScaleUpdate =
+    void Function(Offset focalPoint, double distance);
+
+/// Gives a second touch a chance to join the first touch before a nested
+/// horizontal or vertical drag wins its gesture arena.
+///
+/// A single touch is released as soon as it moves beyond pan slop, so ordinary
+/// scrolling and paging retain their normal drag behavior.
+class _TwoPointerScaleGestureRecognizer extends OneSequenceGestureRecognizer {
+  _TwoPointerScaleStart? onStart;
+  _TwoPointerScaleUpdate? onUpdate;
+  VoidCallback? onEnd;
+  bool Function()? shouldContinueWaitingForSecondPointer;
+
+  final Map<int, Offset> _positions = {};
+  final Map<int, Offset> _initialPositions = {};
+  final Set<int> _heldPointers = {};
+  bool _accepted = false;
+  bool _resetting = false;
+
+  @override
+  void addAllowedPointer(PointerDownEvent event) {
+    super.addAllowedPointer(event);
+    if (_positions.length >= 2) {
+      resolvePointer(event.pointer, GestureDisposition.rejected);
+      stopTrackingPointer(event.pointer);
+      return;
+    }
+
+    _positions[event.pointer] = event.localPosition;
+    _initialPositions[event.pointer] = event.localPosition;
+    GestureBinding.instance.gestureArena.hold(event.pointer);
+    _heldPointers.add(event.pointer);
+
+    if (_positions.length == 2) {
+      _accepted = true;
+      resolve(GestureDisposition.accepted);
+      _releaseHeldPointers();
+      onStart?.call(_focalPoint, _distance);
+    }
+  }
+
+  @override
+  void handleEvent(PointerEvent event) {
+    if (event is PointerMoveEvent && _positions.containsKey(event.pointer)) {
+      _positions[event.pointer] = event.localPosition;
+      if (_accepted) {
+        onUpdate?.call(_focalPoint, _distance);
+      } else {
+        final initialPosition = _initialPositions[event.pointer]!;
+        if ((event.localPosition - initialPosition).distance >
+                computePanSlop(event.kind, gestureSettings) &&
+            !(shouldContinueWaitingForSecondPointer?.call() ?? false)) {
+          _abandonGesture();
+          return;
+        }
+      }
+    }
+
+    if (event is PointerUpEvent || event is PointerCancelEvent) {
+      final wasAccepted = _accepted;
+      if (!wasAccepted) {
+        resolvePointer(event.pointer, GestureDisposition.rejected);
+      }
+      _positions.remove(event.pointer);
+      _initialPositions.remove(event.pointer);
+      _releaseHeldPointer(event.pointer);
+      stopTrackingPointer(event.pointer);
+      if (wasAccepted && _positions.length < 2) {
+        _finishGesture();
+      } else if (!wasAccepted && _positions.isEmpty) {
+        _releaseHeldPointers();
+      }
+    }
+  }
+
+  Offset get _focalPoint {
+    final positions = _positions.values.take(2).toList();
+    return (positions[0] + positions[1]) / 2;
+  }
+
+  double get _distance {
+    final positions = _positions.values.take(2).toList();
+    return (positions[0] - positions[1]).distance;
+  }
+
+  void _finishGesture() {
+    if (!_accepted) {
+      return;
+    }
+    _accepted = false;
+    _stopTrackingAllPointers();
+    onEnd?.call();
+  }
+
+  void _abandonGesture() {
+    if (_resetting) {
+      return;
+    }
+    _resetting = true;
+    resolve(GestureDisposition.rejected);
+    _releaseHeldPointers();
+    _stopTrackingAllPointers();
+    _accepted = false;
+    _resetting = false;
+  }
+
+  void _stopTrackingAllPointers() {
+    for (final pointer in _positions.keys.toList()) {
+      stopTrackingPointer(pointer);
+    }
+    _positions.clear();
+    _initialPositions.clear();
+  }
+
+  void _releaseHeldPointers() {
+    for (final pointer in _heldPointers.toList()) {
+      _releaseHeldPointer(pointer);
+    }
+  }
+
+  void _releaseHeldPointer(int pointer) {
+    if (_heldPointers.remove(pointer)) {
+      GestureBinding.instance.gestureArena.release(pointer);
+    }
+  }
+
+  @override
+  void acceptGesture(int pointer) {}
+
+  @override
+  void rejectGesture(int pointer) {
+    if (!_accepted) {
+      _abandonGesture();
+    }
+  }
+
+  @override
+  void didStopTrackingLastPointer(int pointer) {}
+
+  @override
+  String get debugDescription => 'two pointer scale';
+
+  @override
+  void dispose() {
+    final wasAccepted = _accepted;
+    _abandonGesture();
+    if (wasAccepted) {
+      onEnd?.call();
+    }
+    super.dispose();
   }
 }
 
@@ -1119,6 +1343,7 @@ class _TimeGrid extends StatelessWidget {
         now.hour * TimeOfDayMinutes.minutesPerHour + now.minute;
 
     return CustomPaint(
+      key: const ValueKey('week-calendar-time-grid'),
       painter: _TimeGridPainter(
         lineColor: colorScheme.outlineVariant,
         dayLineColor: colorScheme.outline,

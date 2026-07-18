@@ -77,6 +77,7 @@ class _WeekCalendarPlaceholderState
   late DateTime _now;
   Timer? _minuteBoundaryTimer;
   bool _isActive = false;
+  int _recenterRequest = 0;
 
   @override
   void initState() {
@@ -93,8 +94,9 @@ class _WeekCalendarPlaceholderState
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.resumed:
+        final shouldRecenter = !_isActive;
         _isActive = true;
-        _refreshNow();
+        _refreshNow(recenter: shouldRecenter);
         _scheduleMinuteBoundaryRefresh();
         return;
       case AppLifecycleState.inactive:
@@ -185,6 +187,7 @@ class _WeekCalendarPlaceholderState
               },
               draftInteractionEnabled:
                   !_savingDraft && !_draftSubmissionAttempted,
+              recenterRequest: _recenterRequest,
               onTargetTap: (target) {
                 _createDraft(target: target, defaults: currentDefaults);
               },
@@ -211,6 +214,7 @@ class _WeekCalendarPlaceholderState
             saving: _savingDraft,
             submissionAttempted: _draftSubmissionAttempted,
             error: _draftError,
+            onRangeChanged: _editDraftRange,
             onSave: () => _saveDraft(
               context: context,
               clock: clock,
@@ -229,16 +233,19 @@ class _WeekCalendarPlaceholderState
     );
   }
 
-  void _refreshNow() {
+  void _refreshNow({bool recenter = false}) {
     if (!mounted) {
       return;
     }
     final nextNow = ref.read(weekCalendarClockProvider)();
-    if (nextNow == _now) {
+    if (nextNow == _now && !recenter) {
       return;
     }
     setState(() {
       _now = nextNow;
+      if (recenter) {
+        _recenterRequest += 1;
+      }
     });
   }
 
@@ -326,6 +333,42 @@ class _WeekCalendarPlaceholderState
       _draftError = null;
       _submittedDraftPlan = null;
     });
+  }
+
+  InlineWakePlanRangeChange _editDraftRange(DateTime startAt, DateTime endAt) {
+    final draft = _draft;
+    if (draft == null || _savingDraft || _draftSubmissionAttempted) {
+      return const InlineWakePlanRangeChange.rejected(
+        'The range cannot be changed after submission.',
+      );
+    }
+
+    final edit = editWeekCalendarDraftRange(
+      draft: draft,
+      startAt: startAt,
+      endAt: endAt,
+    );
+    final error = edit.error;
+    if (error != null) {
+      final guidance = switch (error) {
+        WeekCalendarDraftRangeError.notOrdered => 'Start must be before end.',
+        WeekCalendarDraftRangeError.tooShort =>
+          'Choose a range of at least 5 minutes.',
+        WeekCalendarDraftRangeError.tooLong =>
+          'Choose a range no longer than 3 hours.',
+      };
+      return InlineWakePlanRangeChange.rejected(guidance);
+    }
+
+    final nextDraft = edit.draft!;
+    setState(() {
+      _draft = nextDraft;
+      _draftError = null;
+    });
+    return InlineWakePlanRangeChange.accepted(
+      startAt: nextDraft.startAt,
+      endAt: nextDraft.endAt,
+    );
   }
 
   Future<void> _saveDraft({
