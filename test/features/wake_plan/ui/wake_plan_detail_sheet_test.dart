@@ -707,6 +707,87 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets(
+    'definite enable rejection stays visible off and can be retried',
+    (tester) async {
+      final now = DateTime(2026, 7, 8, 5, 30);
+      final disabled = _occurrence(
+        id: 'retryable',
+        scheduledAt: DateTime(2026, 7, 8, 6),
+        status: AlarmOccurrenceStatus.userDisabled,
+      );
+      var attempts = 0;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: WakePlanDetailSheet(
+              target: WeekCalendarWakePlanTapTarget(
+                wakePlan: _plan(),
+                targetDay: _targetDay,
+              ),
+              now: now,
+              clock: () => now,
+              defaults: AppSettings.initial(),
+              existingWakePlans: const [],
+              onEdit: (_) async => _successResult(),
+              onDelete: (_) async => _successResult(),
+              onSkipNext: (_) async => _successResult(),
+              onUndoSkipNext: (_) async => _successResult(),
+              loadOccurrences: (_) async => [disabled],
+              onSetOccurrenceEnabled:
+                  ({
+                    required wakePlanId,
+                    required occurrenceId,
+                    required enabled,
+                  }) async {
+                    attempts += 1;
+                    expect(occurrenceId, disabled.id);
+                    expect(enabled, isTrue);
+                    if (attempts == 1) {
+                      return AlarmOccurrenceToggleResult.failure(
+                        status: AlarmOccurrenceToggleStatus.scheduleFailed,
+                        occurrence: disabled,
+                        warning: 'The native alarm could not be turned on.',
+                      );
+                    }
+                    return AlarmOccurrenceToggleResult.success(
+                      status: AlarmOccurrenceToggleStatus.enabled,
+                      occurrence: disabled.copyWith(
+                        status: AlarmOccurrenceStatus.scheduled,
+                        platformAlarmId: 'native-retryable',
+                        updatedAt: now,
+                      ),
+                    );
+                  },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final toggle = find.byKey(const ValueKey('occurrence-toggle-retryable'));
+      await tester.ensureVisible(toggle);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+
+      expect(toggle, findsOneWidget);
+      expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+      expect(find.text('Off'), findsOneWidget);
+      expect(
+        find.text('The native alarm could not be turned on.'),
+        findsOneWidget,
+      );
+
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+
+      expect(attempts, 2);
+      expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+      expect(find.text('On'), findsOneWidget);
+    },
+  );
 }
 
 final _targetDay = CalendarDay(year: 2026, month: 7, day: 8);
