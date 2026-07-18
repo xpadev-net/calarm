@@ -55,6 +55,11 @@ void main() {
               clock: () => currentNow,
               saving: false,
               submissionAttempted: false,
+              onRangeChanged: (startAt, endAt) =>
+                  InlineWakePlanRangeChange.accepted(
+                    startAt: startAt,
+                    endAt: endAt,
+                  ),
               onSave: () {},
               onCancel: () {},
             ),
@@ -102,6 +107,11 @@ void main() {
             clock: () => currentNow,
             saving: false,
             submissionAttempted: false,
+            onRangeChanged: (startAt, endAt) =>
+                InlineWakePlanRangeChange.accepted(
+                  startAt: startAt,
+                  endAt: endAt,
+                ),
             onSave: () {},
             onCancel: () {},
           ),
@@ -306,7 +316,8 @@ void main() {
           .controller!;
       final visibleScrollView = find
           .byType(SingleChildScrollView)
-          .hitTestable();
+          .hitTestable()
+          .first;
       final scrollController = tester
           .widget<SingleChildScrollView>(visibleScrollView)
           .controller!;
@@ -383,7 +394,7 @@ void main() {
             .controller!;
         final scrollController = tester
             .widget<SingleChildScrollView>(
-              find.byType(SingleChildScrollView).hitTestable(),
+              find.byType(SingleChildScrollView).hitTestable().first,
             )
             .controller!;
         scrollController.jumpTo(scrollController.position.maxScrollExtent);
@@ -429,6 +440,263 @@ void main() {
       },
     );
   }
+
+  for (final testCase in [
+    (
+      name: 'same-day',
+      startAt: DateTime(2026, 7, 9, 9, 2),
+      endAt: DateTime(2026, 7, 9, 10, 3),
+      expectedStartAt: DateTime(2026, 7, 9, 9),
+      expectedEndAt: DateTime(2026, 7, 9, 10, 5),
+    ),
+    (
+      name: '23:55 to 00:10',
+      startAt: DateTime(2026, 7, 9, 23, 53),
+      endAt: DateTime(2026, 7, 10, 0, 12),
+      expectedStartAt: DateTime(2026, 7, 9, 23, 55),
+      expectedEndAt: DateTime(2026, 7, 10, 0, 10),
+    ),
+  ]) {
+    testWidgets(
+      'direct ${testCase.name} edit updates outline without moving scroll',
+      (tester) async {
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              weekCalendarRepositoryProvider.overrideWith(
+                (ref) async => repository,
+              ),
+              wakePlanDefaultsRepositoryProvider.overrideWith(
+                (ref) async => repository,
+              ),
+              weekCalendarClockProvider.overrideWith(
+                (ref) =>
+                    () => DateTime(2026, 7, 8, 18),
+              ),
+            ],
+            child: const MaterialApp(
+              home: Scaffold(
+                body: SizedBox(height: 720, child: WeekCalendarPlaceholder()),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        _calendar(tester).onTargetTap!(
+          WeekCalendarTapTarget(
+            day: CalendarDay(year: 2026, month: 7, day: 9),
+            time: TimeOfDayMinutes.fromHourMinute(hour: 9, minute: 0),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final pageController = tester
+            .widget<PageView>(find.byType(PageView))
+            .controller!;
+        final scrollController = tester
+            .widget<SingleChildScrollView>(
+              find.byType(SingleChildScrollView).hitTestable().first,
+            )
+            .controller!;
+        scrollController.jumpTo(420);
+        await tester.pump();
+        final pageBefore = pageController.page;
+        final offsetBefore = scrollController.offset;
+        final gridBefore = tester.getTopLeft(
+          find.byKey(const ValueKey('week-calendar-time-grid')).first,
+        );
+
+        final editor = tester.widget<InlineWakePlanEditor>(
+          find.byType(InlineWakePlanEditor),
+        );
+        final change = editor.onRangeChanged(testCase.startAt, testCase.endAt);
+        expect(change.guidance, isNull);
+        expect(change.canonicalStartAt, testCase.expectedStartAt);
+        expect(change.canonicalEndAt, testCase.expectedEndAt);
+        await tester.pump();
+
+        final draft = _calendar(tester).draft!;
+        expect(draft.startAt, testCase.expectedStartAt);
+        expect(draft.endAt, testCase.expectedEndAt);
+        expect(pageController.page, pageBefore);
+        expect(scrollController.offset, offsetBefore);
+        expect(
+          tester.getTopLeft(
+            find.byKey(const ValueKey('week-calendar-time-grid')).first,
+          ),
+          gridBefore,
+        );
+      },
+    );
+  }
+
+  testWidgets('invalid direct ranges never replace or save the draft', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          weekCalendarRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          wakePlanDefaultsRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          weekCalendarClockProvider.overrideWith(
+            (ref) =>
+                () => DateTime(2026, 7, 8, 18),
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: WeekCalendarPlaceholder()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    _calendar(tester).onTargetTap!(
+      WeekCalendarTapTarget(
+        day: CalendarDay(year: 2026, month: 7, day: 9),
+        time: TimeOfDayMinutes.fromHourMinute(hour: 9, minute: 0),
+      ),
+    );
+    await tester.pump();
+    final original = _calendar(tester).draft!;
+    final editor = tester.widget<InlineWakePlanEditor>(
+      find.byType(InlineWakePlanEditor),
+    );
+
+    expect(
+      editor
+          .onRangeChanged(DateTime(2026, 7, 9, 11), DateTime(2026, 7, 9, 10))
+          .guidance,
+      'Start must be before end.',
+    );
+    expect(
+      editor
+          .onRangeChanged(DateTime(2026, 7, 9, 9), DateTime(2026, 7, 9, 12, 5))
+          .guidance,
+      'Choose a range no longer than 3 hours.',
+    );
+    await tester.pump();
+
+    expect(_calendar(tester).draft!.startAt, original.startAt);
+    expect(_calendar(tester).draft!.endAt, original.endAt);
+    expect(
+      await repository.fetchWakePlans(now: DateTime(2026, 7, 8, 18)),
+      isEmpty,
+    );
+  });
+
+  testWidgets('past direct end stays unsavable', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          weekCalendarRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          wakePlanDefaultsRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          weekCalendarClockProvider.overrideWith(
+            (ref) =>
+                () => DateTime(2026, 7, 8, 18),
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: WeekCalendarPlaceholder()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    _calendar(tester).onTargetTap!(
+      WeekCalendarTapTarget(
+        day: CalendarDay(year: 2026, month: 7, day: 9),
+        time: TimeOfDayMinutes.fromHourMinute(hour: 9, minute: 0),
+      ),
+    );
+    await tester.pump();
+    var editor = tester.widget<InlineWakePlanEditor>(
+      find.byType(InlineWakePlanEditor),
+    );
+    expect(
+      editor
+          .onRangeChanged(DateTime(2026, 7, 8, 9), DateTime(2026, 7, 8, 10))
+          .guidance,
+      isNull,
+    );
+    await tester.pump();
+
+    editor = tester.widget<InlineWakePlanEditor>(
+      find.byType(InlineWakePlanEditor),
+    );
+    editor.onSave();
+    await tester.pump();
+
+    expect(find.text('Move the wake target to a future time.'), findsOneWidget);
+    expect(
+      await repository.fetchWakePlans(now: DateTime(2026, 7, 8, 18)),
+      isEmpty,
+    );
+  });
+
+  testWidgets('cross-year direct edit saves local snapped target', (
+    tester,
+  ) async {
+    final gateway = FakeNativeAlarmGateway();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          weekCalendarRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          wakePlanDefaultsRepositoryProvider.overrideWith(
+            (ref) async => repository,
+          ),
+          weekCalendarNativeAlarmGatewayProvider.overrideWith((ref) => gateway),
+          weekCalendarClockProvider.overrideWith(
+            (ref) =>
+                () => DateTime(2026, 12, 30, 18),
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: WeekCalendarPlaceholder()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    _calendar(tester).onTargetTap!(
+      WeekCalendarTapTarget(
+        day: CalendarDay(year: 2026, month: 12, day: 31),
+        time: TimeOfDayMinutes.fromHourMinute(hour: 23, minute: 0),
+      ),
+    );
+    await tester.pump();
+    final editor = tester.widget<InlineWakePlanEditor>(
+      find.byType(InlineWakePlanEditor),
+    );
+    expect(
+      editor
+          .onRangeChanged(
+            DateTime(2026, 12, 31, 23, 53),
+            DateTime(2027, 1, 1, 0, 12),
+          )
+          .guidance,
+      isNull,
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('inline-wake-plan-save')));
+    await tester.pumpAndSettle();
+
+    final plans = await repository.fetchWakePlans(
+      now: DateTime(2026, 12, 30, 18),
+    );
+    expect(plans, hasLength(1));
+    expect(
+      plans.single.targetAt(CalendarDay(year: 2027, month: 1, day: 1)),
+      DateTime(2027, 1, 1, 0, 10),
+    );
+    expect(plans.single.startOffset, const Duration(minutes: 15));
+  });
 
   testWidgets('foreground return recenters once while other rebuilds do not', (
     tester,

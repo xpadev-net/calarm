@@ -270,6 +270,118 @@ void main() {
       expect(long.duration, weekCalendarDraftMaximumDuration);
       expect(snapped.duration, const Duration(minutes: 10));
     });
+
+    test('direct range edits snap same-day and cross-day endpoints', () {
+      final draft = weekCalendarDraftFromTap(
+        id: 'direct-edit',
+        target: target,
+        defaultDuration: const Duration(minutes: 60),
+        createdAt: DateTime(2026, 7, 8, 5, 30),
+      );
+
+      final sameDay = editWeekCalendarDraftRange(
+        draft: draft,
+        startAt: DateTime(2026, 7, 8, 9, 2),
+        endAt: DateTime(2026, 7, 8, 10, 3),
+      );
+      final crossDay = editWeekCalendarDraftRange(
+        draft: draft,
+        startAt: DateTime(2026, 7, 8, 23, 53),
+        endAt: DateTime(2026, 7, 9, 0, 12),
+      );
+
+      expect(sameDay.isValid, isTrue);
+      expect(sameDay.draft!.startAt, DateTime(2026, 7, 8, 9));
+      expect(sameDay.draft!.endAt, DateTime(2026, 7, 8, 10, 5));
+      expect(crossDay.draft!.startAt, DateTime(2026, 7, 8, 23, 55));
+      expect(crossDay.draft!.endAt, DateTime(2026, 7, 9, 0, 10));
+      expect(crossDay.draft!.id, draft.id);
+      expect(crossDay.draft!.createdAt, draft.createdAt);
+    });
+
+    test('direct range edits accept exact duration boundaries', () {
+      final draft = weekCalendarDraftFromTap(
+        id: 'duration-boundaries',
+        target: target,
+        defaultDuration: const Duration(minutes: 60),
+        createdAt: DateTime(2026, 7, 8, 5, 30),
+      );
+
+      final minimum = editWeekCalendarDraftRange(
+        draft: draft,
+        startAt: DateTime(2026, 7, 8, 10),
+        endAt: DateTime(2026, 7, 8, 10, 5),
+      );
+      final maximum = editWeekCalendarDraftRange(
+        draft: draft,
+        startAt: DateTime(2026, 7, 8, 10),
+        endAt: DateTime(2026, 7, 8, 13),
+      );
+
+      expect(minimum.draft!.duration, weekCalendarDraftMinimumDuration);
+      expect(maximum.draft!.duration, weekCalendarDraftMaximumDuration);
+    });
+
+    test('direct range edits reject invalid snapped intervals', () {
+      final draft = weekCalendarDraftFromTap(
+        id: 'invalid-direct-edit',
+        target: target,
+        defaultDuration: const Duration(minutes: 60),
+        createdAt: DateTime(2026, 7, 8, 5, 30),
+      );
+
+      WeekCalendarDraftRangeEdit edit(DateTime startAt, DateTime endAt) {
+        return editWeekCalendarDraftRange(
+          draft: draft,
+          startAt: startAt,
+          endAt: endAt,
+        );
+      }
+
+      expect(
+        edit(DateTime(2026, 7, 8, 10), DateTime(2026, 7, 8, 9)).error,
+        WeekCalendarDraftRangeError.notOrdered,
+      );
+      expect(
+        edit(DateTime(2026, 7, 8, 10, 1), DateTime(2026, 7, 8, 10, 2)).error,
+        WeekCalendarDraftRangeError.tooShort,
+      );
+      expect(
+        edit(DateTime(2026, 7, 8, 10), DateTime(2026, 7, 8, 13, 5)).error,
+        WeekCalendarDraftRangeError.tooLong,
+      );
+    });
+
+    test('direct range edits keep local and UTC semantics across year', () {
+      final localDraft = WeekCalendarDraft(
+        id: 'local-year',
+        startAt: DateTime(2026, 12, 31, 22),
+        endAt: DateTime(2026, 12, 31, 23),
+        createdAt: DateTime(2026, 12, 1),
+      );
+      final utcDraft = WeekCalendarDraft(
+        id: 'utc-year',
+        startAt: DateTime.utc(2026, 12, 31, 22),
+        endAt: DateTime.utc(2026, 12, 31, 23),
+        createdAt: DateTime.utc(2026, 12, 1),
+      );
+
+      final local = editWeekCalendarDraftRange(
+        draft: localDraft,
+        startAt: DateTime(2026, 12, 31, 23, 55),
+        endAt: DateTime(2027, 1, 1, 0, 10),
+      ).draft!;
+      final utc = editWeekCalendarDraftRange(
+        draft: utcDraft,
+        startAt: DateTime.utc(2026, 12, 31, 23, 55),
+        endAt: DateTime.utc(2027, 1, 1, 0, 10),
+      ).draft!;
+
+      expect(local.endAt, DateTime(2027, 1, 1, 0, 10));
+      expect(local.endAt.isUtc, isFalse);
+      expect(utc.endAt, DateTime.utc(2027, 1, 1, 0, 10));
+      expect(utc.endAt.isUtc, isTrue);
+    });
   });
 
   group('clampWeekCalendarDraftToRange', () {

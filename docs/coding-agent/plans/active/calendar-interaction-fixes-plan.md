@@ -229,10 +229,16 @@
     detail: Deep review, gh-review-hook exit 0, geometry assertions, and focused rerun before merge.
 
 ### Task_5: Add direct start/end date-time editing
-- status: in_progress
+- status: complete
 - worker_thread: `019f7160-b55e-7de3-a090-4939aecb3e55`
 - worker_worktree: `<CODEX_HOME>/worktrees/291e/calarm`
 - branch: `codex/task-5-direct-datetime-editing`
+- pr: `https://github.com/xpadev-net/calarm/pull/55`
+- head: `976458798d539565bccfc7caf6746a85c3be7e99`
+- merge_commit: `47eb07a7ef8cf66cbc07e0c417bb622f891aa588`
+- merged_at: `2026-07-18T07:32:14Z`
+- evidence: Focused model/editor/placeholder suites 71/71, full Flutter suite 354/354 with concurrency 1, analyze, format, diff-check, worker review-hook iteration 2 and orchestrator `gh-review-hook 55` exit 0, three independent exact-head orchestrator reviews with no findings, Greptile Confidence 5/5, 5/5 green checks, CLEAN/APPROVED/current base, and widget instrumentation for same-day, 23:55→00:10, reversed, over-3-hour, past-end, cross-month/year, timezone semantics, picker flow, and scroll stability.
+- worker_archived: true
 - type: impl
 - owns:
   - `lib/features/week_calendar/model/week_calendar_interaction.dart`
@@ -379,6 +385,10 @@
   - Summary: Started separate worktree workers for exact short-range geometry and direct date-time editing after Task_3 merged.
   - Validation evidence: Both workers remained active after startup and loaded their bounded ownership, acceptance, validation, review, and PR lifecycle instructions.
   - Notes: Task_4 thread `019f7160-b4bb-76e1-8008-dda5ac52fb57` uses `<CODEX_HOME>/worktrees/40d4/calarm`; Task_5 thread `019f7160-b55e-7de3-a090-4939aecb3e55` uses `<CODEX_HOME>/worktrees/291e/calarm`. Their planned file ownership is disjoint, and both are disjoint from active native Task_12.
+- 2026-07-18 Task_5 merged and archived: [Task_5]
+  - Summary: PR #55 merged after exact-head orchestrator preflight, deep review, review hook, focused/full validation, and direct-edit boundary instrumentation.
+  - Validation evidence: Head `976458798d539565bccfc7caf6746a85c3be7e99`; merge commit `47eb07a7ef8cf66cbc07e0c417bb622f891aa588`; focused 71/71 and full 354/354 tests; analyze/format/diff-check pass; worker and orchestrator hook exit 0; three orchestrator review perspectives approved with no findings; PR CLEAN/APPROVED/current base with 5/5 checks green.
+  - Notes: Canonical snapped endpoints govern display and Save validity, invalid transient ranges remain repairable, and direct input preserves the documented local DateTime semantics. Worker `019f7160-b55e-7de3-a090-4939aecb3e55` archived.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
