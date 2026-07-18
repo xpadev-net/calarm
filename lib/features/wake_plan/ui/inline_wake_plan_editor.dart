@@ -2,6 +2,25 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+class InlineWakePlanRangeChange {
+  const InlineWakePlanRangeChange.accepted({
+    required DateTime startAt,
+    required DateTime endAt,
+  }) : canonicalStartAt = startAt,
+       canonicalEndAt = endAt,
+       guidance = null;
+
+  const InlineWakePlanRangeChange.rejected(this.guidance)
+    : canonicalStartAt = null,
+      canonicalEndAt = null;
+
+  final DateTime? canonicalStartAt;
+  final DateTime? canonicalEndAt;
+  final String? guidance;
+
+  bool get isAccepted => canonicalStartAt != null && canonicalEndAt != null;
+}
+
 class InlineWakePlanEditor extends StatefulWidget {
   const InlineWakePlanEditor({
     super.key,
@@ -22,7 +41,8 @@ class InlineWakePlanEditor extends StatefulWidget {
   final DateTime now;
   final bool saving;
   final bool submissionAttempted;
-  final String? Function(DateTime startAt, DateTime endAt) onRangeChanged;
+  final InlineWakePlanRangeChange Function(DateTime startAt, DateTime endAt)
+  onRangeChanged;
   final VoidCallback onSave;
   final VoidCallback onCancel;
   final String? error;
@@ -147,11 +167,11 @@ class _InlineWakePlanEditorState extends State<InlineWakePlanEditor>
   void _applyCandidate({required bool start, required DateTime value}) {
     final nextStart = start ? value : _pendingStartAt;
     final nextEnd = start ? _pendingEndAt : value;
-    final rangeError = widget.onRangeChanged(nextStart, nextEnd);
+    final change = widget.onRangeChanged(nextStart, nextEnd);
     setState(() {
-      _pendingStartAt = nextStart;
-      _pendingEndAt = nextEnd;
-      _rangeError = rangeError;
+      _pendingStartAt = change.canonicalStartAt ?? nextStart;
+      _pendingEndAt = change.canonicalEndAt ?? nextEnd;
+      _rangeError = change.guidance;
     });
     _scheduleTargetRefresh();
   }

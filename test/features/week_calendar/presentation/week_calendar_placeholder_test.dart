@@ -55,7 +55,11 @@ void main() {
               clock: () => currentNow,
               saving: false,
               submissionAttempted: false,
-              onRangeChanged: (_, _) => null,
+              onRangeChanged: (startAt, endAt) =>
+                  InlineWakePlanRangeChange.accepted(
+                    startAt: startAt,
+                    endAt: endAt,
+                  ),
               onSave: () {},
               onCancel: () {},
             ),
@@ -103,7 +107,11 @@ void main() {
             clock: () => currentNow,
             saving: false,
             submissionAttempted: false,
-            onRangeChanged: (_, _) => null,
+            onRangeChanged: (startAt, endAt) =>
+                InlineWakePlanRangeChange.accepted(
+                  startAt: startAt,
+                  endAt: endAt,
+                ),
             onSave: () {},
             onCancel: () {},
           ),
@@ -501,7 +509,10 @@ void main() {
         final editor = tester.widget<InlineWakePlanEditor>(
           find.byType(InlineWakePlanEditor),
         );
-        expect(editor.onRangeChanged(testCase.startAt, testCase.endAt), isNull);
+        final change = editor.onRangeChanged(testCase.startAt, testCase.endAt);
+        expect(change.guidance, isNull);
+        expect(change.canonicalStartAt, testCase.expectedStartAt);
+        expect(change.canonicalEndAt, testCase.expectedEndAt);
         await tester.pump();
 
         final draft = _calendar(tester).draft!;
@@ -555,14 +566,15 @@ void main() {
     );
 
     expect(
-      editor.onRangeChanged(DateTime(2026, 7, 9, 11), DateTime(2026, 7, 9, 10)),
+      editor
+          .onRangeChanged(DateTime(2026, 7, 9, 11), DateTime(2026, 7, 9, 10))
+          .guidance,
       'Start must be before end.',
     );
     expect(
-      editor.onRangeChanged(
-        DateTime(2026, 7, 9, 9),
-        DateTime(2026, 7, 9, 12, 5),
-      ),
+      editor
+          .onRangeChanged(DateTime(2026, 7, 9, 9), DateTime(2026, 7, 9, 12, 5))
+          .guidance,
       'Choose a range no longer than 3 hours.',
     );
     await tester.pump();
@@ -607,7 +619,9 @@ void main() {
       find.byType(InlineWakePlanEditor),
     );
     expect(
-      editor.onRangeChanged(DateTime(2026, 7, 8, 9), DateTime(2026, 7, 8, 10)),
+      editor
+          .onRangeChanged(DateTime(2026, 7, 8, 9), DateTime(2026, 7, 8, 10))
+          .guidance,
       isNull,
     );
     await tester.pump();
@@ -661,10 +675,12 @@ void main() {
       find.byType(InlineWakePlanEditor),
     );
     expect(
-      editor.onRangeChanged(
-        DateTime(2026, 12, 31, 23, 53),
-        DateTime(2027, 1, 1, 0, 12),
-      ),
+      editor
+          .onRangeChanged(
+            DateTime(2026, 12, 31, 23, 53),
+            DateTime(2027, 1, 1, 0, 12),
+          )
+          .guidance,
       isNull,
     );
     await tester.pump();

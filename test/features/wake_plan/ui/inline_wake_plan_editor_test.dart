@@ -32,6 +32,40 @@ void main() {
     expect(emitted.single.endAt, DateTime(2026, 7, 8, 10, 10));
   });
 
+  testWidgets('accepted snapping immediately governs future Save validity', (
+    tester,
+  ) async {
+    final draft = _draft(
+      startAt: DateTime(2026, 7, 8, 9),
+      endAt: DateTime(2026, 7, 8, 10, 30),
+    );
+    final emitted = <WeekCalendarDraft>[];
+
+    await _pumpEditor(
+      tester,
+      draft: draft,
+      now: DateTime(2026, 7, 8, 10, 1),
+      onRangeChanged: _rangeCallback(draft, emitted),
+    );
+    await _selectTime(
+      tester,
+      const ValueKey('inline-wake-plan-end-time'),
+      hour: 10,
+      minute: 2,
+    );
+
+    expect(emitted.single.endAt, DateTime(2026, 7, 8, 10));
+    expect(find.text('Move the wake target to a future time.'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('inline-wake-plan-save')),
+          )
+          .onPressed,
+      isNull,
+    );
+  });
+
   testWidgets('direct input supports a 23:55 to 00:10 range', (tester) async {
     final draft = _draft(
       startAt: DateTime(2026, 7, 8, 23),
@@ -164,7 +198,7 @@ void main() {
       tester,
       draft: draft,
       now: DateTime(2026, 7, 8, 10),
-      onRangeChanged: (_, _) => null,
+      onRangeChanged: _acceptRange,
     );
 
     expect(find.text('Move the wake target to a future time.'), findsOneWidget);
@@ -190,7 +224,7 @@ void main() {
       tester,
       draft: draft,
       submissionAttempted: true,
-      onRangeChanged: (_, _) => null,
+      onRangeChanged: _acceptRange,
     );
 
     for (final key in [
@@ -216,7 +250,7 @@ void main() {
       endAt: DateTime(2026, 7, 8, 10),
     );
 
-    await _pumpEditor(tester, draft: draft, onRangeChanged: (_, _) => null);
+    await _pumpEditor(tester, draft: draft, onRangeChanged: _acceptRange);
 
     final node = tester.getSemantics(
       find.byKey(const ValueKey('inline-wake-plan-start-date')),
@@ -231,7 +265,8 @@ void main() {
 Future<void> _pumpEditor(
   WidgetTester tester, {
   required WeekCalendarDraft draft,
-  required String? Function(DateTime, DateTime) onRangeChanged,
+  required InlineWakePlanRangeChange Function(DateTime, DateTime)
+  onRangeChanged,
   DateTime? now,
   bool submissionAttempted = false,
 }) async {
@@ -291,7 +326,7 @@ Future<void> _selectDate(
   await tester.pumpAndSettle();
 }
 
-String? Function(DateTime, DateTime) _rangeCallback(
+InlineWakePlanRangeChange Function(DateTime, DateTime) _rangeCallback(
   WeekCalendarDraft original,
   List<WeekCalendarDraft> emitted,
 ) {
@@ -304,16 +339,24 @@ String? Function(DateTime, DateTime) _rangeCallback(
     final next = edit.draft;
     if (next != null) {
       emitted.add(next);
-      return null;
+      return InlineWakePlanRangeChange.accepted(
+        startAt: next.startAt,
+        endAt: next.endAt,
+      );
     }
-    return switch (edit.error!) {
+    final guidance = switch (edit.error!) {
       WeekCalendarDraftRangeError.notOrdered => 'Start must be before end.',
       WeekCalendarDraftRangeError.tooShort =>
         'Choose a range of at least 5 minutes.',
       WeekCalendarDraftRangeError.tooLong =>
         'Choose a range no longer than 3 hours.',
     };
+    return InlineWakePlanRangeChange.rejected(guidance);
   };
+}
+
+InlineWakePlanRangeChange _acceptRange(DateTime startAt, DateTime endAt) {
+  return InlineWakePlanRangeChange.accepted(startAt: startAt, endAt: endAt);
 }
 
 WeekCalendarDraft _draft({required DateTime startAt, required DateTime endAt}) {

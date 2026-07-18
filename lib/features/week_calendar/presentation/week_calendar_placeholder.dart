@@ -335,10 +335,12 @@ class _WeekCalendarPlaceholderState
     });
   }
 
-  String? _editDraftRange(DateTime startAt, DateTime endAt) {
+  InlineWakePlanRangeChange _editDraftRange(DateTime startAt, DateTime endAt) {
     final draft = _draft;
     if (draft == null || _savingDraft || _draftSubmissionAttempted) {
-      return 'The range cannot be changed after submission.';
+      return const InlineWakePlanRangeChange.rejected(
+        'The range cannot be changed after submission.',
+      );
     }
 
     final edit = editWeekCalendarDraftRange(
@@ -348,20 +350,25 @@ class _WeekCalendarPlaceholderState
     );
     final error = edit.error;
     if (error != null) {
-      return switch (error) {
+      final guidance = switch (error) {
         WeekCalendarDraftRangeError.notOrdered => 'Start must be before end.',
         WeekCalendarDraftRangeError.tooShort =>
           'Choose a range of at least 5 minutes.',
         WeekCalendarDraftRangeError.tooLong =>
           'Choose a range no longer than 3 hours.',
       };
+      return InlineWakePlanRangeChange.rejected(guidance);
     }
 
+    final nextDraft = edit.draft!;
     setState(() {
-      _draft = edit.draft;
+      _draft = nextDraft;
       _draftError = null;
     });
-    return null;
+    return InlineWakePlanRangeChange.accepted(
+      startAt: nextDraft.startAt,
+      endAt: nextDraft.endAt,
+    );
   }
 
   Future<void> _saveDraft({
