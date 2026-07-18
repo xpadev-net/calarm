@@ -250,6 +250,28 @@ class RunnerTests: XCTestCase {
 
     fake.inventoryErrorOnCall = nil
     let restartedBridge = AlarmKitBridge(nativeClient: fake)
+
+    fake.inventoryError = true
+    await restartedBridge.reconcileMirror(
+      withNativeAlarmIds: [platformAlarmId]
+    )
+    XCTAssertNotNil(UserDefaults.standard.data(forKey: replacementJournalKey))
+    fake.inventoryError = false
+
+    let unrelatedPlatformAlarmId = calarmPlatformAlarmId(
+      for: "reservation-observer-unknown"
+    )
+    fake.nativeAlarmIds.insert(unrelatedPlatformAlarmId.uppercased())
+    await restartedBridge.reconcileMirror(
+      withNativeAlarmIds: [platformAlarmId]
+    )
+    XCTAssertNotNil(UserDefaults.standard.data(forKey: replacementJournalKey))
+    fake.nativeAlarmIds.remove(unrelatedPlatformAlarmId.uppercased())
+
+    // Launch captured old-only before entering the mirror transaction, but
+    // current native state is both-live. Recovery must refetch inside the
+    // transaction, cancel the candidate, and retain the old tuple.
+    fake.inventoryIdsByCall[fake.inventoryCalls + 1] = [platformAlarmId]
     await restartedBridge.reconcileMirrorOnObservationStart()
     XCTAssertNil(UserDefaults.standard.data(forKey: replacementJournalKey))
     let inventory = await methodChannelValue(
@@ -519,6 +541,10 @@ class RunnerTests: XCTestCase {
     XCTAssertNotNil(newPlatformAlarmId)
 
     let restartedBridge = AlarmKitBridge(nativeClient: fake)
+    // Launch captured stale old-only before transaction admission, while the
+    // current authoritative state is candidate-only. Transactional refetch
+    // must commit the candidate rather than retaining the absent old tuple.
+    fake.inventoryIdsByCall[fake.inventoryCalls + 1] = [oldPlatformAlarmId]
     await restartedBridge.reconcileMirrorOnObservationStart()
     XCTAssertNil(UserDefaults.standard.data(forKey: replacementJournalKey))
     let inventory = await inventoryValue(restartedBridge)

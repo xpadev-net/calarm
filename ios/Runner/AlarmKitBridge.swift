@@ -1077,11 +1077,13 @@ final class AlarmKitBridge {
     var effectiveNativeAlarmIds = nativeAlarmIds
     if UserDefaults.standard.data(forKey: nativeAlarmReplacementJournalKey) != nil {
       do {
+        // The observer/start snapshot was captured before admission to the
+        // shared mirror transaction and may now be stale. Journal mutation
+        // must use inventory read inside this serialized transaction.
+        let recoveryAlarms = try nativeClientForAlarmKit().inventory()
         mirrorSnapshot = try await reconcileReplacementJournal(
           in: mirrorSnapshot,
-          nativeAlarms: nativeAlarmIds.map {
-            NativeAlarmSnapshot(platformAlarmId: $0, status: "scheduled")
-          }
+          nativeAlarms: recoveryAlarms
         )
         // Journal reconciliation may retire one owned UUID. Prune against a
         // fresh authoritative snapshot rather than the pre-recovery observer
