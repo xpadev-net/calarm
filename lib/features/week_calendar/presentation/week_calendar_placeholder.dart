@@ -77,6 +77,7 @@ class _WeekCalendarPlaceholderState
   late DateTime _now;
   Timer? _minuteBoundaryTimer;
   bool _isActive = false;
+  bool _enteredBackground = false;
   int _recenterRequest = 0;
 
   @override
@@ -87,6 +88,10 @@ class _WeekCalendarPlaceholderState
     final lifecycleState = WidgetsBinding.instance.lifecycleState;
     _isActive =
         lifecycleState == null || lifecycleState == AppLifecycleState.resumed;
+    _enteredBackground =
+        lifecycleState == AppLifecycleState.hidden ||
+        lifecycleState == AppLifecycleState.paused ||
+        lifecycleState == AppLifecycleState.detached;
     _scheduleMinuteBoundaryRefresh();
   }
 
@@ -94,16 +99,21 @@ class _WeekCalendarPlaceholderState
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.resumed:
-        final shouldRecenter = !_isActive;
+        final shouldRecenter = _enteredBackground;
         _isActive = true;
+        _enteredBackground = false;
         _refreshNow(recenter: shouldRecenter);
         _scheduleMinuteBoundaryRefresh();
         return;
       case AppLifecycleState.inactive:
+        _isActive = false;
+        _cancelMinuteBoundaryRefresh();
+        return;
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
       case AppLifecycleState.detached:
         _isActive = false;
+        _enteredBackground = true;
         _cancelMinuteBoundaryRefresh();
         return;
     }

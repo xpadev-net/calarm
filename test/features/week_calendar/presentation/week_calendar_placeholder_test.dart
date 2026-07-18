@@ -698,7 +698,7 @@ void main() {
     expect(plans.single.startOffset, const Duration(minutes: 15));
   });
 
-  testWidgets('foreground return recenters once while other rebuilds do not', (
+  testWidgets('inactive focus restoration preserves the calendar viewport', (
     tester,
   ) async {
     var currentNow = DateTime(2026, 7, 8, 5, 30, 45);
@@ -740,39 +740,114 @@ void main() {
         .controller!;
     scrollController.jumpTo(600);
     await tester.pump();
+    final pageBeforeFocusLoss = pageController.page!;
 
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     currentNow = DateTime(2026, 7, 8, 18);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
 
-    expect(_calendar(tester).recenterRequest, 1);
+    expect(_calendar(tester).now, currentNow);
+    expect(_calendar(tester).recenterRequest, 0);
     pageController = tester.widget<PageView>(find.byType(PageView)).controller!;
     scrollController = tester
         .widget<SingleChildScrollView>(
           find.byType(SingleChildScrollView).hitTestable(),
         )
         .controller!;
-    expect(pageController.page, 10000);
-    expect(scrollController.offset, 840);
+    expect(pageController.page, closeTo(pageBeforeFocusLoss, 0.001));
+    expect(scrollController.offset, 600);
 
-    scrollController.jumpTo(600);
-    await tester.pump();
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    ProviderScope.containerOf(
-      tester.element(find.byType(WeekCalendarPlaceholder)),
-    ).invalidate(weekCalendarWakePlansProvider);
-    await tester.pumpAndSettle();
-    expect(_calendar(tester).recenterRequest, 1);
-    expect(pageController.page, 10000);
-    expect(scrollController.offset, 600);
-
-    currentNow = DateTime(2026, 7, 8, 18, 1);
-    await tester.pump(const Duration(seconds: 15));
-    expect(_calendar(tester).recenterRequest, 1);
-    expect(pageController.page, 10000);
-    expect(scrollController.offset, 600);
+    await tester.pump();
+    expect(_calendar(tester).recenterRequest, 0);
   });
+
+  testWidgets(
+    'background lifecycle sequences recenter exactly once per foreground return',
+    (tester) async {
+      var currentNow = DateTime(2026, 7, 8, 5, 30, 45);
+      addTearDown(() {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+      });
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            weekCalendarRepositoryProvider.overrideWith(
+              (ref) async => repository,
+            ),
+            wakePlanDefaultsRepositoryProvider.overrideWith(
+              (ref) async => repository,
+            ),
+            weekCalendarClockProvider.overrideWith(
+              (ref) =>
+                  () => currentNow,
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: SizedBox(height: 480, child: WeekCalendarPlaceholder()),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      for (final state in const [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+      currentNow = DateTime(2026, 7, 8, 18, 0, 45);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+
+      expect(_calendar(tester).now, currentNow);
+      expect(_calendar(tester).recenterRequest, 1);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      ProviderScope.containerOf(
+        tester.element(find.byType(WeekCalendarPlaceholder)),
+      ).invalidate(weekCalendarWakePlansProvider);
+      _calendar(tester).onTargetTap!(
+        WeekCalendarTapTarget(
+          day: CalendarDay(year: 2026, month: 7, day: 8),
+          time: TimeOfDayMinutes.fromHourMinute(hour: 19, minute: 0),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(InlineWakePlanEditor), findsOneWidget);
+      expect(_calendar(tester).recenterRequest, 1);
+
+      currentNow = DateTime(2026, 7, 8, 18, 1);
+      await tester.pump(const Duration(seconds: 15));
+      expect(_calendar(tester).now, currentNow);
+      expect(_calendar(tester).recenterRequest, 1);
+
+      for (final backgroundState in const [
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+        AppLifecycleState.detached,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(backgroundState);
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pump();
+      }
+      expect(_calendar(tester).recenterRequest, 4);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(_calendar(tester).recenterRequest, 4);
+    },
+  );
 
   test(
     'loads future plans outside the current visible week for paging',
