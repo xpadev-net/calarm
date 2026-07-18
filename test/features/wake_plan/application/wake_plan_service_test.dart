@@ -3062,6 +3062,99 @@ void main() {
     );
 
     test(
+      'restart reconciles a failed authoritative-id cancel without duplicates',
+      () async {
+        final originalPlan = buildPlan();
+        final occurrence = buildOccurrence(
+          id: 'old-future-1',
+          time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 30),
+          platformAlarmId: 'stale-native-id',
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: originalPlan)
+          ..wakePlans = [originalPlan]
+          ..reservedOccurrences = [occurrence]
+          ..storedOccurrences = [occurrence];
+        final gateway = FakeNativeAlarmGateway()
+          ..inventoryRows.add(
+            NativeAlarmInventoryRow(
+              reservationId: occurrence.id,
+              occurrenceId: occurrence.id,
+              wakePlanId: occurrence.wakePlanId,
+              platformAlarmId: 'authoritative-native-id',
+              status: NativeAlarmReservationStatus.scheduled,
+            ),
+          )
+          ..cancelFailurePlatformAlarmIds.add('authoritative-native-id');
+
+        final editResult = await service(store: store, gateway: gateway)
+            .editPlan(
+              buildPlan(
+                targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+                  hour: 7,
+                  minute: 30,
+                ),
+              ),
+            );
+
+        expect(editResult.status, WakePlanSchedulingStatus.recoveryRequired);
+        expect(gateway.cancelledOccurrences.map((request) => request.idLabel), [
+          'old-future-1/authoritative-native-id',
+        ]);
+        expect(
+          store.storedOccurrences.singleWhere(
+            (item) => item.id == occurrence.id,
+          ),
+          isA<AlarmOccurrence>()
+              .having(
+                (item) => item.status,
+                'status',
+                AlarmOccurrenceStatus.userEnablePending,
+              )
+              .having(
+                (item) => item.platformAlarmId,
+                'platformAlarmId',
+                isNull,
+              ),
+        );
+
+        gateway.cancelFailurePlatformAlarmIds.clear();
+        gateway.scheduledRequests.clear();
+        final restartedResult = await service(
+          store: store,
+          gateway: gateway,
+        ).reconcileSchedules();
+
+        expect(
+          restartedResult.single.status,
+          WakePlanSchedulingStatus.scheduled,
+        );
+        expect(gateway.scheduledRequests, isEmpty);
+        expect(
+          gateway.inventoryRows.where(
+            (row) => row.reservationId == occurrence.id,
+          ),
+          hasLength(1),
+        );
+        expect(
+          store.storedOccurrences.singleWhere(
+            (item) => item.id == occurrence.id,
+          ),
+          isA<AlarmOccurrence>()
+              .having(
+                (item) => item.status,
+                'status',
+                AlarmOccurrenceStatus.scheduled,
+              )
+              .having(
+                (item) => item.platformAlarmId,
+                'platformAlarmId',
+                'authoritative-native-id',
+              ),
+        );
+      },
+    );
+
+    test(
       'preserves canonical metadata when editing around a disabled occurrence',
       () async {
         final originalPlan = buildPlan();

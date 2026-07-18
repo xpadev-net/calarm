@@ -1899,6 +1899,20 @@ class WakePlanService {
         .where((alarm) => !alarm.isSuccess)
         .map(_cancelKey)
         .toSet();
+    final failedDiscoveredPlatformIds = cancellableOccurrences
+        .where((occurrence) {
+          if (!clearPlatformIdOnFailureFor.contains(occurrence.id)) {
+            return false;
+          }
+          return failureKeys.contains(
+            _cancelRequestKey(
+              occurrenceId: occurrence.id,
+              platformAlarmId: occurrence.platformAlarmId!,
+            ),
+          );
+        })
+        .map((occurrence) => occurrence.id)
+        .toSet();
     final persistedOccurrences = cancellableOccurrences
         .map((occurrence) {
           final key = _cancelRequestKey(
@@ -1920,6 +1934,9 @@ class WakePlanService {
             );
           }
           if (failureKeys.contains(key)) {
+            final requiresInventoryRecovery =
+                cancellationResponseUncertain ||
+                failedDiscoveredPlatformIds.contains(occurrence.id);
             final uncertainStatus = switch (occurrence.status) {
               AlarmOccurrenceStatus.unknownPersisted =>
                 AlarmOccurrenceStatus.unknownPersisted,
@@ -1931,12 +1948,12 @@ class WakePlanService {
               _ => occurrence.status,
             };
             return occurrence.copyWith(
-              status: cancellationResponseUncertain
+              status: requiresInventoryRecovery
                   ? uncertainStatus
                   : occurrence.status,
               platformAlarmId:
                   !cancellationResponseUncertain &&
-                      clearPlatformIdOnFailureFor.contains(occurrence.id)
+                      failedDiscoveredPlatformIds.contains(occurrence.id)
                   ? null
                   : occurrence.platformAlarmId,
               failureReason: null,
@@ -1955,7 +1972,9 @@ class WakePlanService {
       cancelResult: cancelResult,
       persistedOccurrences: persistedOccurrences,
       databaseStateKnown: persistenceError == null,
-      hasUnresolvedNativeState: cancellationResponseUncertain,
+      hasUnresolvedNativeState:
+          cancellationResponseUncertain ||
+          failedDiscoveredPlatformIds.isNotEmpty,
       persistenceError: persistenceError,
       successfullyCancelledOccurrences: cancellableOccurrences
           .where((occurrence) {
