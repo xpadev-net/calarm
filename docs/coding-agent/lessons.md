@@ -379,3 +379,30 @@ Purpose:
 - fix: Treat each pipeline, conditional, and command-chain segment as an independent command and require an explicit `rtk` prefix (using `rtk proxy` where no specialized filter applies).
 - prevention: Before every shell call, scan separators (`|`, `&&`, `||`, `;`) and verify that the executable immediately following each separator begins with `rtk`; include this check in orchestrator preflight and closeout.
 - promotion: Repo-local command-execution guardrail; consider a shared shell-command validator if this recurs across repositories.
+
+### 2026-07-18 - Confirm Pre-Release Compatibility Before Preserving Migration Complexity
+
+- tags: assumptions/interpretation, scope/ownership, architecture/design, workflow/process
+- symptom: Review and remediation work treated legacy native mirror/journal formats and installed-state migration as constraints even though the product is still in development and the user does not require backward compatibility.
+- root cause: Compatibility was inferred from defensive migration guidance instead of being established as an explicit product requirement for the current release stage.
+- fix: Record the user's no-backward-compatibility decision, permit a current-schema-only native-state design within Task_12 ownership, and keep platform atomicity and current-schema recovery as separate correctness gates.
+- prevention: Before adding or retaining migration/legacy-format complexity in a pre-release product, confirm whether compatibility is required; when it is not, remove that constraint explicitly without using it to waive current-state correctness or expand ownership.
+- promotion: Repo-local pre-release design rule; consider shared architecture guidance if the same assumption recurs across projects.
+
+### 2026-07-18 - Prove Platform Atomicity Before Requiring Atomic Replacement Semantics
+
+- tags: review, external-integration, state-transitions, architecture/design, validation/verification
+- symptom: Task acceptance required both no missed fire and no duplicate fire across process death during AlarmKit replacement, although the public platform interface exposes only separate schedule and cancel operations.
+- root cause: Product-level atomic replacement semantics were specified without first mapping every intermediate state permitted by the installed platform API.
+- fix: Inspect the supported interface, enumerate both operation orderings and their process-death states, then adopt schedule-new-before-retire-old with a bounded duplicate window and restart convergence because availability is the chosen invariant.
+- prevention: Before requiring atomic semantics over a multi-call external API, identify a documented atomic primitive or produce a failure matrix; if none exists, explicitly choose the preserved invariant, bound the unavoidable window, and forbid undocumented behavior assumptions.
+- promotion: Repo-local external-integration lesson; candidate for shared event-driven/platform-contract guidance.
+
+### 2026-07-19 - Test Destructive Guards Across State Transitions
+
+- tags: review, validation/verification, state-transitions, ownership, persistence
+- symptom: Native cancellation had correct ownership checks before and after journal reconciliation, but the regression suite initially exercised invalid ownership only without an active journal and constructed pending ownership through a legacy-only fixture.
+- root cause: Tests covered the guard predicates independently but did not drive the destructive boundary through production state transitions that could change ownership between check and mutation.
+- fix: Add production-seam regressions proving invalid ownership cannot mutate an active journal and proving stale ownership is rejected after reconciliation transfers authority; construct pending state through the current production writer.
+- prevention: For destructive operations guarded around a state transition, test every guard at the transition branch it protects and build persisted fixtures through current production writers whenever possible.
+- promotion: Repo-local ownership and persistence-testing guardrail; consider shared destructive-boundary guidance if repeated.

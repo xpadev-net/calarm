@@ -96,16 +96,18 @@
     detail: Deep review, gh-review-hook exit 0, PR merge-gate preflight, and focused rerun before merge.
 
 ### Task_2: Add persistent per-occurrence alarm toggles
-- status: stopped
+- status: in_progress
 - worker_thread: `019f6b02-c520-7601-a7f9-816e5b8112e7`
 - worker_worktree: `<CODEX_HOME>/worktrees/dd05/calarm`
+- resumed_worker_thread: `019f764b-6b12-7151-970b-8e49283635f0`
+- resumed_worker_worktree: `<CODEX_HOME>/worktrees/f66b/calarm`
 - replaced_worker_thread: `019f693a-17b1-78c3-8a0e-30a8ae7c911b` (archived rollout missing; replacement started)
 - branch: `codex/task-2-occurrence-toggles`
 - pr: `https://github.com/xpadev-net/calarm/pull/52`
 - head_at_replacement: `381675108278333e08dfc12c739bec210936d308`
 - stop_reason: Exact-head independent review proved that an iOS lost MethodChannel schedule reply can leave an id-less `userEnablePending` row permanently hidden while an unknown native alarm remains live; an in-scope service-only retry can duplicate alarms and rejecting re-enable would violate acceptance.
-- prerequisite: `docs/coding-agent/plans/active/codebase-review-remediation-plan.md` Task_12 / PR #48 must merge stable reservation-to-platform identity plus authoritative iOS inventory before Task_2 resumes.
-- resume_action: Integrate the prerequisite merge normally, rerun the exact restart/native-state probe and focused suites, obtain fresh independent review, run worker/orchestrator hooks, and re-enter merge preflight.
+- prerequisite: satisfied by Task_12 / PR #48 merge commit `2d3ceb1c786aa0b44e6da90457c164df6afbe11e`, which provides stable reservation-to-platform identity plus authoritative iOS inventory.
+- resume_action: Replacement worker normally integrates current master, reruns the exact restart/native-state probe and focused/full suites, obtains fresh independent review, runs the worker hook, and re-enters orchestrator merge preflight.
 - stopped_worker_archived: true
 - pr_dependency_note: Confirmed in PR #52 description; no code/history change accompanied the metadata update.
 - type: impl
@@ -197,6 +199,9 @@
 - status: in_progress
 - worker_thread: `019f7160-b4bb-76e1-8008-dda5ac52fb57`
 - worker_worktree: `<CODEX_HOME>/worktrees/40d4/calarm`
+- replacement_worker_thread: `019f764b-bebe-7ff3-847d-0681414a3b1e`
+- replacement_worker_worktree: `<CODEX_HOME>/worktrees/7f05/calarm`
+- replacement_reason: Prior worker could be unarchived but could not resume because its archived rollout file was missing; replacement continues the unchanged PR branch without history rewrite.
 - branch: `codex/task-4-short-range-geometry`
 - type: impl
 - owns:
@@ -389,6 +394,10 @@
   - Summary: PR #55 merged after exact-head orchestrator preflight, deep review, review hook, focused/full validation, and direct-edit boundary instrumentation.
   - Validation evidence: Head `976458798d539565bccfc7caf6746a85c3be7e99`; merge commit `47eb07a7ef8cf66cbc07e0c417bb622f891aa588`; focused 71/71 and full 354/354 tests; analyze/format/diff-check pass; worker and orchestrator hook exit 0; three orchestrator review perspectives approved with no findings; PR CLEAN/APPROVED/current base with 5/5 checks green.
   - Notes: Canonical snapped endpoints govern display and Save validity, invalid transient ranges remain repairable, and direct input preserves the documented local DateTime semantics. Worker `019f7160-b55e-7de3-a090-4939aecb3e55` archived.
+- 2026-07-19 Task_12 dependency merged; Task_2 resumed and Task_4 worker replaced: [Task_2, Task_4]
+  - Summary: PR #48 merged the native stable-identity and authoritative-inventory prerequisite, so Task_2 restarted on its existing PR branch. Task_4's archived worker rollout was missing and could not accept the dependency-release handoff, so a replacement worker continued PR #54 from the same branch.
+  - Validation evidence: PR #48 merge commit `2d3ceb1c786aa0b44e6da90457c164df6afbe11e`; Task_2 replacement thread `019f764b-6b12-7151-970b-8e49283635f0` active in `<CODEX_HOME>/worktrees/f66b/calarm`; Task_4 replacement thread `019f764b-bebe-7ff3-847d-0681414a3b1e` active in `<CODEX_HOME>/worktrees/7f05/calarm`.
+  - Notes: Both replacements must normally merge current master, preserve open-PR history, refresh exact-head validation/review/check/hook evidence, and never merge. The old Task_4 worker `019f7160-b4bb-76e1-8008-dda5ac52fb57` was archived again after the rollout-path failure.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
