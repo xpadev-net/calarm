@@ -810,7 +810,7 @@ final class AlarmKitBridge {
             request: request,
             platformAlarmId: candidatePlatformAlarmId
           )
-          var journal = AlarmReplacementJournal(
+          let journal = AlarmReplacementJournal(
             old: existing,
             new: candidateRecord,
             phase: .staging
@@ -828,8 +828,6 @@ final class AlarmKitBridge {
             }
             // Test seam for the external-side-effect/durable-phase boundary.
             try replacementBeforeCommit?()
-            journal = journal.advancing(to: .newVerified)
-            try saveReplacementJournal(journal)
           } catch {
             let resolved = try? await reconcileReplacementJournal(
               in: loadMirrorSnapshot()
@@ -861,6 +859,13 @@ final class AlarmKitBridge {
               failureMessage: error.localizedDescription
             )
           }
+
+          // Keep the durable journal in staging until the old UUID is gone.
+          // A process loss before retirement therefore keeps the old alarm
+          // authoritative and rolls the candidate back on restart. If cancel
+          // mutates and then throws, authoritative inventory is new-only and
+          // staging recovery safely commits the candidate.
+          do { try nativeClientForAlarmKit().cancel(id: alarmId) } catch {}
 
           let resolved = try await reconcileReplacementJournal(in: loadMirrorSnapshot())
           if resolved.normalized[candidatePlatformAlarmId] == candidateRecord {
