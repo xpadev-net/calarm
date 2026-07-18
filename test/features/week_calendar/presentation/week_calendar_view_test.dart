@@ -662,6 +662,97 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'cross-midnight single-handle segments keep body drag and dot resize',
+    (tester) async {
+      var draft = WeekCalendarDraft(
+        id: 'single-handle-cross-midnight-draft',
+        startAt: DateTime(2026, 7, 8, 23, 30),
+        endAt: DateTime(2026, 7, 9, 0, 30),
+        createdAt: DateTime(2026, 7, 8, 5, 30),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                width: 390,
+                child: StatefulBuilder(
+                  builder: (context, setState) => WeekCalendarView(
+                    now: DateTime(2026, 7, 8, 23, 30),
+                    initialWeek: WeekRange(
+                      start: CalendarDay(year: 2026, month: 7, day: 6),
+                    ),
+                    draft: draft,
+                    onDraftChanged: (value) => setState(() => draft = value),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final dayWidth = tester.getSize(find.byType(CustomPaint).last).width / 7;
+      final scrollController = tester
+          .widget<SingleChildScrollView>(find.byType(SingleChildScrollView))
+          .controller!;
+      Finder body(int dayIndex) => find.byKey(
+        ValueKey(
+          'week-calendar-draft-body-single-handle-cross-midnight-draft-'
+          '$dayIndex',
+        ),
+      );
+
+      await _rawDragFrom(
+        tester,
+        tester.getRect(body(2)).center,
+        Offset(dayWidth, 0),
+        pointer: 73,
+      );
+      expect(draft.startAt, DateTime(2026, 7, 9, 23, 30));
+      expect(draft.endAt, DateTime(2026, 7, 10, 0, 30));
+
+      scrollController.jumpTo(0);
+      await tester.pump();
+      await _rawDragFrom(
+        tester,
+        tester.getRect(body(4)).center,
+        Offset(-dayWidth, 0),
+        pointer: 74,
+      );
+      expect(draft.startAt, DateTime(2026, 7, 8, 23, 30));
+      expect(draft.endAt, DateTime(2026, 7, 9, 0, 30));
+
+      scrollController.jumpTo(scrollController.position.maxScrollExtent);
+      await tester.pump();
+      final startBodyRect = tester.getRect(body(2));
+      await _rawDragFrom(
+        tester,
+        Offset(startBodyRect.left + 12, startBodyRect.top),
+        const Offset(0, 5),
+        pointer: 75,
+      );
+      expect(draft.startAt, DateTime(2026, 7, 8, 23, 35));
+      expect(draft.endAt, DateTime(2026, 7, 9, 0, 30));
+
+      scrollController.jumpTo(0);
+      await tester.pump();
+      final endBodyRect = tester.getRect(body(3));
+      await _rawDragFrom(
+        tester,
+        Offset(endBodyRect.right - 12, endBodyRect.bottom),
+        const Offset(0, 5),
+        pointer: 76,
+      );
+      expect(draft.startAt, DateTime(2026, 7, 8, 23, 35));
+      expect(draft.endAt, DateTime(2026, 7, 9, 0, 35));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('cancelled cross-day body drag restores vertical scrolling', (
     tester,
   ) async {

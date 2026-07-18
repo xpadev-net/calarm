@@ -843,12 +843,16 @@ class _DraftBlockState extends State<_DraftBlock> {
     final hitsStart =
         widget.segment.containsStart && startRect.contains(position);
     final hitsEnd = widget.segment.containsEnd && endRect.contains(position);
+    final hitsStartVisual =
+        (position - startCenter).distanceSquared <=
+        _draftHandleVisualRadius * _draftHandleVisualRadius;
+    final hitsEndVisual =
+        (position - endCenter).distanceSquared <=
+        _draftHandleVisualRadius * _draftHandleVisualRadius;
     if (hitsStart && hitsEnd) {
       final startDistance = (position - startCenter).distanceSquared;
       final endDistance = (position - endCenter).distanceSquared;
-      if (bodyRect.contains(position) &&
-          startDistance > _draftHandleVisualRadius * _draftHandleVisualRadius &&
-          endDistance > _draftHandleVisualRadius * _draftHandleVisualRadius) {
+      if (bodyRect.contains(position) && !hitsStartVisual && !hitsEndVisual) {
         return _DraftDragMode.move;
       }
       if (startDistance == endDistance) {
@@ -861,9 +865,15 @@ class _DraftBlockState extends State<_DraftBlock> {
           : _DraftDragMode.resizeEnd;
     }
     if (hitsStart) {
+      if (bodyRect.contains(position) && !hitsStartVisual) {
+        return _DraftDragMode.move;
+      }
       return _DraftDragMode.resizeStart;
     }
     if (hitsEnd) {
+      if (bodyRect.contains(position) && !hitsEndVisual) {
+        return _DraftDragMode.move;
+      }
       return _DraftDragMode.resizeEnd;
     }
     if (bodyRect.contains(position)) {
