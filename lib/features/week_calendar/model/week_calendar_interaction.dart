@@ -8,6 +8,23 @@ const Duration weekCalendarDraftSnapInterval = Duration(minutes: 5);
 const Duration weekCalendarDraftMinimumDuration = Duration(minutes: 5);
 const Duration weekCalendarDraftMaximumDuration = Duration(hours: 3);
 
+enum WeekCalendarDraftRangeError { notOrdered, tooShort, tooLong }
+
+class WeekCalendarDraftRangeEdit {
+  const WeekCalendarDraftRangeEdit._({this.draft, this.error});
+
+  const WeekCalendarDraftRangeEdit.valid(WeekCalendarDraft draft)
+    : this._(draft: draft);
+
+  const WeekCalendarDraftRangeEdit.invalid(WeekCalendarDraftRangeError error)
+    : this._(error: error);
+
+  final WeekCalendarDraft? draft;
+  final WeekCalendarDraftRangeError? error;
+
+  bool get isValid => draft != null;
+}
+
 class WeekCalendarDraft {
   WeekCalendarDraft({
     required this.id,
@@ -87,10 +104,42 @@ WeekCalendarDraft weekCalendarDraftFromTap({
 
 DateTime snapWeekCalendarDraftDateTime(DateTime value) {
   final interval = weekCalendarDraftSnapInterval.inMinutes;
-  final dayStart = DateTime(value.year, value.month, value.day);
+  final dayStart = value.isUtc
+      ? DateTime.utc(value.year, value.month, value.day)
+      : DateTime(value.year, value.month, value.day);
   final minute = value.difference(dayStart).inMinutes;
   final snappedMinute = (minute / interval).round() * interval;
   return dayStart.add(Duration(minutes: snappedMinute));
+}
+
+WeekCalendarDraftRangeEdit editWeekCalendarDraftRange({
+  required WeekCalendarDraft draft,
+  required DateTime startAt,
+  required DateTime endAt,
+}) {
+  final snappedStart = snapWeekCalendarDraftDateTime(startAt);
+  final snappedEnd = snapWeekCalendarDraftDateTime(endAt);
+  if (snappedStart.isAfter(snappedEnd)) {
+    return const WeekCalendarDraftRangeEdit.invalid(
+      WeekCalendarDraftRangeError.notOrdered,
+    );
+  }
+
+  final duration = snappedEnd.difference(snappedStart);
+  if (duration < weekCalendarDraftMinimumDuration) {
+    return const WeekCalendarDraftRangeEdit.invalid(
+      WeekCalendarDraftRangeError.tooShort,
+    );
+  }
+  if (duration > weekCalendarDraftMaximumDuration) {
+    return const WeekCalendarDraftRangeEdit.invalid(
+      WeekCalendarDraftRangeError.tooLong,
+    );
+  }
+
+  return WeekCalendarDraftRangeEdit.valid(
+    draft.copyWith(startAt: snappedStart, endAt: snappedEnd),
+  );
 }
 
 WeekCalendarDraft clampWeekCalendarDraftToRange({
