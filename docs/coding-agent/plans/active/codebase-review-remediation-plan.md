@@ -403,12 +403,16 @@
   - runtime: `gpt-5.6-luna` / `high`
   - state: interrupted and archived after remaining at a clean detached base for over one hour; one startup resume produced no progress, and no branch, edit, commit, push, or PR was created.
 - replacement_worker:
-  - thread: `019f6b02-c520-7601-a7f9-81447e8915d2`
-  - worktree: `<CODEX_HOME>/worktrees/a266/calarm`
+  - thread: `019f7575-c7db-7420-a088-2ba9cdd95d2d`
+  - worktree: `<CODEX_HOME>/worktrees/1a9a/calarm`
   - branch: `codex/reviewfix-ios-native-inventory-retry`
   - runtime: platform default
-  - startup: active beyond replacement worktree setup; open-PR remediation and current-base integration in progress.
+  - startup: active beyond replacement worktree setup; availability-first handover and stale-inventory remediation in progress.
 - prior_replacement_worker:
+  - thread: `019f6b02-c520-7601-a7f9-81447e8915d2`
+  - worktree: `<CODEX_HOME>/worktrees/a266/calarm`
+  - state: produced the bounded AlarmKit transition proof, then its rollout file disappeared after automatic archival; an unarchive/resume attempt could not resolve the rollout and the task was archived again before replacement.
+- earlier_replacement_worker:
   - thread: `019f5bac-5671-7022-8a1a-12fa6cc67ee3`
   - worktree: `/Users/xpadev/.codex/worktrees/5a01/calarm`
   - state: archived rollout missing after unarchive; could not be resumed and was replaced without reusing its worktree.
@@ -748,6 +752,11 @@
   - Finite transition proof: retiring the old alarm first admits process death with no live alarm and a missed fire; scheduling the candidate first admits process death with both alarms and a possible duplicate; journals and inventory cannot run while the process is dead, and undocumented same-ID replacement is forbidden.
   - Accepted current-platform guarantee: schedule the candidate before retiring the old alarm, preserve at least one exact owned alarm, minimize and document the duplicate window, then converge through old retirement or restart reconciliation. No Dart/database decomposition can create the missing OS atomic primitive.
   - Separate required remediation remains: observer/start events are wake hints, authoritative inventory is fetched inside `mirrorCoordinator` before every pruning path, read/validation failure retains state, and the post-journal second refetch plus gated stale-snapshot regressions remain mandatory.
+
+- 2026-07-18 Task_12 worker replaced after post-report rollout loss.
+  - Worker `019f6b02-c520-7601-a7f9-81447e8915d2` delivered the bounded transition proof and was automatically archived; its archived rollout file was then missing, so neither the accepted continuation prompt nor a bounded unarchive/resume could be delivered.
+  - The unrecoverable task was archived again to prevent concurrent branch edits. Replacement worker `019f7575-c7db-7420-a088-2ba9cdd95d2d` started from the same existing PR branch in a fresh worktree and owns the same seven-file Task_12 scope.
+  - The replacement was instructed to preserve all existing branch edits/history, normally merge current master, implement the recorded availability-first and stale-inventory fixes, refresh every exact-head gate, and never merge or rewrite history.
 
 ## Decision Log
 
