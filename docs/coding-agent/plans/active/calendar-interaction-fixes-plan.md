@@ -291,13 +291,17 @@
     detail: Deep review, gh-review-hook exit 0, model/widget reruns, and focused UI evidence before merge.
 
 ### Task_6: Integrated independent UI and regression review
-- status: in_progress
+- status: needs_revision
 - reviewer_thread: `019f76b7-e24a-7342-aee4-8fc775f104fc`
 - reviewer_worktree: `<CODEX_HOME>/worktrees/c48d/calarm`
 - started_after_master: pending ledger commit following Task_2 merge evidence
+- reviewed_head: `155ad7cb9e86bba89513bdecfc45c6f1cd624cee`
+- finding: Flutter `inactive` includes still-visible temporary focus loss such as notification shade, system dialogs, app switcher/control center, calls, split screen, and PiP, but the calendar treated every subsequent `resumed` as a background return and recentered the page/scroll. Existing tests encoded the over-broad `inactive -> resumed` behavior.
+- completed_validation_before_stop: Full Flutter suite passed 445/445; reviewer stopped before remaining evidence because a confirmed High requires Task_7 repair.
+- reviewer_archived: true
 - type: review
 - owns: []
-- depends_on: [Task_2, Task_4, Task_5]
+- depends_on: [Task_2, Task_4, Task_5, Task_7]
 - description: |
   Independently inspect the integrated implementation and run the E2E/visual specification after all implementation PRs are merged.
 - acceptance:
@@ -326,12 +330,48 @@
     owner: reviewer
     detail: Independent integrated diff/behavior review against all acceptance criteria.
 
+### Task_7: Admit recentering only after genuine background entry
+- status: in_progress
+- worker_thread: `019f76db-ce74-7c32-ab81-38c621a9eec5`
+- worker_worktree: `<CODEX_HOME>/worktrees/ed78/calarm`
+- branch: `codex/task-7-calendar-lifecycle-admission`
+- type: impl
+- owns:
+  - `lib/features/week_calendar/presentation/week_calendar_placeholder.dart`
+  - `test/features/week_calendar/presentation/week_calendar_placeholder_test.dart`
+- depends_on: [Task_2, Task_4, Task_5]
+- description: |
+  Distinguish temporary foreground focus loss from genuine background entry so notification shade, system dialogs, app switcher/control center, calls, split screen, and PiP do not recenter the calendar.
+- acceptance:
+  - `inactive -> resumed` without `hidden` or `paused` preserves page and vertical offset and does not increment the recenter request.
+  - `hidden/paused -> resumed` refreshes now and recenters exactly once.
+  - Repeated `resumed`, provider rebuilds, minute ticks, editor visibility changes, and synthesized Android/iOS transition sequences do not double-recenter.
+  - Minute-boundary timer suspension and restoration remain safe across focus loss and genuine background entry.
+- validation:
+  - kind: command
+    required: true
+    owner: worker
+    detail: `rtk fvm flutter test test/features/week_calendar/presentation/week_calendar_placeholder_test.dart test/features/week_calendar/presentation/week_calendar_view_test.dart`
+  - kind: command
+    required: true
+    owner: worker
+    detail: `rtk fvm flutter test --concurrency=1 && rtk fvm flutter analyze`
+  - kind: ui_probe
+    required: true
+    owner: worker
+    detail: Verify temporary `inactive -> resumed` preserves the viewport and genuine hidden/paused background return recenters exactly once.
+  - kind: review
+    required: true
+    owner: orchestrator
+    detail: Deep review of lifecycle admission, timer cleanup, synthesized transition ordering, focused/full reruns, gh-review-hook, and PR merge gates.
+
 ## Task Waves (explicit parallel dispatch sets)
 
 - Wave 1 (parallel): [Task_1, Task_2]
 - Wave 2 (parallel): [Task_3]
 - Wave 3 (parallel): [Task_4, Task_5]
-- Wave 4 (parallel): [Task_6]
+- Wave 4 (parallel): [Task_7]
+- Wave 5 (parallel): [Task_6]
 
 ## E2E / Visual Validation Spec
 
