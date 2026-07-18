@@ -415,3 +415,12 @@ Purpose:
 - fix: Apply body-over-resize precedence outside the visual dot for both single-handle branches; move endpoint probes one pixel inside their bodies; assert membership in the body rectangle, measured 48x48 handle rectangle, and strict visual radius before dragging; and verify that temporarily removing end-only visual precedence makes the regression fail.
 - prevention: For optional-target gesture arbitration, enumerate active-target cardinality and identity states, assert both target-center and non-target body behavior, prove each test coordinate belongs to the exact intersection or difference under test, and require a mutation-sensitivity check for the protected branch.
 - promotion: Repo-local UI interaction lesson; consider shared deep-review UI guidance if this pattern recurs.
+
+### 2026-07-19 - Persist Intent Before Irreversible External Side Effects
+
+- tags: review, validation/verification, state-transitions, persistence, external-integration, ui-e2e
+- symptom: Toggle validation covered thrown and lost native replies but initially missed process death after native cancellation and before durable disable state, while a permissive fake allowed stale platform IDs that the real native ownership contract rejects.
+- root cause: The state machine recorded recovery intent after an external side effect, tests modeled callback failures instead of every persistence-to-side-effect crash seam, and the fake did not enforce authoritative inventory and mirror ownership semantics.
+- fix: Persist `userDisablePending` before native cancellation; resolve authoritative absence locally while treating unavailable and ambiguous inventory conservatively; use exact active identity when present; distinguish definite no-side-effect enable rejection from uncertain outcomes; and prove the UI remains retryable after a definite failure.
+- prevention: For every persistence and external-side-effect boundary, enumerate write order and process-death seams, use strict contract doubles for authoritative absence and ownership, and review definite-versus-uncertain outcomes together with the user-visible retry path.
+- promotion: Repo-local state-machine and external-integration guardrail; consider shared event-driven guidance if this recurs.

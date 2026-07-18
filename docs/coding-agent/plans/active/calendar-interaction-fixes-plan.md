@@ -96,7 +96,7 @@
     detail: Deep review, gh-review-hook exit 0, PR merge-gate preflight, and focused rerun before merge.
 
 ### Task_2: Add persistent per-occurrence alarm toggles
-- status: in_progress
+- status: complete
 - worker_thread: `019f6b02-c520-7601-a7f9-816e5b8112e7`
 - worker_worktree: `<CODEX_HOME>/worktrees/dd05/calarm`
 - resumed_worker_thread: `019f764b-6b12-7151-970b-8e49283635f0`
@@ -104,6 +104,11 @@
 - replaced_worker_thread: `019f693a-17b1-78c3-8a0e-30a8ae7c911b` (archived rollout missing; replacement started)
 - branch: `codex/task-2-occurrence-toggles`
 - pr: `https://github.com/xpadev-net/calarm/pull/52`
+- head: `3da78b84f8d20d0aee7485065f2da69e914191fb`
+- merge_commit: `6c4a3d388cab40d3db5541f973c427af3560b80f`
+- merged_at: `2026-07-18T19:31:21Z`
+- evidence: Exact disable to resume/restart to re-enable probes passed with durable pre-cancel intent, authoritative inventory absence/active/unavailable/ambiguity handling, stable native identity, definite-versus-uncertain enable recovery, visible UI retryability, and duplicate/stranding prevention. Orchestrator focused suites passed 178/178, full Flutter passed 445/445, analyze/format/diff passed, the iOS simulator build and RunnerTests passed, three independent exact-head deep-review perspectives approved, `gh-review-hook 52` exited 0, all 5 hosted checks passed, and all 12 review threads were resolved. Physical-device AlarmKit authorization/delivery remains unverified and is not claimed as release evidence.
+- worker_archived: true
 - head_at_replacement: `381675108278333e08dfc12c739bec210936d308`
 - stop_reason: Exact-head independent review proved that an iOS lost MethodChannel schedule reply can leave an id-less `userEnablePending` row permanently hidden while an unknown native alarm remains live; an in-scope service-only retry can duplicate alarms and rejecting re-enable would violate acceptance.
 - prerequisite: satisfied by Task_12 / PR #48 merge commit `2d3ceb1c786aa0b44e6da90457c164df6afbe11e`, which provides stable reservation-to-platform identity plus authoritative iOS inventory.
