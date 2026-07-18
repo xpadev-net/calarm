@@ -1612,6 +1612,120 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
+  func testBridgeRejectsMismatchedCancelBeforeReplacementJournalReconciliation() async throws {
+    let fake = FakeAlarmKitNativeClient()
+    fake.inventoryErrorOnCall = 3
+    let original = makeScheduleRequest("reservation-cancel-pre-journal-guard")
+    let replacement = makeScheduleRequest(
+      original.reservationId,
+      occurrenceId: "occurrence-cancel-pre-journal-candidate"
+    )
+    let oldPlatformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
+    let bridge = AlarmKitBridge(
+      nativeClient: fake,
+      replacementBeforeCommit: {
+        throw FakeAlarmKitNativeClient.FakeError.scheduleFailed
+      }
+    )
+    clearMirror()
+    defer { clearMirror() }
+
+    let originalResult = await bridge.scheduleAlarm(original)
+    let replacementResult = await bridge.scheduleAlarm(replacement)
+    XCTAssertEqual(originalResult.status, "success")
+    XCTAssertEqual(replacementResult.status, "failure")
+    XCTAssertEqual(fake.cancelCalls, 0)
+    XCTAssertEqual(fake.nativeAlarmIds.count, 2)
+    XCTAssertTrue(fake.nativeAlarmIds.contains(oldPlatformAlarmId.uppercased()))
+    XCTAssertTrue(mirrorContains(oldPlatformAlarmId))
+
+    let journalBefore = try XCTUnwrap(
+      UserDefaults.standard.data(forKey: replacementJournalKey)
+    )
+    let stateKeys = [mirrorKey, pendingMirrorKey, envelopeKey, transactionKey]
+    let stateBefore = stateKeys.map { UserDefaults.standard.data(forKey: $0) }
+    let nativeAlarmIdsBefore = fake.nativeAlarmIds
+    let inventoryCallsBefore = fake.inventoryCalls
+    fake.inventoryErrorOnCall = nil
+
+    let result = await bridge.cancelAlarm([
+      "occurrenceId": "wrong-occurrence-owner",
+      "reservationId": original.reservationId,
+      "platformAlarmId": oldPlatformAlarmId.uppercased(),
+    ])
+
+    XCTAssertEqual(result["status"] as? String, "failure")
+    XCTAssertEqual(result["failureReason"] as? String, "invalidRequest")
+    XCTAssertEqual(fake.cancelCalls, 0)
+    XCTAssertEqual(fake.inventoryCalls, inventoryCallsBefore)
+    XCTAssertEqual(fake.nativeAlarmIds, nativeAlarmIdsBefore)
+    XCTAssertEqual(
+      UserDefaults.standard.data(forKey: replacementJournalKey),
+      journalBefore
+    )
+    XCTAssertEqual(
+      stateKeys.map { UserDefaults.standard.data(forKey: $0) },
+      stateBefore
+    )
+    XCTAssertTrue(mirrorContains(oldPlatformAlarmId))
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testBridgeRevalidatesOwnershipAfterJournalCommitsCandidate() async throws {
+    let fake = FakeAlarmKitNativeClient()
+    let original = makeScheduleRequest("reservation-cancel-post-journal-guard")
+    let replacement = makeScheduleRequest(
+      original.reservationId,
+      occurrenceId: "occurrence-cancel-post-journal-candidate"
+    )
+    let oldPlatformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
+    let bridge = AlarmKitBridge(
+      nativeClient: fake,
+      replacementAfterRetireBeforeCommit: {
+        throw FakeAlarmKitNativeClient.FakeError.scheduleFailed
+      }
+    )
+    clearMirror()
+    defer { clearMirror() }
+
+    let originalResult = await bridge.scheduleAlarm(original)
+    let replacementResult = await bridge.scheduleAlarm(replacement)
+    XCTAssertEqual(originalResult.status, "success")
+    XCTAssertEqual(replacementResult.status, "failure")
+    XCTAssertEqual(fake.cancelCalls, 1)
+    XCTAssertFalse(fake.nativeAlarmIds.contains(oldPlatformAlarmId.uppercased()))
+    XCTAssertEqual(fake.nativeAlarmIds.count, 1)
+    XCTAssertTrue(mirrorContains(oldPlatformAlarmId))
+    XCTAssertNotNil(UserDefaults.standard.data(forKey: replacementJournalKey))
+    let candidatePlatformAlarmId = try XCTUnwrap(
+      fake.nativeAlarmIds.map { $0.lowercased() }.first
+    )
+    XCTAssertNotEqual(candidatePlatformAlarmId, oldPlatformAlarmId)
+
+    let cancelCallsBefore = fake.cancelCalls
+    let result = await bridge.cancelAlarm([
+      "occurrenceId": original.occurrenceId,
+      "reservationId": original.reservationId,
+      "platformAlarmId": oldPlatformAlarmId.uppercased(),
+    ])
+
+    XCTAssertEqual(result["status"] as? String, "failure")
+    XCTAssertEqual(result["failureReason"] as? String, "invalidRequest")
+    XCTAssertEqual(fake.cancelCalls, cancelCallsBefore)
+    XCTAssertEqual(fake.nativeAlarmIds, Set([candidatePlatformAlarmId.uppercased()]))
+    XCTAssertFalse(fake.nativeAlarmIds.contains(oldPlatformAlarmId.uppercased()))
+    XCTAssertTrue(mirrorContains(candidatePlatformAlarmId))
+    XCTAssertFalse(mirrorContains(oldPlatformAlarmId))
+    XCTAssertEqual(
+      fake.scheduledRequests[candidatePlatformAlarmId]?.occurrenceId,
+      replacement.occurrenceId
+    )
+    XCTAssertNil(UserDefaults.standard.data(forKey: replacementJournalKey))
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
   func testBridgeScheduleReservationPresenceSemanticsAndStableCollision() async {
     let invalidValues: [Any] = [NSNull(), "", " \n\t ", 42]
     for invalidValue in invalidValues {
@@ -1879,30 +1993,32 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
-  func testBridgeCancelsExactOwnedPendingAlarm() async throws {
+  func testBridgeCancelsExactOwnedPendingAlarm() async {
     let fake = FakeAlarmKitNativeClient()
-    fake.inventoryError = true
     let request = makeScheduleRequest("reservation-pending-cancel")
     let platformAlarmId = calarmPlatformAlarmId(for: request.reservationId)
+    fake.failFirstSchedule = true
+    fake.insertBeforeFailFirstSchedule = true
+    fake.inventoryIdsByCall = [
+      1: [],
+      2: [platformAlarmId.uppercased()],
+    ]
+    let bridge = AlarmKitBridge(nativeClient: fake)
     clearMirror()
     defer { clearMirror() }
-    UserDefaults.standard.set(
-      try completeMirrorData([
-        platformAlarmId: [
-          "reservationId": request.reservationId,
-          "occurrenceId": request.occurrenceId,
-          "wakePlanId": request.wakePlanId,
-          "platformAlarmId": platformAlarmId,
-          "scheduledAt": request.scheduledAt.timeIntervalSinceReferenceDate,
-          "targetAt": request.targetAt.timeIntervalSinceReferenceDate,
-          "soundId": request.soundId,
-          "vibrationEnabled": request.vibrationEnabled,
-        ]
-      ]),
-      forKey: pendingMirrorKey
-    )
-    fake.nativeAlarmIds.insert(platformAlarmId.uppercased())
-    let bridge = AlarmKitBridge(nativeClient: fake)
+
+    let failedSchedule = await bridge.scheduleAlarm(request)
+    XCTAssertEqual(failedSchedule.status, "failure")
+    XCTAssertEqual(failedSchedule.failureReason, "nativeError")
+    XCTAssertEqual(failedSchedule.platformAlarmId, platformAlarmId)
+    XCTAssertEqual(fake.cancelCalls, 0)
+    XCTAssertEqual(fake.nativeAlarmIds, Set([platformAlarmId.uppercased()]))
+    XCTAssertFalse(mirrorContains(platformAlarmId))
+    XCTAssertTrue(pendingMirrorContains(platformAlarmId))
+    XCTAssertEqual(mirrorEnvelopeVersion(), 1)
+    XCTAssertNotNil(UserDefaults.standard.data(forKey: transactionKey))
+    let envelopePending = mirrorEnvelopeObject()?["pending"] as? [String: Any]
+    XCTAssertNotNil(envelopePending?[platformAlarmId])
 
     let result = await bridge.cancelAlarm([
       "occurrenceId": request.occurrenceId,
@@ -1913,6 +2029,9 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(fake.cancelCalls, 1)
     XCTAssertTrue(fake.nativeAlarmIds.isEmpty)
     XCTAssertFalse(pendingMirrorContains(platformAlarmId))
+    XCTAssertNil(
+      (mirrorEnvelopeObject()?["pending"] as? [String: Any])?[platformAlarmId]
+    )
   }
 
   @available(iOS 26.0, *)
