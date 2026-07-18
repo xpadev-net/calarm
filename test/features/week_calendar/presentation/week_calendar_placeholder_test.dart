@@ -1640,6 +1640,117 @@ void main() {
     );
   });
 
+  testWidgets(
+    'detail occurrence toggle survives restart with stable native identity',
+    (tester) async {
+      final gateway = FakeNativeAlarmGateway();
+      final now = DateTime(2026, 7, 8, 5, 30);
+      final plan = _plan(
+        id: 'occurrence-toggle',
+        targetDay: CalendarDay(year: 2026, month: 7, day: 9),
+      );
+      final setupService = WakePlanService(
+        repository: repository,
+        nativeAlarmGateway: gateway,
+        clock: () => now,
+      );
+      await setupService.createPlan(plan);
+      final occurrence = (await repository.fetchOccurrencesForPlan(
+        plan.id,
+      )).last;
+
+      Future<void> pumpAppAndOpenPlan() async {
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              weekCalendarRepositoryProvider.overrideWith(
+                (ref) async => repository,
+              ),
+              wakePlanDefaultsRepositoryProvider.overrideWith(
+                (ref) async => repository,
+              ),
+              weekCalendarNativeAlarmGatewayProvider.overrideWith(
+                (ref) => gateway,
+              ),
+              weekCalendarClockProvider.overrideWith(
+                (ref) =>
+                    () => now,
+              ),
+            ],
+            child: const MaterialApp(
+              home: Scaffold(body: WeekCalendarPlaceholder()),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final calendar = tester.widget<WeekCalendarView>(
+          find.byType(WeekCalendarView),
+        );
+        calendar.onWakePlanTap!(
+          WeekCalendarWakePlanTapTarget(
+            wakePlan: plan,
+            targetDay: CalendarDay(year: 2026, month: 7, day: 9),
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      await pumpAppAndOpenPlan();
+
+      final toggle = find.byKey(ValueKey('occurrence-toggle-${occurrence.id}'));
+      await tester.ensureVisible(toggle);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+
+      final disabled = await repository.fetchAlarmOccurrence(occurrence.id);
+      expect(disabled!.status, AlarmOccurrenceStatus.userDisabled);
+      expect(disabled.platformAlarmId, isNull);
+      expect(
+        gateway.inventoryRows.map((row) => row.occurrenceId),
+        isNot(contains(occurrence.id)),
+      );
+      expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      final restartedService = WakePlanService(
+        repository: repository,
+        nativeAlarmGateway: gateway,
+        clock: () => now,
+      );
+      await restartedService.reconcileSchedules();
+
+      final afterRestart = await repository.fetchAlarmOccurrence(occurrence.id);
+      expect(afterRestart!.status, AlarmOccurrenceStatus.userDisabled);
+      expect(afterRestart.platformAlarmId, isNull);
+      expect(
+        gateway.inventoryRows.map((row) => row.occurrenceId),
+        isNot(contains(occurrence.id)),
+      );
+
+      await pumpAppAndOpenPlan();
+      final restartedToggle = find.byKey(
+        ValueKey('occurrence-toggle-${occurrence.id}'),
+      );
+      await tester.ensureVisible(restartedToggle);
+      expect(tester.widget<SwitchListTile>(restartedToggle).value, isFalse);
+
+      await tester.tap(restartedToggle);
+      await tester.pumpAndSettle();
+
+      final enabled = await repository.fetchAlarmOccurrence(occurrence.id);
+      expect(enabled!.status, AlarmOccurrenceStatus.scheduled);
+      expect(enabled.platformAlarmId, isNotNull);
+      final inventoryRow = gateway.inventoryRows.singleWhere(
+        (row) => row.occurrenceId == occurrence.id,
+      );
+      expect(inventoryRow.reservationId, occurrence.id);
+      expect(inventoryRow.platformAlarmId, enabled.platformAlarmId);
+      expect(tester.widget<SwitchListTile>(restartedToggle).value, isTrue);
+    },
+  );
+
   testWidgets('editing weekly plan from past block preserves repeat weekdays', (
     tester,
   ) async {

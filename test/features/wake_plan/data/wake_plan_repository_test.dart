@@ -303,6 +303,25 @@ void main() {
       },
     );
 
+    test('round-trips the distinct user-disabled occurrence state', () async {
+      await repository.saveWakePlan(buildPlan());
+      await repository.saveAlarmOccurrences([
+        buildOccurrence(
+          id: 'disabled-occurrence',
+          status: AlarmOccurrenceStatus.userDisabled,
+        ),
+      ]);
+
+      final fetched = await repository.fetchAlarmOccurrence(
+        'disabled-occurrence',
+      );
+
+      expect(fetched, isNotNull);
+      expect(fetched!.status, AlarmOccurrenceStatus.userDisabled);
+      expect(fetched.platformAlarmId, isNull);
+      expect(fetched.isUserDisabled, isTrue);
+    });
+
     test(
       'reports missing occurrences when storing platform alarm id',
       () async {
@@ -340,6 +359,29 @@ void main() {
           status: AlarmOccurrenceStatus.cancelled,
           platformAlarmId: 'native-stale',
         ),
+        buildOccurrence(
+          id: 'user-disabled',
+          status: AlarmOccurrenceStatus.userDisabled,
+        ),
+        buildOccurrence(
+          id: 'pending-off',
+          status: AlarmOccurrenceStatus.userDisablePending,
+          platformAlarmId: 'native-pending-off',
+        ),
+        buildOccurrence(
+          id: 'pending-on',
+          status: AlarmOccurrenceStatus.userEnablePending,
+          platformAlarmId: 'native-pending-on',
+        ),
+        buildOccurrence(
+          id: 'unknown-with-native',
+          status: AlarmOccurrenceStatus.unknownPersisted,
+          platformAlarmId: 'native-unknown',
+        ),
+        buildOccurrence(
+          id: 'unknown-without-native',
+          status: AlarmOccurrenceStatus.unknownPersisted,
+        ),
       ]);
 
       final reserved = await repository.fetchReservedOccurrencesForPlan(
@@ -348,6 +390,10 @@ void main() {
 
       expect(reserved.map((occurrence) => occurrence.platformAlarmId), [
         'native-1',
+        'native-pending-off',
+        'native-pending-on',
+        'native-unknown',
+        null,
         'native-2',
         'native-ringing',
       ]);
@@ -372,23 +418,30 @@ void main() {
       ]);
     });
 
-    test('isolates malformed occurrence rows', () async {
+    test('decodes unknown occurrence statuses conservatively', () async {
       await repository.saveWakePlan(buildPlan());
       await repository.saveAlarmOccurrences([buildOccurrence(id: 'valid')]);
       await database
           .into(database.alarmOccurrenceRows)
           .insert(_malformedOccurrenceCompanion());
 
-      expect(await repository.fetchAlarmOccurrence('bad-occ'), isNull);
+      final unknown = await repository.fetchAlarmOccurrence('bad-occ');
+      expect(unknown, isNotNull);
+      expect(unknown!.status, AlarmOccurrenceStatus.unknownPersisted);
 
       final byPlan = await repository.fetchOccurrencesForPlan('plan-1');
       final byRange = await repository.fetchOccurrencesForCalendarRange(
         start: monday,
         end: monday,
       );
+      final conservativeCancellation = await repository
+          .fetchReservedOccurrencesForPlan('plan-1');
 
-      expect(byPlan.map((occurrence) => occurrence.id), ['valid']);
-      expect(byRange.map((occurrence) => occurrence.id), ['valid']);
+      expect(byPlan.map((occurrence) => occurrence.id), ['valid', 'bad-occ']);
+      expect(byRange.map((occurrence) => occurrence.id), ['valid', 'bad-occ']);
+      expect(conservativeCancellation.map((occurrence) => occurrence.id), [
+        'bad-occ',
+      ]);
     });
   });
 

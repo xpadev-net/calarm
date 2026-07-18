@@ -183,15 +183,7 @@ class WakePlanRepository {
   ) async {
     final rows =
         await (_database.select(_database.alarmOccurrenceRows)
-              ..where(
-                (row) =>
-                    row.wakePlanId.equals(wakePlanId) &
-                    row.platformAlarmId.isNotNull() &
-                    row.status.isIn([
-                      AlarmOccurrenceStatus.scheduled.name,
-                      AlarmOccurrenceStatus.ringing.name,
-                    ]),
-              )
+              ..where((row) => row.wakePlanId.equals(wakePlanId))
               ..orderBy([
                 (row) => OrderingTerm.asc(row.scheduledAtDays),
                 (row) => OrderingTerm.asc(row.scheduledAtMinutes),
@@ -201,6 +193,16 @@ class WakePlanRepository {
     return rows
         .map(_tryAlarmOccurrenceFromRow)
         .whereType<AlarmOccurrence>()
+        .where(
+          (occurrence) => switch (occurrence.status) {
+            AlarmOccurrenceStatus.scheduled ||
+            AlarmOccurrenceStatus.ringing => occurrence.hasNativeReservation,
+            AlarmOccurrenceStatus.userDisablePending ||
+            AlarmOccurrenceStatus.userEnablePending ||
+            AlarmOccurrenceStatus.unknownPersisted => true,
+            _ => false,
+          },
+        )
         .toList(growable: false);
   }
 
@@ -394,7 +396,7 @@ class WakePlanRepository {
         day: _calendarDayFromEpochDays(row.scheduledAtDays)!,
         time: TimeOfDayMinutes.fromMinutesSinceMidnight(row.scheduledAtMinutes),
       ),
-      status: AlarmOccurrenceStatus.values.byName(row.status),
+      status: _decodeAlarmOccurrenceStatus(row.status),
       platformAlarmId: row.platformAlarmId,
       firedAt: row.firedAt,
       dismissedAt: row.dismissedAt,
@@ -414,6 +416,15 @@ class WakePlanRepository {
     } on ArgumentError {
       return null;
     }
+  }
+
+  AlarmOccurrenceStatus _decodeAlarmOccurrenceStatus(String value) {
+    for (final status in AlarmOccurrenceStatus.values) {
+      if (status.name == value) {
+        return status;
+      }
+    }
+    return AlarmOccurrenceStatus.unknownPersisted;
   }
 
   AppSettingsRowsCompanion _appSettingsCompanion(AppSettings settings) {

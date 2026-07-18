@@ -525,6 +525,8 @@ class _WeekCalendarPlaceholderState
               ref.invalidate(weekCalendarWakePlansProvider);
               return result;
             },
+            loadOccurrences: service.fetchOccurrencesForPlan,
+            onSetOccurrenceEnabled: service.setOccurrenceEnabled,
           );
         },
       );

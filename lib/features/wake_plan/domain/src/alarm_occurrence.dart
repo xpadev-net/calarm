@@ -2,6 +2,10 @@ import '../../../../core/time/time.dart';
 
 enum AlarmOccurrenceStatus {
   scheduled,
+  userDisabled,
+  userDisablePending,
+  userEnablePending,
+  unknownPersisted,
   ringing,
   dismissed,
   missed,
@@ -25,7 +29,7 @@ class AlarmOccurrence {
   }) {
     _validateId(id, 'id');
     _validateId(wakePlanId, 'wakePlanId');
-    _validatePlatformAlarmId(platformAlarmId);
+    _validatePlatformAlarmId(status: status, value: platformAlarmId);
     _validateFailureReason(status: status, failureReason: failureReason);
     _validateTimestamps(
       status: status,
@@ -73,6 +77,16 @@ class AlarmOccurrence {
 
   bool get hasNativeReservation => platformAlarmId != null;
 
+  bool get isUserDisabled => status == AlarmOccurrenceStatus.userDisabled;
+
+  bool isUserToggleEligibleAt(DateTime now) {
+    if (!scheduledAt.toDateTime().isAfter(now)) {
+      return false;
+    }
+    return isUserDisabled ||
+        status == AlarmOccurrenceStatus.scheduled && hasNativeReservation;
+  }
+
   AlarmOccurrence copyWith({
     String? id,
     String? wakePlanId,
@@ -114,12 +128,22 @@ void _validateId(String value, String name) {
   }
 }
 
-void _validatePlatformAlarmId(String? value) {
+void _validatePlatformAlarmId({
+  required AlarmOccurrenceStatus status,
+  required String? value,
+}) {
   if (value != null && value.trim().isEmpty) {
     throw ArgumentError.value(
       value,
       'platformAlarmId',
       'must be null or non-blank',
+    );
+  }
+  if (status == AlarmOccurrenceStatus.userDisabled && value != null) {
+    throw ArgumentError.value(
+      value,
+      'platformAlarmId',
+      'must be null when status is userDisabled',
     );
   }
 }
@@ -128,6 +152,9 @@ void _validateFailureReason({
   required AlarmOccurrenceStatus status,
   required String? failureReason,
 }) {
+  if (status == AlarmOccurrenceStatus.unknownPersisted) {
+    return;
+  }
   if (status == AlarmOccurrenceStatus.failed &&
       (failureReason == null || failureReason.trim().isEmpty)) {
     throw ArgumentError.value(
@@ -150,8 +177,14 @@ void _validateTimestamps({
   required DateTime? firedAt,
   required DateTime? dismissedAt,
 }) {
+  if (status == AlarmOccurrenceStatus.unknownPersisted) {
+    return;
+  }
   switch (status) {
     case AlarmOccurrenceStatus.scheduled:
+    case AlarmOccurrenceStatus.userDisabled:
+    case AlarmOccurrenceStatus.userDisablePending:
+    case AlarmOccurrenceStatus.userEnablePending:
     case AlarmOccurrenceStatus.expired:
     case AlarmOccurrenceStatus.cancelled:
     case AlarmOccurrenceStatus.failed:
@@ -169,6 +202,8 @@ void _validateTimestamps({
           'is only valid for dismissed occurrences',
         );
       }
+    case AlarmOccurrenceStatus.unknownPersisted:
+      throw StateError('unknownPersisted is handled before the switch');
     case AlarmOccurrenceStatus.ringing:
       if (firedAt == null) {
         throw ArgumentError.value(
