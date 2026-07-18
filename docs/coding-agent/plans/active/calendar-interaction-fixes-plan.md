@@ -291,7 +291,10 @@
     detail: Deep review, gh-review-hook exit 0, model/widget reruns, and focused UI evidence before merge.
 
 ### Task_6: Integrated independent UI and regression review
-- status: unstarted
+- status: in_progress
+- reviewer_thread: `019f76b7-e24a-7342-aee4-8fc775f104fc`
+- reviewer_worktree: `<CODEX_HOME>/worktrees/c48d/calarm`
+- started_after_master: pending ledger commit following Task_2 merge evidence
 - type: review
 - owns: []
 - depends_on: [Task_2, Task_4, Task_5]
