@@ -371,3 +371,11 @@ Purpose:
 - fix: Stop the now-stale reviewer, finish the parent documentation commit, integrate the final base into the worker branch normally, and then launch a fresh exact-head review.
 - prevention: Before dispatching any exact-head reviewer, complete or defer every known parent-owned base-branch mutation and record the immutable head/base pair; do not push the base again until the review gate completes.
 - promotion: Repo-local orchestration lesson; candidate for a shared exact-head review preflight if repeated elsewhere.
+### 2026-07-18 - Prefix Every Shell Pipeline Segment With RTK
+
+- tags: workflow/process, tooling/environment, validation/verification, rtk
+- symptom: An orchestrator search command prefixed the primary `grep` invocation with `rtk` but left the trailing `head` pipeline segment unprefixed, violating the repository's every-segment RTK rule.
+- root cause: The command review checked only the first executable and did not tokenize the full shell pipeline before execution.
+- fix: Treat each pipeline, conditional, and command-chain segment as an independent command and require an explicit `rtk` prefix (using `rtk proxy` where no specialized filter applies).
+- prevention: Before every shell call, scan separators (`|`, `&&`, `||`, `;`) and verify that the executable immediately following each separator begins with `rtk`; include this check in orchestrator preflight and closeout.
+- promotion: Repo-local command-execution guardrail; consider a shared shell-command validator if this recurs across repositories.
