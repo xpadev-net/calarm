@@ -379,3 +379,12 @@ Purpose:
 - fix: Treat each pipeline, conditional, and command-chain segment as an independent command and require an explicit `rtk` prefix (using `rtk proxy` where no specialized filter applies).
 - prevention: Before every shell call, scan separators (`|`, `&&`, `||`, `;`) and verify that the executable immediately following each separator begins with `rtk`; include this check in orchestrator preflight and closeout.
 - promotion: Repo-local command-execution guardrail; consider a shared shell-command validator if this recurs across repositories.
+
+### 2026-07-18 - Confirm Pre-Release Compatibility Before Preserving Migration Complexity
+
+- tags: assumptions/interpretation, scope/ownership, architecture/design, workflow/process
+- symptom: Review and remediation work treated legacy native mirror/journal formats and installed-state migration as constraints even though the product is still in development and the user does not require backward compatibility.
+- root cause: Compatibility was inferred from defensive migration guidance instead of being established as an explicit product requirement for the current release stage.
+- fix: Record the user's no-backward-compatibility decision, permit a current-schema-only native-state design within Task_12 ownership, and keep platform atomicity and current-schema recovery as separate correctness gates.
+- prevention: Before adding or retaining migration/legacy-format complexity in a pre-release product, confirm whether compatibility is required; when it is not, remove that constraint explicitly without using it to waive current-state correctness or expand ownership.
+- promotion: Repo-local pre-release design rule; consider shared architecture guidance if the same assumption recurs across projects.

@@ -432,6 +432,7 @@
   - AlarmKit stop/removal changes become observable to Dart or are recoverable on the next inventory read.
   - Authorization denied, disappeared one-shot alarm, cancel, and corrupt/unknown identity have explicit semantics.
   - Result callbacks are delivered on a Flutter-safe execution context.
+  - Backward compatibility with pre-release native mirror/journal formats and existing installed-state migrations is not required; Task_12 may use a current-schema-only reset/design, while still proving the current-schema replacement and recovery guarantees.
 - validation:
   - kind: command; required: true; owner: worker; detail: focused Swift/contract tests and plist validation.
   - kind: command; required: true; owner: worker; detail: iOS simulator build/smoke when platform is installed; otherwise record exact BLOCKED evidence and require remote CI before merge.
@@ -567,8 +568,8 @@
 ## Rollback / Safety
 
 - Merge small PRs in dependency order; revert a single PR rather than rewriting history.
-- Keep channel changes additive until both native implementations and Dart consumers are merged.
-- Do not delete native mirror/Drift data during migration without an explicit reconciliation policy and recovery test.
+- Keep cross-PR channel contracts coordinated until both native implementations and Dart consumers are merged; pre-release compatibility with superseded formats is not a requirement unless a task explicitly restores it.
+- Task_12 may reset or replace legacy native mirror/journal state because the product is still in development; current-schema state transitions and recovery still require explicit policy and tests. Drift/data behavior outside Task_12 ownership is unchanged.
 - Do not mark release readiness PASS without Task 16 evidence.
 
 ## Progress Log
@@ -735,7 +736,20 @@
   - Task_12 already owns the required AlarmKit stable identity, authoritative inventory, production routing, and native tests, so the prerequisite is added here instead of expanding PR #52 or creating a conflicting worker.
   - Required evidence now includes lost-reply/retry/restart stable identity, production `supportsInventory`/`getInventory` full-tuple authority, and downstream reconciliation without duplicate or stranded alarms. PR #52 remains stopped until PR #48 merges.
 
+- 2026-07-18 Task_12 backward-compatibility constraint removed by user decision.
+  - Legacy AlarmKit mirror/journal encodings, serialized envelopes, and installed-state migration paths no longer need preservation because the product is still in development.
+  - Task_12 may adopt a clean current-schema-only design or reset legacy native state within its existing ownership; this does not authorize Dart service/database changes or unrelated scope expansion.
+  - The decision does not waive current-schema correctness: authoritative inventory must be refreshed inside serialized pruning, and the supported AlarmKit design must still address process-death behavior around old/new alarm handover without assuming an atomic same-ID replacement primitive.
+  - If the platform cannot eliminate both missed-fire and duplicate-fire windows, the worker must return a concrete proof and bounded product guarantee for orchestrator review rather than preserve compatibility-driven complexity.
+
 ## Decision Log
+
+- 2026-07-18 Decision: pre-release backward compatibility is not required for Task_12 native state.
+  - Trigger: the user explicitly stated that the product is under development and backward compatibility is unnecessary.
+  - Scope effect: PR #48 may remove legacy native mirror/journal decoding and migration behavior and use current-schema-only state, but remains within Task_12 ownership.
+  - Non-waiver: AlarmKit's non-atomic schedule/cancel boundary and stale-inventory race remain correctness requirements independent of serialization compatibility.
+  - Default if platform proof shows both delivery guarantees cannot coexist: return the evidence and a narrow availability-first recommendation with the duplicate window minimized and documented; do not silently weaken acceptance.
+  - User approval: explicit on 2026-07-18.
 
 - 2026-07-14 Decision: split the missing hosted RunnerTests execution gate into Task_17 before Task_12 can merge.
   - Trigger: the Task_12 worker and nineteenth-review preparation confirmed that the iOS native-smoke job does not run `xcodebuild test`; the checked-in RunnerTests therefore lacked the plan-required remote execution evidence.
