@@ -214,6 +214,7 @@ class _WeekCalendarPlaceholderState
             saving: _savingDraft,
             submissionAttempted: _draftSubmissionAttempted,
             error: _draftError,
+            onRangeChanged: _editDraftRange,
             onSave: () => _saveDraft(
               context: context,
               clock: clock,
@@ -332,6 +333,35 @@ class _WeekCalendarPlaceholderState
       _draftError = null;
       _submittedDraftPlan = null;
     });
+  }
+
+  String? _editDraftRange(DateTime startAt, DateTime endAt) {
+    final draft = _draft;
+    if (draft == null || _savingDraft || _draftSubmissionAttempted) {
+      return 'The range cannot be changed after submission.';
+    }
+
+    final edit = editWeekCalendarDraftRange(
+      draft: draft,
+      startAt: startAt,
+      endAt: endAt,
+    );
+    final error = edit.error;
+    if (error != null) {
+      return switch (error) {
+        WeekCalendarDraftRangeError.notOrdered => 'Start must be before end.',
+        WeekCalendarDraftRangeError.tooShort =>
+          'Choose a range of at least 5 minutes.',
+        WeekCalendarDraftRangeError.tooLong =>
+          'Choose a range no longer than 3 hours.',
+      };
+    }
+
+    setState(() {
+      _draft = edit.draft;
+      _draftError = null;
+    });
+    return null;
   }
 
   Future<void> _saveDraft({
