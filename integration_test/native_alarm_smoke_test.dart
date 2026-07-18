@@ -141,56 +141,55 @@ void main() {
     },
   );
 
-  testWidgets(
-    'failed schedule same-tuple ID remains non-authoritative for cleanup',
-    (_) async {
-      const channel = MethodChannel(nativeAlarmChannelName);
-      var cancelCalls = 0;
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, (call) async {
-            if (call.method == 'getInventory') {
-              return {
-                'schemaVersion': nativeAlarmChannelSchemaVersion,
-                'reservations': [
-                  {
-                    'reservationId': 'failed-reservation',
-                    'occurrenceId': 'failed-occurrence',
-                    'wakePlanId': 'failed-plan',
-                    'platformAlarmId': 'stale-failed-platform-id',
-                    'status': 'scheduled',
-                  },
-                ],
-              };
-            }
-            if (call.method == 'cancelOccurrences') {
-              cancelCalls++;
-              throw StateError('A failed schedule cannot authorize cleanup.');
-            }
-            throw MissingPluginException('Unexpected ${call.method}');
-          });
-      addTearDown(
-        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(channel, null),
-      );
+  testWidgets('failed test schedule cannot cancel a post-baseline shared row', (
+    _,
+  ) async {
+    const channel = MethodChannel(nativeAlarmChannelName);
+    var cancelCalls = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'getInventory') {
+            return {
+              'schemaVersion': nativeAlarmChannelSchemaVersion,
+              'reservations': [
+                {
+                  'reservationId': 'ci-smoke-test-alarm',
+                  'occurrenceId': 'ci-smoke-test-alarm',
+                  'wakePlanId': 'test',
+                  'platformAlarmId': 'neighbor-platform-id',
+                  'status': 'scheduled',
+                },
+              ],
+            };
+          }
+          if (call.method == 'cancelOccurrences') {
+            cancelCalls++;
+            throw StateError('A failed schedule cannot authorize cleanup.');
+          }
+          throw MissingPluginException('Unexpected ${call.method}');
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
 
-      final verified = await _bestEffortCleanupTestAlarm(
-        gateway: MethodChannelNativeAlarmGateway(channel: channel),
-        occurrenceId: 'failed-occurrence',
-        reservationId: 'failed-reservation',
-        platformAlarmId: null,
-        expectedWakePlanId: 'failed-plan',
-        allowTupleFallback: false,
-        allowPlatformIdTupleDiscovery: false,
-        cancelBeforeVerification: false,
-        platform: 'test',
-        evidenceLabel: 'TEST',
-        cleanupLabel: 'failedScheduleSameTuple',
-      );
+    final verified = await _bestEffortCleanupTestAlarm(
+      gateway: MethodChannelNativeAlarmGateway(channel: channel),
+      occurrenceId: 'ci-smoke-test-alarm',
+      reservationId: 'ci-smoke-test-alarm',
+      platformAlarmId: null,
+      expectedWakePlanId: 'test',
+      allowTupleFallback: false,
+      allowPlatformIdTupleDiscovery: false,
+      cancelBeforeVerification: false,
+      platform: 'test',
+      evidenceLabel: 'TEST',
+      cleanupLabel: 'failedTestScheduleSharedRow',
+    );
 
-      expect(verified, isFalse);
-      expect(cancelCalls, 0);
-    },
-  );
+    expect(verified, isFalse);
+    expect(cancelCalls, 0);
+  });
 
   testWidgets('native alarm MethodChannel smoke', (_) async {
     final gateway = MethodChannelNativeAlarmGateway();
@@ -395,6 +394,7 @@ void main() {
     var testCancelSucceeded = false;
     var testCleanupVerified = false;
     var testAlarmScheduleAttempted = false;
+    var testScheduleMayCancel = false;
     try {
       final testInventoryBeforeSchedule = await gateway
           .getInventory()
@@ -408,10 +408,6 @@ void main() {
             .toList(),
       });
       expect(testInventoryBeforeSchedule.isSuccess, isTrue);
-      final baselinePlatformAlarmIds = testInventoryBeforeSchedule.rows
-          .map((row) => row.platformAlarmId)
-          .toSet();
-
       testAlarmScheduleAttempted = true;
       testAlarmResult = await gateway
           .scheduleTestAlarm(
@@ -422,6 +418,7 @@ void main() {
           )
           .nativeSmokeTimeout('scheduleTestAlarm');
       testAlarmSucceeded = testAlarmResult.isSuccess;
+      testScheduleMayCancel = testAlarmResult.isSuccess;
       reportedTestPlatformAlarmId = testAlarmResult.platformAlarmId;
       _emitEvidence('scheduleTestAlarm', {
         'platform': platform,
@@ -458,22 +455,21 @@ void main() {
           .where((row) => row.wakePlanId == 'test')
           .toList();
       if (reportedTestPlatformAlarmId != null) {
-        final platformRows = testInventory.rows
-            .where((row) => row.platformAlarmId == reportedTestPlatformAlarmId)
-            .toList();
-        final staleFailureId =
-            !testAlarmResult.isSuccess &&
-            baselinePlatformAlarmIds.contains(reportedTestPlatformAlarmId);
-        if (staleFailureId) {
+        if (!testScheduleMayCancel) {
           testCorrelationRejected = true;
           _emitEvidence('testAlarmIdentityFailure', {
             'platform': platform,
             'evidenceLabel': evidenceLabel,
             'reason':
-                'A failed schedule returned a platform ID already present before this attempt.',
+                'A failed test schedule cannot authorize cleanup from its returned platform ID.',
             'platformAlarmId': reportedTestPlatformAlarmId,
           });
         } else {
+          final platformRows = testInventory.rows
+              .where(
+                (row) => row.platformAlarmId == reportedTestPlatformAlarmId,
+              )
+              .toList();
           if (platformRows.length != 1) testCorrelationRejected = true;
           expect(
             platformRows,
@@ -495,30 +491,29 @@ void main() {
           testIdentityCorrelated = true;
         }
       } else if (fallbackTestRows.isNotEmpty) {
-        if (fallbackTestRows.length != 1 || matchingTestRows.length != 1) {
-          testCorrelationRejected = true;
-        }
-        expect(
-          fallbackTestRows,
-          hasLength(1),
-          reason:
-              'The stable fallback tuple must map to exactly one test-alarm row.',
-        );
-        expect(matchingTestRows, hasLength(1));
-        final row = matchingTestRows.single;
-        final staleFailureFallback =
-            !testAlarmResult.isSuccess &&
-            baselinePlatformAlarmIds.contains(row.platformAlarmId);
-        if (staleFailureFallback) {
+        if (!testScheduleMayCancel) {
           testCorrelationRejected = true;
           _emitEvidence('testAlarmIdentityFailure', {
             'platform': platform,
             'evidenceLabel': evidenceLabel,
             'reason':
-                'A failed schedule matched a fallback platform ID already present before this attempt.',
-            'platformAlarmId': row.platformAlarmId,
+                'A failed test schedule cannot authorize cleanup from the shared fallback tuple.',
+            'platformAlarmId': matchingTestRows.length == 1
+                ? matchingTestRows.single.platformAlarmId
+                : null,
           });
         } else {
+          if (fallbackTestRows.length != 1 || matchingTestRows.length != 1) {
+            testCorrelationRejected = true;
+          }
+          expect(
+            fallbackTestRows,
+            hasLength(1),
+            reason:
+                'The stable fallback tuple must map to exactly one test-alarm row.',
+          );
+          expect(matchingTestRows, hasLength(1));
+          final row = matchingTestRows.single;
           testOccurrenceId = row.occurrenceId;
           testReservationId = row.reservationId;
           testPlatformAlarmId = row.platformAlarmId;
@@ -529,7 +524,9 @@ void main() {
         expect(testIdentityCorrelated, isTrue);
       }
 
-      if (testPlatformAlarmId != null && testIdentityCorrelated) {
+      if (testScheduleMayCancel &&
+          testPlatformAlarmId != null &&
+          testIdentityCorrelated) {
         final cancelTestResult = await gateway
             .cancelOccurrences([
               NativeAlarmCancelRequest(
@@ -579,15 +576,20 @@ void main() {
       Error.throwWithStackTrace(error, stackTrace);
     } finally {
       if (!testCleanupVerified && testAlarmScheduleAttempted) {
+        // A failed test schedule is not attempt-specific ownership evidence.
+        // A shared stable tuple or a post-baseline returned ID may belong to
+        // another smoke runner, so failure cleanup may only prove absence.
         testCleanupVerified = await _bestEffortCleanupTestAlarm(
           gateway: gateway,
           occurrenceId: testOccurrenceId,
           reservationId: testReservationId,
-          platformAlarmId: testPlatformAlarmId,
+          platformAlarmId: testScheduleMayCancel ? testPlatformAlarmId : null,
           expectedWakePlanId: 'test',
           fallbackOccurrenceId: testAlarmIdentity,
           fallbackReservationId: testAlarmIdentity,
-          allowTupleFallback: !testCorrelationRejected,
+          allowTupleFallback: testScheduleMayCancel && !testCorrelationRejected,
+          allowPlatformIdTupleDiscovery: testScheduleMayCancel,
+          cancelBeforeVerification: testScheduleMayCancel,
           platform: platform,
           evidenceLabel: evidenceLabel,
           cleanupLabel: 'testAlarm',
