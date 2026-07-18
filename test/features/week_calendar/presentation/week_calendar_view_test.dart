@@ -729,9 +729,20 @@ void main() {
       scrollController.jumpTo(scrollController.position.maxScrollExtent);
       await tester.pump();
       final startBodyRect = tester.getRect(body(2));
+      final startVisualCenter = Offset(
+        startBodyRect.left + 12,
+        startBodyRect.top,
+      );
+      final startDotPoint = startVisualCenter + const Offset(0, 1);
+      final startHandleRect = tester.getRect(
+        find.byKey(const ValueKey('week-calendar-draft-start-handle')),
+      );
+      expect(startBodyRect.contains(startDotPoint), isTrue);
+      expect(startHandleRect.contains(startDotPoint), isTrue);
+      expect((startDotPoint - startVisualCenter).distance, lessThan(6));
       await _rawDragFrom(
         tester,
-        Offset(startBodyRect.left + 12, startBodyRect.top),
+        startDotPoint,
         const Offset(0, 5),
         pointer: 75,
       );
@@ -741,12 +752,18 @@ void main() {
       scrollController.jumpTo(0);
       await tester.pump();
       final endBodyRect = tester.getRect(body(3));
-      await _rawDragFrom(
-        tester,
-        Offset(endBodyRect.right - 12, endBodyRect.bottom),
-        const Offset(0, 5),
-        pointer: 76,
+      final endVisualCenter = Offset(
+        endBodyRect.right - 12,
+        endBodyRect.bottom,
       );
+      final endDotPoint = endVisualCenter - const Offset(0, 1);
+      final endHandleRect = tester.getRect(
+        find.byKey(const ValueKey('week-calendar-draft-end-handle')),
+      );
+      expect(endBodyRect.contains(endDotPoint), isTrue);
+      expect(endHandleRect.contains(endDotPoint), isTrue);
+      expect((endDotPoint - endVisualCenter).distance, lessThan(6));
+      await _rawDragFrom(tester, endDotPoint, const Offset(0, 5), pointer: 76);
       expect(draft.startAt, DateTime(2026, 7, 8, 23, 35));
       expect(draft.endAt, DateTime(2026, 7, 9, 0, 35));
       expect(tester.takeException(), isNull);
