@@ -291,7 +291,7 @@
     detail: Deep review, gh-review-hook exit 0, model/widget reruns, and focused UI evidence before merge.
 
 ### Task_6: Integrated independent UI and regression review
-- status: unstarted
+- status: in_progress
 - reviewer_thread: `019f76b7-e24a-7342-aee4-8fc775f104fc`
 - reviewer_worktree: `<CODEX_HOME>/worktrees/c48d/calarm`
 - started_after_master: pending ledger commit following Task_2 merge evidence
@@ -300,6 +300,9 @@
 - completed_validation_before_stop: Full Flutter suite passed 445/445; reviewer stopped before remaining evidence because a confirmed High requires Task_7 repair.
 - reviewer_archived: true
 - rerun_reason: Task_7 / PR #56 merged the confirmed lifecycle-admission repair; a fresh integrated reviewer must repeat the full Task_6 acceptance and artifact evidence on current master.
+- replacement_reviewer_thread: `019f76ef-0c38-7c21-a7cd-e3382fa94823`
+- replacement_reviewer_worktree: `<CODEX_HOME>/worktrees/fd83/calarm`
+- replacement_started_after_master: `2192f852e98e2d3be59350b1d9b0e8b377fcf8a7`
 - type: review
 - owns: []
 - depends_on: [Task_2, Task_4, Task_5, Task_7]
