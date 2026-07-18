@@ -1053,84 +1053,80 @@ final class AlarmKitBridge {
   // Internal for RunnerTests to exercise the exact production launch path.
   @available(iOS 26.0, *)
   func reconcileMirrorOnObservationStart() async {
-    guard let nativeAlarmIds = try? nativeClientForAlarmKit().inventory().map({
-      $0.platformAlarmId
-    }) else { return }
-    await reconcileMirror(withNativeAlarmIds: nativeAlarmIds)
+    // Launch is only a wake hint. The authoritative inventory read must happen
+    // after admission to the shared mirror transaction or a concurrent schedule
+    // can make this pre-transaction snapshot stale and have its new row pruned.
+    await reconcileMirror(withNativeAlarmIds: [])
   }
 
   @available(iOS 26.0, *)
-  private func reconcileMirror(with alarms: [Alarm]) async {
-    await reconcileMirror(withNativeAlarmIds: alarms.map { $0.id.uuidString })
+  private func reconcileMirror(with _: [Alarm]) async {
+    await reconcileMirror(withNativeAlarmIds: [])
   }
 
   @available(iOS 26.0, *)
-  func reconcileMirror(withNativeAlarmIds nativeAlarmIds: [String]) async {
+  func reconcileMirror(withNativeAlarmIds _: [String]) async {
     await mirrorCoordinator.run {
-      await self.reconcileMirrorInMirrorTransaction(withNativeAlarmIds: nativeAlarmIds)
+      await self.reconcileMirrorInMirrorTransaction()
     }
   }
 
   @available(iOS 26.0, *)
-  private func reconcileMirrorInMirrorTransaction(withNativeAlarmIds nativeAlarmIds: [String]) async {
+  private func reconcileMirrorInMirrorTransaction() async {
     guard var mirrorSnapshot = try? loadMirrorSnapshot() else { return }
-    var effectiveNativeAlarmIds = nativeAlarmIds
-    if UserDefaults.standard.data(forKey: nativeAlarmReplacementJournalKey) != nil {
-      do {
-        // The observer/start snapshot was captured before admission to the
-        // shared mirror transaction and may now be stale. Journal mutation
-        // must use inventory read inside this serialized transaction.
-        let recoveryAlarms = try nativeClientForAlarmKit().inventory()
+    do {
+      // Observer payloads and launch notifications are wake hints only. Read
+      // AlarmKit authority after entering the serialized transaction so a
+      // schedule that completed while this reconciliation was queued cannot be
+      // pruned by an older event snapshot.
+      var authoritativeAlarms = try nativeClientForAlarmKit().inventory()
+      if UserDefaults.standard.data(forKey: nativeAlarmReplacementJournalKey) != nil {
         mirrorSnapshot = try await reconcileReplacementJournal(
           in: mirrorSnapshot,
-          nativeAlarms: recoveryAlarms
+          nativeAlarms: authoritativeAlarms
         )
         // Journal reconciliation may retire one owned UUID. Prune against a
-        // fresh authoritative snapshot rather than the pre-recovery observer
-        // event, so launch recovery cannot resurrect or retain the stale side.
-        effectiveNativeAlarmIds = try nativeClientForAlarmKit().inventory().map {
-          $0.platformAlarmId
-        }
-      } catch {
-        // Preserve the durable journal and mirror for the next observer event
-        // when native inventory or owned cleanup is temporarily unavailable.
-        return
+        // second fresh authoritative snapshot so recovery cannot resurrect or
+        // retain the side it just retired.
+        authoritativeAlarms = try nativeClientForAlarmKit().inventory()
       }
-    }
-    guard
-      let canonicalIds = try? authoritativeNativeAlarmIds(
-        effectiveNativeAlarmIds,
+      let canonicalIds = try authoritativeNativeAlarmIds(
+        authoritativeAlarms.map { $0.platformAlarmId },
         mirrorSnapshot: mirrorSnapshot
       )
-    else { return }
-    var reconciledMirror = mirrorSnapshot.normalized
-    var reconciledPendingMirror = mirrorSnapshot.pendingNormalized
-    let currentIds = Set(canonicalIds)
-    let promotablePending = reconciledPendingMirror.filter {
-      currentIds.contains($0.key) && $0.value.requiresNativeRestoration != true
-    }
-    for (platformAlarmId, record) in promotablePending {
-      reconciledMirror[platformAlarmId] = record
-      reconciledPendingMirror.removeValue(forKey: platformAlarmId)
-    }
-    let prunedMirror = reconciledMirror.filter {
-      currentIds.contains($0.key) || pendingNativeAlarmIds.contains($0.key)
-    }
-    let prunedPendingMirror = reconciledPendingMirror.filter {
-      currentIds.contains($0.key)
-        || pendingNativeAlarmIds.contains($0.key)
-        || $0.value.requiresNativeRestoration == true
-    }
-    if !mirrorSnapshot.isEnvelope
-      || mirrorSnapshot.needsProjectionRewrite
-      || mirrorSnapshot.needsTransactionMarkerRewrite
-      || mirrorSnapshot.legacyPendingPresent
-      || prunedMirror != mirrorSnapshot.normalized
-      || prunedPendingMirror != mirrorSnapshot.pendingNormalized
-      || prunedMirror != mirrorSnapshot.stored
-      || prunedPendingMirror != mirrorSnapshot.pendingStored
-    {
-      try? saveMirrorState(prunedMirror, pending: prunedPendingMirror)
+      var reconciledMirror = mirrorSnapshot.normalized
+      var reconciledPendingMirror = mirrorSnapshot.pendingNormalized
+      let currentIds = Set(canonicalIds)
+      let promotablePending = reconciledPendingMirror.filter {
+        currentIds.contains($0.key) && $0.value.requiresNativeRestoration != true
+      }
+      for (platformAlarmId, record) in promotablePending {
+        reconciledMirror[platformAlarmId] = record
+        reconciledPendingMirror.removeValue(forKey: platformAlarmId)
+      }
+      let prunedMirror = reconciledMirror.filter {
+        currentIds.contains($0.key) || pendingNativeAlarmIds.contains($0.key)
+      }
+      let prunedPendingMirror = reconciledPendingMirror.filter {
+        currentIds.contains($0.key)
+          || pendingNativeAlarmIds.contains($0.key)
+          || $0.value.requiresNativeRestoration == true
+      }
+      if !mirrorSnapshot.isEnvelope
+        || mirrorSnapshot.needsProjectionRewrite
+        || mirrorSnapshot.needsTransactionMarkerRewrite
+        || mirrorSnapshot.legacyPendingPresent
+        || prunedMirror != mirrorSnapshot.normalized
+        || prunedPendingMirror != mirrorSnapshot.pendingNormalized
+        || prunedMirror != mirrorSnapshot.stored
+        || prunedPendingMirror != mirrorSnapshot.pendingStored
+      {
+        try saveMirrorState(prunedMirror, pending: prunedPendingMirror)
+      }
+    } catch {
+      // Inventory read/validation, journal recovery, and persistence failures
+      // all fail closed. Retain mirror and journal evidence for a later wake.
+      return
     }
   }
 
