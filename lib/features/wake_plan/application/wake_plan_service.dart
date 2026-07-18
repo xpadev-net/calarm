@@ -1748,8 +1748,21 @@ class WakePlanService {
         continue;
       }
       if (occurrence.platformAlarmId != null) {
-        cancellableFutureReserved.add(occurrence);
+        final observedPlatformAlarmId = observation.activeRow?.platformAlarmId;
+        cancellableFutureReserved.add(
+          observedPlatformAlarmId == null ||
+                  observedPlatformAlarmId == occurrence.platformAlarmId
+              ? occurrence
+              : occurrence.copyWith(
+                  platformAlarmId: observedPlatformAlarmId,
+                  updatedAt: now,
+                ),
+        );
         cancellableIds.add(occurrence.id);
+        if (observedPlatformAlarmId != null &&
+            observedPlatformAlarmId != occurrence.platformAlarmId) {
+          discoveredPlatformIds.add(occurrence.id);
+        }
         continue;
       }
       final needsConservativeCancellation =

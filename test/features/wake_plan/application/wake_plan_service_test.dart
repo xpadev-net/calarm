@@ -3017,6 +3017,51 @@ void main() {
     );
 
     test(
+      'edit cancels the authoritative inventory id instead of a stale stored id',
+      () async {
+        final originalPlan = buildPlan();
+        final occurrence = buildOccurrence(
+          id: 'old-future-1',
+          time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 30),
+          platformAlarmId: 'stale-native-id',
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: originalPlan)
+          ..reservedOccurrences = [occurrence]
+          ..storedOccurrences = [occurrence];
+        final gateway = FakeNativeAlarmGateway()
+          ..inventoryRows.add(
+            NativeAlarmInventoryRow(
+              reservationId: occurrence.id,
+              occurrenceId: occurrence.id,
+              wakePlanId: occurrence.wakePlanId,
+              platformAlarmId: 'authoritative-native-id',
+              status: NativeAlarmReservationStatus.scheduled,
+            ),
+          );
+
+        final result = await service(store: store, gateway: gateway).editPlan(
+          buildPlan(
+            targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+              hour: 7,
+              minute: 30,
+            ),
+          ),
+        );
+
+        expect(result.status, WakePlanSchedulingStatus.scheduled);
+        expect(gateway.cancelledOccurrences.map((request) => request.idLabel), [
+          'old-future-1/authoritative-native-id',
+        ]);
+        expect(
+          gateway.inventoryRows.where(
+            (row) => row.reservationId == occurrence.id,
+          ),
+          isEmpty,
+        );
+      },
+    );
+
+    test(
       'preserves canonical metadata when editing around a disabled occurrence',
       () async {
         final originalPlan = buildPlan();
