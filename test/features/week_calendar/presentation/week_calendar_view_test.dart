@@ -873,8 +873,12 @@ void main() {
         (tester) async {
           var draft = WeekCalendarDraft(
             id: 'boundary-handle-draft',
-            startAt: DateTime(2026, 7, 6),
-            endAt: DateTime(2026, 7, 6, 1),
+            startAt: resizeStart
+                ? DateTime(2026, 7, 6)
+                : DateTime(2026, 7, 12, 22, 55),
+            endAt: resizeStart
+                ? DateTime(2026, 7, 6, 1)
+                : DateTime(2026, 7, 12, 23, 55),
             createdAt: DateTime(2026, 7, 5, 23),
           );
           await tester.pumpWidget(
@@ -886,7 +890,9 @@ void main() {
                     width: 390,
                     child: StatefulBuilder(
                       builder: (context, setState) => WeekCalendarView(
-                        now: DateTime(2026, 7, 6),
+                        now: resizeStart
+                            ? DateTime(2026, 7, 6)
+                            : DateTime(2026, 7, 12, 23, 55),
                         initialWeek: WeekRange(
                           start: CalendarDay(year: 2026, month: 7, day: 6),
                         ),
@@ -929,17 +935,71 @@ void main() {
           );
           expect(
             draft.startAt,
-            resizeStart ? DateTime(2026, 7, 6, 0, 5) : DateTime(2026, 7, 6),
+            resizeStart
+                ? DateTime(2026, 7, 6, 0, 5)
+                : DateTime(2026, 7, 12, 22, 55),
           );
           expect(
             draft.endAt,
-            resizeStart ? DateTime(2026, 7, 6, 1) : DateTime(2026, 7, 6, 1, 5),
+            resizeStart ? DateTime(2026, 7, 6, 1) : DateTime(2026, 7, 13),
           );
           expect(tester.takeException(), isNull);
         },
       );
     }
   }
+
+  testWidgets('transparent draft target margins pass grid taps through', (
+    tester,
+  ) async {
+    WeekCalendarTapTarget? tappedTarget;
+    final draft = WeekCalendarDraft(
+      id: 'transparent-margin-draft',
+      startAt: DateTime(2026, 7, 8, 10),
+      endAt: DateTime(2026, 7, 8, 11),
+      createdAt: DateTime(2026, 7, 8, 5, 30),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WeekCalendarView(
+            now: DateTime(2026, 7, 8, 7, 30),
+            initialWeek: WeekRange(
+              start: CalendarDay(year: 2026, month: 7, day: 6),
+            ),
+            draft: draft,
+            hourHeight: 92,
+            onTargetTap: (target) => tappedTarget = target,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final bodyRect = tester.getRect(
+      find.byKey(
+        const ValueKey('week-calendar-draft-body-transparent-margin-draft-2'),
+      ),
+    );
+    final startRect = tester.getRect(
+      find.byKey(const ValueKey('week-calendar-draft-start-handle')),
+    );
+    final endRect = tester.getRect(
+      find.byKey(const ValueKey('week-calendar-draft-end-handle')),
+    );
+    final transparentPoint = Offset(bodyRect.center.dx, bodyRect.top - 12);
+    expect(bodyRect.contains(transparentPoint), isFalse);
+    expect(startRect.contains(transparentPoint), isFalse);
+    expect(endRect.contains(transparentPoint), isFalse);
+
+    await tester.tapAt(transparentPoint);
+    await tester.pump();
+
+    expect(tappedTarget, isNotNull);
+    expect(tappedTarget!.day, CalendarDay(year: 2026, month: 7, day: 8));
+    expect(tappedTarget!.time.minutesSinceMidnight, 9 * 60 + 50);
+    expect(tester.takeException(), isNull);
+  });
 
   for (final hourHeight in const [52.0, 36.0]) {
     testWidgets(

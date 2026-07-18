@@ -832,7 +832,7 @@ class _DraftBlockState extends State<_DraftBlock> {
     _startManipulation(mode);
   }
 
-  _DraftDragMode _dragModeForPosition(
+  _DraftDragMode? _dragModeForPosition(
     Offset position, {
     required Rect bodyRect,
     required Rect startRect,
@@ -866,7 +866,10 @@ class _DraftBlockState extends State<_DraftBlock> {
     if (hitsEnd) {
       return _DraftDragMode.resizeEnd;
     }
-    return _DraftDragMode.move;
+    if (bodyRect.contains(position)) {
+      return _DraftDragMode.move;
+    }
+    return null;
   }
 
   void _movePointer(PointerMoveEvent event) {
@@ -1064,18 +1067,20 @@ class _DraftBlockState extends State<_DraftBlock> {
       child: IgnorePointer(
         ignoring: !widget.interactionEnabled,
         child: Listener(
-          behavior: HitTestBehavior.opaque,
-          onPointerDown: (event) => _beginPointer(
-            event,
-            _dragModeForPosition(
+          behavior: HitTestBehavior.deferToChild,
+          onPointerDown: (event) {
+            final mode = _dragModeForPosition(
               event.localPosition,
               bodyRect: localBodyRect,
               startRect: localStartRect,
               endRect: localEndRect,
               startCenter: localStartCenter,
               endCenter: localEndCenter,
-            ),
-          ),
+            );
+            if (mode != null) {
+              _beginPointer(event, mode);
+            }
+          },
           onPointerMove: _movePointer,
           onPointerUp: _endPointer,
           onPointerCancel: _endPointer,
@@ -1087,7 +1092,7 @@ class _DraftBlockState extends State<_DraftBlock> {
                 left: localBodyRect.left,
                 width: localBodyRect.width,
                 height: localBodyRect.height,
-                child: body,
+                child: Listener(behavior: HitTestBehavior.opaque, child: body),
               ),
               if (widget.segment.containsStart)
                 _DraftHandleControl(
@@ -1173,43 +1178,46 @@ class _DraftHandleControlState extends State<_DraftHandleControl> {
       left: widget.rect.left,
       width: widget.rect.width,
       height: widget.rect.height,
-      child: Focus(
-        focusNode: widget.focusNode,
-        canRequestFocus: widget.interactionEnabled,
-        onKeyEvent: _handleKey,
-        child: Semantics(
-          key: ValueKey(
-            widget.mode == _DraftDragMode.resizeStart
-                ? 'week-calendar-draft-start-handle-semantics'
-                : 'week-calendar-draft-end-handle-semantics',
-          ),
-          container: true,
-          focusable: true,
-          enabled: widget.interactionEnabled,
-          label: widget.mode == _DraftDragMode.resizeStart
-              ? 'Wake plan start'
-              : 'Wake plan end',
-          value: widget.value,
-          increasedValue: '5 minutes later',
-          decreasedValue: '5 minutes earlier',
-          onIncrease: widget.interactionEnabled
-              ? () => widget.onAdjustMinutes(5)
-              : null,
-          onDecrease: widget.interactionEnabled
-              ? () => widget.onAdjustMinutes(-5)
-              : null,
-          child: Center(
-            child: Transform.translate(
-              offset: widget.visualCenter - widget.rect.center,
-              child: Container(
-                width: _draftHandleVisualDiameter,
-                height: _draftHandleVisualDiameter,
-                decoration: BoxDecoration(
-                  color: widget.color,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.surface,
-                    width: 2,
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        child: Focus(
+          focusNode: widget.focusNode,
+          canRequestFocus: widget.interactionEnabled,
+          onKeyEvent: _handleKey,
+          child: Semantics(
+            key: ValueKey(
+              widget.mode == _DraftDragMode.resizeStart
+                  ? 'week-calendar-draft-start-handle-semantics'
+                  : 'week-calendar-draft-end-handle-semantics',
+            ),
+            container: true,
+            focusable: true,
+            enabled: widget.interactionEnabled,
+            label: widget.mode == _DraftDragMode.resizeStart
+                ? 'Wake plan start'
+                : 'Wake plan end',
+            value: widget.value,
+            increasedValue: '5 minutes later',
+            decreasedValue: '5 minutes earlier',
+            onIncrease: widget.interactionEnabled
+                ? () => widget.onAdjustMinutes(5)
+                : null,
+            onDecrease: widget.interactionEnabled
+                ? () => widget.onAdjustMinutes(-5)
+                : null,
+            child: Center(
+              child: Transform.translate(
+                offset: widget.visualCenter - widget.rect.center,
+                child: Container(
+                  width: _draftHandleVisualDiameter,
+                  height: _draftHandleVisualDiameter,
+                  decoration: BoxDecoration(
+                    color: widget.color,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.surface,
+                      width: 2,
+                    ),
                   ),
                 ),
               ),
