@@ -395,7 +395,10 @@
 
 ### Task_12: Implement AlarmKit inventory and stop-state observation on iOS
 
-- status: in_progress
+- status: complete
+- pr: `#48` — https://github.com/xpadev-net/calarm/pull/48
+- final_head: `1c82eaf3beee35434d0f7e250bc26d9c459721b8`
+- merge_commit: `2d3ceb1c786aa0b44e6da90457c164df6afbe11e`
 - initial_worker:
   - thread: `019f5b6a-1df9-7392-93f9-9b5c6d87c2be`
   - worktree: `/Users/xpadev/.codex/worktrees/a8e4/calarm`
@@ -407,7 +410,8 @@
   - worktree: `<CODEX_HOME>/worktrees/1a9a/calarm`
   - branch: `codex/reviewfix-ios-native-inventory-retry`
   - runtime: platform default
-  - startup: active beyond replacement worktree setup; availability-first handover and stale-inventory remediation in progress.
+  - startup: completed the availability-first handover, stale-inventory remediation, fail-closed cancellation, and exact-head regression closeout.
+  - state: merge-ready handoff accepted; archived after orchestrator-owned merge.
 - prior_replacement_worker:
   - thread: `019f6b02-c520-7601-a7f9-81447e8915d2`
   - worktree: `<CODEX_HOME>/worktrees/a266/calarm`
@@ -443,6 +447,13 @@
   - kind: command; required: true; owner: worker; detail: iOS simulator build/smoke when platform is installed; otherwise record exact BLOCKED evidence and require remote CI before merge.
   - kind: command; required: true; owner: worker; detail: `flutter analyze` and `flutter test`.
   - kind: review; required: true; owner: reviewer; detail: AlarmKit lifecycle/contract review.
+- review_evidence:
+  - worker validation at exact head `1c82eaf3beee35434d0f7e250bc26d9c459721b8`: focused ownership-guard XCTest 3/3, full RunnerTests 70/70 with zero skips, focused Flutter platform tests 64/64, full Flutter tests 359/359, `flutter analyze`, no-change Dart format, Swift parse, plist lint, and diff check passed.
+  - orchestrator validation: iOS 26.5 simulator build passed; RunnerTests 70/70 with zero failures/skips; full Flutter tests 359/359, `flutter analyze`, no-change Dart format, Swift parse, plist lint, and diff check passed.
+  - orchestrator `$deep-review`: boundary/ownership, failure/lifecycle, and tests/concurrency reviewers APPROVED the exact head with no findings; the pre/post replacement-journal ownership guards and current-schema pending cancellation are directly protected by production-seam regressions.
+  - worker and orchestrator `gh-review-hook 48` runs exited 0; hosted Baseline, Android native smoke, iOS native smoke, CodeRabbit, Greptile, and both Socket checks passed; review-thread audit reported `hasNextPage=false` and no unresolved threads.
+  - PR `#48` was non-draft, CLEAN, MERGEABLE, APPROVED, base-current, and squash-merged as `2d3ceb1c786aa0b44e6da90457c164df6afbe11e`.
+  - residual risk: physical-device AlarmKit delivery remains unverified; simulator/MethodChannel evidence does not claim physical-device or release approval.
 
 ### Task_17: Execute iOS RunnerTests in hosted native smoke CI
 

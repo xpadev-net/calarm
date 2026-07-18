@@ -397,3 +397,12 @@ Purpose:
 - fix: Inspect the supported interface, enumerate both operation orderings and their process-death states, then adopt schedule-new-before-retire-old with a bounded duplicate window and restart convergence because availability is the chosen invariant.
 - prevention: Before requiring atomic semantics over a multi-call external API, identify a documented atomic primitive or produce a failure matrix; if none exists, explicitly choose the preserved invariant, bound the unavoidable window, and forbid undocumented behavior assumptions.
 - promotion: Repo-local external-integration lesson; candidate for shared event-driven/platform-contract guidance.
+
+### 2026-07-19 - Test Destructive Guards Across State Transitions
+
+- tags: review, validation/verification, state-transitions, ownership, persistence
+- symptom: Native cancellation had correct ownership checks before and after journal reconciliation, but the regression suite initially exercised invalid ownership only without an active journal and constructed pending ownership through a legacy-only fixture.
+- root cause: Tests covered the guard predicates independently but did not drive the destructive boundary through production state transitions that could change ownership between check and mutation.
+- fix: Add production-seam regressions proving invalid ownership cannot mutate an active journal and proving stale ownership is rejected after reconciliation transfers authority; construct pending state through the current production writer.
+- prevention: For destructive operations guarded around a state transition, test every guard at the transition branch it protects and build persisted fixtures through current production writers whenever possible.
+- promotion: Repo-local ownership and persistence-testing guardrail; consider shared destructive-boundary guidance if repeated.
