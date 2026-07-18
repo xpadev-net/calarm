@@ -707,6 +707,9 @@ enum _DraftDragMode { move, resizeStart, resizeEnd }
 const _draftHandleHitWidth = 48.0;
 const _draftHandleHitHeight = 48.0;
 const _draftHandleOverflow = _draftHandleHitHeight / 2;
+const _draftHandleVisualDiameter = 12.0;
+const _draftHandleVisualRadius = _draftHandleVisualDiameter / 2;
+const _draftHandleHorizontalInset = 12.0;
 
 class _DraftSegment {
   const _DraftSegment({
@@ -831,29 +834,25 @@ class _DraftBlockState extends State<_DraftBlock> {
 
   _DraftDragMode _dragModeForPosition(
     Offset position, {
-    required double width,
-    required double height,
+    required Rect bodyRect,
+    required Rect startRect,
+    required Rect endRect,
+    required Offset startCenter,
+    required Offset endCenter,
   }) {
-    final startRect = Rect.fromLTWH(
-      0,
-      0,
-      _draftHandleHitWidth,
-      _draftHandleHitHeight,
-    );
-    final endRect = Rect.fromLTWH(
-      width - _draftHandleHitWidth,
-      height,
-      _draftHandleHitWidth,
-      _draftHandleHitHeight,
-    );
     final hitsStart =
         widget.segment.containsStart && startRect.contains(position);
     final hitsEnd = widget.segment.containsEnd && endRect.contains(position);
     if (hitsStart && hitsEnd) {
-      final startDistance = (position - startRect.center).distanceSquared;
-      final endDistance = (position - endRect.center).distanceSquared;
+      final startDistance = (position - startCenter).distanceSquared;
+      final endDistance = (position - endCenter).distanceSquared;
+      if (bodyRect.contains(position) &&
+          startDistance > _draftHandleVisualRadius * _draftHandleVisualRadius &&
+          endDistance > _draftHandleVisualRadius * _draftHandleVisualRadius) {
+        return _DraftDragMode.move;
+      }
       if (startDistance == endDistance) {
-        return position.dy <= height / 2 + _draftHandleOverflow
+        return position.dy <= (startCenter.dy + endCenter.dy) / 2
             ? _DraftDragMode.resizeStart
             : _DraftDragMode.resizeEnd;
       }
@@ -962,6 +961,49 @@ class _DraftBlockState extends State<_DraftBlock> {
     final colorScheme = Theme.of(context).colorScheme;
     final height = widget.segment.durationMinutes * widget.pixelsPerMinute;
     final width = (widget.dayWidth - 4).clamp(0, double.infinity).toDouble();
+    final gridWidth = widget.dayWidth * widget.week.visibleDays;
+    final gridHeight = Duration.minutesPerDay * widget.pixelsPerMinute;
+    final visualLeft = widget.segment.dayIndex * widget.dayWidth + 2;
+    final visualTop = widget.segment.topMinute * widget.pixelsPerMinute;
+    final visualRect = Rect.fromLTWH(visualLeft, visualTop, width, height);
+    final startCenter = Offset(
+      visualRect.left + _draftHandleHorizontalInset,
+      visualRect.top,
+    );
+    final endCenter = Offset(
+      visualRect.right - _draftHandleHorizontalInset,
+      visualRect.bottom,
+    );
+    Rect handleRect(Offset center) {
+      final left = (center.dx - _draftHandleOverflow)
+          .clamp(0, gridWidth - _draftHandleHitWidth)
+          .toDouble();
+      final top = (center.dy - _draftHandleOverflow)
+          .clamp(0, gridHeight - _draftHandleHitHeight)
+          .toDouble();
+      return Rect.fromLTWH(
+        left,
+        top,
+        _draftHandleHitWidth,
+        _draftHandleHitHeight,
+      );
+    }
+
+    final startRect = handleRect(startCenter);
+    final endRect = handleRect(endCenter);
+    var interactionRect = visualRect;
+    if (widget.segment.containsStart) {
+      interactionRect = interactionRect.expandToInclude(startRect);
+    }
+    if (widget.segment.containsEnd) {
+      interactionRect = interactionRect.expandToInclude(endRect);
+    }
+    final interactionOrigin = interactionRect.topLeft;
+    final localBodyRect = visualRect.shift(-interactionOrigin);
+    final localStartRect = startRect.shift(-interactionOrigin);
+    final localEndRect = endRect.shift(-interactionOrigin);
+    final localStartCenter = startCenter - interactionOrigin;
+    final localEndCenter = endCenter - interactionOrigin;
     final bodyDecoration = DecoratedBox(
       key: ValueKey(
         'week-calendar-draft-body-${widget.draft.id}-'
@@ -1015,12 +1057,10 @@ class _DraftBlockState extends State<_DraftBlock> {
         'week-calendar-draft-segment-${widget.draft.id}-'
         '${widget.segment.dayIndex}',
       ),
-      left: widget.segment.dayIndex * widget.dayWidth + 2,
-      top:
-          widget.segment.topMinute * widget.pixelsPerMinute -
-          _draftHandleOverflow,
-      width: width,
-      height: height + _draftHandleHitHeight,
+      left: interactionRect.left,
+      top: interactionRect.top,
+      width: interactionRect.width,
+      height: interactionRect.height,
       child: IgnorePointer(
         ignoring: !widget.interactionEnabled,
         child: Listener(
@@ -1029,8 +1069,11 @@ class _DraftBlockState extends State<_DraftBlock> {
             event,
             _dragModeForPosition(
               event.localPosition,
-              width: width,
-              height: height,
+              bodyRect: localBodyRect,
+              startRect: localStartRect,
+              endRect: localEndRect,
+              startCenter: localStartCenter,
+              endCenter: localEndCenter,
             ),
           ),
           onPointerMove: _movePointer,
@@ -1040,18 +1083,18 @@ class _DraftBlockState extends State<_DraftBlock> {
             clipBehavior: Clip.none,
             children: [
               Positioned(
-                top: _draftHandleOverflow,
-                left: 0,
-                right: 0,
-                height: height,
+                top: localBodyRect.top,
+                left: localBodyRect.left,
+                width: localBodyRect.width,
+                height: localBodyRect.height,
                 child: body,
               ),
               if (widget.segment.containsStart)
                 _DraftHandleControl(
                   key: const ValueKey('week-calendar-draft-start-handle'),
-                  top: 0,
+                  rect: localStartRect,
+                  visualCenter: localStartCenter,
                   color: colorScheme.tertiary,
-                  alignStart: true,
                   mode: _DraftDragMode.resizeStart,
                   value: _accessibleDateTime(widget.draft.startAt),
                   interactionEnabled: widget.interactionEnabled,
@@ -1064,9 +1107,9 @@ class _DraftBlockState extends State<_DraftBlock> {
               if (widget.segment.containsEnd)
                 _DraftHandleControl(
                   key: const ValueKey('week-calendar-draft-end-handle'),
-                  top: height,
+                  rect: localEndRect,
+                  visualCenter: localEndCenter,
                   color: colorScheme.tertiary,
-                  alignStart: false,
                   mode: _DraftDragMode.resizeEnd,
                   value: _accessibleDateTime(widget.draft.endAt),
                   interactionEnabled: widget.interactionEnabled,
@@ -1085,9 +1128,9 @@ class _DraftBlockState extends State<_DraftBlock> {
 class _DraftHandleControl extends StatefulWidget {
   const _DraftHandleControl({
     super.key,
-    required this.top,
+    required this.rect,
+    required this.visualCenter,
     required this.color,
-    required this.alignStart,
     required this.mode,
     required this.value,
     required this.interactionEnabled,
@@ -1095,9 +1138,9 @@ class _DraftHandleControl extends StatefulWidget {
     required this.onAdjustMinutes,
   });
 
-  final double top;
+  final Rect rect;
+  final Offset visualCenter;
   final Color color;
-  final bool alignStart;
   final _DraftDragMode mode;
   final String value;
   final bool interactionEnabled;
@@ -1126,11 +1169,10 @@ class _DraftHandleControlState extends State<_DraftHandleControl> {
   @override
   Widget build(BuildContext context) {
     return Positioned(
-      top: widget.top,
-      left: widget.alignStart ? 0 : null,
-      right: widget.alignStart ? null : 0,
-      width: _draftHandleHitWidth,
-      height: _draftHandleHitHeight,
+      top: widget.rect.top,
+      left: widget.rect.left,
+      width: widget.rect.width,
+      height: widget.rect.height,
       child: Focus(
         focusNode: widget.focusNode,
         canRequestFocus: widget.interactionEnabled,
@@ -1157,15 +1199,18 @@ class _DraftHandleControlState extends State<_DraftHandleControl> {
               ? () => widget.onAdjustMinutes(-5)
               : null,
           child: Center(
-            child: Container(
-              width: 12,
-              height: 12,
-              decoration: BoxDecoration(
-                color: widget.color,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.surface,
-                  width: 2,
+            child: Transform.translate(
+              offset: widget.visualCenter - widget.rect.center,
+              child: Container(
+                width: _draftHandleVisualDiameter,
+                height: _draftHandleVisualDiameter,
+                decoration: BoxDecoration(
+                  color: widget.color,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.surface,
+                    width: 2,
+                  ),
                 ),
               ),
             ),

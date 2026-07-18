@@ -842,9 +842,100 @@ void main() {
           tester.getSize(body).height,
           closeTo(draft.duration.inMinutes * pixelsPerMinute, 0.001),
         );
+
+        final dayWidth =
+            tester.getSize(find.byType(CustomPaint).last).width / 7;
+        await _rawDragFrom(
+          tester,
+          tester.getRect(body).center,
+          Offset(dayWidth, 0),
+          pointer: 43,
+        );
+        expect(draft.startAt, DateTime(2026, 7, 9, 9, 55));
+        expect(draft.endAt, DateTime(2026, 7, 9, 10, 10));
         expect(tester.takeException(), isNull);
       },
     );
+  }
+
+  for (final resizeStart in const [true, false]) {
+    for (final edge in const [
+      Alignment.topLeft,
+      Alignment.topRight,
+      Alignment.bottomLeft,
+      Alignment.bottomRight,
+    ]) {
+      final handleName = resizeStart ? 'start' : 'end';
+      testWidgets(
+        '$handleName handle keeps its 48px boundary target at $edge',
+        (tester) async {
+          var draft = WeekCalendarDraft(
+            id: 'boundary-handle-draft',
+            startAt: DateTime(2026, 7, 6),
+            endAt: DateTime(2026, 7, 6, 1),
+            createdAt: DateTime(2026, 7, 5, 23),
+          );
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: Align(
+                  alignment: Alignment.topLeft,
+                  child: SizedBox(
+                    width: 390,
+                    child: StatefulBuilder(
+                      builder: (context, setState) => WeekCalendarView(
+                        now: DateTime(2026, 7, 6),
+                        initialWeek: WeekRange(
+                          start: CalendarDay(year: 2026, month: 7, day: 6),
+                        ),
+                        draft: draft,
+                        hourHeight: 92,
+                        onDraftChanged: (value) =>
+                            setState(() => draft = value),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          final handle = find.byKey(
+            ValueKey(
+              resizeStart
+                  ? 'week-calendar-draft-start-handle'
+                  : 'week-calendar-draft-end-handle',
+            ),
+          );
+          final handleRect = tester.getRect(handle);
+          final edgePoint = edge
+              .withinRect(handleRect)
+              .translate(edge.x < 0 ? 1 : -1, edge.y < 0 ? 1 : -1);
+          final surfaceRect = tester.getRect(
+            find.byKey(const ValueKey('week-calendar-pinch-surface')),
+          );
+
+          expect(tester.getSize(handle), const Size(48, 48));
+          expect(surfaceRect.contains(edgePoint), isTrue);
+          await _rawDragFrom(
+            tester,
+            edgePoint,
+            const Offset(0, 8),
+            pointer: resizeStart ? 44 : 45,
+          );
+          expect(
+            draft.startAt,
+            resizeStart ? DateTime(2026, 7, 6, 0, 5) : DateTime(2026, 7, 6),
+          );
+          expect(
+            draft.endAt,
+            resizeStart ? DateTime(2026, 7, 6, 1) : DateTime(2026, 7, 6, 1, 5),
+          );
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
   }
 
   for (final hourHeight in const [52.0, 36.0]) {
