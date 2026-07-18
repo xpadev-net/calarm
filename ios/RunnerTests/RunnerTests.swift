@@ -1656,7 +1656,7 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
-  func testBridgeCanonicalizesNativeUuidForLiveScheduleAndInventory() async {
+  func testBridgeCanonicalizesNativeUuidForLiveScheduleAndInventory() async throws {
     let fake = FakeAlarmKitNativeClient()
     let bridge = AlarmKitBridge(nativeClient: fake)
     let request = makeScheduleRequest("reservation-native-casing")
@@ -1664,7 +1664,7 @@ class RunnerTests: XCTestCase {
     let nativePlatformAlarmId = platformAlarmId.uppercased()
     clearMirror()
     UserDefaults.standard.set(
-      completeMirrorData([
+      try completeMirrorData([
         platformAlarmId: [
           "reservationId": request.reservationId,
           "occurrenceId": request.occurrenceId,
@@ -2581,8 +2581,8 @@ private func mirrorData(_ records: [String: [String: String]]) -> Data {
   try! JSONSerialization.data(withJSONObject: records, options: [.sortedKeys])
 }
 
-private func completeMirrorData(_ records: [String: [String: Any]]) -> Data {
-  try! JSONSerialization.data(withJSONObject: records, options: [.sortedKeys])
+private func completeMirrorData(_ records: [String: [String: Any]]) throws -> Data {
+  try JSONSerialization.data(withJSONObject: records, options: [.sortedKeys])
 }
 
 private func mirrorEnvelopeData(
