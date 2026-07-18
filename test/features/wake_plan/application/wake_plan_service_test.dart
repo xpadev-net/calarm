@@ -1016,6 +1016,10 @@ void main() {
 
         expect(disabled.status, AlarmOccurrenceToggleStatus.disabled);
         expect(disabled.occurrence!.status, AlarmOccurrenceStatus.userDisabled);
+        expect(
+          gateway.cancelledOccurrences.single.reservationId,
+          occurrence.id,
+        );
         expect(gateway.inventoryRows, isEmpty);
 
         gateway.scheduledRequests.clear();
@@ -1047,6 +1051,7 @@ void main() {
         expect(enabled.status, AlarmOccurrenceToggleStatus.enabled);
         expect(gateway.scheduledRequests, hasLength(1));
         expect(gateway.scheduledRequests.single.occurrenceId, occurrence.id);
+        expect(gateway.scheduledRequests.single.reservationId, occurrence.id);
         expect(
           gateway.scheduledRequests.single.scheduledAt,
           DateTime(2026, 7, 6, 7),
@@ -1055,11 +1060,13 @@ void main() {
           gateway.scheduledRequests.single.targetAt,
           DateTime(2026, 7, 6, 7),
         );
+        final inventoryRow = gateway.inventoryRows.singleWhere(
+          (row) => row.occurrenceId == occurrence.id,
+        );
+        expect(inventoryRow.reservationId, occurrence.id);
         expect(
-          gateway.inventoryRows.where(
-            (row) => row.occurrenceId == occurrence.id,
-          ),
-          hasLength(1),
+          inventoryRow.platformAlarmId,
+          enabled.occurrence!.platformAlarmId,
         );
 
         await Future.wait([
@@ -1620,6 +1627,13 @@ void main() {
           ),
           hasLength(1),
         );
+        expect(gateway.scheduledRequests.single.reservationId, occurrence.id);
+        expect(
+          gateway.inventoryRows
+              .singleWhere((row) => row.occurrenceId == occurrence.id)
+              .reservationId,
+          occurrence.id,
+        );
 
         await service(
           store: store,
@@ -1631,7 +1645,9 @@ void main() {
           store.storedOccurrences
               .singleWhere((item) => item.id == occurrence.id)
               .platformAlarmId,
-          isNotNull,
+          gateway.inventoryRows
+              .singleWhere((row) => row.occurrenceId == occurrence.id)
+              .platformAlarmId,
         );
         expect(
           gateway.inventoryRows.where(
