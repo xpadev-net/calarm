@@ -1614,7 +1614,6 @@ class RunnerTests: XCTestCase {
   @MainActor
   func testBridgeRejectsMismatchedCancelBeforeReplacementJournalReconciliation() async throws {
     let fake = FakeAlarmKitNativeClient()
-    fake.inventoryErrorOnCall = 3
     let original = makeScheduleRequest("reservation-cancel-pre-journal-guard")
     let replacement = makeScheduleRequest(
       original.reservationId,
@@ -1627,8 +1626,9 @@ class RunnerTests: XCTestCase {
         throw FakeAlarmKitNativeClient.FakeError.scheduleFailed
       }
     )
-    clearMirror()
-    defer { clearMirror() }
+    await prepareMirrorTest(bridge, fake: fake)
+    fake.inventoryErrorOnCall = 3
+    defer { clearMirrorSynchronously() }
 
     let originalResult = await bridge.scheduleAlarm(original)
     let replacementResult = await bridge.scheduleAlarm(replacement)
@@ -1686,8 +1686,8 @@ class RunnerTests: XCTestCase {
         throw FakeAlarmKitNativeClient.FakeError.scheduleFailed
       }
     )
-    clearMirror()
-    defer { clearMirror() }
+    await prepareMirrorTest(bridge, fake: fake)
+    defer { clearMirrorSynchronously() }
 
     let originalResult = await bridge.scheduleAlarm(original)
     let replacementResult = await bridge.scheduleAlarm(replacement)
@@ -1997,15 +1997,11 @@ class RunnerTests: XCTestCase {
     let fake = FakeAlarmKitNativeClient()
     let request = makeScheduleRequest("reservation-pending-cancel")
     let platformAlarmId = calarmPlatformAlarmId(for: request.reservationId)
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    await prepareMirrorTest(bridge, fake: fake)
+    defer { clearMirrorSynchronously() }
     fake.failFirstSchedule = true
     fake.insertBeforeFailFirstSchedule = true
-    fake.inventoryIdsByCall = [
-      1: [],
-      2: [platformAlarmId.uppercased()],
-    ]
-    let bridge = AlarmKitBridge(nativeClient: fake)
-    clearMirror()
-    defer { clearMirror() }
 
     let failedSchedule = await bridge.scheduleAlarm(request)
     XCTAssertEqual(failedSchedule.status, "failure")
@@ -2803,6 +2799,26 @@ private func clearMirror() {
   UserDefaults.standard.removeObject(forKey: envelopeKey)
   UserDefaults.standard.removeObject(forKey: transactionKey)
   UserDefaults.standard.removeObject(forKey: replacementJournalKey)
+}
+
+private func clearMirrorSynchronously() {
+  clearMirror()
+  _ = UserDefaults.standard.synchronize()
+}
+
+@available(iOS 26.0, *)
+@MainActor
+private func prepareMirrorTest(
+  _ bridge: AlarmKitBridge,
+  fake: FakeAlarmKitNativeClient
+) async {
+  clearMirrorSynchronously()
+  // The application bridge starts launch reconciliation before XCTest. Drain
+  // that shared coordinator work so a focused test cannot have its newly
+  // persisted scenario pruned by the startup wake hint.
+  await bridge.reconcileMirrorOnObservationStart()
+  clearMirrorSynchronously()
+  fake.inventoryCalls = 0
 }
 
 private func mirrorData(_ records: [String: [String: String]]) -> Data {
