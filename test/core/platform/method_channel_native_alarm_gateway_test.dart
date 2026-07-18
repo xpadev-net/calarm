@@ -514,6 +514,71 @@ void main() {
     expect(result.status, ScheduleResultStatus.failure);
     expect(result.failureReason, ScheduleFailureReason.unavailable);
     expect(result.failureMessage, 'Unsupported.');
+    expect(result.platformAlarmId, isNull);
+  });
+
+  test(
+    'scheduleTestAlarm preserves recoverable id on native failure',
+    () async {
+      _setHandler(channel, calls, (_) {
+        return {
+          'schemaVersion': 1,
+          'status': 'failure',
+          'failureReason': 'nativeError',
+          'failureMessage': 'The native outcome is unknown.',
+          'platformAlarmId': 'recoverable-test-id',
+        };
+      });
+
+      final result = await gateway.scheduleTestAlarm(
+        NativeTestAlarmScheduleRequest(fireAfter: const Duration(seconds: 30)),
+      );
+
+      expect(result.status, ScheduleResultStatus.failure);
+      expect(result.failureReason, ScheduleFailureReason.nativeError);
+      expect(result.failureMessage, 'The native outcome is unknown.');
+      expect(result.platformAlarmId, 'recoverable-test-id');
+    },
+  );
+
+  test('scheduleTestAlarm accepts failure without a recoverable id', () async {
+    _setHandler(channel, calls, (_) {
+      return {
+        'schemaVersion': 1,
+        'status': 'failure',
+        'failureReason': 'nativeError',
+      };
+    });
+
+    final result = await gateway.scheduleTestAlarm(
+      NativeTestAlarmScheduleRequest(fireAfter: const Duration(seconds: 30)),
+    );
+
+    expect(result.status, ScheduleResultStatus.failure);
+    expect(result.failureReason, ScheduleFailureReason.nativeError);
+    expect(result.platformAlarmId, isNull);
+  });
+
+  test('scheduleTestAlarm drops an empty or malformed failure id', () async {
+    for (final value in ['', 42]) {
+      _setHandler(channel, calls, (_) {
+        return {
+          'schemaVersion': 1,
+          'status': 'failure',
+          'failureReason': 'nativeError',
+          'platformAlarmId': value,
+        };
+      });
+
+      final result = await gateway.scheduleTestAlarm(
+        NativeTestAlarmScheduleRequest(fireAfter: const Duration(seconds: 30)),
+      );
+      expect(result.status, ScheduleResultStatus.failure);
+      expect(result.failureReason, ScheduleFailureReason.nativeError);
+      expect(result.platformAlarmId, isNull);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    }
   });
 }
 
