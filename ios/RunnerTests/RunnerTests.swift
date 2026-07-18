@@ -398,7 +398,13 @@ class RunnerTests: XCTestCase {
   func testBridgeOldCancelFailureAbortsCandidateAndKeepsOldAlarm() async {
     let fake = FakeAlarmKitNativeClient()
     fake.failedCancelAttempts = [1]
-    let bridge = AlarmKitBridge(nativeClient: fake)
+    var postRetireSeamCalls = 0
+    let bridge = AlarmKitBridge(
+      nativeClient: fake,
+      replacementAfterRetireBeforeCommit: {
+        postRetireSeamCalls += 1
+      }
+    )
     let original = makeScheduleRequest("reservation-replacement-recovery")
     let replacement = makeScheduleRequest(
       "reservation-replacement-recovery",
@@ -414,6 +420,7 @@ class RunnerTests: XCTestCase {
     let failedReplacement = await bridge.scheduleAlarm(replacement)
     XCTAssertEqual(failedReplacement.status, "failure")
     XCTAssertNil(failedReplacement.platformAlarmId)
+    XCTAssertEqual(postRetireSeamCalls, 0)
     XCTAssertEqual(fake.cancelCalls, 2)
     XCTAssertTrue(mirrorContains(platformAlarmId))
     XCTAssertFalse(pendingMirrorContains(platformAlarmId))
@@ -448,7 +455,13 @@ class RunnerTests: XCTestCase {
   func testBridgeOldCancelThrowAfterMutationCommitsVerifiedCandidate() async {
     let fake = FakeAlarmKitNativeClient()
     fake.throwAfterMutationCancelAttempts = [1]
-    let bridge = AlarmKitBridge(nativeClient: fake)
+    var postRetireSeamCalls = 0
+    let bridge = AlarmKitBridge(
+      nativeClient: fake,
+      replacementAfterRetireBeforeCommit: {
+        postRetireSeamCalls += 1
+      }
+    )
     let original = makeScheduleRequest("reservation-cancel-ambiguous")
     let replacement = makeScheduleRequest(
       original.reservationId,
@@ -463,6 +476,7 @@ class RunnerTests: XCTestCase {
     let result = await bridge.scheduleAlarm(replacement)
 
     XCTAssertEqual(result.status, "success")
+    XCTAssertEqual(postRetireSeamCalls, 1)
     XCTAssertNotEqual(result.platformAlarmId, oldPlatformAlarmId)
     XCTAssertEqual(fake.nativeAlarmIds.count, 1)
     XCTAssertFalse(fake.nativeAlarmIds.contains(oldPlatformAlarmId.uppercased()))
@@ -474,7 +488,7 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
-  func testBridgeLostCandidateReplyRetainsOldUntilRetryWithoutDuplicate() async {
+  func testBridgeLostRetirementReplyCommitsSoleCandidateAfterRestart() async {
     let fake = FakeAlarmKitNativeClient()
     let original = makeScheduleRequest("reservation-lost-committed-replacement")
     let replacement = makeScheduleRequest(
@@ -486,7 +500,7 @@ class RunnerTests: XCTestCase {
 
     let firstBridge = AlarmKitBridge(
       nativeClient: fake,
-      replacementAfterVerifiedBeforeRetire: {
+      replacementAfterRetireBeforeCommit: {
         throw FakeAlarmKitNativeClient.FakeError.scheduleFailed
       }
     )
@@ -495,7 +509,7 @@ class RunnerTests: XCTestCase {
     let lostReply = await firstBridge.scheduleAlarm(replacement)
     XCTAssertEqual(lostReply.status, "failure")
     XCTAssertNil(lostReply.platformAlarmId)
-    XCTAssertEqual(fake.nativeAlarmIds.count, 2)
+    XCTAssertEqual(fake.nativeAlarmIds.count, 1)
     let oldPlatformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
     let newPlatformAlarmId = fake.nativeAlarmIds
       .map { $0.lowercased() }
@@ -508,14 +522,14 @@ class RunnerTests: XCTestCase {
       as? [[String: Any?]]
     XCTAssertEqual(rows?.count, 1)
     XCTAssertEqual(rows?.first?["reservationId"] as? String, original.reservationId)
-    XCTAssertEqual(rows?.first?["occurrenceId"] as? String, original.occurrenceId)
-    XCTAssertEqual(rows?.first?["platformAlarmId"] as? String, oldPlatformAlarmId)
+    XCTAssertEqual(rows?.first?["occurrenceId"] as? String, replacement.occurrenceId)
+    XCTAssertEqual(rows?.first?["platformAlarmId"] as? String, newPlatformAlarmId)
 
     let scheduleAttemptsBeforeRetry = fake.scheduleAttempts
     let retry = await restartedBridge.scheduleAlarm(replacement)
     XCTAssertEqual(retry.status, "success")
-    XCTAssertNotEqual(retry.platformAlarmId, oldPlatformAlarmId)
-    XCTAssertEqual(fake.scheduleAttempts, scheduleAttemptsBeforeRetry + 1)
+    XCTAssertEqual(retry.platformAlarmId, newPlatformAlarmId)
+    XCTAssertEqual(fake.scheduleAttempts, scheduleAttemptsBeforeRetry)
     XCTAssertEqual(fake.nativeAlarmIds.count, 1)
   }
 
@@ -533,7 +547,7 @@ class RunnerTests: XCTestCase {
 
     let interruptedBridge = AlarmKitBridge(
       nativeClient: fake,
-      replacementAfterVerifiedBeforeRetire: {
+      replacementAfterRetireBeforeCommit: {
         throw FakeAlarmKitNativeClient.FakeError.scheduleFailed
       }
     )
@@ -1392,7 +1406,7 @@ class RunnerTests: XCTestCase {
     let oldPlatformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
     let interruptedBridge = AlarmKitBridge(
       nativeClient: fake,
-      replacementAfterVerifiedBeforeRetire: {
+      replacementAfterRetireBeforeCommit: {
         throw FakeAlarmKitNativeClient.FakeError.scheduleFailed
       }
     )
@@ -1406,12 +1420,13 @@ class RunnerTests: XCTestCase {
     XCTAssertFalse(mirrorContains(oldPlatformAlarmId))
 
     // Retry a changed tuple directly, without an intervening inventory read.
-    // The verified candidate reply is then lost before the old UUID retires.
+    // The reply is lost only after authoritative inventory proves that the
+    // old UUID retired and the candidate is the sole native alarm.
     let interruptedReplacement = await interruptedBridge.scheduleAlarm(replacement)
     XCTAssertEqual(interruptedReplacement.status, "failure")
     XCTAssertNil(interruptedReplacement.platformAlarmId)
     XCTAssertEqual(fake.scheduleAttempts, 2)
-    XCTAssertEqual(fake.nativeAlarmIds.count, 2)
+    XCTAssertEqual(fake.nativeAlarmIds.count, 1)
     XCTAssertTrue(mirrorContains(oldPlatformAlarmId))
     XCTAssertFalse(pendingMirrorContains(oldPlatformAlarmId))
     XCTAssertNotNil(UserDefaults.standard.data(forKey: replacementJournalKey))
@@ -1422,18 +1437,18 @@ class RunnerTests: XCTestCase {
       as? [[String: Any?]]
     XCTAssertEqual(rows?.count, 1)
     XCTAssertEqual(rows?.first?["reservationId"] as? String, replacement.reservationId)
-    XCTAssertEqual(rows?.first?["occurrenceId"] as? String, original.occurrenceId)
+    XCTAssertEqual(rows?.first?["occurrenceId"] as? String, replacement.occurrenceId)
     let activePlatformAlarmId = rows?.first?["platformAlarmId"] as? String
     XCTAssertNotNil(activePlatformAlarmId)
-    XCTAssertEqual(activePlatformAlarmId, oldPlatformAlarmId)
+    XCTAssertNotEqual(activePlatformAlarmId, oldPlatformAlarmId)
     XCTAssertEqual(fake.nativeAlarmIds.count, 1)
-    XCTAssertTrue(fake.nativeAlarmIds.contains(oldPlatformAlarmId.uppercased()))
+    XCTAssertFalse(fake.nativeAlarmIds.contains(oldPlatformAlarmId.uppercased()))
     XCTAssertNil(UserDefaults.standard.data(forKey: replacementJournalKey))
 
     let retry = await restartedBridge.scheduleAlarm(replacement)
     XCTAssertEqual(retry.status, "success")
-    XCTAssertNotEqual(retry.platformAlarmId, activePlatformAlarmId)
-    XCTAssertEqual(fake.scheduleAttempts, 3)
+    XCTAssertEqual(retry.platformAlarmId, activePlatformAlarmId)
+    XCTAssertEqual(fake.scheduleAttempts, 2)
   }
 
   @available(iOS 26.0, *)

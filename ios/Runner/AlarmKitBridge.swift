@@ -22,13 +22,13 @@ final class AlarmKitBridge {
   private var pendingNativeAlarmIds = Set<String>()
   private let nativeClient: (any AlarmKitNativeClient)?
   private let replacementBeforeCommit: (() throws -> Void)?
-  private let replacementAfterVerifiedBeforeRetire: (() throws -> Void)?
+  private let replacementAfterRetireBeforeCommit: (() throws -> Void)?
 
   init(
     messenger: FlutterBinaryMessenger,
     nativeClient: (any AlarmKitNativeClient)? = nil,
     replacementBeforeCommit: (() throws -> Void)? = nil,
-    replacementAfterVerifiedBeforeRetire: (() throws -> Void)? = nil
+    replacementAfterRetireBeforeCommit: (() throws -> Void)? = nil
   ) {
     let methodChannel = FlutterMethodChannel(
       name: nativeAlarmChannelName,
@@ -37,7 +37,7 @@ final class AlarmKitBridge {
     channel = methodChannel
     self.nativeClient = nativeClient
     self.replacementBeforeCommit = replacementBeforeCommit
-    self.replacementAfterVerifiedBeforeRetire = replacementAfterVerifiedBeforeRetire
+    self.replacementAfterRetireBeforeCommit = replacementAfterRetireBeforeCommit
     methodChannel.setMethodCallHandler(handle)
     if #available(iOS 26.0, *) {
       alarmObservationTask = Task { @MainActor [weak self] in
@@ -49,12 +49,12 @@ final class AlarmKitBridge {
   init(
     nativeClient: any AlarmKitNativeClient,
     replacementBeforeCommit: (() throws -> Void)? = nil,
-    replacementAfterVerifiedBeforeRetire: (() throws -> Void)? = nil
+    replacementAfterRetireBeforeCommit: (() throws -> Void)? = nil
   ) {
     channel = nil
     self.nativeClient = nativeClient
     self.replacementBeforeCommit = replacementBeforeCommit
-    self.replacementAfterVerifiedBeforeRetire = replacementAfterVerifiedBeforeRetire
+    self.replacementAfterRetireBeforeCommit = replacementAfterRetireBeforeCommit
   }
 
   // Internal so RunnerTests can exercise the exact production MethodChannel
@@ -846,20 +846,6 @@ final class AlarmKitBridge {
             )
           }
 
-          do {
-            try replacementAfterVerifiedBeforeRetire?()
-          } catch {
-            // Test seam for process loss after the verified journal is
-            // durable but before the old UUID is retired. Preserve the
-            // journal and both owned native identities for restart recovery.
-            return ScheduleRow(
-              status: "failure",
-              platformAlarmId: nil,
-              failureReason: "nativeError",
-              failureMessage: error.localizedDescription
-            )
-          }
-
           // Keep the durable journal in staging until the old UUID is gone.
           // A process loss before retirement therefore keeps the old alarm
           // authoritative and rolls the candidate back on restart. If cancel
@@ -867,7 +853,40 @@ final class AlarmKitBridge {
           // staging recovery safely commits the candidate.
           do { try nativeClientForAlarmKit().cancel(id: alarmId) } catch {}
 
-          let resolved = try await reconcileReplacementJournal(in: loadMirrorSnapshot())
+          // Do not expose an application-controlled failure boundary while
+          // both UUIDs are known live. Verify retirement first; the test seam
+          // can then model a lost reply only when the candidate is the sole
+          // owned native alarm. Other authoritative states go directly to
+          // finite reconciliation.
+          let postRetireAlarms = try nativeClientForAlarmKit().inventory()
+          let postRetireIds = try Set(
+            canonicalNativeAlarmIds(postRetireAlarms.map { $0.platformAlarmId })
+          )
+          let knownIds = Set(mirror.keys)
+            .union(pendingMirror.keys)
+            .union([platformAlarmId, candidatePlatformAlarmId])
+          guard postRetireIds.subtracting(knownIds).isEmpty else {
+            throw NativeSnapshotValidationError.unknownIdentity
+          }
+          if postRetireIds == Set([candidatePlatformAlarmId]) {
+            do {
+              try replacementAfterRetireBeforeCommit?()
+            } catch {
+              // The staging journal and sole verified candidate survive a
+              // lost reply; restart recovery commits that exact tuple.
+              return ScheduleRow(
+                status: "failure",
+                platformAlarmId: nil,
+                failureReason: "nativeError",
+                failureMessage: error.localizedDescription
+              )
+            }
+          }
+
+          let resolved = try await reconcileReplacementJournal(
+            in: loadMirrorSnapshot(),
+            nativeAlarms: postRetireAlarms
+          )
           if resolved.normalized[candidatePlatformAlarmId] == candidateRecord {
             return ScheduleRow(
               status: "success",
