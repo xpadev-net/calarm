@@ -406,3 +406,12 @@ Purpose:
 - fix: Add production-seam regressions proving invalid ownership cannot mutate an active journal and proving stale ownership is rejected after reconciliation transfers authority; construct pending state through the current production writer.
 - prevention: For destructive operations guarded around a state transition, test every guard at the transition branch it protects and build persisted fixtures through current production writers whenever possible.
 - promotion: Repo-local ownership and persistence-testing guardrail; consider shared destructive-boundary guidance if repeated.
+
+### 2026-07-19 - Prove Hit-Test Coordinates Belong To The Claimed Regions
+
+- tags: review, validation/verification, ui-e2e, gesture-arbitration, assumptions/interpretation
+- symptom: Exact-head reviews covered overlapping two-handle arbitration but initially missed start-only and end-only cross-midnight segments whose single expanded handle consumed the short body. The first end-only regression then started at `Rect.bottom`, an exclusive edge, so its endpoint assertion passed without proving the pointer entered the intended body and visual-dot overlap.
+- root cause: Review and instrumentation emphasized the maximum-overlap state instead of enumerating zero/start-only/end-only/both active-target states, and inferred hit-region admission from behavioral output without asserting that the probe coordinate belonged to every geometry region whose precedence it claimed to cover.
+- fix: Apply body-over-resize precedence outside the visual dot for both single-handle branches; move endpoint probes one pixel inside their bodies; assert membership in the body rectangle, measured 48x48 handle rectangle, and strict visual radius before dragging; and verify that temporarily removing end-only visual precedence makes the regression fail.
+- prevention: For optional-target gesture arbitration, enumerate active-target cardinality and identity states, assert both target-center and non-target body behavior, prove each test coordinate belongs to the exact intersection or difference under test, and require a mutation-sensitivity check for the protected branch.
+- promotion: Repo-local UI interaction lesson; consider shared deep-review UI guidance if this pattern recurs.
