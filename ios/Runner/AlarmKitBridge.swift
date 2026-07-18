@@ -1044,9 +1044,19 @@ final class AlarmKitBridge {
 
   @available(iOS 26.0, *)
   private func observeAlarmUpdates() async {
+    await reconcileMirrorOnObservationStart()
     for await alarms in AlarmManager.shared.alarmUpdates {
       await reconcileMirror(with: alarms)
     }
+  }
+
+  // Internal for RunnerTests to exercise the exact production launch path.
+  @available(iOS 26.0, *)
+  func reconcileMirrorOnObservationStart() async {
+    guard let nativeAlarmIds = try? nativeClientForAlarmKit().inventory().map({
+      $0.platformAlarmId
+    }) else { return }
+    await reconcileMirror(withNativeAlarmIds: nativeAlarmIds)
   }
 
   @available(iOS 26.0, *)
@@ -1054,21 +1064,40 @@ final class AlarmKitBridge {
     await reconcileMirror(withNativeAlarmIds: alarms.map { $0.id.uuidString })
   }
 
+  @available(iOS 26.0, *)
   func reconcileMirror(withNativeAlarmIds nativeAlarmIds: [String]) async {
     await mirrorCoordinator.run {
       await self.reconcileMirrorInMirrorTransaction(withNativeAlarmIds: nativeAlarmIds)
     }
   }
 
+  @available(iOS 26.0, *)
   private func reconcileMirrorInMirrorTransaction(withNativeAlarmIds nativeAlarmIds: [String]) async {
-    // Replacement recovery owns both UUID roles. Observer snapshots cannot
-    // safely choose an active row or prune either identity mid-handover.
-    guard UserDefaults.standard.data(forKey: nativeAlarmReplacementJournalKey) == nil else {
-      return
+    guard var mirrorSnapshot = try? loadMirrorSnapshot() else { return }
+    var effectiveNativeAlarmIds = nativeAlarmIds
+    if UserDefaults.standard.data(forKey: nativeAlarmReplacementJournalKey) != nil {
+      do {
+        mirrorSnapshot = try await reconcileReplacementJournal(
+          in: mirrorSnapshot,
+          nativeAlarms: nativeAlarmIds.map {
+            NativeAlarmSnapshot(platformAlarmId: $0, status: "scheduled")
+          }
+        )
+        // Journal reconciliation may retire one owned UUID. Prune against a
+        // fresh authoritative snapshot rather than the pre-recovery observer
+        // event, so launch recovery cannot resurrect or retain the stale side.
+        effectiveNativeAlarmIds = try nativeClientForAlarmKit().inventory().map {
+          $0.platformAlarmId
+        }
+      } catch {
+        // Preserve the durable journal and mirror for the next observer event
+        // when native inventory or owned cleanup is temporarily unavailable.
+        return
+      }
     }
-    guard let mirrorSnapshot = try? loadMirrorSnapshot(),
+    guard
       let canonicalIds = try? authoritativeNativeAlarmIds(
-        nativeAlarmIds,
+        effectiveNativeAlarmIds,
         mirrorSnapshot: mirrorSnapshot
       )
     else { return }

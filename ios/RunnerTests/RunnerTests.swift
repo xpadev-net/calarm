@@ -250,6 +250,8 @@ class RunnerTests: XCTestCase {
 
     fake.inventoryErrorOnCall = nil
     let restartedBridge = AlarmKitBridge(nativeClient: fake)
+    await restartedBridge.reconcileMirrorOnObservationStart()
+    XCTAssertNil(UserDefaults.standard.data(forKey: replacementJournalKey))
     let inventory = await methodChannelValue(
       restartedBridge,
       method: "getInventory",
@@ -517,6 +519,8 @@ class RunnerTests: XCTestCase {
     XCTAssertNotNil(newPlatformAlarmId)
 
     let restartedBridge = AlarmKitBridge(nativeClient: fake)
+    await restartedBridge.reconcileMirrorOnObservationStart()
+    XCTAssertNil(UserDefaults.standard.data(forKey: replacementJournalKey))
     let inventory = await inventoryValue(restartedBridge)
     let rows = (inventory as? [String: Any?])?["reservations"]
       as? [[String: Any?]]
