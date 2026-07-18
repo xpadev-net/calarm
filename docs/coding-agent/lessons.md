@@ -424,3 +424,12 @@ Purpose:
 - fix: Persist `userDisablePending` before native cancellation; resolve authoritative absence locally while treating unavailable and ambiguous inventory conservatively; use exact active identity when present; distinguish definite no-side-effect enable rejection from uncertain outcomes; and prove the UI remains retryable after a definite failure.
 - prevention: For every persistence and external-side-effect boundary, enumerate write order and process-death seams, use strict contract doubles for authoritative absence and ownership, and review definite-versus-uncertain outcomes together with the user-visible retry path.
 - promotion: Repo-local state-machine and external-integration guardrail; consider shared event-driven guidance if this recurs.
+
+### 2026-07-19 - Separate Visibility Transitions From Temporary Focus Loss
+
+- tags: review, ui-e2e, lifecycle, state-transitions, flutter
+- symptom: The calendar recentered after notification shade, system dialogs, app switcher/control center, calls, split screen, or PiP even though the app had not genuinely returned from the background.
+- root cause: Flutter `inactive` was treated as background entry, but it also represents a visible application without input focus; the existing test labeled a bare `inactive -> resumed` sequence as foreground return and encoded the incorrect contract.
+- fix: Track a sticky background admission only after `hidden`, `paused`, or `detached`; let `inactive -> resumed` refresh time and restore the minute timer without recentering; consume the admission exactly once on resume.
+- prevention: For lifecycle-driven viewport mutations, model visibility and focus separately, test Flutter's synthesized Android/iOS sequences plus skipped/reordered states, and assert temporary focus restoration preserves both page and scroll offset.
+- promotion: Repo-local Flutter lifecycle guardrail; consider shared UI lifecycle guidance if this recurs.

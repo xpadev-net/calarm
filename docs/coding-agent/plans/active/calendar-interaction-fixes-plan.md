@@ -291,7 +291,7 @@
     detail: Deep review, gh-review-hook exit 0, model/widget reruns, and focused UI evidence before merge.
 
 ### Task_6: Integrated independent UI and regression review
-- status: needs_revision
+- status: unstarted
 - reviewer_thread: `019f76b7-e24a-7342-aee4-8fc775f104fc`
 - reviewer_worktree: `<CODEX_HOME>/worktrees/c48d/calarm`
 - started_after_master: pending ledger commit following Task_2 merge evidence
@@ -299,6 +299,7 @@
 - finding: Flutter `inactive` includes still-visible temporary focus loss such as notification shade, system dialogs, app switcher/control center, calls, split screen, and PiP, but the calendar treated every subsequent `resumed` as a background return and recentered the page/scroll. Existing tests encoded the over-broad `inactive -> resumed` behavior.
 - completed_validation_before_stop: Full Flutter suite passed 445/445; reviewer stopped before remaining evidence because a confirmed High requires Task_7 repair.
 - reviewer_archived: true
+- rerun_reason: Task_7 / PR #56 merged the confirmed lifecycle-admission repair; a fresh integrated reviewer must repeat the full Task_6 acceptance and artifact evidence on current master.
 - type: review
 - owns: []
 - depends_on: [Task_2, Task_4, Task_5, Task_7]
@@ -331,10 +332,16 @@
     detail: Independent integrated diff/behavior review against all acceptance criteria.
 
 ### Task_7: Admit recentering only after genuine background entry
-- status: in_progress
+- status: complete
 - worker_thread: `019f76db-ce74-7c32-ab81-38c621a9eec5`
 - worker_worktree: `<CODEX_HOME>/worktrees/ed78/calarm`
 - branch: `codex/task-7-calendar-lifecycle-admission`
+- pr: `https://github.com/xpadev-net/calarm/pull/56`
+- head: `65f92d854ae5ab70ee483eed3c215d4460b5d84d`
+- merge_commit: `d93ae631738a1d0cf1a5b0ee87d3c9b98b513b6e`
+- merged_at: `2026-07-18T20:32:23Z`
+- evidence: Orchestrator focused placeholder/view tests passed 88/88 and full Flutter passed 446/446; analyze, no-change format, diff-check, `gh-review-hook 56`, 5/5 hosted checks, and complete review-thread audit passed. Three independent exact-head deep-review perspectives approved lifecycle admission, timer cleanup, synthesized/reordered transition handling, one-shot recenter consumption, and mutation-sensitive regressions.
+- worker_archived: true
 - type: impl
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_placeholder.dart`
