@@ -2,7 +2,7 @@
 
 - status: in_progress
 - generated: 2026-07-16
-- last_updated: 2026-07-16
+- last_updated: 2026-07-19
 - work_type: code
 
 ## Goal
@@ -196,13 +196,19 @@
     detail: Deep review, gh-review-hook exit 0, focused rerun, and layout/scroll state evidence before merge.
 
 ### Task_4: Render and resize short ranges exactly
-- status: in_progress
+- status: complete
 - worker_thread: `019f7160-b4bb-76e1-8008-dda5ac52fb57`
 - worker_worktree: `<CODEX_HOME>/worktrees/40d4/calarm`
 - replacement_worker_thread: `019f764b-bebe-7ff3-847d-0681414a3b1e`
 - replacement_worker_worktree: `<CODEX_HOME>/worktrees/7f05/calarm`
 - replacement_reason: Prior worker could be unarchived but could not resume because its archived rollout file was missing; replacement continues the unchanged PR branch without history rewrite.
 - branch: `codex/task-4-short-range-geometry`
+- pr: `https://github.com/xpadev-net/calarm/pull/54`
+- head: `2a2c7b5ed0db4e5e353f57461dab210d6d32a912`
+- merge_commit: `e87ecbbf2f3984612819f82358c451c8fa9099cb`
+- merged_at: `2026-07-18T19:05:54Z`
+- evidence: Focused calendar view tests 53/53 and full Flutter suite 384/384 passed at the exact head; analyze, no-change format, diff-check, 5/5 hosted checks, complete review-thread audit, and orchestrator `gh-review-hook 54` all passed. Three independent exact-head review perspectives approved the zero/start-only/end-only/both hit-target arbitration. The corrected 390px cross-midnight regression proves its start/end probes are inside the body, measured 48x48 handle, and visual-dot radius, and mutation testing proved removal of end-only visual precedence fails the test.
+- worker_archived: true
 - type: impl
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_view.dart`
