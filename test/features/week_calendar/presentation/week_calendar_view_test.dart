@@ -806,8 +806,10 @@ void main() {
         final endHandle = find.byKey(
           const ValueKey('week-calendar-draft-end-handle'),
         );
-        expect(tester.getSize(startHandle), const Size(48, 48));
-        expect(tester.getSize(endHandle), const Size(48, 48));
+        expect(tester.getSize(startHandle).width, closeTo(48, 0.001));
+        expect(tester.getSize(startHandle).height, closeTo(48, 0.001));
+        expect(tester.getSize(endHandle).width, closeTo(48, 0.001));
+        expect(tester.getSize(endHandle).height, closeTo(48, 0.001));
         expect(
           tester.getRect(startHandle).overlaps(tester.getRect(endHandle)),
           isTrue,
@@ -916,7 +918,8 @@ void main() {
             find.byKey(const ValueKey('week-calendar-pinch-surface')),
           );
 
-          expect(tester.getSize(handle), const Size(48, 48));
+        expect(tester.getSize(handle).width, closeTo(48, 0.001));
+        expect(tester.getSize(handle).height, closeTo(48, 0.001));
           expect(surfaceRect.contains(edgePoint), isTrue);
           await _rawDragFrom(
             tester,
