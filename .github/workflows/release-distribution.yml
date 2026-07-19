@@ -121,6 +121,18 @@ jobs:
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
+      - name: Cache Flutter, pub, and Gradle dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ${{ runner.tool_cache }}/flutter-${{ steps.flutter-version.outputs.version }}
+            ~/.pub-cache
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-android-${{ steps.flutter-version.outputs.version }}-${{ hashFiles('pubspec.lock', 'android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-android-${{ steps.flutter-version.outputs.version }}-
+
       - name: Set up Flutter
         shell: bash
         env:
@@ -302,6 +314,18 @@ jobs:
             exit 1
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Cache Flutter, pub, and Gradle dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ${{ runner.tool_cache }}/flutter-${{ steps.flutter-version.outputs.version }}
+            ~/.pub-cache
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-android-${{ steps.flutter-version.outputs.version }}-${{ hashFiles('pubspec.lock', 'android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-android-${{ steps.flutter-version.outputs.version }}-
 
       - name: Set up Flutter
         shell: bash
