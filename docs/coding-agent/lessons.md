@@ -433,3 +433,12 @@ Purpose:
 - fix: Track a sticky background admission only after `hidden`, `paused`, or `detached`; let `inactive -> resumed` refresh time and restore the minute timer without recentering; consume the admission exactly once on resume.
 - prevention: For lifecycle-driven viewport mutations, model visibility and focus separately, test Flutter's synthesized Android/iOS sequences plus skipped/reordered states, and assert temporary focus restoration preserves both page and scroll offset.
 - promotion: Repo-local Flutter lifecycle guardrail; consider shared UI lifecycle guidance if this recurs.
+
+### 2026-07-19 - Reconcile Plan Gates When Validation Is Reassigned
+
+- tags: workflow/process, planning, validation/verification, review, ui-e2e
+- symptom: Final Task_6 evidence truthfully used deterministic probes because no physical device was available, but the active plan still required real multitouch, specific live viewports, screenshots, and a recording, so an initial closeout edit would have marked the task done against stale required gates.
+- root cause: The later orchestration instruction changed the accepted validation path, but the plan's E2E specification was not updated before reviewer dispatch and closeout evaluation.
+- fix: Pause closeout, classify the mismatch as a validation reassignment, record the rationale and residual risk in the Decision Log, update the E2E specification to match the accepted deterministic evidence, and retain explicit empty screenshot/recording inventories rather than implying physical coverage.
+- prevention: Before marking a plan done, compare every required validation item and E2E evidence requirement against the final artifact inventory; if later instructions reassign or waive a gate, update the plan and Decision Log before applying completion status.
+- promotion: Repo-local orchestration and UI-evidence guardrail; consider a shared completion-closeout checklist check if this recurs.

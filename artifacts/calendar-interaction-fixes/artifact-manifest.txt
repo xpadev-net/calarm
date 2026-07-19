@@ -1,0 +1,3 @@
+task6-e2e-evidence.yaml
+task6-review-summary.md
+artifact-manifest.txt

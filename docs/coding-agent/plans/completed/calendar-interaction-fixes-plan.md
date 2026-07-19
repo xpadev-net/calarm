@@ -1,6 +1,6 @@
 # Plan: Calendar interaction and occurrence-control fixes
 
-- status: in_progress
+- status: done
 - generated: 2026-07-16
 - last_updated: 2026-07-19
 - work_type: code
@@ -291,7 +291,7 @@
     detail: Deep review, gh-review-hook exit 0, model/widget reruns, and focused UI evidence before merge.
 
 ### Task_6: Integrated independent UI and regression review
-- status: in_progress
+- status: complete
 - reviewer_thread: `019f76b7-e24a-7342-aee4-8fc775f104fc`
 - reviewer_worktree: `<CODEX_HOME>/worktrees/c48d/calarm`
 - started_after_master: pending ledger commit following Task_2 merge evidence
@@ -303,6 +303,13 @@
 - replacement_reviewer_thread: `019f76ef-0c38-7c21-a7cd-e3382fa94823`
 - replacement_reviewer_worktree: `<CODEX_HOME>/worktrees/fd83/calarm`
 - replacement_started_after_master: `2192f852e98e2d3be59350b1d9b0e8b377fcf8a7`
+- replacement_reviewed_head: `1286051b49c6fbf33bc04c673bbcc8d6274a1569`
+- replacement_reviewer_outcome: APPROVED with no unresolved in-scope findings
+- evidence: Full Flutter suite passed 446/446 on exact current master; analyze, no-change format, and diff-check passed. Independent UI/lifecycle focused validation passed 126/126, occurrence/native focused validation passed 167/167, and iOS Simulator RunnerTests passed 70/70. Deterministic probes covered pinch/scroll/page recovery, near-23:00 viewport stability, exact short-range geometry and handle arbitration, direct editing boundaries, inactive focus preservation versus genuine background one-shot recenter, and occurrence disable/restart/re-enable with stable identity and no duplicate or stranded reservation.
+- artifact_root: `artifacts/calendar-interaction-fixes/`
+- artifacts: `artifact-manifest.txt`, `task6-e2e-evidence.yaml`, `task6-review-summary.md`
+- residual_risk: No physical or wireless device was available, so real multitouch, physical AlarmKit authorization/delivery, audible/vibration behavior, and real-device inventory are not claimed. Deterministic Flutter instrumentation and iOS Simulator tests provide the accepted evidence.
+- replacement_reviewer_archived: true
 - type: review
 - owns: []
 - depends_on: [Task_2, Task_4, Task_5, Task_7]
@@ -385,11 +392,11 @@
 
 ## E2E / Visual Validation Spec
 
-- provider: Flutter integration/widget instrumentation plus Reviewer-controlled Android/iOS device or emulator interaction; real multitouch evidence is required for pinch acceptance.
+- provider: Flutter integration/widget instrumentation plus iOS Simulator RunnerTests. The final orchestration instruction explicitly permits deterministic probes when physical interaction is unavailable; no physical real-multitouch or AlarmKit-delivery claim is made.
 - artifact_root: `artifacts/calendar-interaction-fixes/`
 - base_url: Not applicable (native Flutter app).
-- app_start_command: `rtk fvm flutter run -d <review-device>`
-- readiness_check: Home week calendar is rendered, current-time indicator is present, and no startup exception appears.
+- app_start_command: Deterministic Flutter test harness and `xcodebuild test` for iOS RunnerTests; a live-device app launch is waived because no physical or wireless device was available.
+- readiness_check: Deterministic Flutter harness compiles and runs without uncaught exceptions, and the iOS Runner test host builds and launches on the selected simulator.
 - flows:
   - Pinch in/out around 07:30 and 23:00; verify focal minute/page stability and restored one-finger scroll.
   - Scroll near 23:00, capture offset/grid geometry, tap same-day and cross-day ranges, and prove no offset or geometry shift.
@@ -398,16 +405,17 @@
   - Scroll to 18:00, background/foreground the app, and prove one recenter to the current-time position; prove ordinary rebuilds do not recenter.
   - Disable a future occurrence, resume/restart and prove it remains disabled/not scheduled, then re-enable and prove it is scheduled once.
 - viewports:
-  - Phone portrait approximately 390×844.
-  - Tablet or landscape device class.
+  - Deterministic compact portrait at 320×568.
+  - Deterministic compact landscape at 568×320.
+  - Fresh 390×844 phone and tablet screenshots are waived for this final run because no suitable connected device was available; the omission is recorded in the artifact YAML.
 - evidence_requirements:
-  - Before/after screenshots for stable geometry, short-range sizing, direct input, resume recenter, and occurrence toggles.
-  - Screen recording for physical pinch and 23:00 no-layout-shift behavior.
+  - Deterministic behavioral evidence for stable geometry, short-range sizing, direct input, lifecycle recenter admission, and occurrence toggles.
+  - Physical pinch recording and fresh phone/tablet screenshots are waived for this run; empty screenshot/recording inventories and their reason must be explicit rather than fabricated.
   - Captured ScrollController offset/global geometry assertions from tests or debug instrumentation.
   - Console exception/error notes and native alarm inventory notes.
   - Artifact existence check before Reviewer approval.
 - known_flakiness:
-  - Widget-level synthetic pointer tests do not replace real multitouch evidence.
+  - Widget-level synthetic pointer tests do not prove real multitouch behavior; that residual risk is accepted for this final review under the current deterministic-probe instruction and must remain explicit.
   - Native alarm scheduling availability varies by platform/permission and must be reported rather than silently skipped.
 
 ## Rollback / Safety
@@ -462,6 +470,10 @@
   - Summary: PR #48 merged the native stable-identity and authoritative-inventory prerequisite, so Task_2 restarted on its existing PR branch. Task_4's archived worker rollout was missing and could not accept the dependency-release handoff, so a replacement worker continued PR #54 from the same branch.
   - Validation evidence: PR #48 merge commit `2d3ceb1c786aa0b44e6da90457c164df6afbe11e`; Task_2 replacement thread `019f764b-6b12-7151-970b-8e49283635f0` active in `<CODEX_HOME>/worktrees/f66b/calarm`; Task_4 replacement thread `019f764b-bebe-7ff3-847d-0681414a3b1e` active in `<CODEX_HOME>/worktrees/7f05/calarm`.
   - Notes: Both replacements must normally merge current master, preserve open-PR history, refresh exact-head validation/review/check/hook evidence, and never merge. The old Task_4 worker `019f7160-b4bb-76e1-8008-dda5ac52fb57` was archived again after the rollout-path failure.
+- 2026-07-19 Wave 5 completed and plan closed: [Task_6]
+  - Summary: The fresh integrated reviewer approved exact current master after Task_7, and the Orchestrator independently confirmed the master identity, artifact inventory, acceptance mapping, full Flutter suite, analysis, formatting, and diff integrity.
+  - Validation evidence: Reviewed head and current `origin/master` were `1286051b49c6fbf33bc04c673bbcc8d6274a1569`; reviewer full Flutter 446/446, UI/lifecycle 126/126, occurrence/native 167/167, and RunnerTests 70/70 passed; Orchestrator reran full Flutter 446/446, analyze, 61-file no-change format, diff-check, and validated the YAML/manifest artifact set.
+  - Notes: Evidence is stored under `artifacts/calendar-interaction-fixes/`. No physical or wireless device was available, so physical multitouch and AlarmKit delivery are explicitly residual and not claimed.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
@@ -485,6 +497,11 @@
   - Plan delta (what changed): Added `week_calendar_placeholder.dart` and its focused test to Task_2 ownership and validation.
   - Tradeoffs considered: A separate integration PR would temporarily land an unusable service/UI contract and add dependency/merge overhead; keeping the single caller seam atomic is smaller and safer. Global/circular imports and test-only callbacks were rejected.
   - User approval: covered by the approved orchestration scope; no product behavior or acceptance criteria changed.
+- 2026-07-19 Decision: Accept deterministic final UI evidence when no physical device is available.
+  - Trigger / new insight: The final orchestration instruction requires safe device/simulator or deterministic probes and explicitly forbids claiming physical real multitouch or AlarmKit delivery when unavailable; the fresh reviewer confirmed no physical or wireless device was connected.
+  - Plan delta (what changed): Reassigned the final Task_6 physical screenshot/recording and approximately 390×844/tablet evidence to deterministic Flutter geometry/interaction probes plus iOS Simulator RunnerTests, with empty visual inventories and residual limitations documented in the artifact set.
+  - Tradeoffs considered: Keeping the original physical-only gate would leave the plan blocked on unavailable hardware; deterministic probes cover the behavioral contracts but do not prove hardware gesture recognition, physical AlarmKit authorization/delivery, audible/vibration behavior, or real-device inventory.
+  - User approval: yes, through the current orchestration instruction permitting deterministic probes and requiring truthful non-claims for unavailable physical evidence.
 
 ## Notes
 - Risks:

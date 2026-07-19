@@ -1,0 +1,55 @@
+e2e_evidence:
+  reviewed_head: "1286051b49c6fbf33bc04c673bbcc8d6274a1569"
+  integrated_base: "79f89784373965c99a1287cf31602bedad7c6c67"
+  provider: "Flutter model/widget instrumentation plus iOS Simulator RunnerTests"
+  artifact_root: "artifacts/calendar-interaction-fixes/"
+  base_url: "not applicable (native Flutter application)"
+  readiness_result:
+    status: pass
+    notes: "The deterministic Flutter harness compiled and ran without uncaught exceptions; the iOS Runner test host built and launched on an iPhone 17 Pro simulator."
+  flows_executed:
+    - name: "Pinch focal stability and post-gesture scroll/page"
+      result: pass
+      evidence: "Synthetic two-pointer widget instrumentation covered diagonal pinch arbitration, both zoom clamps, focal stability near 23:00, multiple pumped moves, and restored vertical scroll/horizontal paging."
+      physical_limit: "No physical touch-capable device was connected; real multitouch is not claimed."
+    - name: "Near-23:00 same-day and cross-day viewport stability"
+      result: pass
+      evidence: "Widget instrumentation captured ScrollController offset, time-grid global geometry, and date-page identity before/after same-day and cross-day draft creation."
+    - name: "Exact 5/10/15/30-minute geometry and handle arbitration"
+      result: pass
+      evidence: "All four durations were measured at 36, 52, and 92 px/hour; overlapping and boundary 48 px targets, body arbitration, both handles, and cross-midnight single-handle segments passed."
+    - name: "Direct same-day/cross-day input and invalid boundaries"
+      result: pass
+      evidence: "Model/widget tests covered same-day, 23:55 to 00:10, cross-month/year, reversed, shorter than 5 minutes, longer than 3 hours, exact 5-minute/3-hour boundaries, past-end save rejection, local time, and UTC snapping."
+    - name: "Lifecycle recenter admission"
+      result: pass
+      evidence: "Deterministic lifecycle sequences proved hidden/paused background return recenters exactly once, while bare inactive focus restoration, repeated resumed, minute ticks, provider rebuilds, draft/editor changes, and ordinary taps preserve viewport."
+    - name: "Occurrence disable, restart, and exact re-enable"
+      result: pass
+      evidence: "Dart state-machine tests and 70 iOS Simulator RunnerTests covered durable pre-cancel intent, authoritative absent/active/unavailable/ambiguous inventory, process-death and lost-reply seams, stable reservation identity, retry, compensation, restart reconciliation, and no duplicate/stranded reservation."
+      physical_limit: "Simulator and deterministic bridge doubles do not prove physical AlarmKit authorization, OS delivery, sound, or real-device inventory behavior."
+  viewports_tested:
+    - name: "deterministic compact portrait"
+      width: 320
+      height: 568
+      result: pass
+    - name: "deterministic compact landscape"
+      width: 568
+      height: 320
+      result: pass
+  requested_viewport_limitations:
+    - "No fresh live 390x844 phone screenshot was captured."
+    - "No fresh live tablet-class screenshot was captured."
+    - "Geometry and interaction contracts were instead evaluated by deterministic layout/widget instrumentation."
+  screenshots: []
+  recordings: []
+  visual_artifacts_note: "No screenshots or recordings are claimed because no physical touch device was connected and an unseeded simulator image would not prove the requested interaction states."
+  console_findings:
+    errors: []
+    warnings:
+      - "RunnerTests compiled with one existing unused local variable warning at ios/RunnerTests/RunnerTests.swift:1244; all 70 tests passed."
+      - "Flutter tests intentionally printed handled error-path diagnostics; no test failed and no uncaught framework exception remained."
+  native_inventory_notes:
+    - "Authoritative inventory success, unavailable, corrupt, duplicate, conflicting ownership, pruning, stable UUID identity, and replacement-journal recovery were exercised deterministically."
+    - "Physical AlarmKit inventory and delivery were unavailable and are not claimed."
+  flakiness_notes: []
