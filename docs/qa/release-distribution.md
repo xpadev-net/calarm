@@ -77,7 +77,7 @@ Behavior when explicitly enabled:
 - Fails before building when any signing or Play secret is absent.
 - Checks out and verifies the exact commit referenced by `release_tag`.
 - Decodes the keystore and writes signing properties only under `$RUNNER_TEMP`.
-- Builds `build/app/outputs/bundle/release/app-release.aab` with release signing and uploads it to the Google Play closed-testing track (`alpha`) as a `draft` release. Google Play requires a draft release while the app itself is still in draft state; after the initial Play Console setup is complete, change the workflow status to `completed`.
+- Builds `build/app/outputs/bundle/release/app-release.aab` with release signing and uploads it to both the Google Play closed-testing track (`alpha`) and the internal-testing track (`internal`) as a `draft` release. Google Play requires a draft release while the app itself is in draft state; after the initial Play Console setup is complete, change the workflow status to `completed`.
 - Uses `android_build_number` or the GitHub run number as the version code.
 - Deletes the temporary keystore and signing properties on success and failure, and uploads build logs as a workflow artifact.
 

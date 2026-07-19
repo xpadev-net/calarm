@@ -398,7 +398,7 @@ jobs:
           serviceAccountJson: ${{ steps.gcp-auth.outputs.credentials_file_path }}
           packageName: dev.xpa.calarm
           releaseFiles: artifacts/release-distribution/android/calarm-google-play-internal.aab
-          tracks: alpha
+          tracks: alpha,internal
           status: draft
 
       - name: Delete temporary Android signing material
