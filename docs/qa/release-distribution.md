@@ -41,7 +41,7 @@ Artifact status:
 
 The validation workflow intentionally builds a debug APK and does not represent a release-signed artifact. The separate guarded Play workflow supplies CI signing properties to `android/app/build.gradle.kts`; release packaging without those properties fails fast instead of using the debug key.
 
-## Android Google Play Internal Testing
+## Android Google Play Closed Testing
 
 Workflow: `.github/workflows/release-distribution.yml`
 
@@ -77,13 +77,13 @@ Behavior when explicitly enabled:
 - Fails before building when any signing or Play secret is absent.
 - Checks out and verifies the exact commit referenced by `release_tag`.
 - Decodes the keystore and writes signing properties only under `$RUNNER_TEMP`.
-- Builds `build/app/outputs/bundle/release/app-release.aab` with release signing and uploads it to the `internal` track with status `completed`.
+- Builds `build/app/outputs/bundle/release/app-release.aab` with release signing and uploads it to the `closed` track with status `completed`.
 - Uses `android_build_number` or the GitHub run number as the version code.
 - Deletes the temporary keystore and signing properties on success and failure, and uploads build logs as a workflow artifact.
 
 The Android release build requires `CALARM_ANDROID_SIGNING_PROPERTIES` when a release packaging task runs; this is supplied only by the guarded Play job. Debug validation builds remain available locally and in the existing artifact job, while release packaging fails fast without CI signing inputs instead of silently using the debug key.
 
-The repository does not store keystores, passwords, generated signing properties, service-account keys, or upload credentials. A successful internal upload only means that Google Play accepted the bundle for processing/internal testing; it does not approve the release-readiness gates described below or promote anything to production.
+The repository does not store keystores, passwords, generated signing properties, service-account keys, or upload credentials. A successful closed-testing upload only means that Google Play accepted the bundle for processing/testing; it does not approve the release-readiness gates described below or promote anything to production.
 
 ## iOS TestFlight Internal Testing
 

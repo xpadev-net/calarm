@@ -16,7 +16,7 @@ on:
         default: false
         type: boolean
       upload_android_play_internal:
-        description: 'Build and upload a signed Android App Bundle to Google Play internal testing'
+        description: 'Build and upload a signed Android App Bundle to Google Play closed testing'
         required: true
         default: false
         type: boolean
@@ -212,7 +212,7 @@ jobs:
             --clobber
 
   android-play-internal:
-    name: Android Google Play internal upload
+    name: Android Google Play closed testing upload
     runs-on: ubuntu-latest
     timeout-minutes: 60
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_android_play_internal }}
@@ -392,13 +392,13 @@ jobs:
           fi
           cp "${aab_path}" "${RELEASE_ARTIFACT_ROOT}/android/calarm-google-play-internal.aab"
 
-      - name: Upload Android App Bundle to Google Play internal testing
+      - name: Upload Android App Bundle to Google Play closed testing
         uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
         with:
           serviceAccountJson: ${{ steps.gcp-auth.outputs.credentials_file_path }}
           packageName: dev.xpa.calarm
           releaseFiles: artifacts/release-distribution/android/calarm-google-play-internal.aab
-          track: internal
+          tracks: closed
           status: completed
 
       - name: Delete temporary Android signing material
