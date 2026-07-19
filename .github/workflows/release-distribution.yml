@@ -399,7 +399,7 @@ jobs:
           packageName: dev.xpa.calarm
           releaseFiles: artifacts/release-distribution/android/calarm-google-play-internal.aab
           tracks: alpha
-          status: completed
+          status: draft
 
       - name: Delete temporary Android signing material
         if: always()
