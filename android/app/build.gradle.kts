@@ -1,9 +1,23 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+val androidSigningPropertiesPath = System.getenv("CALARM_ANDROID_SIGNING_PROPERTIES")
+val androidSigningProperties = androidSigningPropertiesPath?.let { path ->
+    Properties().apply {
+        load(file(path).inputStream())
+    }
+}
+
+fun requiredSigningProperty(name: String): String = androidSigningProperties
+    ?.getProperty(name)
+    ?.takeIf { value -> value.isNotBlank() }
+    ?: error("Missing Android release signing property: $name")
 
 android {
     namespace = "dev.xpa.calarm"
@@ -26,11 +40,18 @@ android {
         versionName = flutter.versionName
     }
 
+    val ciReleaseSigningConfig = androidSigningPropertiesPath?.let {
+        signingConfigs.create("ciRelease").apply {
+            storeFile = file(requiredSigningProperty("storeFile"))
+            storePassword = requiredSigningProperty("storePassword")
+            keyAlias = requiredSigningProperty("keyAlias")
+            keyPassword = requiredSigningProperty("keyPassword")
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = ciReleaseSigningConfig ?: signingConfigs.getByName("debug")
         }
     }
 
@@ -38,6 +59,14 @@ android {
         unitTests {
             isIncludeAndroidResources = true
         }
+    }
+}
+
+gradle.taskGraph.whenReady {
+    if (androidSigningPropertiesPath == null && allTasks.any { task ->
+            task.project == project && task.name.contains("Release")
+        }) {
+        error("CALARM_ANDROID_SIGNING_PROPERTIES must be set for release builds")
     }
 }
 

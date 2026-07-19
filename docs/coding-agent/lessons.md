@@ -442,3 +442,12 @@ Purpose:
 - fix: Pause closeout, classify the mismatch as a validation reassignment, record the rationale and residual risk in the Decision Log, update the E2E specification to match the accepted deterministic evidence, and retain explicit empty screenshot/recording inventories rather than implying physical coverage.
 - prevention: Before marking a plan done, compare every required validation item and E2E evidence requirement against the final artifact inventory; if later instructions reassign or waive a gate, update the plan and Decision Log before applying completion status.
 - promotion: Repo-local orchestration and UI-evidence guardrail; consider a shared completion-closeout checklist check if this recurs.
+
+### 2026-07-20 - Keep CI Credential Strategy Consistent With Configured Secrets
+
+- tags: ci, security, assumptions/interpretation, validation/verification
+- symptom: GitHub Environment contained WIF secrets, but the release workflow still validated and passed a long-lived Google Play service-account JSON secret.
+- root cause: Credential setup was changed externally after the initial workflow implementation, but the workflow contract and documentation were not updated in the same change.
+- fix: Authenticate with GitHub OIDC through `google-github-actions/auth`, pass the generated external-account credential file to the Play uploader, grant `id-token: write`, and validate only the WIF secrets.
+- prevention: Before running a deployment workflow, compare the configured secret names, authentication mechanism, and uploader inputs end to end; reject mixed JSON-key/WIF assumptions during CI preflight.
+- promotion: Repo-local CI/security lesson only for now; no rule suite exists in this repository.

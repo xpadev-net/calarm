@@ -39,11 +39,20 @@ Artifact status:
 - Intended use: installable real-device validation on Android devices.
 - Not intended use: Play Store submission, production distribution, release approval, or evidence that runtime gates passed.
 
-The repository does not currently contain a release-signing configuration. `android/app/build.gradle.kts` still uses the debug signing config for the `release` build type, so the workflow intentionally builds a debug validation APK instead of pretending to produce a production-signed APK.
+The validation workflow intentionally builds a debug APK and does not represent a release-signed artifact. The separate guarded Play workflow supplies CI signing properties to `android/app/build.gradle.kts`; release packaging without those properties fails fast instead of using the debug key.
 
-## Android Release-Signed Path
+## Android Google Play Internal Testing
 
-To add a production or release-candidate APK/AAB path later, configure signing without committing secrets. A safe GitHub Actions implementation should require these encrypted secrets or equivalent environment-scoped secrets:
+Workflow: `.github/workflows/release-distribution.yml`
+
+Trigger:
+
+- `workflow_dispatch` with `release_tag: <existing GitHub Release tag>` and `upload_android_play_internal: true`.
+- Optional `android_build_number`; when omitted, the workflow uses `GITHUB_RUN_NUMBER` as the Android version code.
+
+The job runs in the `google-play-internal` GitHub Environment so repository administrators can require reviewers before a Play upload. It is separate from the debug validation APK job and never runs on GitHub Release publication.
+
+Required GitHub secrets, preferably environment-scoped:
 
 | Secret | Purpose |
 | --- | --- |
@@ -51,10 +60,30 @@ To add a production or release-candidate APK/AAB path later, configure signing w
 | `ANDROID_KEYSTORE_PASSWORD` | Password for the keystore. |
 | `ANDROID_KEY_ALIAS` | Key alias inside the keystore. |
 | `ANDROID_KEY_PASSWORD` | Password for the signing key. |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | Full Workload Identity Provider resource name. |
+| `GCP_SERVICE_ACCOUNT_EMAIL` | Google Cloud service-account email impersonated by GitHub Actions. |
 
-The workflow should decode the keystore into `$RUNNER_TEMP`, write any generated signing properties into `$RUNNER_TEMP`, and delete temporary files at job end. The repo should not store keystores, passwords, generated signing properties, or upload keys.
+Required Google Play setup:
 
-Only after that setup exists should the release workflow build `flutter build apk --release` or `flutter build appbundle --release`. The artifact names and release notes must still separate installable validation artifacts from release approval evidence.
+- The Play Console app must already exist for package `dev.xpa.calarm`.
+- Enable the Google Play Developer API in the Google Cloud project used by the service account.
+- Configure GitHub OIDC Workload Identity Federation and restrict the provider to repository ID `1290079769`.
+- Invite the service account in Play Console and grant only the app-level release permission needed to manage testing releases.
+- Register the matching Android upload key in Play Console. Uploads are rejected if the AAB is signed with a different key or if the version code is not greater than the existing one.
+- Configure internal testers/groups in Play Console separately; this workflow uploads the release but does not manage tester membership.
+
+Behavior when explicitly enabled:
+
+- Fails before building when any signing or Play secret is absent.
+- Checks out and verifies the exact commit referenced by `release_tag`.
+- Decodes the keystore and writes signing properties only under `$RUNNER_TEMP`.
+- Builds `build/app/outputs/bundle/release/app-release.aab` with release signing and uploads it to the `internal` track with status `completed`.
+- Uses `android_build_number` or the GitHub run number as the version code.
+- Deletes the temporary keystore and signing properties on success and failure, and uploads build logs as a workflow artifact.
+
+The Android release build requires `CALARM_ANDROID_SIGNING_PROPERTIES` when a release packaging task runs; this is supplied only by the guarded Play job. Debug validation builds remain available locally and in the existing artifact job, while release packaging fails fast without CI signing inputs instead of silently using the debug key.
+
+The repository does not store keystores, passwords, generated signing properties, service-account keys, or upload credentials. A successful internal upload only means that Google Play accepted the bundle for processing/internal testing; it does not approve the release-readiness gates described below or promote anything to production.
 
 ## iOS TestFlight Internal Testing
 

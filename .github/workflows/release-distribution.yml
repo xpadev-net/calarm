@@ -15,6 +15,15 @@ on:
         required: true
         default: false
         type: boolean
+      upload_android_play_internal:
+        description: 'Build and upload a signed Android App Bundle to Google Play internal testing'
+        required: true
+        default: false
+        type: boolean
+      android_build_number:
+        description: 'Optional Android version code; defaults to the GitHub run number'
+        required: false
+        type: string
       ios_build_name:
         description: 'iOS marketing version passed to Flutter when uploading to TestFlight'
         required: false
@@ -165,7 +174,7 @@ jobs:
           - Intended use: installable real-device validation for the deferred Android API 36 runtime checklist
           - Release approval: not approved by this artifact; Android API 36 real-device wake delivery, lock/terminated behavior, permission policy behavior, full-screen stop UI, cancel semantics, 13-equivalent reservations, reboot/package-replace restore, and cleanup gates remain BLOCKED until QA evidence is collected
 
-          This APK is not a Play Store, production, or release-approval artifact. The repository does not currently contain release-signing secrets or a release-signing workflow.
+          This APK is not a Play Store, production, or release-approval artifact. The guarded Google Play internal-testing workflow is separate and requires environment-scoped release-signing and Play credentials.
           EOF
 
       - name: Upload workflow artifact copy
@@ -189,6 +198,207 @@ jobs:
             "${RELEASE_ARTIFACT_ROOT}/android/${ANDROID_APK_NAME}.sha256" \
             "${RELEASE_ARTIFACT_ROOT}/android/README.md#calarm-android-validation-apk-readme.md" \
             --clobber
+
+  android-play-internal:
+    name: Android Google Play internal upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_android_play_internal }}
+    environment: google-play-internal
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        env:
+          DISPATCH_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${DISPATCH_RELEASE_TAG}" ]]; then
+            echo "::error::release_tag is required for Google Play upload runs"
+            exit 1
+          fi
+          echo "tag=${DISPATCH_RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved release tag: ${DISPATCH_RELEASE_TAG}"
+
+      - name: Verify GitHub Release exists
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release view "${RELEASE_TAG}" >/dev/null
+
+      - name: Checkout release tag
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: refs/tags/${{ steps.release.outputs.tag }}
+          persist-credentials: false
+
+      - name: Verify checkout provenance
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          tag_sha="$(git rev-list -n 1 "refs/tags/${RELEASE_TAG}")"
+          if [[ "${head_sha}" != "${tag_sha}" ]]; then
+            echo "::error::Checked out ${head_sha}, but release tag ${RELEASE_TAG} points to ${tag_sha}"
+            exit 1
+          fi
+          echo "CALARM_RELEASE_TAG=${RELEASE_TAG}" >> "${GITHUB_ENV}"
+          echo "CALARM_RELEASE_COMMIT=${head_sha}" >> "${GITHUB_ENV}"
+
+      - name: Validate Google Play WIF and Android signing secrets
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            ANDROID_KEYSTORE_BASE64 \
+            ANDROID_KEYSTORE_PASSWORD \
+            ANDROID_KEY_ALIAS \
+            ANDROID_KEY_PASSWORD \
+            GCP_WORKLOAD_IDENTITY_PROVIDER \
+            GCP_SERVICE_ACCOUNT_EMAIL; do
+            if [[ -z "${!name}" ]]; then
+              missing+=("${name}")
+            fi
+          done
+          if [[ "${#missing[@]}" -gt 0 ]]; then
+            printf '::error::Missing required Google Play/WIF secret(s): %s\n' "${missing[*]}"
+            exit 1
+          fi
+
+      - name: Authenticate to Google Cloud with Workload Identity Federation
+        id: gcp-auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+          create_credentials_file: true
+
+      - name: Read Flutter version
+        id: flutter-version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(jq -r '.flutter // .flutterSdkVersion // empty' .fvmrc)"
+          if [[ -z "${version}" ]]; then
+            echo "::error::.fvmrc must define a non-empty flutter version"
+            exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Flutter
+        shell: bash
+        env:
+          FLUTTER_VERSION: ${{ steps.flutter-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${FLUTTER_VERSION}" =~ ^[0-9]+[.][0-9]+[.][0-9]+([-+][0-9A-Za-z._-]+)?$ ]]; then
+            echo "::error::.fvmrc Flutter version must be an exact semver tag"
+            exit 1
+          fi
+          flutter_root="${RUNNER_TOOL_CACHE}/flutter-${FLUTTER_VERSION}"
+          if [[ ! -x "${flutter_root}/bin/flutter" ]]; then
+            rm -rf "${flutter_root}"
+            git clone --depth 1 --branch "${FLUTTER_VERSION}" \
+              https://github.com/flutter/flutter.git "${flutter_root}"
+          fi
+          echo "${flutter_root}/bin" >> "${GITHUB_PATH}"
+          "${flutter_root}/bin/flutter" --version
+
+      - name: Install Android signing material
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keystore_path="${RUNNER_TEMP}/calarm-upload-keystore.jks"
+          properties_path="${RUNNER_TEMP}/calarm-android-signing.properties"
+          cleanup() {
+            rm -f "${keystore_path}" "${properties_path}"
+          }
+          trap cleanup EXIT
+          echo "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
+          {
+            printf 'storeFile=%s\n' "${keystore_path}"
+            printf 'storePassword=%s\n' "${ANDROID_KEYSTORE_PASSWORD}"
+            printf 'keyAlias=%s\n' "${ANDROID_KEY_ALIAS}"
+            printf 'keyPassword=%s\n' "${ANDROID_KEY_PASSWORD}"
+          } > "${properties_path}"
+          echo "CALARM_ANDROID_SIGNING_PROPERTIES=${properties_path}" >> "${GITHUB_ENV}"
+          echo "CALARM_ANDROID_KEYSTORE_PATH=${keystore_path}" >> "${GITHUB_ENV}"
+          trap - EXIT
+
+      - name: Build signed Android App Bundle
+        shell: bash
+        env:
+          ANDROID_BUILD_NUMBER_INPUT: ${{ inputs.android_build_number }}
+        run: |
+          set -euo pipefail
+          build_number="${ANDROID_BUILD_NUMBER_INPUT:-${GITHUB_RUN_NUMBER}}"
+          mkdir -p "${RELEASE_ARTIFACT_ROOT}/logs" "${RELEASE_ARTIFACT_ROOT}/android"
+          flutter pub get 2>&1 | tee "${RELEASE_ARTIFACT_ROOT}/logs/android-play-flutter-pub-get.log"
+          flutter build appbundle \
+            --release \
+            --build-number "${build_number}" \
+            2>&1 | tee "${RELEASE_ARTIFACT_ROOT}/logs/android-play-build-aab.log"
+          aab_path="build/app/outputs/bundle/release/app-release.aab"
+          if [[ ! -f "${aab_path}" ]]; then
+            echo "::error::Expected Android App Bundle was not produced at ${aab_path}"
+            exit 1
+          fi
+          cp "${aab_path}" "${RELEASE_ARTIFACT_ROOT}/android/calarm-google-play-internal.aab"
+
+      - name: Upload Android App Bundle to Google Play internal testing
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+        with:
+          serviceAccountJson: ${{ steps.gcp-auth.outputs.credentials_file_path }}
+          packageName: dev.xpa.calarm
+          releaseFiles: artifacts/release-distribution/android/calarm-google-play-internal.aab
+          track: internal
+          status: completed
+
+      - name: Delete temporary Android signing material
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${CALARM_ANDROID_KEYSTORE_PATH:-}" ]]; then
+            rm -f "${CALARM_ANDROID_KEYSTORE_PATH}"
+          fi
+          if [[ -n "${CALARM_ANDROID_SIGNING_PROPERTIES:-}" ]]; then
+            rm -f "${CALARM_ANDROID_SIGNING_PROPERTIES}"
+          fi
+          if [[ -n "${GOOGLE_GHA_CREDS_PATH:-}" ]]; then
+            rm -f "${GOOGLE_GHA_CREDS_PATH}"
+          fi
+
+      - name: Upload Android Play logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-play-internal-logs
+          path: artifacts/release-distribution/logs
+          if-no-files-found: warn
 
   ios-testflight-internal:
     name: iOS TestFlight internal upload
