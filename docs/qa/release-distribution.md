@@ -77,7 +77,7 @@ Behavior when explicitly enabled:
 - Fails before building when any signing or Play secret is absent.
 - Checks out and verifies the exact commit referenced by `release_tag`.
 - Decodes the keystore and writes signing properties only under `$RUNNER_TEMP`.
-- Builds `build/app/outputs/bundle/release/app-release.aab` with release signing and uploads it to the `closed` track with status `completed`.
+- Builds `build/app/outputs/bundle/release/app-release.aab` with release signing and uploads it to the Google Play closed-testing track (`alpha`) with status `completed`.
 - Uses `android_build_number` or the GitHub run number as the version code.
 - Deletes the temporary keystore and signing properties on success and failure, and uploads build logs as a workflow artifact.
 
