@@ -343,14 +343,28 @@ void main() {
           status: AlarmOccurrenceStatus.userEnablePending,
         ),
       ]);
+      await database
+          .into(database.alarmOccurrenceRows)
+          .insert(
+            AlarmOccurrenceRowsCompanion.insert(
+              id: 'expired-corrupt',
+              wakePlanId: 'plan-1',
+              scheduledAtDays: monday.daysSinceUnixEpoch,
+              scheduledAtMinutes: targetTime.minutesSinceMidnight,
+              status: AlarmOccurrenceStatus.userDisabled.name,
+              platformAlarmId: const Value('native-exact'),
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
 
       final snapshot = await repository.fetchReconciliationSnapshot(now: now);
 
       expect(snapshot.plans, isEmpty);
-      expect(snapshot.occurrences.map((occurrence) => occurrence.id), [
-        'expired-recovery',
-      ]);
+      expect(snapshot.occurrences, isEmpty);
       expect(snapshot.corruptPlanIds, isEmpty);
+      expect(snapshot.corruptOccurrenceIds, isEmpty);
+      expect(snapshot.corruptOccurrenceWakePlanIds, isEmpty);
     });
 
     test(

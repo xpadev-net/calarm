@@ -186,11 +186,14 @@ class WakePlanRepository {
 
       final plans = <WakePlan>[];
       final corruptPlanIds = <String>{};
+      final expiredOneTimePlanIds = <String>{};
       for (final row in planRows) {
         final plan = _tryWakePlanFromRow(row);
         if (plan == null) {
           corruptPlanIds.add(row.id);
-        } else if (!_isExpiredOneTimePlan(plan: plan, now: now)) {
+        } else if (_isExpiredOneTimePlan(plan: plan, now: now)) {
+          expiredOneTimePlanIds.add(plan.id);
+        } else {
           plans.add(plan);
         }
       }
@@ -199,6 +202,9 @@ class WakePlanRepository {
       final corruptOccurrenceIds = <String>{};
       final corruptOccurrenceWakePlanIds = <String>{};
       for (final row in occurrenceRows) {
+        if (expiredOneTimePlanIds.contains(row.wakePlanId)) {
+          continue;
+        }
         final occurrence = _tryAlarmOccurrenceFromRow(row);
         if (occurrence == null) {
           corruptOccurrenceIds.add(row.id);
