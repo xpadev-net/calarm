@@ -46,7 +46,7 @@ void main() {
   });
 
   test(
-    'loads the earliest past-due scheduled occurrence when none is ringing',
+    'loads the newest due scheduled occurrence when none is ringing',
     () async {
       final store = _AlarmRingingStore(
         plans: [_plan(day: monday)],
@@ -60,9 +60,78 @@ void main() {
       final snapshot = await _controller(store).loadCurrentRinging();
 
       expect(snapshot, isNotNull);
-      expect(snapshot!.currentOccurrence.id, 'plan-1:20640:405');
-      expect(snapshot.occurrenceIndex, 1);
-      expect(snapshot.nextScheduledAt!.time.toString(), '06:50');
+      expect(snapshot!.currentOccurrence.id, 'plan-1:20640:410');
+      expect(snapshot.occurrenceIndex, 2);
+      expect(snapshot.nextScheduledAt!.time.toString(), '06:55');
+    },
+  );
+
+  test(
+    'ignores scheduled and ringing rows outside the bounded due window',
+    () async {
+      final store = _AlarmRingingStore(
+        plans: [_plan(day: monday)],
+        occurrences: [
+          _occurrence(id: 'stale-scheduled', day: monday, minute: 390),
+          _occurrence(
+            id: 'stale-ringing',
+            day: monday,
+            minute: 394,
+            status: AlarmOccurrenceStatus.ringing,
+            firedAt: DateTime(2026, 7, 6, 6, 34),
+          ),
+          _occurrence(id: 'current', day: monday, minute: 410),
+        ],
+      );
+
+      final snapshot = await _controller(store).loadCurrentRinging();
+
+      expect(snapshot!.currentOccurrence.id, 'current');
+    },
+  );
+
+  test('uses a recent delivery time for a delayed ringing alarm', () async {
+    final store = _AlarmRingingStore(
+      plans: [_plan(day: monday)],
+      occurrences: [
+        _occurrence(
+          id: 'delayed-ringing',
+          day: monday,
+          minute: 390,
+          status: AlarmOccurrenceStatus.ringing,
+          firedAt: DateTime(2026, 7, 6, 6, 49),
+        ),
+        _occurrence(id: 'current-scheduled', day: monday, minute: 410),
+      ],
+    );
+
+    final snapshot = await _controller(store).loadCurrentRinging();
+
+    expect(snapshot!.currentOccurrence.id, 'delayed-ringing');
+  });
+
+  test(
+    'uses occurrence id to deterministically break equal-time ties',
+    () async {
+      final store = _AlarmRingingStore(
+        plans: [
+          _plan(day: monday),
+          _plan(id: 'plan-2', day: monday),
+        ],
+        occurrences: [
+          _occurrence(id: 'z-current', day: monday, minute: 410),
+          _occurrence(
+            id: 'a-current',
+            wakePlanId: 'plan-2',
+            day: monday,
+            minute: 410,
+          ),
+        ],
+      );
+
+      final snapshot = await _controller(store).loadCurrentRinging();
+
+      expect(snapshot!.currentOccurrence.id, 'a-current');
     },
   );
 
@@ -174,6 +243,16 @@ void main() {
       store.occurrences[current.id]!.status,
       AlarmOccurrenceStatus.ringing,
     );
+
+    gateway.cancelFailurePlatformAlarmIds.clear();
+    expect(
+      await _controller(store, gateway: gateway).dismissCurrent(current.id),
+      AlarmDismissResult.dismissed,
+    );
+    expect(
+      store.occurrences[current.id]!.status,
+      AlarmOccurrenceStatus.dismissed,
+    );
   });
 
   test('refuses to dismiss a future scheduled occurrence', () async {
@@ -202,6 +281,31 @@ void main() {
       AlarmOccurrenceStatus.scheduled,
     );
     expect(store.occurrences[future.id]!.platformAlarmId, 'native-future');
+  });
+
+  test('refuses to dismiss stale ringing outside the current window', () async {
+    final gateway = FakeNativeAlarmGateway();
+    final stale = _occurrence(
+      id: 'stale-ringing',
+      day: monday,
+      minute: 390,
+      status: AlarmOccurrenceStatus.ringing,
+      platformAlarmId: 'native-stale',
+      firedAt: DateTime(2026, 7, 6, 6, 34),
+    );
+    final store = _AlarmRingingStore(
+      plans: [_plan(day: monday)],
+      occurrences: [stale],
+    );
+
+    final result = await _controller(
+      store,
+      gateway: gateway,
+    ).dismissCurrent(stale.id);
+
+    expect(result, AlarmDismissResult.notRinging);
+    expect(gateway.cancelledOccurrences, isEmpty);
+    expect(store.savedOccurrences, isEmpty);
   });
 
   test(

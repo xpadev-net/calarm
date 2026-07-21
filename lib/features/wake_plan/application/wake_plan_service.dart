@@ -9,6 +9,10 @@ import 'occurrence_planner.dart';
 typedef WakePlanClock = DateTime Function();
 
 class WakePlanService {
+  /// A delivered alarm remains actionable for this long. After the window it
+  /// is recorded as missed instead of being reactivated as ringing.
+  static const Duration nativeEventRingingWindow = Duration(minutes: 15);
+
   WakePlanService({
     required WakePlanRepository repository,
     required NativeAlarmGateway nativeAlarmGateway,
@@ -573,14 +577,21 @@ class WakePlanService {
     final persistedSnapshot = await _store.fetchReconciliationSnapshot(
       now: now,
     );
+    final inventory = await _loadNativeInventory();
+    final eventReconciliation = await _reconcileNativeAlarmEvents(
+      snapshot: persistedSnapshot,
+      inventory: inventory,
+      now: now,
+    );
     final plans = persistedSnapshot.plans;
     final inventoryPreparation = await _prepareWholeInventory(
       plans: plans,
-      occurrences: persistedSnapshot.occurrences,
+      occurrences: eventReconciliation,
       corruptPlanIds: persistedSnapshot.corruptPlanIds,
       corruptOccurrenceIds: persistedSnapshot.corruptOccurrenceIds,
       corruptOccurrenceWakePlanIds:
           persistedSnapshot.corruptOccurrenceWakePlanIds,
+      inventory: inventory,
       now: now,
     );
     final decodedPlanIds = plans.map((plan) => plan.id).toSet();
@@ -689,12 +700,269 @@ class WakePlanService {
     return results;
   }
 
+  Future<List<AlarmOccurrence>> _reconcileNativeAlarmEvents({
+    required WakePlanReconciliationSnapshot snapshot,
+    required _NativeInventorySnapshot? inventory,
+    required DateTime now,
+  }) async {
+    List<NativeAlarmEvent> events;
+    try {
+      events = await _nativeAlarmGateway.fetchAlarmEvents();
+    } catch (_) {
+      events = const [];
+    }
+
+    final eventIds = events.map((event) => event.eventId).toSet();
+    final batchIsValid =
+        eventIds.length == events.length &&
+        events.every(
+          (event) =>
+              event.eventId.trim().isNotEmpty &&
+              event.platformAlarmId.trim().isNotEmpty &&
+              event.timestamp.millisecondsSinceEpoch >= 0,
+        );
+    if (!batchIsValid) {
+      events = const [];
+    } else {
+      events = [...events]
+        ..sort((left, right) {
+          final timestampComparison = left.timestamp.compareTo(right.timestamp);
+          return timestampComparison != 0
+              ? timestampComparison
+              : left.eventId.compareTo(right.eventId);
+        });
+    }
+
+    final snapshotOccurrenceIds = snapshot.occurrences
+        .map((occurrence) => occurrence.id)
+        .toSet();
+    final eventMatches = events.isEmpty
+        ? AlarmOccurrencePlatformMatchSnapshot(
+            occurrences: const [],
+            corruptPlatformAlarmIds: const {},
+          )
+        : await _store.fetchAlarmOccurrencesByPlatformAlarmIds(
+            events.map((event) => event.platformAlarmId).toSet(),
+          );
+    final occurrencesById = <String, AlarmOccurrence>{
+      for (final occurrence in snapshot.occurrences) occurrence.id: occurrence,
+      for (final occurrence in eventMatches.occurrences)
+        occurrence.id: occurrence,
+    };
+    final activePlanIds = snapshot.plans
+        .where(
+          (plan) =>
+              plan.isEnabled &&
+              !plan.isDeleted &&
+              plan.status != WakePlanStatus.finished,
+        )
+        .map((plan) => plan.id)
+        .toSet();
+    final occurrenceIdsByPlatformId = <String, Set<String>>{};
+    for (final occurrence in occurrencesById.values) {
+      final platformAlarmId = occurrence.platformAlarmId;
+      if (platformAlarmId != null) {
+        (occurrenceIdsByPlatformId[platformAlarmId] ??= {}).add(occurrence.id);
+      }
+    }
+
+    final acknowledgedEventIds = <String>[];
+    final changedOccurrenceIds = <String>{};
+    for (final event in events) {
+      final matchingIds = occurrenceIdsByPlatformId[event.platformAlarmId];
+      if (eventMatches.corruptPlatformAlarmIds.contains(
+            event.platformAlarmId,
+          ) ||
+          matchingIds == null ||
+          matchingIds.length != 1) {
+        continue;
+      }
+      final occurrenceId = matchingIds.single;
+      final occurrence = occurrencesById[occurrenceId]!;
+      if (snapshot.corruptOccurrenceIds.contains(occurrence.id) ||
+          snapshot.corruptPlanIds.contains(occurrence.wakePlanId) ||
+          snapshot.corruptOccurrenceWakePlanIds.contains(
+            occurrence.wakePlanId,
+          ) ||
+          !_inventoryAllowsNativeEvent(
+            occurrence: occurrence,
+            occurrencesById: occurrencesById,
+            inventory: inventory,
+          )) {
+        continue;
+      }
+
+      final applied = _applyNativeAlarmEvent(
+        occurrence: occurrence,
+        event: event,
+        now: now,
+        mayRing: activePlanIds.contains(occurrence.wakePlanId),
+      );
+      if (applied == null) {
+        continue;
+      }
+      occurrencesById[occurrenceId] = applied;
+      acknowledgedEventIds.add(event.eventId);
+      if (applied != occurrence) {
+        changedOccurrenceIds.add(occurrenceId);
+      }
+    }
+
+    for (final entry in occurrencesById.entries.toList(growable: false)) {
+      final occurrence = entry.value;
+      final firedAt = occurrence.firedAt;
+      final isCorrupt =
+          snapshot.corruptOccurrenceIds.contains(occurrence.id) ||
+          snapshot.corruptPlanIds.contains(occurrence.wakePlanId) ||
+          snapshot.corruptOccurrenceWakePlanIds.contains(occurrence.wakePlanId);
+      if (!isCorrupt &&
+          occurrence.status == AlarmOccurrenceStatus.ringing &&
+          firedAt != null &&
+          firedAt.isBefore(now.subtract(nativeEventRingingWindow))) {
+        occurrencesById[entry.key] = occurrence.copyWith(
+          status: AlarmOccurrenceStatus.missed,
+          updatedAt: now,
+        );
+        changedOccurrenceIds.add(entry.key);
+      }
+    }
+
+    if (changedOccurrenceIds.isNotEmpty) {
+      await _store.saveAlarmOccurrences(
+        changedOccurrenceIds.map((id) => occurrencesById[id]!),
+      );
+    }
+    if (acknowledgedEventIds.isNotEmpty) {
+      try {
+        await _nativeAlarmGateway.acknowledgeAlarmEvents(acknowledgedEventIds);
+      } catch (_) {
+        // The journal remains durable. Replaying the already-persisted state
+        // is idempotent because terminal rows retain their platform identity.
+      }
+    }
+    return snapshotOccurrenceIds
+        .map((id) => occurrencesById[id]!)
+        .toList(growable: false);
+  }
+
+  bool _inventoryAllowsNativeEvent({
+    required AlarmOccurrence occurrence,
+    required Map<String, AlarmOccurrence> occurrencesById,
+    required _NativeInventorySnapshot? inventory,
+  }) {
+    if (inventory == null) {
+      return false;
+    }
+    if (!inventory.isAuthoritative) {
+      return false;
+    }
+    for (final row in inventory.rows) {
+      final touchesOccurrence =
+          row.reservationId == occurrence.id ||
+          row.occurrenceId == occurrence.id ||
+          row.platformAlarmId == occurrence.platformAlarmId;
+      if (touchesOccurrence &&
+          (row.reservationId != occurrence.id ||
+              row.occurrenceId != occurrence.id ||
+              row.wakePlanId != occurrence.wakePlanId ||
+              row.platformAlarmId != occurrence.platformAlarmId)) {
+        return false;
+      }
+      if (row.wakePlanId == occurrence.wakePlanId) {
+        final byReservation = occurrencesById[row.reservationId];
+        final byOccurrence = occurrencesById[row.occurrenceId];
+        if (row.reservationId != row.occurrenceId ||
+            byReservation != byOccurrence ||
+            (byReservation != null &&
+                byReservation.wakePlanId != row.wakePlanId)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  AlarmOccurrence? _applyNativeAlarmEvent({
+    required AlarmOccurrence occurrence,
+    required NativeAlarmEvent event,
+    required DateTime now,
+    required bool mayRing,
+  }) {
+    if (event.timestamp.isAfter(now)) {
+      return null;
+    }
+    switch (event.type) {
+      case NativeAlarmEventType.delivered:
+        switch (occurrence.status) {
+          case AlarmOccurrenceStatus.scheduled:
+            final isStillCurrent =
+                mayRing &&
+                !event.timestamp.isBefore(
+                  now.subtract(nativeEventRingingWindow),
+                );
+            return occurrence.copyWith(
+              status: isStillCurrent
+                  ? AlarmOccurrenceStatus.ringing
+                  : AlarmOccurrenceStatus.missed,
+              firedAt: occurrence.firedAt ?? event.timestamp,
+              updatedAt: now,
+            );
+          case AlarmOccurrenceStatus.ringing:
+            final firedAt = occurrence.firedAt!;
+            if (!firedAt.isBefore(now.subtract(nativeEventRingingWindow))) {
+              return occurrence;
+            }
+            return occurrence.copyWith(
+              status: AlarmOccurrenceStatus.missed,
+              updatedAt: now,
+            );
+          case AlarmOccurrenceStatus.dismissed:
+          case AlarmOccurrenceStatus.missed:
+            return occurrence;
+          case AlarmOccurrenceStatus.userDisabled:
+          case AlarmOccurrenceStatus.userDisablePending:
+          case AlarmOccurrenceStatus.userEnablePending:
+          case AlarmOccurrenceStatus.expired:
+          case AlarmOccurrenceStatus.cancelled:
+          case AlarmOccurrenceStatus.failed:
+          case AlarmOccurrenceStatus.unknownPersisted:
+            return null;
+        }
+      case NativeAlarmEventType.dismissed:
+        switch (occurrence.status) {
+          case AlarmOccurrenceStatus.scheduled:
+          case AlarmOccurrenceStatus.ringing:
+          case AlarmOccurrenceStatus.missed:
+            final firedAt = occurrence.firedAt ?? event.timestamp;
+            return occurrence.copyWith(
+              status: AlarmOccurrenceStatus.dismissed,
+              firedAt: firedAt,
+              dismissedAt: event.timestamp.isBefore(firedAt)
+                  ? firedAt
+                  : event.timestamp,
+              updatedAt: now,
+            );
+          case AlarmOccurrenceStatus.dismissed:
+            return occurrence;
+          case AlarmOccurrenceStatus.userDisabled:
+          case AlarmOccurrenceStatus.userDisablePending:
+          case AlarmOccurrenceStatus.userEnablePending:
+          case AlarmOccurrenceStatus.expired:
+          case AlarmOccurrenceStatus.cancelled:
+          case AlarmOccurrenceStatus.failed:
+          case AlarmOccurrenceStatus.unknownPersisted:
+            return null;
+        }
+    }
+  }
+
   Future<_WholeInventoryPreparation> _prepareWholeInventory({
     required List<WakePlan> plans,
     required List<AlarmOccurrence> occurrences,
     required Set<String> corruptPlanIds,
     required Set<String> corruptOccurrenceIds,
     required Set<String> corruptOccurrenceWakePlanIds,
+    required _NativeInventorySnapshot? inventory,
     required DateTime now,
   }) async {
     final originalById = {
@@ -742,8 +1010,6 @@ class WakePlanService {
         desiredPlanIdsById[corruptOccurrenceId] ?? const {},
       );
     }
-    final inventory = await _loadNativeInventory();
-
     Set<String> participantPlanIds(NativeAlarmInventoryRow row) {
       final participants = <String>{row.wakePlanId};
       for (final identity in {row.reservationId, row.occurrenceId}) {
@@ -1842,12 +2108,16 @@ class WakePlanService {
       AlarmOccurrenceStatus.userDisablePending => true,
       AlarmOccurrenceStatus.userEnablePending => true,
       AlarmOccurrenceStatus.unknownPersisted => true,
+      AlarmOccurrenceStatus.dismissed || AlarmOccurrenceStatus.missed =>
+        !existing.scheduledAt.toDateTime().isAfter(now),
       _ => false,
     };
     return preservesStatus &&
         existing.wakePlanId == desired.wakePlanId &&
         existing.scheduledAt == desired.scheduledAt &&
-        !existing.scheduledAt.toDateTime().isBefore(now);
+        (existing.status == AlarmOccurrenceStatus.dismissed ||
+            existing.status == AlarmOccurrenceStatus.missed ||
+            !existing.scheduledAt.toDateTime().isBefore(now));
   }
 
   Future<_PendingEnableReconciliation> _reconcilePendingEnables({
@@ -2811,6 +3081,9 @@ abstract class WakePlanServiceStore {
     required DateTime now,
   });
 
+  Future<AlarmOccurrencePlatformMatchSnapshot>
+  fetchAlarmOccurrencesByPlatformAlarmIds(Set<String> platformAlarmIds);
+
   Future<void> saveWakePlan(WakePlan plan);
 
   Future<void> softDeleteWakePlan({
@@ -2842,6 +3115,14 @@ class WakePlanRepositoryServiceStore implements WakePlanServiceStore {
     required DateTime now,
   }) {
     return _repository.fetchReconciliationSnapshot(now: now);
+  }
+
+  @override
+  Future<AlarmOccurrencePlatformMatchSnapshot>
+  fetchAlarmOccurrencesByPlatformAlarmIds(Set<String> platformAlarmIds) {
+    return _repository.fetchAlarmOccurrencesByPlatformAlarmIds(
+      platformAlarmIds,
+    );
   }
 
   @override

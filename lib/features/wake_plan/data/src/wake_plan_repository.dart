@@ -26,6 +26,17 @@ class WakePlanReconciliationSnapshot {
   final Set<String> corruptOccurrenceWakePlanIds;
 }
 
+class AlarmOccurrencePlatformMatchSnapshot {
+  AlarmOccurrencePlatformMatchSnapshot({
+    required List<AlarmOccurrence> occurrences,
+    required Set<String> corruptPlatformAlarmIds,
+  }) : occurrences = List.unmodifiable(occurrences),
+       corruptPlatformAlarmIds = Set.unmodifiable(corruptPlatformAlarmIds);
+
+  final List<AlarmOccurrence> occurrences;
+  final Set<String> corruptPlatformAlarmIds;
+}
+
 class WakePlanRepository {
   WakePlanRepository(this._database);
 
@@ -149,6 +160,38 @@ class WakePlanRepository {
     )..where((row) => row.id.equals(id))).getSingleOrNull();
 
     return row == null ? null : _tryAlarmOccurrenceFromRow(row);
+  }
+
+  Future<AlarmOccurrencePlatformMatchSnapshot>
+  fetchAlarmOccurrencesByPlatformAlarmIds(Set<String> platformAlarmIds) async {
+    if (platformAlarmIds.isEmpty) {
+      return AlarmOccurrencePlatformMatchSnapshot(
+        occurrences: const [],
+        corruptPlatformAlarmIds: const {},
+      );
+    }
+    final rows =
+        await (_database.select(_database.alarmOccurrenceRows)
+              ..where((row) => row.platformAlarmId.isIn(platformAlarmIds))
+              ..orderBy([(row) => OrderingTerm.asc(row.id)]))
+            .get();
+    final occurrences = <AlarmOccurrence>[];
+    final corruptPlatformAlarmIds = <String>{};
+    for (final row in rows) {
+      final occurrence = _tryAlarmOccurrenceFromRow(row);
+      if (occurrence == null) {
+        final platformAlarmId = row.platformAlarmId;
+        if (platformAlarmId != null) {
+          corruptPlatformAlarmIds.add(platformAlarmId);
+        }
+      } else {
+        occurrences.add(occurrence);
+      }
+    }
+    return AlarmOccurrencePlatformMatchSnapshot(
+      occurrences: occurrences,
+      corruptPlatformAlarmIds: corruptPlatformAlarmIds,
+    );
   }
 
   Future<List<AlarmOccurrence>> fetchOccurrencesForPlan(

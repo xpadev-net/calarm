@@ -368,6 +368,51 @@ void main() {
     });
 
     test(
+      'finds exact retained platform identities without decoding corrupt rows',
+      () async {
+        await repository.saveWakePlan(buildPlan());
+        await repository.saveWakePlan(buildPlan(id: 'plan-2'));
+        await repository.saveAlarmOccurrences([
+          buildOccurrence(id: 'retained-1', platformAlarmId: 'native-shared'),
+          buildOccurrence(
+            id: 'retained-2',
+            wakePlanId: 'plan-2',
+            platformAlarmId: 'native-shared',
+          ),
+          buildOccurrence(id: 'other', platformAlarmId: 'native-other'),
+        ]);
+        await database
+            .into(database.alarmOccurrenceRows)
+            .insert(
+              AlarmOccurrenceRowsCompanion.insert(
+                id: 'corrupt',
+                wakePlanId: 'plan-1',
+                scheduledAtDays: monday.daysSinceUnixEpoch,
+                scheduledAtMinutes: targetTime.minutesSinceMidnight,
+                status: AlarmOccurrenceStatus.userDisabled.name,
+                platformAlarmId: const Value('native-shared'),
+                createdAt: now,
+                updatedAt: now,
+              ),
+            );
+
+        final matches = await repository
+            .fetchAlarmOccurrencesByPlatformAlarmIds({'native-shared'});
+
+        expect(matches.occurrences.map((occurrence) => occurrence.id), [
+          'retained-1',
+          'retained-2',
+        ]);
+        expect(matches.corruptPlatformAlarmIds, {'native-shared'});
+        final empty = await repository.fetchAlarmOccurrencesByPlatformAlarmIds(
+          {},
+        );
+        expect(empty.occurrences, isEmpty);
+        expect(empty.corruptPlatformAlarmIds, isEmpty);
+      },
+    );
+
+    test(
       'updates and clears nullable platform alarm id for native lifecycle',
       () async {
         await repository.saveWakePlan(buildPlan());
