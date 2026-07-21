@@ -112,8 +112,14 @@ class AlarmEventStoreTest {
         assertEquals(listOf(valid), second.events)
         assertTrue(second.corruptKeys.isEmpty())
         assertEquals(listOf(future.eventId), second.unsupportedSchemaKeys)
-        assertTrue(eventPreferences().contains(future.eventId))
-        assertTrue(AlarmEventStore(context).acknowledge(listOf(future.eventId)))
+        eventPreferences().edit().putString("ack-corrupt", "broken").commit()
+        assertTrue(
+            AlarmEventStore(context).acknowledge(
+                listOf(valid.eventId, "ack-corrupt", future.eventId, "unknown"),
+            ),
+        )
+        assertFalse(eventPreferences().contains(valid.eventId))
+        assertTrue(eventPreferences().contains("ack-corrupt"))
         assertTrue(eventPreferences().contains(future.eventId))
         assertFalse(AlarmEventStore(context).appendDelivered("future", 99L))
         val retained = JSONObject(eventPreferences().getString(future.eventId, null)!!)

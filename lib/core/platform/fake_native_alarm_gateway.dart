@@ -170,12 +170,18 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
 
   @override
   Future<List<NativeAlarmEvent>> fetchAlarmEvents() async {
+    final retained = _normalizePendingAlarmEvents();
+    if (retained == null) return const [];
+    return List<NativeAlarmEvent>.unmodifiable(retained);
+  }
+
+  List<NativeAlarmEvent>? _normalizePendingAlarmEvents() {
     final retainedById = <String, NativeAlarmEvent>{};
     for (final event in pendingAlarmEvents) {
       if (event.eventId.trim().isEmpty ||
           event.platformAlarmId.trim().isEmpty ||
           event.timestamp.millisecondsSinceEpoch < 0) {
-        return const [];
+        return null;
       }
       retainedById[event.eventId] = event;
       if (retainedById.length > 200) {
@@ -186,7 +192,10 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
       }
     }
     final retained = retainedById.values.toList()..sort(_compareAlarmEvents);
-    return List<NativeAlarmEvent>.unmodifiable(retained);
+    pendingAlarmEvents
+      ..clear()
+      ..addAll(retained);
+    return retained;
   }
 
   @override
@@ -202,6 +211,7 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
       throw ArgumentError.value(eventIds, 'eventIds', 'must be unique');
     }
     acknowledgedAlarmEventIds.addAll(eventIds);
+    if (_normalizePendingAlarmEvents() == null) return;
     pendingAlarmEvents.removeWhere((event) => eventIds.contains(event.eventId));
   }
 

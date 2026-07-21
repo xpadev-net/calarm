@@ -1142,8 +1142,8 @@ class AlarmEventStore(context: Context) {
             eventIds.toSet().size != eventIds.size
         ) return@synchronized false
         if (eventIds.isEmpty()) return@synchronized true
-        val unsupportedSchemaKeys = readRows().unsupportedSchemaKeys.toSet()
-        val removableEventIds = eventIds.filterNot(unsupportedSchemaKeys::contains)
+        val supportedEventIds = readRows().events.mapTo(mutableSetOf(), AlarmEvent::eventId)
+        val removableEventIds = eventIds.filter(supportedEventIds::contains)
         if (removableEventIds.isEmpty()) return@synchronized true
         val editor = preferences.edit()
         removableEventIds.forEach(editor::remove)

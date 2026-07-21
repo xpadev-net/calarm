@@ -430,6 +430,10 @@ void main() {
       expect(events.first.eventId, 'event-5');
       expect(events.last.eventId, 'event-204');
       expect(events.last.timestamp.millisecondsSinceEpoch, 999);
+      await fake.acknowledgeAlarmEvents(
+        events.map((event) => event.eventId).toList(),
+      );
+      expect(await fake.fetchAlarmEvents(), isEmpty);
 
       fake.pendingAlarmEvents.add(
         NativeAlarmEvent(
