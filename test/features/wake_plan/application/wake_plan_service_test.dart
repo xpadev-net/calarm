@@ -1303,6 +1303,198 @@ void main() {
       }
     });
 
+    test(
+      'cross-plan corrupt identity blocks every participant but not a safe plan',
+      () async {
+        final conflictedPlan = buildPlan(
+          id: 'conflicted-plan',
+          startOffset: Duration.zero,
+          repeatRule: RepeatRule.weekly({Weekday.monday}),
+        );
+        final safePlan = buildPlan(
+          id: 'safe-plan',
+          startOffset: Duration.zero,
+          repeatRule: RepeatRule.weekly({Weekday.monday}),
+        );
+        final decoded = buildOccurrence(
+          id: occurrenceId,
+          platformAlarmId: null,
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan, conflictedPlan, safePlan]
+          ..storedOccurrences = [decoded]
+          ..corruptOccurrenceIds = {occurrenceId}
+          ..corruptOccurrenceWakePlanIds = {conflictedPlan.id};
+        final gateway = _CountingInventoryGateway()
+          ..inventoryRows.add(
+            NativeAlarmInventoryRow(
+              reservationId: occurrenceId,
+              occurrenceId: occurrenceId,
+              wakePlanId: conflictedPlan.id,
+              platformAlarmId: 'native-conflicted',
+              status: NativeAlarmReservationStatus.scheduled,
+            ),
+          );
+        final serviceUnderTest = service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 1,
+        );
+
+        final first = await serviceUnderTest.reconcileSchedules();
+        await Future.wait([
+          serviceUnderTest.reconcileSchedules(),
+          serviceUnderTest.reconcileSchedules(),
+        ]);
+
+        expect(
+          first
+              .where((result) => result.wakePlanId != safePlan.id)
+              .map((result) => result.status),
+          everyElement(WakePlanSchedulingStatus.recoveryRequired),
+        );
+        expect(gateway.scheduledRequests.map((request) => request.wakePlanId), [
+          safePlan.id,
+        ]);
+        expect(gateway.cancelledOccurrences, isEmpty);
+        expect(
+          store.storedOccurrences
+              .singleWhere((occurrence) => occurrence.id == occurrenceId)
+              .platformAlarmId,
+          isNull,
+        );
+        expect(
+          gateway.inventoryRows
+              .where((row) => row.occurrenceId == occurrenceId)
+              .single
+              .platformAlarmId,
+          'native-conflicted',
+        );
+      },
+    );
+
+    test(
+      'inactive exact row blocks reschedule and preserves unrelated safe work',
+      () async {
+        final safePlan = buildPlan(
+          id: 'safe-plan',
+          startOffset: Duration.zero,
+          repeatRule: RepeatRule.weekly({Weekday.monday}),
+        );
+        final stored = buildOccurrence(
+          id: occurrenceId,
+          platformAlarmId: 'native-stopped',
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan, safePlan]
+          ..storedOccurrences = [stored];
+        final gateway = _CountingInventoryGateway()
+          ..inventoryRows.add(
+            NativeAlarmInventoryRow(
+              reservationId: occurrenceId,
+              occurrenceId: occurrenceId,
+              wakePlanId: plan.id,
+              platformAlarmId: 'native-stopped',
+              status: NativeAlarmReservationStatus.stopped,
+            ),
+          );
+        final serviceUnderTest = service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 1,
+        );
+
+        final first = await serviceUnderTest.reconcileSchedules();
+        await Future.wait([
+          serviceUnderTest.reconcileSchedules(),
+          serviceUnderTest.reconcileSchedules(),
+        ]);
+
+        expect(
+          first.singleWhere((result) => result.wakePlanId == plan.id).status,
+          WakePlanSchedulingStatus.recoveryRequired,
+        );
+        expect(
+          first
+              .singleWhere((result) => result.wakePlanId == safePlan.id)
+              .status,
+          WakePlanSchedulingStatus.scheduled,
+        );
+        expect(gateway.scheduledRequests.map((request) => request.wakePlanId), [
+          safePlan.id,
+        ]);
+        expect(gateway.cancelledOccurrences, isEmpty);
+        expect(
+          store.storedOccurrences
+              .singleWhere((occurrence) => occurrence.id == occurrenceId)
+              .platformAlarmId,
+          'native-stopped',
+        );
+        expect(
+          gateway.inventoryRows
+              .singleWhere((row) => row.occurrenceId == occurrenceId)
+              .status,
+          NativeAlarmReservationStatus.stopped,
+        );
+      },
+    );
+
+    test(
+      'cancels decoded noncanonical alarm before scheduling edited bundle',
+      () async {
+        final editedPlan = buildPlan(
+          targetTimeOverride: TimeOfDayMinutes.fromHourMinute(
+            hour: 7,
+            minute: 30,
+          ),
+          startOffset: Duration.zero,
+          repeatRule: RepeatRule.weekly({Weekday.monday}),
+        );
+        final stale = buildOccurrence(
+          id: occurrenceId,
+          platformAlarmId: 'native-stale',
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: editedPlan)
+          ..wakePlans = [editedPlan]
+          ..storedOccurrences = [stale];
+        final gateway = _CountingInventoryGateway()
+          ..inventoryRows.add(
+            inventoryRow(stale, platformAlarmId: 'native-stale'),
+          );
+        final serviceUnderTest = service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 1,
+        );
+
+        final first = await serviceUnderTest.reconcileSchedules();
+        final sideEffectCount =
+            gateway.cancelledOccurrences.length +
+            gateway.scheduledRequests.length;
+        await Future.wait([
+          serviceUnderTest.reconcileSchedules(),
+          serviceUnderTest.reconcileSchedules(),
+        ]);
+
+        expect(first.single.status, WakePlanSchedulingStatus.scheduled);
+        expect(
+          gateway.cancelledOccurrences.map((request) => request.occurrenceId),
+          [occurrenceId],
+        );
+        expect(
+          gateway.scheduledRequests.map((request) => request.occurrenceId),
+          ['plan-1:20640:450'],
+        );
+        expect(gateway.inventoryRows, hasLength(1));
+        expect(gateway.inventoryRows.single.occurrenceId, 'plan-1:20640:450');
+        expect(
+          gateway.cancelledOccurrences.length +
+              gateway.scheduledRequests.length,
+          sideEffectCount,
+        );
+      },
+    );
+
     test('read failure does not block an unrelated safe plan', () async {
       final secondPlan = buildPlan(
         id: 'plan-2',
@@ -3992,13 +4184,14 @@ void main() {
           restartedResult.single.status,
           WakePlanSchedulingStatus.scheduled,
         );
-        expect(gateway.scheduledRequests, isEmpty);
+        expect(gateway.scheduledRequests, hasLength(4));
         expect(
           gateway.inventoryRows.where(
             (row) => row.reservationId == occurrence.id,
           ),
-          hasLength(1),
+          isEmpty,
         );
+        expect(gateway.inventoryRows, hasLength(4));
         expect(
           store.storedOccurrences.singleWhere(
             (item) => item.id == occurrence.id,
@@ -4007,13 +4200,22 @@ void main() {
               .having(
                 (item) => item.status,
                 'status',
-                AlarmOccurrenceStatus.scheduled,
+                AlarmOccurrenceStatus.cancelled,
               )
               .having(
                 (item) => item.platformAlarmId,
                 'platformAlarmId',
-                'authoritative-native-id',
+                isNull,
               ),
+        );
+        final sideEffectCount =
+            gateway.cancelledOccurrences.length +
+            gateway.scheduledRequests.length;
+        await service(store: store, gateway: gateway).reconcileSchedules();
+        expect(
+          gateway.cancelledOccurrences.length +
+              gateway.scheduledRequests.length,
+          sideEffectCount,
         );
       },
     );
