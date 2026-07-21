@@ -487,7 +487,7 @@
 ### Task_13: Reconcile Drift and native reservations durably
 
 - status: in progress
-- worker: queued `client-new-thread:b2c924ba-5448-4d1e-a69f-1f678574a184`
+- worker: `019f85b5-34b1-7611-88f4-0970c1c24f05`
 - branch: `codex/task-13-durable-inventory-reconciliation`
 - type: impl
 - owns:
@@ -778,7 +778,7 @@
   - Read-only audit thread `019f85aa-b3a7-7b51-aa01-3c96ff760455` reviewed exact `origin/master` `6e2cd80e100a08b96c02ba78f4703ab985415026` and returned `NARROW_DELTA_REQUIRED`; it was archived after reporting.
   - Audit validation passed focused 145/145 tests, full 446/446 tests, `flutter analyze`, debug APK build, and `git diff --check` from a clean worktree.
   - Existing occurrence-toggle recovery and reconciliation serialization are retained, but Task_13 remains incomplete because ordinary scheduled rows are not compared with one authoritative native inventory snapshot and the required general create/replenish interruption matrix is absent.
-  - Implementation worker queued as `client-new-thread:b2c924ba-5448-4d1e-a69f-1f678574a184` on `codex/task-13-durable-inventory-reconciliation`; replace the client ID with the actual thread ID during startup stability check.
+  - Implementation worker `019f85b5-34b1-7611-88f4-0970c1c24f05` started and passed the startup stability check on `codex/task-13-durable-inventory-reconciliation`.
   - Scope is limited to Task_13's service/repository/database/bootstrap/tests plus the narrow authority-policy documentation and conditional app entry point recorded above. Task_14 ringing/native-stop work and the dirty parent checkout remain excluded.
   - Next action: startup-check the worker, require exact-head independent review, PR/hook/check gates, and orchestrator-owned review/tests before merge.
 
