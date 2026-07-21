@@ -536,7 +536,9 @@
 
 ### Task_18: Consolidate wake service providers and mutation serialization
 
-- status: unstarted
+- status: in progress
+- worker: `019f862b-b771-7812-abbc-11d1381a08f8`
+- branch: `codex/task-18-provider-coordinator-consolidation`
 - type: impl
 - owns:
   - `lib/app.dart`
@@ -558,7 +560,9 @@
 
 ### Task_19: Improve the Android ringing surface
 
-- status: unstarted
+- status: in progress
+- worker: `019f862b-b771-7812-abbc-11fc2331d678`
+- branch: `codex/task-19-android-ringing-surface`
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmReceiver.kt`
