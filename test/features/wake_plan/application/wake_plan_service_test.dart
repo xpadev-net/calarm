@@ -109,7 +109,7 @@ void main() {
       occurrencePlanner: occurrencePlanner,
       clock: () => clockNow ?? now,
       rollingScheduleDays: rollingScheduleDays,
-      coordinator: coordinator,
+      coordinator: coordinator ?? WakePlanMutationCoordinator(),
     );
   }
 
@@ -203,6 +203,7 @@ void main() {
         final result = await WakePlanService.withStore(
           store: store,
           nativeAlarmGateway: gateway,
+          coordinator: WakePlanMutationCoordinator(),
           clock: () => now,
         ).createPlan(buildPlan());
 
@@ -766,6 +767,7 @@ void main() {
         final serviceUnderTest = WakePlanService.withStore(
           store: store,
           nativeAlarmGateway: gateway,
+          coordinator: WakePlanMutationCoordinator(),
           clock: () => currentNow,
           rollingScheduleDays: 2,
         );
@@ -1614,6 +1616,7 @@ void main() {
           final first = await WakePlanService(
             repository: repository,
             nativeAlarmGateway: gateway,
+            coordinator: WakePlanMutationCoordinator(),
             clock: () => now,
             rollingScheduleDays: 1,
           ).reconcileSchedules();
@@ -1628,6 +1631,7 @@ void main() {
           final reopened = await WakePlanService(
             repository: repository,
             nativeAlarmGateway: gateway,
+            coordinator: WakePlanMutationCoordinator(),
             clock: () => now,
             rollingScheduleDays: 1,
           ).reconcileSchedules();
@@ -1685,6 +1689,7 @@ void main() {
           final serviceUnderTest = WakePlanService(
             repository: repository,
             nativeAlarmGateway: gateway,
+            coordinator: WakePlanMutationCoordinator(),
             clock: () => now,
             rollingScheduleDays: 1,
           );
@@ -1776,6 +1781,7 @@ void main() {
           final serviceUnderTest = WakePlanService(
             repository: repository,
             nativeAlarmGateway: gateway,
+            coordinator: WakePlanMutationCoordinator(),
             clock: () => now,
             rollingScheduleDays: 1,
           );
@@ -1826,6 +1832,7 @@ void main() {
         final results = await WakePlanService(
           repository: repository,
           nativeAlarmGateway: gateway,
+          coordinator: WakePlanMutationCoordinator(),
           clock: () => DateTime(2026, 7, 6, 8),
           rollingScheduleDays: 1,
         ).reconcileSchedules();

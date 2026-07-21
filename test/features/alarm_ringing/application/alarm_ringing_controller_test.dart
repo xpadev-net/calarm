@@ -259,6 +259,7 @@ AlarmRingingController _controller(
   return AlarmRingingController(
     store: store,
     nativeAlarmGateway: gateway ?? FakeNativeAlarmGateway(),
+    coordinator: WakePlanMutationCoordinator(),
     clock: () => DateTime(2026, 7, 6, 6, 50),
   );
 }

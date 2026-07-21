@@ -10,15 +10,14 @@ class AlarmRingingController {
   AlarmRingingController({
     required this.store,
     required this.nativeAlarmGateway,
+    required this.coordinator,
     AlarmRingingClock? clock,
-    WakePlanMutationCoordinator? coordinator,
-  }) : _clock = clock ?? DateTime.now,
-       _coordinator = coordinator ?? WakePlanMutationCoordinator();
+  }) : _clock = clock ?? DateTime.now;
 
   final AlarmRingingStore store;
   final NativeAlarmGateway nativeAlarmGateway;
+  final WakePlanMutationCoordinator coordinator;
   final AlarmRingingClock _clock;
-  final WakePlanMutationCoordinator _coordinator;
 
   Future<AlarmRingingSnapshot?> loadCurrentRinging() async {
     final now = _clock();
@@ -51,7 +50,7 @@ class AlarmRingingController {
   }
 
   Future<AlarmDismissResult> dismissCurrent(String occurrenceId) {
-    return _coordinator.run(() => _dismissCurrent(occurrenceId));
+    return coordinator.run(() => _dismissCurrent(occurrenceId));
   }
 
   Future<AlarmDismissResult> _dismissCurrent(String occurrenceId) async {
