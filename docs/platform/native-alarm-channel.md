@@ -13,6 +13,9 @@ This document fixes the Dart/native contract for the wake alarm gateway.
 - `getInventory` is an additive read method. Older native implementations may
   report `unavailable`; callers must not infer that the native inventory is
   empty from an unavailable or failed read.
+- `fetchAlarmEvents` and `acknowledgeAlarmEvents` are additive journal methods.
+  Older plugins and platforms without a journal behave as an empty fetch and a
+  no-op acknowledgement; Dart must never infer an event from that fallback.
 - Native implementations must not schedule production alarms from this document alone; Wave 8 owns production native scheduling.
 - `cancelPlan` receives repository-resolved occurrence/platform alarm identities. Native code must not receive only a logical `wakePlanId` and must not query Flutter persistence.
 
@@ -73,6 +76,11 @@ Cancel failure reason strings:
 - `nativeError`
 - `unavailable`
 - `unknown`
+
+Native alarm event type strings:
+
+- `delivered`
+- `dismissed`
 
 Native `PlatformException.code` values may use lower camel case or upper snake case. Dart maps unknown native error codes to `nativeError`.
 
@@ -367,6 +375,102 @@ any affected scheduling or repair can run.
 Repeated startup and resume passes must be serialized and idempotent; a failed
 plan repair must not prevent later plans in the same pass from making safe
 progress.
+
+## `fetchAlarmEvents`
+
+Request:
+
+```json
+{
+  "schemaVersion": 1
+}
+```
+
+Success response:
+
+```json
+{
+  "schemaVersion": 1,
+  "events": [
+    {
+      "eventId": "platform-occ-1:delivered",
+      "platformAlarmId": "platform-occ-1",
+      "type": "delivered",
+      "timestampMillis": 1784656800000
+    }
+  ]
+}
+```
+
+The Android journal is stored in device-protected storage and uses synchronous
+commits, so receiver/activity events remain available after process death and
+before the user unlocks the device. A `delivered` row is appended only after at
+least one real native delivery path (notification, alarm screen, or vibration)
+succeeds. A `dismissed` row is appended only for the explicit current-alarm Stop
+action; activity destruction or configuration changes do not invent dismissal.
+
+`eventId` is an opaque stable identity to Dart. Android currently derives it
+from the exact `platformAlarmId` and event type, making a retried semantic event
+overwrite the same persisted row instead of duplicating it. Every returned
+batch has unique, non-empty event IDs and is ordered by `timestampMillis`, then
+`eventId`, for deterministic replay. Consumers must not treat timestamps alone
+as a global causal order.
+
+Fetch is non-destructive. Android retains at most 200 valid rows, always keeps
+the newly recorded row, and evicts the oldest retained rows deterministically.
+Persisted rows carry their own storage schema version and must match their
+preference key and derived event identity. On a corrupt or key-mismatched row,
+Android removes the bad row and reports `PlatformException` code `CORRUPT` for
+that fetch. A row with an unknown storage schema is retained for rollback
+safety and causes `CORRUPT` on every fetch until compatible code handles it.
+If a real event later needs that same deterministic key, Android atomically
+wraps the opaque future row under a reserved archival key and writes the new
+schema-1 event at the canonical key. Archived rows are outside schema-1 fetch,
+acknowledgement, and retention; this prevents an unknown payload from blocking
+or being deleted with the current event while preserving it for compatible
+future recovery. Dart also treats a malformed response, unsupported channel
+schema, unknown event
+type, negative timestamp, or duplicate event ID as an empty failed fetch. In
+all of these cases it acknowledges nothing.
+
+## `acknowledgeAlarmEvents`
+
+Request:
+
+```json
+{
+  "schemaVersion": 1,
+  "eventIds": [
+    "platform-occ-1:delivered"
+  ]
+}
+```
+
+Success response:
+
+```json
+{
+  "schemaVersion": 1,
+  "status": "success"
+}
+```
+
+The request must contain a list of unique, non-empty event IDs. Android removes
+only rows named by the request; unknown IDs are harmless and unnamed rows are
+preserved. An empty list is a successful no-op. Malformed payloads are rejected
+with `INVALID_REQUEST`, and a native commit failure is reported as
+`NATIVE_ERROR` without claiming acknowledgement.
+
+The required consumer sequence is:
+
+1. Fetch native events.
+2. Apply their effects idempotently and durably persist the Dart-side state.
+3. Acknowledge exactly the event IDs whose effects were durably persisted.
+
+A crash or failure before step 3 intentionally causes replay rather than event
+loss. Missing-plugin, platform, or malformed acknowledgement responses are
+therefore compatibility-safe no-ops from Dart's perspective: the native rows
+remain pending and may be fetched again.
 
 ## `scheduleTestAlarm`
 

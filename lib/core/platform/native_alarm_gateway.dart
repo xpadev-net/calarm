@@ -25,6 +25,34 @@ abstract class NativeAlarmGateway {
       message: 'Native inventory is not implemented by this gateway.',
     );
   }
+
+  /// Reads pending native delivery/dismissal events without removing them.
+  ///
+  /// Callers must durably persist the resulting state changes before calling
+  /// [acknowledgeAlarmEvents]. Older plugins and unsupported platforms expose
+  /// an empty journal through this additive default.
+  Future<List<NativeAlarmEvent>> fetchAlarmEvents() async => const [];
+
+  /// Removes exactly the named events after Dart has durably applied them.
+  ///
+  /// Older plugins and unsupported platforms treat acknowledgement as a no-op.
+  Future<void> acknowledgeAlarmEvents(List<String> eventIds) async {}
+}
+
+enum NativeAlarmEventType { delivered, dismissed }
+
+class NativeAlarmEvent {
+  const NativeAlarmEvent({
+    required this.eventId,
+    required this.platformAlarmId,
+    required this.type,
+    required this.timestamp,
+  });
+
+  final String eventId;
+  final String platformAlarmId;
+  final NativeAlarmEventType type;
+  final DateTime timestamp;
 }
 
 enum NativeAlarmCapabilityFailureReason {

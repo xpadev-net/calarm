@@ -47,6 +47,8 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
       <NativeTestAlarmScheduleRequest>[];
   final List<NativeAlarmInventoryRow> inventoryRows =
       <NativeAlarmInventoryRow>[];
+  final List<NativeAlarmEvent> pendingAlarmEvents = <NativeAlarmEvent>[];
+  final List<String> acknowledgedAlarmEventIds = <String>[];
   NativeAlarmInventoryFailureReason? inventoryFailureReason;
 
   @override
@@ -164,6 +166,67 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
       return NativeAlarmInventoryResult.failure(reason: failureReason);
     }
     return NativeAlarmInventoryResult.success(rows: inventoryRows);
+  }
+
+  @override
+  Future<List<NativeAlarmEvent>> fetchAlarmEvents() async {
+    final retained = _normalizePendingAlarmEvents();
+    if (retained == null) return const [];
+    return List<NativeAlarmEvent>.unmodifiable(retained);
+  }
+
+  List<NativeAlarmEvent>? _normalizePendingAlarmEvents() {
+    final retainedById = <String, NativeAlarmEvent>{};
+    for (final event in pendingAlarmEvents) {
+      if (event.eventId.trim().isEmpty ||
+          event.platformAlarmId.trim().isEmpty ||
+          event.timestamp.millisecondsSinceEpoch < 0) {
+        return null;
+      }
+      retainedById[event.eventId] = event;
+      if (retainedById.length > 200) {
+        final oldest = retainedById.values
+            .where((candidate) => candidate.eventId != event.eventId)
+            .reduce(_olderAlarmEvent);
+        retainedById.remove(oldest.eventId);
+      }
+    }
+    final retained = retainedById.values.toList()..sort(_compareAlarmEvents);
+    pendingAlarmEvents
+      ..clear()
+      ..addAll(retained);
+    return retained;
+  }
+
+  @override
+  Future<void> acknowledgeAlarmEvents(List<String> eventIds) async {
+    if (eventIds.any((eventId) => eventId.trim().isEmpty)) {
+      throw ArgumentError.value(
+        eventIds,
+        'eventIds',
+        'must contain only non-empty strings',
+      );
+    }
+    if (eventIds.toSet().length != eventIds.length) {
+      throw ArgumentError.value(eventIds, 'eventIds', 'must be unique');
+    }
+    acknowledgedAlarmEventIds.addAll(eventIds);
+    if (_normalizePendingAlarmEvents() == null) return;
+    pendingAlarmEvents.removeWhere((event) => eventIds.contains(event.eventId));
+  }
+
+  NativeAlarmEvent _olderAlarmEvent(
+    NativeAlarmEvent left,
+    NativeAlarmEvent right,
+  ) {
+    return _compareAlarmEvents(left, right) <= 0 ? left : right;
+  }
+
+  int _compareAlarmEvents(NativeAlarmEvent left, NativeAlarmEvent right) {
+    final timestampComparison = left.timestamp.compareTo(right.timestamp);
+    return timestampComparison != 0
+        ? timestampComparison
+        : left.eventId.compareTo(right.eventId);
   }
 
   CancelResult _cancel(List<NativeAlarmCancelRequest> alarms) {

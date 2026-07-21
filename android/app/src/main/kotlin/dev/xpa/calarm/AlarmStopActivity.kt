@@ -13,6 +13,7 @@ import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.Button
@@ -87,7 +88,7 @@ class AlarmStopActivity : Activity() {
             text = if (isRinging) "Stop current alarm" else "Close"
             setOnClickListener {
                 if (isRinging) {
-                    cleanupAlarm()
+                    dismissCurrentAlarm()
                     finishAndRemoveTask()
                 } else {
                     finish()
@@ -210,6 +211,19 @@ class AlarmStopActivity : Activity() {
         AlarmStore(this).remove(alarmId)
     }
 
+    private fun dismissCurrentAlarm() {
+        if (!isRinging || alarmCleanedUp) return
+        val alarmId = platformAlarmId
+        if (
+            alarmId != null &&
+            AlarmStore(this).get(alarmId) != null &&
+            !AlarmEventStore(this).appendDismissed(alarmId, System.currentTimeMillis())
+        ) {
+            Log.e(TAG, "Failed to persist a dismissed native alarm event.")
+        }
+        cleanupAlarm()
+    }
+
     private fun configureRingingPresentation() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
@@ -304,6 +318,7 @@ class AlarmStopActivity : Activity() {
     }
 
     private companion object {
+        const val TAG = "CalarmAlarmStop"
         const val STATE_IS_RINGING = "is_ringing"
         const val STATE_PLATFORM_ALARM_ID = "platform_alarm_id"
         const val CLOCK_TICK_MILLIS = 60_000L
