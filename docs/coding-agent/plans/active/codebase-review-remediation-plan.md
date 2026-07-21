@@ -562,9 +562,11 @@
 
 ### Task_19: Improve the Android ringing surface
 
-- status: in progress
+- status: complete
 - worker: `019f862b-b771-7812-abbc-11fc2331d678`
 - branch: `codex/task-19-android-ringing-surface`
+- pr: [#61](https://github.com/xpadev-net/calarm/pull/61)
+- merged: `b4d7d47335c6c4b6eb3d440e4246c0935b6596e1`
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmReceiver.kt`
@@ -583,7 +585,9 @@
 
 ### Task_20: Add a durable Android native-alarm event journal and Dart contract
 
-- status: unstarted
+- status: in progress
+- worker: `019f866d-bce1-7113-b4bd-772eeff25583`
+- branch: `codex/task-20-durable-native-event-journal`
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmReceiver.kt` only for proven-delivery journal hooks
@@ -896,6 +900,13 @@
   - Fresh exact-head review approved with no findings. Worker and orchestrator `gh-review-hook 62` exited 0; hosted Baseline CI, Greptile, CodeRabbit, and Socket checks succeeded with CLEAN, base-current merge state.
   - Orchestrator validation passed focused 193/193 tests, full Flutter 479/479, `flutter analyze`, format 63 files/0 changed, debug APK build, and `git diff --check`.
   - Worker thread `019f862b-b771-7812-abbc-11d1381a08f8` is archived. Task_19 remains the other active Wave 8A task; Task_20 waits for its merge.
+
+- 2026-07-22 Task_19 Android ringing surface completed and Task_20 started.
+  - PR [#61](https://github.com/xpadev-net/calarm/pull/61) merged exact approved head `9251920a7da8cfac4d1f678a8e81e026c9e398e6` as `b4d7d47335c6c4b6eb3d440e4246c0935b6596e1`.
+  - The native full-screen/private notification now exposes scheduled/current context, wake target, alarm position, and deterministic next same-plan alarm while the public lock-screen notification remains redacted; exact current-only stop and legacy row decoding are preserved.
+  - Fresh exact-head review approved with no findings. Worker and orchestrator `gh-review-hook 61` exited 0; Baseline CI, Android/iOS native smoke, Greptile, CodeRabbit, and Socket checks all succeeded with CLEAN, base-current merge state.
+  - Orchestrator validation passed focused Robolectric `AlarmReceiverTest` 21/21, full Android `:app:testDebugUnitTest`, debug APK, format 63 files/0 changed, and `git diff --check`. The clean worktree first lacked ignored `android/local.properties`; Flutter APK generation restored the local prerequisite and the required native tests then passed.
+  - Worker `019f862b-b771-7812-abbc-11fc2331d678` is archived. Task_20 worker `019f866d-bce1-7113-b4bd-772eeff25583` started from current `origin/master` and owns only the durable event journal/channel contract wave.
 
 ## Decision Log
 
