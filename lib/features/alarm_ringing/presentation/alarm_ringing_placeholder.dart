@@ -1,27 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/platform/method_channel_native_alarm_gateway.dart';
-import '../../../core/platform/native_alarm_gateway.dart';
+import '../../../core/bootstrap/app_bootstrap.dart';
 import '../../../core/time/time.dart';
+import '../../wake_plan/application/wake_plan_service_providers.dart';
 import '../../wake_plan/data/wake_plan_data.dart';
 import '../application/alarm_ringing_controller.dart';
 
-final alarmRingingClockProvider = Provider<DateTime Function()>((ref) {
-  return DateTime.now;
-});
+final alarmRingingClockProvider = wakePlanClockProvider;
 
-final alarmRingingNativeAlarmGatewayProvider = Provider<NativeAlarmGateway>((
-  ref,
-) {
-  return MethodChannelNativeAlarmGateway();
-});
+final alarmRingingNativeAlarmGatewayProvider = appNativeAlarmGatewayProvider;
 
-final alarmRingingRepositoryProvider = FutureProvider<WakePlanRepository>((
-  ref,
-) async {
-  return ref.watch(appWakePlanRepositoryProvider.future);
-});
+final alarmRingingRepositoryProvider = appWakePlanRepositoryProvider;
 
 final alarmRingingControllerProvider = FutureProvider<AlarmRingingController>((
   ref,
@@ -32,6 +22,7 @@ final alarmRingingControllerProvider = FutureProvider<AlarmRingingController>((
     ),
     nativeAlarmGateway: ref.watch(alarmRingingNativeAlarmGatewayProvider),
     clock: ref.watch(alarmRingingClockProvider),
+    coordinator: ref.watch(wakePlanMutationCoordinatorProvider),
   );
 });
 

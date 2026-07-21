@@ -9,8 +9,7 @@ import 'features/alarm_ringing/presentation/alarm_ringing_placeholder.dart';
 import 'features/settings/presentation/settings_placeholder.dart';
 import 'features/settings/application/alarm_health_controller.dart';
 import 'features/settings/presentation/alarm_permission_gate.dart';
-import 'features/wake_plan/application/wake_plan_service.dart';
-import 'features/wake_plan/data/src/app_wake_plan_repository_provider.dart';
+import 'features/wake_plan/application/wake_plan_service_providers.dart';
 import 'features/wake_plan/presentation/wake_plan_placeholder.dart';
 import 'features/week_calendar/presentation/week_calendar_placeholder.dart';
 
@@ -19,12 +18,7 @@ const _homeToolsButtonKey = ValueKey<String>('home-tools-button');
 const _homeSectionsScrollKey = ValueKey<String>('home-sections-scroll');
 const _homeToolsTooltip = 'Open alarm and settings';
 
-final appWakePlanServiceProvider = FutureProvider<WakePlanService>((ref) async {
-  return WakePlanService(
-    repository: await ref.watch(appWakePlanRepositoryProvider.future),
-    nativeAlarmGateway: ref.watch(appNativeAlarmGatewayProvider),
-  );
-});
+final appWakePlanServiceProvider = wakePlanServiceProvider;
 
 class CalarmApp extends ConsumerStatefulWidget {
   const CalarmApp({super.key});

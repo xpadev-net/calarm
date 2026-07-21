@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:calarm/core/platform/fake_native_alarm_gateway.dart';
 import 'package:calarm/core/platform/native_alarm_gateway.dart';
 import 'package:calarm/core/time/time.dart';
 import 'package:calarm/features/alarm_ringing/application/alarm_ringing_controller.dart';
+import 'package:calarm/features/wake_plan/application/wake_plan_service.dart';
 import 'package:calarm/features/wake_plan/domain/wake_plan_domain.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -200,6 +203,53 @@ void main() {
     );
     expect(store.occurrences[future.id]!.platformAlarmId, 'native-future');
   });
+
+  test(
+    'dismissCurrent serializes with service mutations on the shared coordinator',
+    () async {
+      final coordinator = WakePlanMutationCoordinator();
+      final gate = Completer<void>();
+      final order = <String>[];
+      final current = _occurrence(
+        id: 'plan-1:20640:410',
+        day: monday,
+        minute: 410,
+        status: AlarmOccurrenceStatus.ringing,
+        platformAlarmId: 'native-current',
+        firedAt: DateTime(2026, 7, 6, 6, 50),
+      );
+      final store = _AlarmRingingStore(
+        plans: [_plan(day: monday)],
+        occurrences: [current],
+      );
+      final controller = AlarmRingingController(
+        store: store,
+        nativeAlarmGateway: FakeNativeAlarmGateway(),
+        clock: () => DateTime(2026, 7, 6, 6, 50),
+        coordinator: coordinator,
+      );
+
+      final blockingMutation = coordinator.run(() async {
+        order.add('mutation-start');
+        await gate.future;
+        order.add('mutation-end');
+      });
+      final dismissal = controller.dismissCurrent(current.id).then((result) {
+        order.add('dismiss-end');
+        return result;
+      });
+
+      await Future<void>.delayed(Duration.zero);
+      expect(order, ['mutation-start']);
+
+      gate.complete();
+      await blockingMutation;
+      final result = await dismissal;
+
+      expect(order, ['mutation-start', 'mutation-end', 'dismiss-end']);
+      expect(result, AlarmDismissResult.dismissed);
+    },
+  );
 }
 
 AlarmRingingController _controller(

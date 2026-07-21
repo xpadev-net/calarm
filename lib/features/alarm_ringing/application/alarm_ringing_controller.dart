@@ -1,5 +1,6 @@
 import '../../../core/platform/native_alarm_gateway.dart';
 import '../../../core/time/time.dart';
+import '../../wake_plan/application/wake_plan_service.dart';
 import '../../wake_plan/data/wake_plan_data.dart';
 import '../../wake_plan/domain/wake_plan_domain.dart';
 
@@ -10,11 +11,14 @@ class AlarmRingingController {
     required this.store,
     required this.nativeAlarmGateway,
     AlarmRingingClock? clock,
-  }) : _clock = clock ?? DateTime.now;
+    WakePlanMutationCoordinator? coordinator,
+  }) : _clock = clock ?? DateTime.now,
+       _coordinator = coordinator ?? WakePlanMutationCoordinator();
 
   final AlarmRingingStore store;
   final NativeAlarmGateway nativeAlarmGateway;
   final AlarmRingingClock _clock;
+  final WakePlanMutationCoordinator _coordinator;
 
   Future<AlarmRingingSnapshot?> loadCurrentRinging() async {
     final now = _clock();
@@ -46,7 +50,11 @@ class AlarmRingingController {
     return snapshots.firstOrNull;
   }
 
-  Future<AlarmDismissResult> dismissCurrent(String occurrenceId) async {
+  Future<AlarmDismissResult> dismissCurrent(String occurrenceId) {
+    return _coordinator.run(() => _dismissCurrent(occurrenceId));
+  }
+
+  Future<AlarmDismissResult> _dismissCurrent(String occurrenceId) async {
     final occurrence = await store.fetchAlarmOccurrence(occurrenceId);
     if (occurrence == null) {
       return AlarmDismissResult.notFound;
