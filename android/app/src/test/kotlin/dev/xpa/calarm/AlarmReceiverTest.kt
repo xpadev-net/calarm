@@ -498,6 +498,39 @@ class AlarmReceiverTest {
     }
 
     @Test
+    fun `late delivery still shows the next staged alarm in plan order`() {
+        val now = System.currentTimeMillis()
+        val current = alarmRequest(
+            "android:plan:late-current",
+            vibrationEnabled = false,
+            scheduledAtMillis = now - 120_000,
+        )
+        val next = alarmRequest(
+            "android:plan:late-next",
+            vibrationEnabled = false,
+            scheduledAtMillis = now - 60_000,
+        )
+        assertTrue(AlarmStore(context).put(current))
+        assertTrue(AlarmStore(context).put(next))
+
+        AlarmReceiver().onReceive(
+            context,
+            Shadows.shadowOf(AlarmIntents.receiver(context, current.platformAlarmId)).savedIntent,
+        )
+
+        val notification = context.getSystemService(NotificationManager::class.java)
+            .activeNotifications
+            .single { it.id == current.platformAlarmId.hashCode() }
+            .notification
+        val privateText = notification.extras
+            .getCharSequence(Notification.EXTRA_BIG_TEXT)
+            .toString()
+        val nextTime = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT)
+            .format(java.util.Date(next.scheduledAtMillis))
+        assertTrue(privateText.contains("Next alarm: $nextTime"))
+    }
+
+    @Test
     fun `ringing screen shows scheduled current target position and next alarm context`() {
         val base = System.currentTimeMillis() + 60_000
         val current = alarmRequest(
@@ -558,6 +591,25 @@ class AlarmReceiverTest {
             AlarmIntents.stopActivityIntent(context, disabled.platformAlarmId),
         ).setup()
         assertFalse(shadowVibrator().isVibrating)
+    }
+
+    @Test
+    fun `missing vibrator service degrades without crashing the alarm activity`() {
+        val request = alarmRequest("android:plan:no-vibrator-service", vibrationEnabled = false)
+        assertTrue(AlarmStore(context).put(request))
+        val activity = Robolectric.buildActivity(
+            AlarmStopActivity::class.java,
+            Shadows.shadowOf(AlarmIntents.showIntent(context, request.platformAlarmId)).savedIntent,
+        ).setup().get()
+
+        val resolved = activity.alarmVibrator(
+            vibratorManagerProvider = { null },
+            vibratorProvider = { null },
+        )
+
+        assertNull(resolved)
+        assertFalse(activity.isFinishing)
+        activity.finish()
     }
 
     private fun shadowVibrator(): ShadowVibrator {

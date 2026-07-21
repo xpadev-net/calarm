@@ -153,7 +153,7 @@ class AlarmStopActivity : Activity() {
         val nextAlarm = AlarmStore(this)
             .nextScheduledAfter(
                 request.wakePlanId,
-                maxOf(request.scheduledAtMillis, System.currentTimeMillis()),
+                request.scheduledAtMillis,
             )
         return buildString {
             append("Wake alarm\n")
@@ -264,12 +264,7 @@ class AlarmStopActivity : Activity() {
         val request = AlarmStore(this).get(alarmId) ?: return
         if (!request.vibrationEnabled) return
 
-        val alarmVibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            getSystemService(VibratorManager::class.java).defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            getSystemService(Vibrator::class.java)
-        }
+        val alarmVibrator = alarmVibrator() ?: return
         vibrator = alarmVibrator
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val effect = VibrationEffect.createWaveform(longArrayOf(0, 800, 400), 0)
@@ -288,10 +283,24 @@ class AlarmStopActivity : Activity() {
         vibrator = null
     }
 
-    private fun AlarmRequest.positionLabel(): String? {
-        val index = indexInPlan ?: return null
-        val total = totalInPlan ?: return null
-        return "Alarm ${index + 1} of $total"
+    internal fun alarmVibrator(
+        vibratorManagerProvider: () -> VibratorManager? = {
+            getSystemService(VibratorManager::class.java)
+        },
+        vibratorProvider: () -> Vibrator? = {
+            getSystemService(Vibrator::class.java)
+        },
+    ): Vibrator? {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                vibratorManagerProvider()?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                vibratorProvider()
+            }
+        } catch (_: RuntimeException) {
+            null
+        }
     }
 
     private companion object {

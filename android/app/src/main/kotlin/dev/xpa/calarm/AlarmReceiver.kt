@@ -34,7 +34,7 @@ class AlarmReceiver : BroadcastReceiver() {
                     request,
                     store.nextScheduledAfter(
                         request.wakePlanId,
-                        maxOf(request.scheduledAtMillis, System.currentTimeMillis()),
+                        request.scheduledAtMillis,
                     ),
                 )
             },
@@ -170,12 +170,6 @@ class AlarmReceiver : BroadcastReceiver() {
             @Suppress("DEPRECATION")
             vibrator.vibrate(1_000)
         }
-    }
-
-    private fun AlarmRequest.positionLabel(): String? {
-        val index = indexInPlan ?: return null
-        val total = totalInPlan ?: return null
-        return "Alarm ${index + 1} of $total"
     }
 
     private companion object {

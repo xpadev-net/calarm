@@ -968,6 +968,12 @@ data class AlarmRequest(
     }
 }
 
+internal fun AlarmRequest.positionLabel(): String? {
+    val index = indexInPlan ?: return null
+    val total = totalInPlan ?: return null
+    return "Alarm ${index + 1} of $total"
+}
+
 enum class AlarmState(val value: String) {
     SCHEDULED("scheduled"),
     RINGING("ringing");
