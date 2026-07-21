@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:calarm/core/platform/fake_native_alarm_gateway.dart';
 import 'package:calarm/core/platform/method_channel_native_alarm_gateway.dart';
 import 'package:calarm/core/platform/native_alarm_gateway.dart';
 import 'package:flutter/services.dart';
@@ -199,6 +200,195 @@ void main() {
       );
     },
   );
+
+  test('fetchAlarmEvents decodes schema one rows non-destructively', () async {
+    _setHandler(channel, calls, (call) {
+      expect(call.method, 'fetchAlarmEvents');
+      expect(call.arguments, {'schemaVersion': 1});
+      return {
+        'schemaVersion': 1,
+        'events': [
+          {
+            'eventId': 'platform-1:delivered',
+            'platformAlarmId': 'platform-1',
+            'type': 'delivered',
+            'timestampMillis': 1000,
+          },
+          {
+            'eventId': 'platform-1:dismissed',
+            'platformAlarmId': 'platform-1',
+            'type': 'dismissed',
+            'timestampMillis': 2000,
+          },
+        ],
+      };
+    });
+
+    final events = await gateway.fetchAlarmEvents();
+
+    expect(events, hasLength(2));
+    expect(events.first.eventId, 'platform-1:delivered');
+    expect(events.first.platformAlarmId, 'platform-1');
+    expect(events.first.type, NativeAlarmEventType.delivered);
+    expect(
+      events.first.timestamp,
+      DateTime.fromMillisecondsSinceEpoch(1000, isUtc: true),
+    );
+    expect(events.last.type, NativeAlarmEventType.dismissed);
+  });
+
+  test(
+    'fetchAlarmEvents treats old plugins and platform failures as empty',
+    () async {
+      for (final error in <Object>[
+        MissingPluginException('not implemented'),
+        PlatformException(code: 'CORRUPT'),
+      ]) {
+        _setHandler(channel, calls, (_) => throw error);
+        expect(await gateway.fetchAlarmEvents(), isEmpty);
+      }
+    },
+  );
+
+  test(
+    'fetchAlarmEvents rejects malformed or duplicate batches safely',
+    () async {
+      final malformedResponses = <Object?>[
+        null,
+        {'schemaVersion': 2, 'events': <Object?>[]},
+        {
+          'schemaVersion': 1,
+          'events': [
+            {'eventId': 'missing-fields'},
+          ],
+        },
+        {
+          'schemaVersion': 1,
+          'events': [
+            {
+              'eventId': 'unknown-type',
+              'platformAlarmId': 'platform-1',
+              'type': 'unknown',
+              'timestampMillis': 1,
+            },
+          ],
+        },
+        {
+          'schemaVersion': 1,
+          'events': [
+            {
+              'eventId': 'negative-time',
+              'platformAlarmId': 'platform-1',
+              'type': 'delivered',
+              'timestampMillis': -1,
+            },
+          ],
+        },
+        {
+          'schemaVersion': 1,
+          'events': [
+            {
+              'eventId': 'duplicate',
+              'platformAlarmId': 'platform-1',
+              'type': 'delivered',
+              'timestampMillis': 1,
+            },
+            {
+              'eventId': 'duplicate',
+              'platformAlarmId': 'platform-2',
+              'type': 'dismissed',
+              'timestampMillis': 2,
+            },
+          ],
+        },
+      ];
+
+      for (final response in malformedResponses) {
+        _setHandler(channel, calls, (_) => response);
+        expect(await gateway.fetchAlarmEvents(), isEmpty);
+      }
+    },
+  );
+
+  test('acknowledgeAlarmEvents sends only exact validated ids', () async {
+    _setHandler(channel, calls, (call) {
+      expect(call.method, 'acknowledgeAlarmEvents');
+      expect(call.arguments, {
+        'schemaVersion': 1,
+        'eventIds': ['a', 'b'],
+      });
+      return {'schemaVersion': 1, 'status': 'success'};
+    });
+
+    await gateway.acknowledgeAlarmEvents(['a', 'b']);
+
+    expect(calls.single.method, 'acknowledgeAlarmEvents');
+  });
+
+  test(
+    'acknowledgeAlarmEvents validates input before channel mutation',
+    () async {
+      _setHandler(channel, calls, (_) {
+        fail('invalid acknowledgement reached the platform');
+      });
+
+      await expectLater(
+        gateway.acknowledgeAlarmEvents(['']),
+        throwsArgumentError,
+      );
+      await expectLater(
+        gateway.acknowledgeAlarmEvents(['duplicate', 'duplicate']),
+        throwsArgumentError,
+      );
+      await gateway.acknowledgeAlarmEvents(const []);
+
+      expect(calls, isEmpty);
+    },
+  );
+
+  test(
+    'acknowledgeAlarmEvents safely tolerates old plugins and malformed replies',
+    () async {
+      final failures = <FutureOr<Object?> Function()>[
+        () => throw MissingPluginException('not implemented'),
+        () => throw PlatformException(code: 'FAILED'),
+        () => {'schemaVersion': 2, 'status': 'success'},
+        () => {'schemaVersion': 1, 'status': 'failure'},
+      ];
+
+      for (final failure in failures) {
+        _setHandler(channel, calls, (_) => failure());
+        await gateway.acknowledgeAlarmEvents(['still-durable']);
+      }
+    },
+  );
+
+  test('fake event journal replays until exact acknowledgement', () async {
+    final fake = FakeNativeAlarmGateway();
+    fake.pendingAlarmEvents.addAll([
+      NativeAlarmEvent(
+        eventId: 'a',
+        platformAlarmId: 'platform-a',
+        type: NativeAlarmEventType.delivered,
+        timestamp: DateTime.fromMillisecondsSinceEpoch(1, isUtc: true),
+      ),
+      NativeAlarmEvent(
+        eventId: 'b',
+        platformAlarmId: 'platform-b',
+        type: NativeAlarmEventType.dismissed,
+        timestamp: DateTime.fromMillisecondsSinceEpoch(2, isUtc: true),
+      ),
+    ]);
+
+    expect(await fake.fetchAlarmEvents(), hasLength(2));
+    expect(await fake.fetchAlarmEvents(), hasLength(2));
+    await fake.acknowledgeAlarmEvents(['a', 'unknown']);
+
+    expect(fake.acknowledgedAlarmEventIds, ['a', 'unknown']);
+    expect((await fake.fetchAlarmEvents()).map((event) => event.eventId), [
+      'b',
+    ]);
+  });
 
   test('requestPermission uses requestPermissionIfNeeded method', () async {
     _setHandler(channel, calls, (call) {

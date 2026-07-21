@@ -40,6 +40,11 @@ class AlarmReceiver : BroadcastReceiver() {
             },
             screen = { openAlarmScreen(context, platformAlarmId) },
             vibration = if (request.vibrationEnabled) ({ vibrate(context) }) else null,
+            recordDelivered = {
+                if (!AlarmEventStore(context).appendDelivered(platformAlarmId, System.currentTimeMillis())) {
+                    Log.e(TAG, "Failed to persist a delivered native alarm event.")
+                }
+            },
         )
     }
 
@@ -49,22 +54,30 @@ class AlarmReceiver : BroadcastReceiver() {
         notification: () -> Unit,
         screen: () -> Unit,
         vibration: (() -> Unit)?,
-    ) {
-        if (deliverFallbacks(notification, screen, vibration)) return
+        recordDelivered: () -> Unit = {},
+    ): Boolean {
+        if (deliverFallbacks(notification, screen, vibration, recordDelivered)) return true
         if (!store.remove(platformAlarmId)) {
             Log.e(TAG, "Failed to remove an undeliverable ringing alarm from native storage.")
         }
+        return false
     }
 
     internal fun deliverFallbacks(
         notification: () -> Unit,
         screen: () -> Unit,
         vibration: (() -> Unit)?,
+        recordFirstDelivery: () -> Unit = {},
     ): Boolean {
         var delivered = false
+        fun markDelivered() {
+            if (delivered) return
+            delivered = true
+            recordFirstDelivery()
+        }
         try {
             notification()
-            delivered = true
+            markDelivered()
         } catch (error: SecurityException) {
             Log.w(TAG, "Notification permission was revoked while delivering an alarm.", error)
         } catch (error: RuntimeException) {
@@ -72,7 +85,7 @@ class AlarmReceiver : BroadcastReceiver() {
         }
         try {
             screen()
-            delivered = true
+            markDelivered()
         } catch (error: SecurityException) {
             Log.w(TAG, "Full-screen alarm access was revoked while delivering an alarm.", error)
         } catch (error: RuntimeException) {
@@ -81,7 +94,7 @@ class AlarmReceiver : BroadcastReceiver() {
         if (vibration != null) {
             try {
                 vibration()
-                delivered = true
+                markDelivered()
             } catch (error: SecurityException) {
                 Log.w(TAG, "Vibration permission was unavailable while delivering an alarm.", error)
             } catch (error: RuntimeException) {

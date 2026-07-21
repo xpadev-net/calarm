@@ -29,6 +29,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
     private val alarmManager = appContext.getSystemService(AlarmManager::class.java)
     private val notificationManager = appContext.getSystemService(NotificationManager::class.java)
     private val store = AlarmStore(appContext)
+    private val eventStore = AlarmEventStore(appContext)
     private var pendingNotificationPermissionResult: MethodChannel.Result? = null
     private var requestNotificationRuntimePermission: (Activity, Array<String>, Int) -> Unit =
         { permissionActivity, permissions, requestCode ->
@@ -77,6 +78,8 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                     result.success(inventory.response)
                 }
             }
+            "fetchAlarmEvents" -> fetchAlarmEvents(result)
+            "acknowledgeAlarmEvents" -> acknowledgeAlarmEvents(arguments, result)
             "scheduleTestAlarm" -> result.success(scheduleTestAlarm(arguments))
             else -> result.notImplemented()
         }
@@ -779,6 +782,58 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         val failureMessage: String? = null,
     )
 
+    private fun fetchAlarmEvents(result: MethodChannel.Result) {
+        val snapshot = eventStore.fetch()
+        if (snapshot.corruptKeys.isNotEmpty() || snapshot.unsupportedSchemaKeys.isNotEmpty()) {
+            result.error(
+                "CORRUPT",
+                "Native alarm event rows are corrupt or use an unsupported storage schema.",
+                null,
+            )
+            return
+        }
+        result.success(
+            mutableResponse(
+                "events" to snapshot.events.map { event ->
+                    mutableMapOf(
+                        "eventId" to event.eventId,
+                        "platformAlarmId" to event.platformAlarmId,
+                        "type" to event.type.value,
+                        "timestampMillis" to event.timestampMillis,
+                    )
+                },
+            ),
+        )
+    }
+
+    private fun acknowledgeAlarmEvents(
+        arguments: Map<*, *>,
+        result: MethodChannel.Result,
+    ) {
+        val values = arguments["eventIds"] as? List<*>
+        val eventIds = values?.mapNotNull { value ->
+            (value as? String)?.takeIf { it.isNotBlank() }
+        }
+        if (
+            values == null ||
+            eventIds == null ||
+            eventIds.size != values.size ||
+            eventIds.toSet().size != eventIds.size
+        ) {
+            result.error(
+                "INVALID_REQUEST",
+                "eventIds must be a list of unique non-empty strings.",
+                null,
+            )
+            return
+        }
+        if (!eventStore.acknowledge(eventIds)) {
+            result.error("NATIVE_ERROR", "Failed to acknowledge native alarm events.", null)
+            return
+        }
+        result.success(mutableResponse("status" to "success"))
+    }
+
     companion object {
         const val CHANNEL_NAME = "net.xpadev.calarm/native_alarm"
         const val SCHEMA_VERSION = 1
@@ -982,6 +1037,200 @@ enum class AlarmState(val value: String) {
         fun fromValue(value: String): AlarmState {
             return entries.firstOrNull { it.value == value }
                 ?: throw IllegalArgumentException("Unknown native alarm state: $value")
+        }
+    }
+}
+
+enum class AlarmEventType(val value: String) {
+    DELIVERED("delivered"),
+    DISMISSED("dismissed");
+
+    companion object {
+        fun fromValue(value: String): AlarmEventType {
+            return entries.firstOrNull { it.value == value }
+                ?: throw IllegalArgumentException("Unknown native alarm event type: $value")
+        }
+    }
+}
+
+data class AlarmEvent(
+    val eventId: String,
+    val platformAlarmId: String,
+    val type: AlarmEventType,
+    val timestampMillis: Long,
+) {
+    fun toJson(): JSONObject {
+        return JSONObject()
+            .put("schemaVersion", STORAGE_SCHEMA_VERSION)
+            .put("eventId", eventId)
+            .put("platformAlarmId", platformAlarmId)
+            .put("type", type.value)
+            .put("timestampMillis", timestampMillis)
+    }
+
+    companion object {
+        internal const val STORAGE_SCHEMA_VERSION = 1
+
+        fun fromJson(json: JSONObject): AlarmEvent {
+            require(json.getInt("schemaVersion") == STORAGE_SCHEMA_VERSION) {
+                "Unsupported native alarm event storage schema."
+            }
+            val eventId = json.getString("eventId").takeIf { it.isNotBlank() }
+                ?: throw IllegalArgumentException("eventId must not be blank")
+            val platformAlarmId = json.getString("platformAlarmId").takeIf { it.isNotBlank() }
+                ?: throw IllegalArgumentException("platformAlarmId must not be blank")
+            val type = AlarmEventType.fromValue(json.getString("type"))
+            val timestampMillis = json.getLong("timestampMillis")
+            require(timestampMillis >= 0L) { "timestampMillis must not be negative" }
+            require(eventId == idFor(platformAlarmId, type)) {
+                "eventId does not match the event identity"
+            }
+            return AlarmEvent(eventId, platformAlarmId, type, timestampMillis)
+        }
+
+        fun idFor(platformAlarmId: String, type: AlarmEventType): String {
+            return "$platformAlarmId:${type.value}"
+        }
+    }
+}
+
+data class AlarmEventSnapshot(
+    val events: List<AlarmEvent>,
+    val corruptKeys: List<String> = emptyList(),
+    val unsupportedSchemaKeys: List<String> = emptyList(),
+)
+
+/**
+ * Device-protected journal for the native delivery/dismissal events that Dart
+ * has not yet acknowledged after durably applying their effects.
+ */
+class AlarmEventStore(context: Context) {
+    private val preferences: SharedPreferences = deviceProtectedStorageContext(context)
+        .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+
+    fun appendDelivered(platformAlarmId: String, timestampMillis: Long): Boolean {
+        return append(platformAlarmId, AlarmEventType.DELIVERED, timestampMillis)
+    }
+
+    fun appendDismissed(platformAlarmId: String, timestampMillis: Long): Boolean {
+        return append(platformAlarmId, AlarmEventType.DISMISSED, timestampMillis)
+    }
+
+    fun fetch(): AlarmEventSnapshot = synchronized(lock) {
+        val parsed = readRows()
+        if (parsed.corruptKeys.isNotEmpty()) {
+            val editor = preferences.edit()
+            parsed.corruptKeys.forEach(editor::remove)
+            if (!editor.commit()) {
+                return@synchronized AlarmEventSnapshot(
+                    events = emptyList(),
+                    corruptKeys = parsed.corruptKeys,
+                    unsupportedSchemaKeys = parsed.unsupportedSchemaKeys,
+                )
+            }
+        }
+        AlarmEventSnapshot(
+            events = parsed.events.sortedWith(EVENT_ORDER),
+            corruptKeys = parsed.corruptKeys,
+            unsupportedSchemaKeys = parsed.unsupportedSchemaKeys,
+        )
+    }
+
+    fun acknowledge(eventIds: Collection<String>): Boolean = synchronized(lock) {
+        if (
+            eventIds.any { it.isBlank() } ||
+            eventIds.toSet().size != eventIds.size
+        ) return@synchronized false
+        if (eventIds.isEmpty()) return@synchronized true
+        val editor = preferences.edit()
+        eventIds.forEach(editor::remove)
+        editor.commit()
+    }
+
+    private fun append(
+        platformAlarmId: String,
+        type: AlarmEventType,
+        timestampMillis: Long,
+    ): Boolean = synchronized(lock) {
+        if (platformAlarmId.isBlank() || timestampMillis < 0L) return@synchronized false
+
+        val eventId = AlarmEvent.idFor(platformAlarmId, type)
+        val event = AlarmEvent(eventId, platformAlarmId, type, timestampMillis)
+        val parsed = readRows()
+        if (eventId in parsed.unsupportedSchemaKeys) return@synchronized false
+        val existing = parsed.events
+            .filterNot { it.eventId == eventId }
+            .sortedWith(EVENT_ORDER)
+        val overflow = (existing.size + 1 - MAX_EVENTS).coerceAtLeast(0)
+        val editor = preferences.edit()
+        parsed.corruptKeys.forEach(editor::remove)
+        existing.take(overflow).forEach { editor.remove(it.eventId) }
+        editor.putString(eventId, event.toJson().toString())
+        editor.commit()
+    }
+
+    private fun readRows(): AlarmEventSnapshot {
+        val events = mutableListOf<AlarmEvent>()
+        val corruptKeys = mutableListOf<String>()
+        val unsupportedSchemaKeys = mutableListOf<String>()
+        preferences.all.forEach { (key, value) ->
+            val json = try {
+                (value as? String)?.let(::JSONObject)
+            } catch (_: Exception) {
+                null
+            }
+            if (json == null) {
+                corruptKeys += key
+                return@forEach
+            }
+            val schemaVersion = try {
+                json.getInt("schemaVersion")
+            } catch (_: Exception) {
+                null
+            }
+            if (schemaVersion == null) {
+                corruptKeys += key
+                return@forEach
+            }
+            if (schemaVersion != AlarmEvent.STORAGE_SCHEMA_VERSION) {
+                unsupportedSchemaKeys += key
+                return@forEach
+            }
+            val event = try {
+                AlarmEvent.fromJson(json)
+            } catch (_: Exception) {
+                null
+            }
+            if (event == null || event.eventId != key) {
+                corruptKeys += key
+            } else {
+                events += event
+            }
+        }
+        return AlarmEventSnapshot(
+            events = events,
+            corruptKeys = corruptKeys.sorted(),
+            unsupportedSchemaKeys = unsupportedSchemaKeys.sorted(),
+        )
+    }
+
+    private companion object {
+        const val PREFERENCES_NAME = "native_alarm_events"
+        const val MAX_EVENTS = 200
+        val lock = Any()
+        val EVENT_ORDER = compareBy<AlarmEvent> { it.timestampMillis }.thenBy { it.eventId }
+
+        fun deviceProtectedStorageContext(context: Context): Context {
+            val applicationContext = context.applicationContext
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                if (applicationContext.isDeviceProtectedStorage) {
+                    applicationContext
+                } else {
+                    applicationContext.createDeviceProtectedStorageContext()
+                }
+            } else {
+                applicationContext
+            }
         }
     }
 }

@@ -47,6 +47,8 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
       <NativeTestAlarmScheduleRequest>[];
   final List<NativeAlarmInventoryRow> inventoryRows =
       <NativeAlarmInventoryRow>[];
+  final List<NativeAlarmEvent> pendingAlarmEvents = <NativeAlarmEvent>[];
+  final List<String> acknowledgedAlarmEventIds = <String>[];
   NativeAlarmInventoryFailureReason? inventoryFailureReason;
 
   @override
@@ -164,6 +166,27 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
       return NativeAlarmInventoryResult.failure(reason: failureReason);
     }
     return NativeAlarmInventoryResult.success(rows: inventoryRows);
+  }
+
+  @override
+  Future<List<NativeAlarmEvent>> fetchAlarmEvents() async {
+    return List<NativeAlarmEvent>.unmodifiable(pendingAlarmEvents);
+  }
+
+  @override
+  Future<void> acknowledgeAlarmEvents(List<String> eventIds) async {
+    if (eventIds.any((eventId) => eventId.trim().isEmpty)) {
+      throw ArgumentError.value(
+        eventIds,
+        'eventIds',
+        'must contain only non-empty strings',
+      );
+    }
+    if (eventIds.toSet().length != eventIds.length) {
+      throw ArgumentError.value(eventIds, 'eventIds', 'must be unique');
+    }
+    acknowledgedAlarmEventIds.addAll(eventIds);
+    pendingAlarmEvents.removeWhere((event) => eventIds.contains(event.eventId));
   }
 
   CancelResult _cancel(List<NativeAlarmCancelRequest> alarms) {

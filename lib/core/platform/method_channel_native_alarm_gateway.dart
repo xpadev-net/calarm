@@ -344,6 +344,67 @@ class MethodChannelNativeAlarmGateway implements NativeAlarmGateway {
     }
   }
 
+  @override
+  Future<List<NativeAlarmEvent>> fetchAlarmEvents() async {
+    try {
+      final response = await _invokeMap('fetchAlarmEvents', _basePayload());
+      _verifySchemaVersion(response);
+      final events = _requiredList(
+        response,
+        'events',
+      ).map(_alarmEvent).toList(growable: false);
+      final eventIds = events.map((event) => event.eventId).toSet();
+      if (eventIds.length != events.length) {
+        throw const FormatException('Native alarm eventIds must be unique.');
+      }
+      return events;
+    } on MissingPluginException {
+      return const [];
+    } on PlatformException {
+      return const [];
+    } on FormatException {
+      return const [];
+    } on ArgumentError {
+      return const [];
+    } on TypeError {
+      return const [];
+    }
+  }
+
+  @override
+  Future<void> acknowledgeAlarmEvents(List<String> eventIds) async {
+    if (eventIds.any((eventId) => eventId.trim().isEmpty)) {
+      throw ArgumentError.value(
+        eventIds,
+        'eventIds',
+        'must contain only non-empty strings',
+      );
+    }
+    if (eventIds.toSet().length != eventIds.length) {
+      throw ArgumentError.value(eventIds, 'eventIds', 'must be unique');
+    }
+    if (eventIds.isEmpty) return;
+
+    try {
+      final response = await _invokeMap('acknowledgeAlarmEvents', {
+        ..._basePayload(),
+        'eventIds': eventIds,
+      });
+      _verifySchemaVersion(response);
+      if (_requiredString(response, 'status') != 'success') {
+        throw const FormatException('Native alarm acknowledgement failed.');
+      }
+    } on MissingPluginException {
+      // Unsupported platforms have no native journal to acknowledge.
+    } on PlatformException {
+      // The native rows remain durable and will be replayed on the next fetch.
+    } on FormatException {
+      // A malformed acknowledgement cannot prove deletion; replay is safe.
+    } on TypeError {
+      // A malformed acknowledgement cannot prove deletion; replay is safe.
+    }
+  }
+
   Future<Map<String, Object?>> _invokeMap(
     String method,
     Map<String, Object?> arguments,
@@ -474,6 +535,31 @@ NativeAlarmInventoryRow _inventoryRow(Object? value) {
   );
 }
 
+NativeAlarmEvent _alarmEvent(Object? value) {
+  final map = _asMap(value, 'native alarm event');
+  final timestampMillis = _requiredInt(map, 'timestampMillis');
+  if (timestampMillis < 0) {
+    throw const FormatException('timestampMillis must not be negative.');
+  }
+  return NativeAlarmEvent(
+    eventId: _requiredString(map, 'eventId'),
+    platformAlarmId: _requiredString(map, 'platformAlarmId'),
+    type: _alarmEventType(_requiredString(map, 'type')),
+    timestamp: DateTime.fromMillisecondsSinceEpoch(
+      timestampMillis,
+      isUtc: true,
+    ),
+  );
+}
+
+NativeAlarmEventType _alarmEventType(String value) {
+  return switch (value) {
+    'delivered' => NativeAlarmEventType.delivered,
+    'dismissed' => NativeAlarmEventType.dismissed,
+    _ => throw FormatException('Unknown native alarm event type: $value'),
+  };
+}
+
 void _verifySchemaVersion(Map<String, Object?> map) {
   final schemaVersion = map['schemaVersion'];
   if (schemaVersion != nativeAlarmChannelSchemaVersion) {
@@ -536,6 +622,14 @@ bool _optionalBool(
   }
   if (value is! bool) {
     throw FormatException('$key must be a bool.');
+  }
+  return value;
+}
+
+int _requiredInt(Map<String, Object?> map, String key) {
+  final value = map[key];
+  if (value is! int) {
+    throw FormatException('$key must be an int.');
   }
   return value;
 }
