@@ -585,9 +585,11 @@
 
 ### Task_20: Add a durable Android native-alarm event journal and Dart contract
 
-- status: in progress
+- status: complete
 - worker: `019f866d-bce1-7113-b4bd-772eeff25583`
 - branch: `codex/task-20-durable-native-event-journal`
+- pr: [#63](https://github.com/xpadev-net/calarm/pull/63)
+- merged: `2e7e8f5e9827d5f6deb2b2b5dcfe9a57c6460081`
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmReceiver.kt` only for proven-delivery journal hooks
@@ -611,7 +613,9 @@
 
 ### Task_21: Integrate native events with Task_13 reconciliation and current selection
 
-- status: unstarted
+- status: in progress
+- worker: `019f86ce-0831-7702-a013-8d516a62a98f`
+- branch: `codex/task-21-native-event-reconciliation`
 - type: impl
 - owns:
   - `lib/features/wake_plan/application/wake_plan_service.dart`
@@ -907,6 +911,13 @@
   - Fresh exact-head review approved with no findings. Worker and orchestrator `gh-review-hook 61` exited 0; Baseline CI, Android/iOS native smoke, Greptile, CodeRabbit, and Socket checks all succeeded with CLEAN, base-current merge state.
   - Orchestrator validation passed focused Robolectric `AlarmReceiverTest` 21/21, full Android `:app:testDebugUnitTest`, debug APK, format 63 files/0 changed, and `git diff --check`. The clean worktree first lacked ignored `android/local.properties`; Flutter APK generation restored the local prerequisite and the required native tests then passed.
   - Worker `019f862b-b771-7812-abbc-11fc2331d678` is archived. Task_20 worker `019f866d-bce1-7113-b4bd-772eeff25583` started from current `origin/master` and owns only the durable event journal/channel contract wave.
+
+- 2026-07-22 Task_20 durable native event journal completed and Task_21 started.
+  - PR [#63](https://github.com/xpadev-net/calarm/pull/63) merged exact approved head `77f68c0bb59545908ba577950dc31bc649c3b13c` as `2e7e8f5e9827d5f6deb2b2b5dcfe9a57c6460081`.
+  - Android now persists delivered/dismissed events synchronously in device-protected storage with non-destructive fetch, exact acknowledgement, deterministic dedupe/order/cap, corrupt-row handling, and rollback-safe future-schema isolation; the additive Dart gateway contract preserves old-plugin behavior.
+  - Fresh exact-head review approved with no findings after multiple durability fixes. Worker and orchestrator `gh-review-hook 63` exited 0; Baseline CI, Android/iOS native smoke, Greptile, CodeRabbit, and Socket checks all succeeded with CLEAN, base-current merge state.
+  - Orchestrator validation passed focused Kotlin event/receiver 32/32, full Android `:app:testDebugUnitTest`, focused Dart gateway 31/31, full Flutter 487/487, `flutter analyze`, debug APK, format 63 files/0 changed, and `git diff --check`.
+  - Worker `019f866d-bce1-7113-b4bd-772eeff25583` is archived. Task_21 worker `019f86ce-0831-7702-a013-8d516a62a98f` started from current `origin/master` for the final Task_13-aware event/ringing reconciliation wave.
 
 ## Decision Log
 
