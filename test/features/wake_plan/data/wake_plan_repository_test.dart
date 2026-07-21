@@ -276,6 +276,25 @@ void main() {
     );
 
     test(
+      'fetches the complete occurrence inventory for reconciliation',
+      () async {
+        await repository.saveWakePlan(buildPlan());
+        await repository.saveWakePlan(buildPlan(id: 'plan-2'));
+        await repository.saveAlarmOccurrences([
+          buildOccurrence(id: 'occ-2', wakePlanId: 'plan-2'),
+          buildOccurrence(id: 'occ-1'),
+        ]);
+
+        final inventory = await repository.fetchOccurrencesForReconciliation();
+
+        expect(inventory.map((occurrence) => occurrence.id), [
+          'occ-1',
+          'occ-2',
+        ]);
+      },
+    );
+
+    test(
       'updates and clears nullable platform alarm id for native lifecycle',
       () async {
         await repository.saveWakePlan(buildPlan());

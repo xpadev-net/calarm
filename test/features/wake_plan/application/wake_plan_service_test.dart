@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:calarm/core/platform/fake_native_alarm_gateway.dart';
 import 'package:calarm/core/platform/native_alarm_gateway.dart';
 import 'package:calarm/core/time/time.dart';
 import 'package:calarm/features/wake_plan/application/wake_plan_service.dart';
 import 'package:calarm/features/wake_plan/application/occurrence_planner.dart';
+import 'package:calarm/features/wake_plan/data/wake_plan_data.dart';
 import 'package:calarm/features/wake_plan/domain/wake_plan_domain.dart';
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -726,7 +729,8 @@ void main() {
         ]);
         final first = concurrent.first;
         expect(concurrent.last.single.occurrences, hasLength(8));
-        final secondGateway = FakeNativeAlarmGateway();
+        final secondGateway = FakeNativeAlarmGateway()
+          ..inventoryRows.addAll(firstGateway.inventoryRows);
         final second = await service(
           store: store,
           gateway: secondGateway,
@@ -815,7 +819,8 @@ void main() {
           rollingScheduleDays: 2,
         ).reconcileSchedules();
 
-        final nextGateway = FakeNativeAlarmGateway();
+        final nextGateway = FakeNativeAlarmGateway()
+          ..inventoryRows.addAll(firstGateway.inventoryRows);
         final result = await service(
           store: store,
           gateway: nextGateway,
@@ -892,9 +897,10 @@ void main() {
       () async {
         final plan = buildPlan(repeatRule: RepeatRule.weekly({Weekday.monday}));
         final store = _LoggingWakePlanServiceStore()..wakePlans = [plan];
+        final initialGateway = FakeNativeAlarmGateway();
         await service(
           store: store,
-          gateway: FakeNativeAlarmGateway(),
+          gateway: initialGateway,
           rollingScheduleDays: 1,
         ).reconcileSchedules();
 
@@ -910,7 +916,8 @@ void main() {
                   : occurrence,
             )
             .toList(growable: false);
-        final retryGateway = FakeNativeAlarmGateway();
+        final retryGateway = FakeNativeAlarmGateway()
+          ..inventoryRows.addAll(initialGateway.inventoryRows);
 
         final result = await service(
           store: store,
@@ -988,6 +995,458 @@ void main() {
       );
       expect(gateway.scheduledRequests, isEmpty);
     });
+  });
+
+  group('WakePlanService whole-inventory reconciliation', () {
+    final plan = buildPlan(
+      startOffset: Duration.zero,
+      repeatRule: RepeatRule.weekly({Weekday.monday}),
+    );
+    final occurrenceId = 'plan-1:20640:420';
+
+    for (final scenario in [
+      (
+        name: 'exact match',
+        storedId: 'native-authoritative',
+        includeStored: true,
+        includeNative: true,
+        expectedScheduledCalls: 0,
+      ),
+      (
+        name: 'stale platform id',
+        storedId: 'native-stale',
+        includeStored: true,
+        includeNative: true,
+        expectedScheduledCalls: 0,
+      ),
+      (
+        name: 'matching native-only',
+        storedId: null,
+        includeStored: false,
+        includeNative: true,
+        expectedScheduledCalls: 0,
+      ),
+      (
+        name: 'DB-only',
+        storedId: 'native-missing',
+        includeStored: true,
+        includeNative: false,
+        expectedScheduledCalls: 1,
+      ),
+    ]) {
+      test('${scenario.name} converges from one snapshot', () async {
+        final stored = buildOccurrence(
+          id: occurrenceId,
+          platformAlarmId: scenario.storedId,
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan]
+          ..storedOccurrences = scenario.includeStored ? [stored] : [];
+        final gateway = _CountingInventoryGateway();
+        if (scenario.includeNative) {
+          gateway.inventoryRows.add(
+            inventoryRow(stored, platformAlarmId: 'native-authoritative'),
+          );
+        }
+
+        final serviceUnderTest = service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 1,
+        );
+        final result = await serviceUnderTest.reconcileSchedules();
+
+        expect(result.single.status, WakePlanSchedulingStatus.scheduled);
+        expect(gateway.inventoryCalls, 1);
+        expect(
+          gateway.scheduledRequests,
+          hasLength(scenario.expectedScheduledCalls),
+        );
+        expect(store.storedOccurrences.single.platformAlarmId, isNotNull);
+        expect(
+          store.storedOccurrences.single.platformAlarmId,
+          scenario.includeNative
+              ? 'native-authoritative'
+              : 'platform-$occurrenceId',
+        );
+        final sideEffectCount =
+            gateway.scheduledRequests.length +
+            gateway.cancelledOccurrences.length;
+        await Future.wait([
+          serviceUnderTest.reconcileSchedules(),
+          serviceUnderTest.reconcileSchedules(),
+        ]);
+        expect(
+          gateway.scheduledRequests.length +
+              gateway.cancelledOccurrences.length,
+          sideEffectCount,
+        );
+      });
+    }
+
+    test('cancels owned native-only rows and retains unrelated rows', () async {
+      final disabledPlan = buildPlan(
+        id: 'disabled-plan',
+        startOffset: Duration.zero,
+        repeatRule: RepeatRule.weekly({Weekday.monday}),
+        isEnabled: false,
+      );
+      final disabledOccurrence = AlarmOccurrence(
+        id: 'disabled-plan:20640:420',
+        wakePlanId: disabledPlan.id,
+        scheduledAt: DateMinute(day: monday, time: targetTime),
+        status: AlarmOccurrenceStatus.scheduled,
+        platformAlarmId: 'native-disabled',
+        createdAt: now,
+        updatedAt: now,
+      );
+      final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+        ..wakePlans = [plan, disabledPlan]
+        ..storedOccurrences = [disabledOccurrence];
+      final gateway = _CountingInventoryGateway()
+        ..inventoryRows.addAll([
+          NativeAlarmInventoryRow(
+            reservationId: 'owned-extra',
+            occurrenceId: 'owned-extra',
+            wakePlanId: 'plan-1',
+            platformAlarmId: 'native-owned-extra',
+            status: NativeAlarmReservationStatus.scheduled,
+          ),
+          inventoryRow(disabledOccurrence, platformAlarmId: 'native-disabled'),
+          NativeAlarmInventoryRow(
+            reservationId: 'other-extra',
+            occurrenceId: 'other-extra',
+            wakePlanId: 'other-plan',
+            platformAlarmId: 'native-other-extra',
+            status: NativeAlarmReservationStatus.scheduled,
+          ),
+        ]);
+
+      final serviceUnderTest = service(
+        store: store,
+        gateway: gateway,
+        rollingScheduleDays: 1,
+      );
+      await serviceUnderTest.reconcileSchedules();
+
+      expect(
+        gateway.cancelledOccurrences.map((request) => request.occurrenceId),
+        containsAll(['owned-extra', disabledOccurrence.id]),
+      );
+      expect(
+        gateway.inventoryRows.map((row) => row.occurrenceId),
+        contains('other-extra'),
+      );
+      await Future.wait([
+        serviceUnderTest.reconcileSchedules(),
+        serviceUnderTest.reconcileSchedules(),
+      ]);
+      expect(gateway.cancelledOccurrences, hasLength(2));
+    });
+
+    for (final failureMode in ['reported', 'lost reply']) {
+      test('owned orphan cancel $failureMode converges on retry', () async {
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan];
+        final gateway =
+            failureMode == 'lost reply'
+                  ? _PostSideEffectThrowingGateway(throwAfterCancel: true)
+                  : FakeNativeAlarmGateway()
+              ..inventoryRows.add(
+                NativeAlarmInventoryRow(
+                  reservationId: 'owned-extra',
+                  occurrenceId: 'owned-extra',
+                  wakePlanId: plan.id,
+                  platformAlarmId: 'native-owned-extra',
+                  status: NativeAlarmReservationStatus.scheduled,
+                ),
+              );
+        if (failureMode == 'reported') {
+          gateway.cancelFailurePlatformAlarmIds.add('native-owned-extra');
+        }
+        final serviceUnderTest = service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 1,
+        );
+
+        final first = await serviceUnderTest.reconcileSchedules();
+        expect(first.single.status, WakePlanSchedulingStatus.recoveryRequired);
+        gateway.cancelFailurePlatformAlarmIds.clear();
+        final retried = await serviceUnderTest.reconcileSchedules();
+
+        expect(retried.single.status, WakePlanSchedulingStatus.scheduled);
+        expect(gateway.inventoryRows, hasLength(1));
+        expect(gateway.inventoryRows.single.occurrenceId, occurrenceId);
+      });
+    }
+
+    test(
+      'adoption persistence failure converges without rescheduling',
+      () async {
+        final stored = buildOccurrence(id: occurrenceId, platformAlarmId: null);
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan]
+          ..failSaveAlarmOccurrencesAtCalls.add(1);
+        final gateway = FakeNativeAlarmGateway()
+          ..inventoryRows.add(
+            inventoryRow(stored, platformAlarmId: 'native-authoritative'),
+          );
+        final serviceUnderTest = service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 1,
+        );
+
+        final first = await serviceUnderTest.reconcileSchedules();
+        final retried = await serviceUnderTest.reconcileSchedules();
+
+        expect(first.single.status, WakePlanSchedulingStatus.recoveryRequired);
+        expect(retried.single.status, WakePlanSchedulingStatus.scheduled);
+        expect(gateway.scheduledRequests, isEmpty);
+        expect(
+          store.storedOccurrences.single.platformAlarmId,
+          'native-authoritative',
+        );
+      },
+    );
+
+    for (final failure in [
+      NativeAlarmInventoryFailureReason.unavailable,
+      NativeAlarmInventoryFailureReason.corrupt,
+      NativeAlarmInventoryFailureReason.unknown,
+    ]) {
+      test('$failure is non-destructive and observable', () async {
+        final pending = buildOccurrence(
+          id: occurrenceId,
+          status: AlarmOccurrenceStatus.userEnablePending,
+          platformAlarmId: null,
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan]
+          ..storedOccurrences = [pending];
+        final gateway = _CountingInventoryGateway()
+          ..inventoryFailureReason = failure;
+
+        final serviceUnderTest = service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 1,
+        );
+        final result = await serviceUnderTest.reconcileSchedules();
+
+        expect(result.single.status, WakePlanSchedulingStatus.recoveryRequired);
+        expect(gateway.inventoryCalls, 1);
+        expect(gateway.scheduledRequests, isEmpty);
+        expect(gateway.cancelledOccurrences, isEmpty);
+        expect(
+          store.storedOccurrences.single.status,
+          AlarmOccurrenceStatus.userEnablePending,
+        );
+        await Future.wait([
+          serviceUnderTest.reconcileSchedules(),
+          serviceUnderTest.reconcileSchedules(),
+        ]);
+        expect(gateway.scheduledRequests, isEmpty);
+        expect(gateway.cancelledOccurrences, isEmpty);
+      });
+    }
+
+    test('duplicate and conflicting snapshots perform no repair', () async {
+      for (final kind in ['duplicate', 'conflicting']) {
+        final pending = buildOccurrence(
+          id: occurrenceId,
+          status: AlarmOccurrenceStatus.userEnablePending,
+          platformAlarmId: null,
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan]
+          ..storedOccurrences = [pending];
+        final gateway = _CountingInventoryGateway();
+        gateway.inventoryRows.add(
+          inventoryRow(pending, platformAlarmId: 'native-one'),
+        );
+        gateway.inventoryRows.add(
+          kind == 'duplicate'
+              ? inventoryRow(pending, platformAlarmId: 'native-two')
+              : NativeAlarmInventoryRow(
+                  reservationId: 'different-reservation',
+                  occurrenceId: 'plan-1:20640:420',
+                  wakePlanId: 'plan-1',
+                  platformAlarmId: 'native-conflict',
+                  status: NativeAlarmReservationStatus.scheduled,
+                ),
+        );
+
+        final serviceUnderTest = service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 1,
+        );
+        final result = await serviceUnderTest.reconcileSchedules();
+
+        expect(
+          result.single.status,
+          WakePlanSchedulingStatus.recoveryRequired,
+          reason: kind,
+        );
+        expect(gateway.scheduledRequests, isEmpty, reason: kind);
+        expect(gateway.cancelledOccurrences, isEmpty, reason: kind);
+        expect(store.savedOccurrences, isEmpty, reason: kind);
+        await Future.wait([
+          serviceUnderTest.reconcileSchedules(),
+          serviceUnderTest.reconcileSchedules(),
+        ]);
+        expect(gateway.scheduledRequests, isEmpty, reason: kind);
+        expect(gateway.cancelledOccurrences, isEmpty, reason: kind);
+      }
+    });
+
+    test('read failure does not block an unrelated safe plan', () async {
+      final secondPlan = buildPlan(
+        id: 'plan-2',
+        startOffset: Duration.zero,
+        repeatRule: RepeatRule.weekly({Weekday.monday}),
+      );
+      final pending = buildOccurrence(
+        id: occurrenceId,
+        status: AlarmOccurrenceStatus.userEnablePending,
+        platformAlarmId: null,
+      );
+      final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+        ..wakePlans = [plan, secondPlan]
+        ..storedOccurrences = [pending];
+      final gateway = _CountingInventoryGateway(throwOnRead: true);
+
+      final results = await service(
+        store: store,
+        gateway: gateway,
+        rollingScheduleDays: 1,
+      ).reconcileSchedules();
+
+      expect(results, hasLength(2));
+      expect(results, everyElement(isA<WakePlanSchedulingResult>()));
+      expect(gateway.inventoryCalls, 1);
+      expect(gateway.scheduledRequests.map((request) => request.wakePlanId), [
+        'plan-2',
+      ]);
+    });
+
+    test('per-plan prewrite failure continues with later plans', () async {
+      final secondPlan = buildPlan(
+        id: 'plan-2',
+        startOffset: Duration.zero,
+        repeatRule: RepeatRule.weekly({Weekday.monday}),
+      );
+      final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+        ..wakePlans = [plan, secondPlan]
+        ..failSaveAlarmOccurrencesAtCalls.add(1);
+      final gateway = _CountingInventoryGateway();
+
+      final results = await service(
+        store: store,
+        gateway: gateway,
+        rollingScheduleDays: 1,
+      ).reconcileSchedules();
+
+      expect(results.map((result) => result.status), [
+        WakePlanSchedulingStatus.recoveryRequired,
+        WakePlanSchedulingStatus.scheduled,
+      ]);
+      expect(gateway.scheduledRequests.map((request) => request.wakePlanId), [
+        'plan-2',
+      ]);
+    });
+
+    for (final failurePoint in ['lost reply', 'post-result persistence']) {
+      test(
+        '$failurePoint converges after restart without duplicates',
+        () async {
+          final secondPlan = buildPlan(
+            id: 'plan-2',
+            startOffset: Duration.zero,
+            repeatRule: RepeatRule.weekly({Weekday.monday}),
+          );
+          final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+            ..wakePlans = [plan, secondPlan];
+          final gateway = _PostSideEffectThrowingGateway(
+            throwAfterSchedule: failurePoint == 'lost reply',
+          );
+          if (failurePoint == 'post-result persistence') {
+            store.failSaveAlarmOccurrencesAtCalls.add(2);
+          }
+
+          final first = await service(
+            store: store,
+            gateway: gateway,
+            rollingScheduleDays: 1,
+          ).reconcileSchedules();
+          final scheduleCount = gateway.scheduledRequests.length;
+          final reopened = await service(
+            store: store,
+            gateway: gateway,
+            rollingScheduleDays: 1,
+          ).reconcileSchedules();
+
+          expect(first, hasLength(2));
+          expect(reopened, hasLength(2));
+          expect(gateway.scheduledRequests, hasLength(scheduleCount));
+          expect(gateway.inventoryRows, hasLength(2));
+          expect(
+            store.storedOccurrences.map(
+              (occurrence) => occurrence.platformAlarmId,
+            ),
+            everyElement(isNotNull),
+          );
+        },
+      );
+    }
+
+    test(
+      'lost reply converges after file-backed Drift close and reopen',
+      () async {
+        final directory = await Directory.systemTemp.createTemp(
+          'calarm-task13-',
+        );
+        final file = File('${directory.path}/wake-plan.sqlite');
+        final gateway = _PostSideEffectThrowingGateway(
+          throwAfterSchedule: true,
+        );
+        try {
+          var database = WakePlanDatabase(NativeDatabase(file));
+          var repository = WakePlanRepository(database);
+          await repository.saveWakePlan(plan);
+          final first = await WakePlanService(
+            repository: repository,
+            nativeAlarmGateway: gateway,
+            clock: () => now,
+            rollingScheduleDays: 1,
+          ).reconcileSchedules();
+          expect(
+            first.single.status,
+            WakePlanSchedulingStatus.recoveryRequired,
+          );
+          await database.close();
+
+          database = WakePlanDatabase(NativeDatabase(file));
+          repository = WakePlanRepository(database);
+          final reopened = await WakePlanService(
+            repository: repository,
+            nativeAlarmGateway: gateway,
+            clock: () => now,
+            rollingScheduleDays: 1,
+          ).reconcileSchedules();
+          final persisted = await repository.fetchOccurrencesForPlan(plan.id);
+
+          expect(reopened.single.status, WakePlanSchedulingStatus.scheduled);
+          expect(gateway.scheduledRequests, hasLength(1));
+          expect(persisted.single.platformAlarmId, isNotNull);
+          await database.close();
+        } finally {
+          await directory.delete(recursive: true);
+        }
+      },
+    );
   });
 
   group('WakePlanService occurrence toggles', () {
@@ -3058,7 +3517,7 @@ void main() {
             gateway.scheduledRequests.where(
               (request) => request.occurrenceId == first.id,
             ),
-            scenario.applyNativeSideEffect ? hasLength(2) : hasLength(1),
+            hasLength(1),
           );
         },
       );
@@ -5636,6 +6095,12 @@ class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
   }
 
   @override
+  Future<List<AlarmOccurrence>> fetchOccurrencesForReconciliation() async {
+    operations.add('fetchOccurrencesForReconciliation');
+    return List<AlarmOccurrence>.of(storedOccurrences);
+  }
+
+  @override
   Future<List<AlarmOccurrence>> fetchReservedOccurrencesForPlan(
     String wakePlanId,
   ) async {
@@ -5789,6 +6254,22 @@ class _PostSideEffectThrowingGateway extends FakeNativeAlarmGateway {
       throw StateError('injected post-schedule response exception');
     }
     return result;
+  }
+}
+
+class _CountingInventoryGateway extends FakeNativeAlarmGateway {
+  _CountingInventoryGateway({this.throwOnRead = false});
+
+  final bool throwOnRead;
+  var inventoryCalls = 0;
+
+  @override
+  Future<NativeAlarmInventoryResult> getInventory() {
+    inventoryCalls += 1;
+    if (throwOnRead) {
+      throw StateError('injected native inventory read failure');
+    }
+    return super.getInventory();
   }
 }
 

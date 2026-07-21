@@ -327,6 +327,40 @@ Any issue makes the reconciliation non-authoritative. Callers may display or
 repair the issue, but must not convert it into a successful schedule/cancel
 operation.
 
+### Durable inventory authority and repair
+
+Each reconciliation pass reads one native inventory snapshot and compares it
+with the complete eligible Drift occurrence inventory. Native inventory is
+authoritative only for native existence; Drift remains authoritative for plan
+intent, occurrence timing, user suppression, and whether a reservation is
+still desired.
+
+For an authoritative snapshot:
+
+- An active native row whose `(reservationId, occurrenceId, wakePlanId)` tuple
+  exactly matches a canonical Drift occurrence is adopted, including replacing
+  a stale `platformAlarmId`. This also closes schedule-success/lost-reply and
+  post-result Drift-write windows after restart.
+- Authoritative absence clears stale native identity. A future desired
+  occurrence is rescheduled through its stable `reservationId`; a pending user
+  disable becomes disabled; ambiguous forward-compatible state remains marked
+  for recovery.
+- An active native row with no occurrence row may be adopted only when its
+  stable identity exactly names a canonical desired occurrence for a known
+  plan. Other active rows for known plans are owned orphans and are cancelled
+  with their complete exact identity.
+- Rows for unknown plans and inactive native statuses are retained. They are
+  not sufficient evidence of ownership for destructive repair. Native stop and
+  ringing selection remain a separate lifecycle reconciliation concern.
+
+Unavailable reads, corrupt rows, duplicate identities, and conflicting tuples
+make the snapshot non-authoritative. Such a pass performs no inventory-driven
+adoption, clearing, or cancellation, returns `recoveryRequired` for affected
+plans, and may still continue independent non-destructive scheduling work.
+Repeated startup and resume passes must be serialized and idempotent; a failed
+plan repair must not prevent later plans in the same pass from making safe
+progress.
+
 ## `scheduleTestAlarm`
 
 Request:

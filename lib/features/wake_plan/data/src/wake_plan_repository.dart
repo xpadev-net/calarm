@@ -147,6 +147,21 @@ class WakePlanRepository {
         .toList(growable: false);
   }
 
+  Future<List<AlarmOccurrence>> fetchOccurrencesForReconciliation() async {
+    final rows =
+        await (_database.select(_database.alarmOccurrenceRows)..orderBy([
+              (row) => OrderingTerm.asc(row.wakePlanId),
+              (row) => OrderingTerm.asc(row.scheduledAtDays),
+              (row) => OrderingTerm.asc(row.scheduledAtMinutes),
+            ]))
+            .get();
+
+    return rows
+        .map(_tryAlarmOccurrenceFromRow)
+        .whereType<AlarmOccurrence>()
+        .toList(growable: false);
+  }
+
   Future<List<AlarmOccurrence>> fetchOccurrencesForCalendarRange({
     required CalendarDay start,
     required CalendarDay end,
