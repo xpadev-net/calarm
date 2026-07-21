@@ -515,7 +515,7 @@
 
 ### Task_14: Reconcile native stop state and current-ringing selection
 
-- status: split in progress
+- status: complete
 - replacement_tasks: [Task_18, Task_19, Task_20, Task_21]
 - type: impl
 - owns:
@@ -613,9 +613,11 @@
 
 ### Task_21: Integrate native events with Task_13 reconciliation and current selection
 
-- status: in progress
+- status: complete
 - worker: `019f86ce-0831-7702-a013-8d516a62a98f`
 - branch: `codex/task-21-native-event-reconciliation`
+- pr: [#64](https://github.com/xpadev-net/calarm/pull/64)
+- merged: `f06b8625521cf6ba1e48aa251f60f003af68f0f6`
 - type: impl
 - owns:
   - `lib/features/wake_plan/application/wake_plan_service.dart`
@@ -634,7 +636,7 @@
 
 ### Task_15: Final harmonization and repository-wide merge gate
 
-- status: unstarted
+- status: in progress
 - type: review
 - owns: []
 - depends_on: [Task_5, Task_11, Task_12, Task_21]
@@ -918,6 +920,14 @@
   - Fresh exact-head review approved with no findings after multiple durability fixes. Worker and orchestrator `gh-review-hook 63` exited 0; Baseline CI, Android/iOS native smoke, Greptile, CodeRabbit, and Socket checks all succeeded with CLEAN, base-current merge state.
   - Orchestrator validation passed focused Kotlin event/receiver 32/32, full Android `:app:testDebugUnitTest`, focused Dart gateway 31/31, full Flutter 487/487, `flutter analyze`, debug APK, format 63 files/0 changed, and `git diff --check`.
   - Worker `019f866d-bce1-7113-b4bd-772eeff25583` is archived. Task_21 worker `019f86ce-0831-7702-a013-8d516a62a98f` started from current `origin/master` for the final Task_13-aware event/ringing reconciliation wave.
+
+- 2026-07-22 Task_21 native event reconciliation completed and Task_14 closed.
+  - PR [#64](https://github.com/xpadev-net/calarm/pull/64) merged exact approved head `a0f07f619a6ecd651c6aaa1c706bbfc88637845e` as `f06b8625521cf6ba1e48aa251f60f003af68f0f6`.
+  - Native delivered/dismissed events now settle exact Drift occurrences only after authoritative inventory and unambiguous persisted identity checks; persistence precedes acknowledgement, replay is idempotent, and ambiguous/corrupt events remain durable and unapplied.
+  - Ringing selection now uses a bounded 15-minute window with deterministic newest-first ordering, while stale rows cannot mask a current alarm and exact dismissal remains serialized and retryable.
+  - Fresh exact-head review approved with no findings. Worker and orchestrator `gh-review-hook 64` exited 0; Baseline CI, Android/iOS native smoke, Greptile, CodeRabbit, and Socket checks succeeded with CLEAN, base-current merge state.
+  - Orchestrator validation passed focused service/repository/ringing tests 180/180, full Flutter 503/503, `flutter analyze`, debug APK, format 6 files/0 changed, and `git diff --check` from a clean detached PR-head worktree.
+  - Task_14 and replacement Tasks 18-21 are complete. Task_15 final harmonization is now in progress; Task_16 remains blocked on real-device evidence.
 
 ## Decision Log
 
