@@ -266,6 +266,17 @@ void main() {
           'schemaVersion': 1,
           'events': [
             {
+              'eventId': '   ',
+              'platformAlarmId': 'platform-1',
+              'type': 'delivered',
+              'timestampMillis': 1,
+            },
+          ],
+        },
+        {
+          'schemaVersion': 1,
+          'events': [
+            {
               'eventId': 'unknown-type',
               'platformAlarmId': 'platform-1',
               'type': 'unknown',
@@ -389,6 +400,48 @@ void main() {
       'b',
     ]);
   });
+
+  test(
+    'fake event journal mirrors native dedupe ordering cap and validation',
+    () async {
+      final fake = FakeNativeAlarmGateway();
+      for (var index = 0; index < 205; index++) {
+        fake.pendingAlarmEvents.add(
+          NativeAlarmEvent(
+            eventId: 'event-$index',
+            platformAlarmId: 'platform-$index',
+            type: NativeAlarmEventType.delivered,
+            timestamp: DateTime.fromMillisecondsSinceEpoch(index, isUtc: true),
+          ),
+        );
+      }
+      fake.pendingAlarmEvents.add(
+        NativeAlarmEvent(
+          eventId: 'event-204',
+          platformAlarmId: 'platform-204',
+          type: NativeAlarmEventType.delivered,
+          timestamp: DateTime.fromMillisecondsSinceEpoch(999, isUtc: true),
+        ),
+      );
+
+      final events = await fake.fetchAlarmEvents();
+
+      expect(events, hasLength(200));
+      expect(events.first.eventId, 'event-5');
+      expect(events.last.eventId, 'event-204');
+      expect(events.last.timestamp.millisecondsSinceEpoch, 999);
+
+      fake.pendingAlarmEvents.add(
+        NativeAlarmEvent(
+          eventId: ' ',
+          platformAlarmId: 'invalid',
+          type: NativeAlarmEventType.delivered,
+          timestamp: DateTime.fromMillisecondsSinceEpoch(1000, isUtc: true),
+        ),
+      );
+      expect(await fake.fetchAlarmEvents(), isEmpty);
+    },
+  );
 
   test('requestPermission uses requestPermissionIfNeeded method', () async {
     _setHandler(channel, calls, (call) {

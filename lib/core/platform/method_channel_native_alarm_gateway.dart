@@ -542,8 +542,8 @@ NativeAlarmEvent _alarmEvent(Object? value) {
     throw const FormatException('timestampMillis must not be negative.');
   }
   return NativeAlarmEvent(
-    eventId: _requiredString(map, 'eventId'),
-    platformAlarmId: _requiredString(map, 'platformAlarmId'),
+    eventId: _requiredNonBlankString(map, 'eventId'),
+    platformAlarmId: _requiredNonBlankString(map, 'platformAlarmId'),
     type: _alarmEventType(_requiredString(map, 'type')),
     timestamp: DateTime.fromMillisecondsSinceEpoch(
       timestampMillis,
@@ -588,6 +588,14 @@ String _requiredString(Map<String, Object?> map, String key) {
   final value = map[key];
   if (value is! String || value.isEmpty) {
     throw FormatException('$key must be a non-empty String.');
+  }
+  return value;
+}
+
+String _requiredNonBlankString(Map<String, Object?> map, String key) {
+  final value = map[key];
+  if (value is! String || value.trim().isEmpty) {
+    throw FormatException('$key must be a non-blank String.');
   }
   return value;
 }
