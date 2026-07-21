@@ -459,18 +459,6 @@ class WakePlanService {
     );
   }
 
-  Future<_NativeReservationObservation> _observeNativeReservation({
-    required String occurrenceId,
-    required String wakePlanId,
-  }) async {
-    final inventory = await _loadNativeInventory();
-    return _observeNativeReservationInInventory(
-      occurrenceId: occurrenceId,
-      wakePlanId: wakePlanId,
-      inventory: inventory,
-    );
-  }
-
   Future<_NativeInventorySnapshot?> _loadNativeInventory() async {
     NativeAlarmInventoryResult inventory;
     try {
@@ -587,41 +575,597 @@ class WakePlanService {
 
   Future<List<WakePlanSchedulingResult>> _runReconciliation() async {
     final now = _clock();
-    final plans = await _store.fetchWakePlans(now: now);
-    final results = <WakePlanSchedulingResult>[];
+    final persistedSnapshot = await _store.fetchReconciliationSnapshot(
+      now: now,
+    );
+    final plans = persistedSnapshot.plans;
+    final inventoryPreparation = await _prepareWholeInventory(
+      plans: plans,
+      occurrences: persistedSnapshot.occurrences,
+      corruptPlanIds: persistedSnapshot.corruptPlanIds,
+      corruptOccurrenceIds: persistedSnapshot.corruptOccurrenceIds,
+      corruptOccurrenceWakePlanIds:
+          persistedSnapshot.corruptOccurrenceWakePlanIds,
+      now: now,
+    );
+    final decodedPlanIds = plans.map((plan) => plan.id).toSet();
+    final results = <WakePlanSchedulingResult>[
+      for (final planId in inventoryPreparation.blockedPlanIds)
+        if (!decodedPlanIds.contains(planId))
+          _inventoryRecoveryResultForPlanId(
+            wakePlanId: planId,
+            occurrences:
+                inventoryPreparation.occurrencesByPlan[planId] ?? const [],
+            persistenceError:
+                inventoryPreparation.persistenceErrorsByPlan[planId],
+          ),
+    ];
 
     for (final plan in plans) {
+      final persistedOccurrences =
+          inventoryPreparation.occurrencesByPlan[plan.id] ?? const [];
       if (!plan.isEnabled ||
           plan.isDeleted ||
           plan.status == WakePlanStatus.finished) {
+        if (inventoryPreparation.blockedPlanIds.contains(plan.id)) {
+          results.add(
+            _inventoryRecoveryResult(
+              plan: plan,
+              occurrences: persistedOccurrences,
+            ),
+          );
+        }
         continue;
       }
-      if (plan.repeatRule.type == RepeatType.weekly) {
-        results.add(await _reconcilePlan(plan: plan, now: now));
+      if (inventoryPreparation.blockedPlanIds.contains(plan.id)) {
+        results.add(
+          _inventoryRecoveryResult(
+            plan: plan,
+            occurrences: persistedOccurrences,
+            persistenceError:
+                inventoryPreparation.persistenceErrorsByPlan[plan.id],
+          ),
+        );
         continue;
       }
 
-      final persistedOccurrences = await _store.fetchOccurrencesForPlan(
-        plan.id,
-      );
-      final recoveryOccurrenceIds = persistedOccurrences
-          .where((occurrence) => _isEligibleRecoveryMarker(occurrence, now))
-          .map((occurrence) => occurrence.id)
-          .toSet();
-      if (recoveryOccurrenceIds.isEmpty) {
-        continue;
+      try {
+        WakePlanSchedulingResult result;
+        if (plan.repeatRule.type == RepeatType.weekly ||
+            inventoryPreparation.scheduleCanonicalPlanIds.contains(plan.id)) {
+          result = await _reconcilePlan(
+            plan: plan,
+            now: now,
+            persistedOccurrences: persistedOccurrences,
+            inventory: inventoryPreparation.inventory,
+          );
+        } else {
+          final recoveryOccurrenceIds = persistedOccurrences
+              .where((occurrence) => _isEligibleRecoveryMarker(occurrence, now))
+              .map((occurrence) => occurrence.id)
+              .toSet();
+          if (recoveryOccurrenceIds.isEmpty) {
+            if (inventoryPreparation.recoveryPlanIds.contains(plan.id)) {
+              results.add(
+                _inventoryRecoveryResult(
+                  plan: plan,
+                  occurrences: persistedOccurrences,
+                  persistenceError:
+                      inventoryPreparation.persistenceErrorsByPlan[plan.id],
+                ),
+              );
+            } else if (inventoryPreparation.repairedPlanIds.contains(plan.id)) {
+              results.add(
+                _successfulReconciliationResult(
+                  plan: plan,
+                  occurrences: persistedOccurrences,
+                ),
+              );
+            }
+            continue;
+          }
+          result = await _reconcilePlan(
+            plan: plan,
+            now: now,
+            persistedOccurrences: persistedOccurrences,
+            scheduleCandidateIds: recoveryOccurrenceIds,
+            inventory: inventoryPreparation.inventory,
+          );
+        }
+        results.add(
+          inventoryPreparation.recoveryPlanIds.contains(plan.id)
+              ? _withInventoryRecovery(
+                  result,
+                  inventoryPreparation.persistenceErrorsByPlan[plan.id],
+                )
+              : result,
+        );
+      } catch (error) {
+        results.add(
+          _inventoryRecoveryResult(
+            plan: plan,
+            occurrences: persistedOccurrences,
+            persistenceError: 'Wake plan reconciliation failed: $error',
+          ),
+        );
       }
-      results.add(
-        await _reconcilePlan(
-          plan: plan,
-          now: now,
-          persistedOccurrences: persistedOccurrences,
-          scheduleCandidateIds: recoveryOccurrenceIds,
-        ),
-      );
     }
 
     return results;
+  }
+
+  Future<_WholeInventoryPreparation> _prepareWholeInventory({
+    required List<WakePlan> plans,
+    required List<AlarmOccurrence> occurrences,
+    required Set<String> corruptPlanIds,
+    required Set<String> corruptOccurrenceIds,
+    required Set<String> corruptOccurrenceWakePlanIds,
+    required DateTime now,
+  }) async {
+    final originalById = {
+      for (final occurrence in occurrences) occurrence.id: occurrence,
+    };
+    final knownPlanIds = plans.map((plan) => plan.id).toSet();
+    final activePlanIds = plans
+        .where(
+          (plan) =>
+              plan.isEnabled &&
+              !plan.isDeleted &&
+              plan.status != WakePlanStatus.finished,
+        )
+        .map((plan) => plan.id)
+        .toSet();
+    final corruptInventoryPlanIds = <String>{
+      ...corruptPlanIds,
+      ...corruptOccurrenceWakePlanIds,
+    };
+    final desiredById = <String, AlarmOccurrence>{};
+    final desiredPlanIdsById = <String, Set<String>>{};
+    for (final plan in plans) {
+      if (!activePlanIds.contains(plan.id)) {
+        continue;
+      }
+      for (final occurrence in _buildOccurrenceBundle(
+        plan: plan,
+        now: now,
+      ).occurrences) {
+        desiredById[occurrence.id] = occurrence;
+        (desiredPlanIdsById[occurrence.id] ??= {}).add(plan.id);
+      }
+    }
+    for (final planIds in desiredPlanIdsById.values) {
+      if (planIds.length > 1) {
+        corruptInventoryPlanIds.addAll(planIds);
+      }
+    }
+    for (final corruptOccurrenceId in corruptOccurrenceIds) {
+      final decoded = originalById[corruptOccurrenceId];
+      if (decoded != null) {
+        corruptInventoryPlanIds.add(decoded.wakePlanId);
+      }
+      corruptInventoryPlanIds.addAll(
+        desiredPlanIdsById[corruptOccurrenceId] ?? const {},
+      );
+    }
+    final inventory = await _loadNativeInventory();
+
+    Set<String> participantPlanIds(NativeAlarmInventoryRow row) {
+      final participants = <String>{row.wakePlanId};
+      for (final identity in {row.reservationId, row.occurrenceId}) {
+        final decoded = originalById[identity];
+        if (decoded != null) {
+          participants.add(decoded.wakePlanId);
+        }
+        participants.addAll(desiredPlanIdsById[identity] ?? const {});
+      }
+      return participants;
+    }
+
+    bool hasOwnedParticipant(Set<String> participants) {
+      return participants.any(
+        (planId) =>
+            knownPlanIds.contains(planId) || corruptPlanIds.contains(planId),
+      );
+    }
+
+    bool hasTupleConflict(NativeAlarmInventoryRow row) {
+      final byReservation = originalById[row.reservationId];
+      final byOccurrence = originalById[row.occurrenceId];
+      return row.reservationId != row.occurrenceId ||
+          byReservation != byOccurrence ||
+          participantPlanIds(row).length > 1 ||
+          (byReservation != null && byReservation.wakePlanId != row.wakePlanId);
+    }
+
+    void propagateBlockedParticipants() {
+      if (inventory == null) {
+        return;
+      }
+      var expanded = true;
+      while (expanded) {
+        expanded = false;
+        for (final row in inventory.rows) {
+          final participants = participantPlanIds(row);
+          if (!participants.any(corruptInventoryPlanIds.contains)) {
+            continue;
+          }
+          final previousLength = corruptInventoryPlanIds.length;
+          corruptInventoryPlanIds.addAll(participants);
+          expanded =
+              expanded || corruptInventoryPlanIds.length != previousLength;
+        }
+      }
+    }
+
+    if (inventory != null) {
+      for (final row in inventory.rows) {
+        final participants = participantPlanIds(row);
+        if (corruptOccurrenceIds.contains(row.reservationId) ||
+            corruptOccurrenceIds.contains(row.occurrenceId)) {
+          corruptInventoryPlanIds.addAll(participants);
+        }
+        if (hasTupleConflict(row) && hasOwnedParticipant(participants)) {
+          corruptInventoryPlanIds.addAll(participants);
+        }
+      }
+    }
+    propagateBlockedParticipants();
+    if (inventory == null || !inventory.isAuthoritative) {
+      return _WholeInventoryPreparation(
+        inventory: inventory,
+        occurrences: occurrences,
+        recoveryPlanIds: {...activePlanIds, ...corruptInventoryPlanIds},
+        blockedPlanIds: corruptInventoryPlanIds,
+      );
+    }
+
+    var hasConflictingIdentity = false;
+    for (final row in inventory.rows) {
+      final participants = participantPlanIds(row);
+      if (hasTupleConflict(row)) {
+        hasConflictingIdentity = true;
+        if (hasOwnedParticipant(participants)) {
+          corruptInventoryPlanIds.addAll(participants);
+        }
+      }
+    }
+    propagateBlockedParticipants();
+    if (hasConflictingIdentity) {
+      return _WholeInventoryPreparation(
+        inventory: _NativeInventorySnapshot(
+          rows: inventory.rows,
+          isAuthoritative: false,
+        ),
+        occurrences: occurrences,
+        recoveryPlanIds: {...activePlanIds, ...corruptInventoryPlanIds},
+        blockedPlanIds: corruptInventoryPlanIds,
+      );
+    }
+
+    final activeRowsByOccurrence = <String, NativeAlarmInventoryRow>{};
+    for (final row in inventory.rows) {
+      final participants = participantPlanIds(row);
+      final isActive =
+          row.status == NativeAlarmReservationStatus.scheduled ||
+          row.status == NativeAlarmReservationStatus.ringing;
+      if (!isActive && hasOwnedParticipant(participants)) {
+        corruptInventoryPlanIds.addAll(participants);
+        continue;
+      }
+      final decoded = originalById[row.occurrenceId];
+      final isNoncanonicalRinging =
+          row.status == NativeAlarmReservationStatus.ringing &&
+          decoded != null &&
+          desiredById[decoded.id]?.wakePlanId != decoded.wakePlanId;
+      if (isNoncanonicalRinging) {
+        corruptInventoryPlanIds.addAll(participants);
+        continue;
+      }
+      if (participants.any(corruptInventoryPlanIds.contains)) {
+        corruptInventoryPlanIds.addAll(participants);
+        continue;
+      }
+      if (isActive) {
+        activeRowsByOccurrence[row.occurrenceId] = row;
+      }
+    }
+    propagateBlockedParticipants();
+
+    final reconciledById = Map<String, AlarmOccurrence>.of(originalById);
+    final changed = <AlarmOccurrence>[];
+    final ownedNativeOnly = <NativeAlarmInventoryRow>[];
+    final decodedOrphanIds = <String>{};
+    final scheduleCanonicalPlanIds = <String>{};
+    final recoveryPlanIds = <String>{...corruptInventoryPlanIds};
+    final repairedPlanIds = <String>{};
+    final blockedPlanIds = <String>{...corruptInventoryPlanIds};
+    final persistenceErrorsByPlan = <String, String>{};
+
+    for (final occurrence in occurrences) {
+      if (corruptInventoryPlanIds.contains(occurrence.wakePlanId)) {
+        continue;
+      }
+      final row = activeRowsByOccurrence.remove(occurrence.id);
+      final isFuture = occurrence.scheduledAt.toDateTime().isAfter(now);
+      final isActivePlan = activePlanIds.contains(occurrence.wakePlanId);
+      final isCanonicalDesired =
+          desiredById[occurrence.id]?.wakePlanId == occurrence.wakePlanId;
+      AlarmOccurrence reconciled = occurrence;
+      if (!isFuture) {
+        continue;
+      }
+      if (!isActivePlan) {
+        if (row != null) {
+          ownedNativeOnly.add(row);
+        }
+        continue;
+      }
+      if (!isCanonicalDesired) {
+        if (row != null) {
+          scheduleCanonicalPlanIds.add(occurrence.wakePlanId);
+          ownedNativeOnly.add(row);
+          decodedOrphanIds.add(occurrence.id);
+          continue;
+        }
+        final needsCanonicalRecovery = switch (occurrence.status) {
+          AlarmOccurrenceStatus.scheduled ||
+          AlarmOccurrenceStatus.ringing ||
+          AlarmOccurrenceStatus.userDisablePending ||
+          AlarmOccurrenceStatus.userEnablePending ||
+          AlarmOccurrenceStatus.unknownPersisted => true,
+          _ => false,
+        };
+        if (!needsCanonicalRecovery) {
+          continue;
+        }
+        scheduleCanonicalPlanIds.add(occurrence.wakePlanId);
+        reconciled = occurrence.copyWith(
+          status: AlarmOccurrenceStatus.cancelled,
+          platformAlarmId: null,
+          failureReason: null,
+          updatedAt: now,
+        );
+        reconciledById[occurrence.id] = reconciled;
+        changed.add(reconciled);
+        repairedPlanIds.add(occurrence.wakePlanId);
+        continue;
+      }
+      if (row != null) {
+        final expectsReservation = switch (occurrence.status) {
+          AlarmOccurrenceStatus.scheduled ||
+          AlarmOccurrenceStatus.ringing ||
+          AlarmOccurrenceStatus.userDisablePending ||
+          AlarmOccurrenceStatus.userEnablePending ||
+          AlarmOccurrenceStatus.unknownPersisted => true,
+          AlarmOccurrenceStatus.cancelled ||
+          AlarmOccurrenceStatus.failed => true,
+          _ => false,
+        };
+        if (!expectsReservation) {
+          ownedNativeOnly.add(row);
+          continue;
+        }
+        reconciled = switch (occurrence.status) {
+          AlarmOccurrenceStatus.userEnablePending => occurrence.copyWith(
+            status: AlarmOccurrenceStatus.scheduled,
+            platformAlarmId: row.platformAlarmId,
+            failureReason: null,
+            updatedAt: now,
+          ),
+          AlarmOccurrenceStatus.cancelled ||
+          AlarmOccurrenceStatus.failed => occurrence.copyWith(
+            status: AlarmOccurrenceStatus.scheduled,
+            platformAlarmId: row.platformAlarmId,
+            failureReason: null,
+            updatedAt: now,
+          ),
+          _ => occurrence.copyWith(
+            platformAlarmId: row.platformAlarmId,
+            updatedAt: now,
+          ),
+        };
+      } else {
+        reconciled = switch (occurrence.status) {
+          AlarmOccurrenceStatus.scheduled => occurrence.copyWith(
+            platformAlarmId: null,
+            failureReason: null,
+            updatedAt: now,
+          ),
+          AlarmOccurrenceStatus.userEnablePending => occurrence.copyWith(
+            status: AlarmOccurrenceStatus.scheduled,
+            platformAlarmId: null,
+            failureReason: null,
+            updatedAt: now,
+          ),
+          AlarmOccurrenceStatus.userDisablePending => occurrence.copyWith(
+            status: AlarmOccurrenceStatus.userDisabled,
+            platformAlarmId: null,
+            failureReason: null,
+            updatedAt: now,
+          ),
+          AlarmOccurrenceStatus.unknownPersisted => occurrence.copyWith(
+            platformAlarmId: null,
+            updatedAt: now,
+          ),
+          AlarmOccurrenceStatus.ringing => occurrence,
+          _ => occurrence,
+        };
+      }
+      if (reconciled.status != occurrence.status ||
+          reconciled.platformAlarmId != occurrence.platformAlarmId) {
+        reconciledById[occurrence.id] = reconciled;
+        changed.add(reconciled);
+        repairedPlanIds.add(occurrence.wakePlanId);
+      }
+    }
+
+    for (final row in activeRowsByOccurrence.values) {
+      if (participantPlanIds(row).any(blockedPlanIds.contains)) {
+        continue;
+      }
+      final desired = desiredById[row.occurrenceId];
+      if (desired != null && desired.wakePlanId == row.wakePlanId) {
+        final adopted = desired.copyWith(
+          platformAlarmId: row.platformAlarmId,
+          updatedAt: now,
+        );
+        reconciledById[adopted.id] = adopted;
+        changed.add(adopted);
+        repairedPlanIds.add(adopted.wakePlanId);
+      } else if (knownPlanIds.contains(row.wakePlanId)) {
+        ownedNativeOnly.add(row);
+        if (activePlanIds.contains(row.wakePlanId)) {
+          scheduleCanonicalPlanIds.add(row.wakePlanId);
+        }
+      }
+    }
+
+    if (changed.isNotEmpty) {
+      final persistenceError = await _trySaveAlarmOccurrences(changed);
+      if (persistenceError != null) {
+        for (final occurrence in changed) {
+          recoveryPlanIds.add(occurrence.wakePlanId);
+          persistenceErrorsByPlan[occurrence.wakePlanId] = persistenceError;
+        }
+      }
+    }
+
+    if (ownedNativeOnly.isNotEmpty) {
+      CancelResult cancellation;
+      var cancellationThrew = false;
+      try {
+        cancellation = await _nativeAlarmGateway.cancelOccurrences([
+          for (final row in ownedNativeOnly)
+            NativeAlarmCancelRequest(
+              occurrenceId: row.occurrenceId,
+              reservationId: row.reservationId,
+              platformAlarmId: row.platformAlarmId,
+            ),
+        ]);
+      } catch (_) {
+        cancellationThrew = true;
+        for (final row in ownedNativeOnly) {
+          recoveryPlanIds.add(row.wakePlanId);
+          blockedPlanIds.add(row.wakePlanId);
+        }
+        cancellation = CancelResult.fromRequestResults(
+          requests: const [],
+          results: const [],
+        );
+      }
+      final failedKeys = cancellation.alarms
+          .where((result) => !result.isSuccess)
+          .map(
+            (result) =>
+                '${result.reservationId}/${result.occurrenceId}/${result.platformAlarmId}',
+          )
+          .toSet();
+      final cancelledDecodedOrphans = <AlarmOccurrence>[];
+      for (final row in ownedNativeOnly) {
+        final key =
+            '${row.reservationId}/${row.occurrenceId}/${row.platformAlarmId}';
+        if (failedKeys.contains(key)) {
+          recoveryPlanIds.add(row.wakePlanId);
+          blockedPlanIds.add(row.wakePlanId);
+        } else if (!cancellationThrew &&
+            decodedOrphanIds.contains(row.occurrenceId)) {
+          final occurrence = reconciledById[row.occurrenceId];
+          if (occurrence != null) {
+            final cancelled = occurrence.copyWith(
+              status: AlarmOccurrenceStatus.cancelled,
+              platformAlarmId: null,
+              failureReason: null,
+              updatedAt: now,
+            );
+            reconciledById[cancelled.id] = cancelled;
+            cancelledDecodedOrphans.add(cancelled);
+            repairedPlanIds.add(cancelled.wakePlanId);
+          }
+        }
+      }
+      if (cancelledDecodedOrphans.isNotEmpty) {
+        final persistenceError = await _trySaveAlarmOccurrences(
+          cancelledDecodedOrphans,
+        );
+        if (persistenceError != null) {
+          for (final occurrence in cancelledDecodedOrphans) {
+            recoveryPlanIds.add(occurrence.wakePlanId);
+            blockedPlanIds.add(occurrence.wakePlanId);
+            persistenceErrorsByPlan[occurrence.wakePlanId] = persistenceError;
+          }
+        }
+      }
+    }
+
+    return _WholeInventoryPreparation(
+      inventory: inventory,
+      occurrences: reconciledById.values.toList(growable: false),
+      recoveryPlanIds: recoveryPlanIds,
+      repairedPlanIds: repairedPlanIds,
+      blockedPlanIds: blockedPlanIds,
+      scheduleCanonicalPlanIds: scheduleCanonicalPlanIds,
+      persistenceErrorsByPlan: persistenceErrorsByPlan,
+    );
+  }
+
+  WakePlanSchedulingResult _withInventoryRecovery(
+    WakePlanSchedulingResult result,
+    String? persistenceError,
+  ) {
+    return WakePlanSchedulingResult(
+      wakePlanId: result.wakePlanId,
+      status: WakePlanSchedulingStatus.recoveryRequired,
+      changeState: WakePlanChangeState.recoveryRequired,
+      scheduleResult: result.scheduleResult,
+      cancelResult: result.cancelResult,
+      occurrences: result.occurrences,
+      warning: WakePlanSchedulingWarning.recoveryRequired(
+        'Native alarm inventory repair is still required.',
+      ),
+      compensationScheduleResult: result.compensationScheduleResult,
+      compensationCancelResult: result.compensationCancelResult,
+      databaseState: persistenceError == null
+          ? result.databaseState
+          : WakePlanDatabaseState.unknown,
+      persistenceError: _firstPersistenceError([
+        result.persistenceError,
+        persistenceError,
+      ]),
+    );
+  }
+
+  WakePlanSchedulingResult _inventoryRecoveryResult({
+    required WakePlan plan,
+    required List<AlarmOccurrence> occurrences,
+    String? persistenceError,
+  }) => _inventoryRecoveryResultForPlanId(
+    wakePlanId: plan.id,
+    occurrences: occurrences,
+    persistenceError: persistenceError,
+  );
+
+  WakePlanSchedulingResult _inventoryRecoveryResultForPlanId({
+    required String wakePlanId,
+    required List<AlarmOccurrence> occurrences,
+    String? persistenceError,
+  }) {
+    return WakePlanSchedulingResult(
+      wakePlanId: wakePlanId,
+      status: WakePlanSchedulingStatus.recoveryRequired,
+      changeState: WakePlanChangeState.recoveryRequired,
+      scheduleResult: ScheduleResult.fromRequestResults(
+        requests: const [],
+        results: const [],
+      ),
+      occurrences: occurrences,
+      databaseState: persistenceError == null
+          ? WakePlanDatabaseState.persisted
+          : WakePlanDatabaseState.unknown,
+      persistenceError: persistenceError,
+      warning: WakePlanSchedulingWarning.recoveryRequired(
+        'Native alarm inventory repair is still required.',
+      ),
+    );
   }
 
   Future<List<WakePlanSchedulingResult>> reconcile() {
@@ -1089,6 +1633,7 @@ class WakePlanService {
   Future<WakePlanSchedulingResult> _reconcilePlan({
     required WakePlan plan,
     required DateTime now,
+    required _NativeInventorySnapshot? inventory,
     List<AlarmOccurrence>? persistedOccurrences,
     Set<String>? scheduleCandidateIds,
   }) async {
@@ -1096,10 +1641,12 @@ class WakePlanService {
       occurrences:
           persistedOccurrences ?? await _store.fetchOccurrencesForPlan(plan.id),
       now: now,
+      inventory: inventory,
     );
     final pendingDisableReconciliation = await _reconcilePendingDisables(
       occurrences: pendingEnableReconciliation.occurrences,
       now: now,
+      inventory: inventory,
     );
     final existingOccurrences = pendingDisableReconciliation.occurrences;
     final existingById = {
@@ -1311,6 +1858,7 @@ class WakePlanService {
   Future<_PendingEnableReconciliation> _reconcilePendingEnables({
     required List<AlarmOccurrence> occurrences,
     required DateTime now,
+    required _NativeInventorySnapshot? inventory,
   }) async {
     final reconciled = <AlarmOccurrence>[];
     var hasUnresolved = false;
@@ -1321,9 +1869,10 @@ class WakePlanService {
         continue;
       }
 
-      final observation = await _observeNativeReservation(
+      final observation = _observeNativeReservationInInventory(
         occurrenceId: occurrence.id,
         wakePlanId: occurrence.wakePlanId,
+        inventory: inventory,
       );
       if (!observation.isAuthoritative) {
         hasUnresolved = true;
@@ -1365,6 +1914,7 @@ class WakePlanService {
   Future<_PendingDisableReconciliation> _reconcilePendingDisables({
     required List<AlarmOccurrence> occurrences,
     required DateTime now,
+    required _NativeInventorySnapshot? inventory,
   }) async {
     final reconciled = <AlarmOccurrence>[];
     var hasUnresolved = false;
@@ -1375,9 +1925,10 @@ class WakePlanService {
         continue;
       }
 
-      final observation = await _observeNativeReservation(
+      final observation = _observeNativeReservationInInventory(
         occurrenceId: occurrence.id,
         wakePlanId: occurrence.wakePlanId,
+        inventory: inventory,
       );
       if (observation.hasAmbiguousActiveRows) {
         hasUnresolved = true;
@@ -2263,7 +2814,9 @@ abstract class WakePlanServiceStore {
 
   Future<WakePlan?> fetchWakePlan(String id);
 
-  Future<List<WakePlan>> fetchWakePlans({required DateTime now});
+  Future<WakePlanReconciliationSnapshot> fetchReconciliationSnapshot({
+    required DateTime now,
+  });
 
   Future<void> saveWakePlan(WakePlan plan);
 
@@ -2295,8 +2848,10 @@ class WakePlanRepositoryServiceStore implements WakePlanServiceStore {
   }
 
   @override
-  Future<List<WakePlan>> fetchWakePlans({required DateTime now}) {
-    return _repository.fetchWakePlans(now: now);
+  Future<WakePlanReconciliationSnapshot> fetchReconciliationSnapshot({
+    required DateTime now,
+  }) {
+    return _repository.fetchReconciliationSnapshot(now: now);
   }
 
   @override
@@ -2590,6 +3145,44 @@ class _OccurrenceBundle {
 
   final List<AlarmOccurrence> occurrences;
   final List<NativeAlarmScheduleRequest> requests;
+}
+
+class _WholeInventoryPreparation {
+  _WholeInventoryPreparation({
+    required this.inventory,
+    required List<AlarmOccurrence> occurrences,
+    Set<String> recoveryPlanIds = const {},
+    Set<String> repairedPlanIds = const {},
+    Set<String> blockedPlanIds = const {},
+    Set<String> scheduleCanonicalPlanIds = const {},
+    Map<String, String> persistenceErrorsByPlan = const {},
+  }) : occurrencesByPlan = _groupOccurrencesByPlan(occurrences),
+       recoveryPlanIds = Set.unmodifiable(recoveryPlanIds),
+       repairedPlanIds = Set.unmodifiable(repairedPlanIds),
+       blockedPlanIds = Set.unmodifiable(blockedPlanIds),
+       scheduleCanonicalPlanIds = Set.unmodifiable(scheduleCanonicalPlanIds),
+       persistenceErrorsByPlan = Map.unmodifiable(persistenceErrorsByPlan);
+
+  final _NativeInventorySnapshot? inventory;
+  final Map<String, List<AlarmOccurrence>> occurrencesByPlan;
+  final Set<String> recoveryPlanIds;
+  final Set<String> repairedPlanIds;
+  final Set<String> blockedPlanIds;
+  final Set<String> scheduleCanonicalPlanIds;
+  final Map<String, String> persistenceErrorsByPlan;
+}
+
+Map<String, List<AlarmOccurrence>> _groupOccurrencesByPlan(
+  List<AlarmOccurrence> occurrences,
+) {
+  final grouped = <String, List<AlarmOccurrence>>{};
+  for (final occurrence in occurrences) {
+    (grouped[occurrence.wakePlanId] ??= []).add(occurrence);
+  }
+  return {
+    for (final entry in grouped.entries)
+      entry.key: List.unmodifiable(entry.value),
+  };
 }
 
 class _CancelFutureResult {

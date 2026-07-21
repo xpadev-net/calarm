@@ -276,6 +276,98 @@ void main() {
     );
 
     test(
+      'fetches the complete occurrence inventory for reconciliation',
+      () async {
+        await repository.saveWakePlan(buildPlan());
+        await repository.saveWakePlan(buildPlan(id: 'plan-2'));
+        await repository.saveAlarmOccurrences([
+          buildOccurrence(id: 'occ-2', wakePlanId: 'plan-2'),
+          buildOccurrence(id: 'occ-1'),
+        ]);
+
+        final snapshot = await repository.fetchReconciliationSnapshot(
+          now: DateTime(2026, 7, 6, 7, 20),
+        );
+
+        expect(snapshot.occurrences.map((occurrence) => occurrence.id), [
+          'occ-1',
+          'occ-2',
+        ]);
+      },
+    );
+
+    test(
+      'surfaces constructor-invalid rows in reconciliation metadata',
+      () async {
+        await repository.saveWakePlan(buildPlan());
+        await database
+            .into(database.wakePlanRows)
+            .insert(
+              _malformedPlanCompanion(
+                id: 'bad-plan',
+                repeatType: RepeatType.weekly,
+              ),
+            );
+        await database
+            .into(database.alarmOccurrenceRows)
+            .insert(
+              AlarmOccurrenceRowsCompanion.insert(
+                id: 'bad-suppression',
+                wakePlanId: 'plan-1',
+                scheduledAtDays: monday.daysSinceUnixEpoch,
+                scheduledAtMinutes: targetTime.minutesSinceMidnight,
+                status: AlarmOccurrenceStatus.userDisabled.name,
+                platformAlarmId: const Value('native-exact'),
+                createdAt: now,
+                updatedAt: now,
+              ),
+            );
+
+        final snapshot = await repository.fetchReconciliationSnapshot(
+          now: DateTime(2026, 7, 6, 7, 20),
+        );
+
+        expect(snapshot.plans.map((plan) => plan.id), ['plan-1']);
+        expect(snapshot.occurrences, isEmpty);
+        expect(snapshot.corruptPlanIds, {'bad-plan'});
+        expect(snapshot.corruptOccurrenceIds, {'bad-suppression'});
+        expect(snapshot.corruptOccurrenceWakePlanIds, {'plan-1'});
+      },
+    );
+
+    test('excludes expired one-time plans from reconciliation work', () async {
+      await repository.saveWakePlan(buildPlan());
+      await repository.saveAlarmOccurrences([
+        buildOccurrence(
+          id: 'expired-recovery',
+          status: AlarmOccurrenceStatus.userEnablePending,
+        ),
+      ]);
+      await database
+          .into(database.alarmOccurrenceRows)
+          .insert(
+            AlarmOccurrenceRowsCompanion.insert(
+              id: 'expired-corrupt',
+              wakePlanId: 'plan-1',
+              scheduledAtDays: monday.daysSinceUnixEpoch,
+              scheduledAtMinutes: targetTime.minutesSinceMidnight,
+              status: AlarmOccurrenceStatus.userDisabled.name,
+              platformAlarmId: const Value('native-exact'),
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+
+      final snapshot = await repository.fetchReconciliationSnapshot(now: now);
+
+      expect(snapshot.plans, isEmpty);
+      expect(snapshot.occurrences, isEmpty);
+      expect(snapshot.corruptPlanIds, isEmpty);
+      expect(snapshot.corruptOccurrenceIds, isEmpty);
+      expect(snapshot.corruptOccurrenceWakePlanIds, isEmpty);
+    });
+
+    test(
       'updates and clears nullable platform alarm id for native lifecycle',
       () async {
         await repository.saveWakePlan(buildPlan());
