@@ -64,6 +64,7 @@ void main() {
       final service = WakePlanService(
         repository: repository,
         nativeAlarmGateway: gateway,
+        coordinator: WakePlanMutationCoordinator(),
         clock: () => now,
         rollingScheduleDays: 2,
       );
@@ -254,6 +255,7 @@ void main() {
       final service = WakePlanService(
         repository: repository,
         nativeAlarmGateway: gateway,
+        coordinator: WakePlanMutationCoordinator(),
         clock: () => now,
         rollingScheduleDays: 2,
       );
@@ -319,6 +321,7 @@ void main() {
       final service = WakePlanService(
         repository: repository,
         nativeAlarmGateway: gateway,
+        coordinator: WakePlanMutationCoordinator(),
         clock: () => now,
         rollingScheduleDays: 2,
       );

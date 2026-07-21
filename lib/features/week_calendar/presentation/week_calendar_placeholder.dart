@@ -10,37 +10,20 @@ import '../../../core/time/time.dart';
 import '../../settings/application/wake_plan_defaults_controller.dart';
 import '../../settings/application/alarm_health_controller.dart';
 import '../../wake_plan/application/wake_plan_service.dart';
+import '../../wake_plan/application/wake_plan_service_providers.dart';
 import '../../wake_plan/data/wake_plan_data.dart';
 import '../../wake_plan/domain/wake_plan_domain.dart';
 import '../../wake_plan/ui/inline_wake_plan_editor.dart';
 import '../../wake_plan/ui/wake_plan_detail_sheet.dart';
 import '../week_calendar.dart';
 
-final weekCalendarNativeAlarmGatewayProvider = Provider<NativeAlarmGateway>((
-  ref,
-) {
-  return ref.watch(appNativeAlarmGatewayProvider);
-});
+final weekCalendarNativeAlarmGatewayProvider = appNativeAlarmGatewayProvider;
 
-final weekCalendarClockProvider = Provider<DateTime Function()>((ref) {
-  return DateTime.now;
-});
+final weekCalendarClockProvider = wakePlanClockProvider;
 
-final weekCalendarRepositoryProvider = FutureProvider<WakePlanRepository>((
-  ref,
-) async {
-  return ref.watch(appWakePlanRepositoryProvider.future);
-});
+final weekCalendarRepositoryProvider = appWakePlanRepositoryProvider;
 
-final weekCalendarWakePlanServiceProvider = FutureProvider<WakePlanService>((
-  ref,
-) async {
-  return WakePlanService(
-    repository: await ref.watch(weekCalendarRepositoryProvider.future),
-    nativeAlarmGateway: ref.watch(weekCalendarNativeAlarmGatewayProvider),
-    clock: ref.watch(weekCalendarClockProvider),
-  );
-});
+final weekCalendarWakePlanServiceProvider = wakePlanServiceProvider;
 
 final weekCalendarWakePlansProvider = FutureProvider<List<WakePlan>>((
   ref,
