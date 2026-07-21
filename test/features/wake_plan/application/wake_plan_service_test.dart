@@ -8,6 +8,7 @@ import 'package:calarm/features/wake_plan/application/wake_plan_service.dart';
 import 'package:calarm/features/wake_plan/application/occurrence_planner.dart';
 import 'package:calarm/features/wake_plan/data/wake_plan_data.dart';
 import 'package:calarm/features/wake_plan/domain/wake_plan_domain.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -1444,6 +1445,168 @@ void main() {
           await database.close();
         } finally {
           await directory.delete(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'constructor-invalid suppressed row retains native alarm and off intent',
+      () async {
+        final database = WakePlanDatabase(NativeDatabase.memory());
+        final repository = WakePlanRepository(database);
+        final occurrenceId = 'plan-1:20640:420';
+        final gateway = _CountingInventoryGateway()
+          ..inventoryRows.add(
+            NativeAlarmInventoryRow(
+              reservationId: occurrenceId,
+              occurrenceId: occurrenceId,
+              wakePlanId: plan.id,
+              platformAlarmId: 'native-exact',
+              status: NativeAlarmReservationStatus.scheduled,
+            ),
+          );
+        try {
+          await repository.saveWakePlan(plan);
+          await repository.saveWakePlan(
+            buildPlan(
+              id: 'safe-plan',
+              startOffset: Duration.zero,
+              repeatRule: RepeatRule.weekly({Weekday.monday}),
+            ),
+          );
+          await database
+              .into(database.alarmOccurrenceRows)
+              .insert(
+                AlarmOccurrenceRowsCompanion.insert(
+                  id: occurrenceId,
+                  wakePlanId: plan.id,
+                  scheduledAtDays: monday.daysSinceUnixEpoch,
+                  scheduledAtMinutes: targetTime.minutesSinceMidnight,
+                  status: AlarmOccurrenceStatus.userDisabled.name,
+                  platformAlarmId: const Value('native-exact'),
+                  createdAt: now,
+                  updatedAt: now,
+                ),
+              );
+          final serviceUnderTest = WakePlanService(
+            repository: repository,
+            nativeAlarmGateway: gateway,
+            clock: () => now,
+            rollingScheduleDays: 1,
+          );
+
+          final first = await serviceUnderTest.reconcileSchedules();
+          await Future.wait([
+            serviceUnderTest.reconcileSchedules(),
+            serviceUnderTest.reconcileSchedules(),
+          ]);
+          final persisted = await (database.select(
+            database.alarmOccurrenceRows,
+          )..where((row) => row.id.equals(occurrenceId))).getSingle();
+
+          expect(first, hasLength(2));
+          expect(
+            first.singleWhere((result) => result.wakePlanId == plan.id).status,
+            WakePlanSchedulingStatus.recoveryRequired,
+          );
+          expect(
+            first
+                .singleWhere((result) => result.wakePlanId == 'safe-plan')
+                .status,
+            WakePlanSchedulingStatus.scheduled,
+          );
+          expect(persisted.status, AlarmOccurrenceStatus.userDisabled.name);
+          expect(persisted.platformAlarmId, 'native-exact');
+          expect(
+            gateway.scheduledRequests.map((request) => request.wakePlanId),
+            ['safe-plan'],
+          );
+          expect(gateway.cancelledOccurrences, isEmpty);
+          expect(gateway.inventoryRows, hasLength(2));
+        } finally {
+          await database.close();
+        }
+      },
+    );
+
+    test(
+      'undecodable plan retains its exact native occurrence and reports recovery',
+      () async {
+        final database = WakePlanDatabase(NativeDatabase.memory());
+        final repository = WakePlanRepository(database);
+        const malformedPlanId = 'malformed-plan';
+        const occurrenceId = 'malformed-plan:20640:420';
+        final gateway = _CountingInventoryGateway()
+          ..inventoryRows.add(
+            NativeAlarmInventoryRow(
+              reservationId: occurrenceId,
+              occurrenceId: occurrenceId,
+              wakePlanId: malformedPlanId,
+              platformAlarmId: 'native-exact',
+              status: NativeAlarmReservationStatus.scheduled,
+            ),
+          );
+        try {
+          await database
+              .into(database.wakePlanRows)
+              .insert(
+                WakePlanRowsCompanion.insert(
+                  id: malformedPlanId,
+                  title: 'Malformed',
+                  targetTimeMinutes: targetTime.minutesSinceMidnight,
+                  startOffsetMinutes: 60,
+                  intervalMinutes: 5,
+                  repeatType: RepeatType.weekly.name,
+                  isEnabled: true,
+                  status: WakePlanStatus.scheduled.name,
+                  soundId: 'default',
+                  vibrationEnabled: true,
+                  createdAt: now,
+                  updatedAt: now,
+                ),
+              );
+          await database
+              .into(database.alarmOccurrenceRows)
+              .insert(
+                AlarmOccurrenceRowsCompanion.insert(
+                  id: occurrenceId,
+                  wakePlanId: malformedPlanId,
+                  scheduledAtDays: monday.daysSinceUnixEpoch,
+                  scheduledAtMinutes: targetTime.minutesSinceMidnight,
+                  status: AlarmOccurrenceStatus.scheduled.name,
+                  platformAlarmId: const Value('native-exact'),
+                  createdAt: now,
+                  updatedAt: now,
+                ),
+              );
+          final serviceUnderTest = WakePlanService(
+            repository: repository,
+            nativeAlarmGateway: gateway,
+            clock: () => now,
+            rollingScheduleDays: 1,
+          );
+
+          final first = await serviceUnderTest.reconcileSchedules();
+          await Future.wait([
+            serviceUnderTest.reconcileSchedules(),
+            serviceUnderTest.reconcileSchedules(),
+          ]);
+          final persisted = await (database.select(
+            database.alarmOccurrenceRows,
+          )..where((row) => row.id.equals(occurrenceId))).getSingle();
+
+          expect(first.single.wakePlanId, malformedPlanId);
+          expect(
+            first.single.status,
+            WakePlanSchedulingStatus.recoveryRequired,
+          );
+          expect(persisted.status, AlarmOccurrenceStatus.scheduled.name);
+          expect(persisted.platformAlarmId, 'native-exact');
+          expect(gateway.scheduledRequests, isEmpty);
+          expect(gateway.cancelledOccurrences, isEmpty);
+          expect(gateway.inventoryRows, hasLength(1));
+        } finally {
+          await database.close();
         }
       },
     );
@@ -6019,6 +6182,9 @@ class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
   List<WakePlan> wakePlans = [];
   List<AlarmOccurrence> reservedOccurrences = [];
   List<AlarmOccurrence> storedOccurrences = [];
+  Set<String> corruptPlanIds = {};
+  Set<String> corruptOccurrenceIds = {};
+  Set<String> corruptOccurrenceWakePlanIds = {};
   final fetchPlanNows = <DateTime>[];
 
   @override
@@ -6028,10 +6194,18 @@ class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
   }
 
   @override
-  Future<List<WakePlan>> fetchWakePlans({required DateTime now}) async {
-    operations.add('fetchWakePlans');
+  Future<WakePlanReconciliationSnapshot> fetchReconciliationSnapshot({
+    required DateTime now,
+  }) async {
+    operations.add('fetchReconciliationSnapshot');
     fetchPlanNows.add(now);
-    return List<WakePlan>.of(wakePlans);
+    return WakePlanReconciliationSnapshot(
+      plans: wakePlans,
+      occurrences: storedOccurrences,
+      corruptPlanIds: corruptPlanIds,
+      corruptOccurrenceIds: corruptOccurrenceIds,
+      corruptOccurrenceWakePlanIds: corruptOccurrenceWakePlanIds,
+    );
   }
 
   @override
@@ -6092,12 +6266,6 @@ class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
     return storedOccurrences
         .where((occurrence) => occurrence.wakePlanId == wakePlanId)
         .toList(growable: false);
-  }
-
-  @override
-  Future<List<AlarmOccurrence>> fetchOccurrencesForReconciliation() async {
-    operations.add('fetchOccurrencesForReconciliation');
-    return List<AlarmOccurrence>.of(storedOccurrences);
   }
 
   @override

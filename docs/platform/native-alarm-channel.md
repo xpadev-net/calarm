@@ -357,6 +357,10 @@ Unavailable reads, corrupt rows, duplicate identities, and conflicting tuples
 make the snapshot non-authoritative. Such a pass performs no inventory-driven
 adoption, clearing, or cancellation, returns `recoveryRequired` for affected
 plans, and may still continue independent non-destructive scheduling work.
+Persisted plan or occurrence rows that cannot be decoded likewise block repair
+for their recorded plan and stable occurrence identities. They are retained as
+authority evidence rather than filtered into apparent absence; matching native
+rows must not be adopted or cancelled until the Drift corruption is resolved.
 Repeated startup and resume passes must be serialized and idempotent; a failed
 plan repair must not prevent later plans in the same pass from making safe
 progress.

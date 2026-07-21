@@ -4,6 +4,28 @@ import '../../../../core/time/time.dart';
 import '../../domain/wake_plan_domain.dart';
 import 'wake_plan_database.dart';
 
+class WakePlanReconciliationSnapshot {
+  WakePlanReconciliationSnapshot({
+    required List<WakePlan> plans,
+    required List<AlarmOccurrence> occurrences,
+    Set<String> corruptPlanIds = const {},
+    Set<String> corruptOccurrenceIds = const {},
+    Set<String> corruptOccurrenceWakePlanIds = const {},
+  }) : plans = List.unmodifiable(plans),
+       occurrences = List.unmodifiable(occurrences),
+       corruptPlanIds = Set.unmodifiable(corruptPlanIds),
+       corruptOccurrenceIds = Set.unmodifiable(corruptOccurrenceIds),
+       corruptOccurrenceWakePlanIds = Set.unmodifiable(
+         corruptOccurrenceWakePlanIds,
+       );
+
+  final List<WakePlan> plans;
+  final List<AlarmOccurrence> occurrences;
+  final Set<String> corruptPlanIds;
+  final Set<String> corruptOccurrenceIds;
+  final Set<String> corruptOccurrenceWakePlanIds;
+}
+
 class WakePlanRepository {
   WakePlanRepository(this._database);
 
@@ -147,19 +169,51 @@ class WakePlanRepository {
         .toList(growable: false);
   }
 
-  Future<List<AlarmOccurrence>> fetchOccurrencesForReconciliation() async {
-    final rows =
-        await (_database.select(_database.alarmOccurrenceRows)..orderBy([
-              (row) => OrderingTerm.asc(row.wakePlanId),
-              (row) => OrderingTerm.asc(row.scheduledAtDays),
-              (row) => OrderingTerm.asc(row.scheduledAtMinutes),
-            ]))
-            .get();
+  Future<WakePlanReconciliationSnapshot> fetchReconciliationSnapshot() async {
+    return _database.transaction(() async {
+      final planRows = await (_database.select(
+        _database.wakePlanRows,
+      )..orderBy([(row) => OrderingTerm.asc(row.targetTimeMinutes)])).get();
+      final occurrenceRows =
+          await (_database.select(_database.alarmOccurrenceRows)..orderBy([
+                (row) => OrderingTerm.asc(row.wakePlanId),
+                (row) => OrderingTerm.asc(row.scheduledAtDays),
+                (row) => OrderingTerm.asc(row.scheduledAtMinutes),
+              ]))
+              .get();
 
-    return rows
-        .map(_tryAlarmOccurrenceFromRow)
-        .whereType<AlarmOccurrence>()
-        .toList(growable: false);
+      final plans = <WakePlan>[];
+      final corruptPlanIds = <String>{};
+      for (final row in planRows) {
+        final plan = _tryWakePlanFromRow(row);
+        if (plan == null) {
+          corruptPlanIds.add(row.id);
+        } else {
+          plans.add(plan);
+        }
+      }
+
+      final occurrences = <AlarmOccurrence>[];
+      final corruptOccurrenceIds = <String>{};
+      final corruptOccurrenceWakePlanIds = <String>{};
+      for (final row in occurrenceRows) {
+        final occurrence = _tryAlarmOccurrenceFromRow(row);
+        if (occurrence == null) {
+          corruptOccurrenceIds.add(row.id);
+          corruptOccurrenceWakePlanIds.add(row.wakePlanId);
+        } else {
+          occurrences.add(occurrence);
+        }
+      }
+
+      return WakePlanReconciliationSnapshot(
+        plans: plans,
+        occurrences: occurrences,
+        corruptPlanIds: corruptPlanIds,
+        corruptOccurrenceIds: corruptOccurrenceIds,
+        corruptOccurrenceWakePlanIds: corruptOccurrenceWakePlanIds,
+      );
+    });
   }
 
   Future<List<AlarmOccurrence>> fetchOccurrencesForCalendarRange({

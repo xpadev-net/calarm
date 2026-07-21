@@ -575,14 +575,31 @@ class WakePlanService {
 
   Future<List<WakePlanSchedulingResult>> _runReconciliation() async {
     final now = _clock();
-    final plans = await _store.fetchWakePlans(now: now);
-    final persistedInventory = await _store.fetchOccurrencesForReconciliation();
-    final inventoryPreparation = await _prepareWholeInventory(
-      plans: plans,
-      occurrences: persistedInventory,
+    final persistedSnapshot = await _store.fetchReconciliationSnapshot(
       now: now,
     );
-    final results = <WakePlanSchedulingResult>[];
+    final plans = persistedSnapshot.plans;
+    final inventoryPreparation = await _prepareWholeInventory(
+      plans: plans,
+      occurrences: persistedSnapshot.occurrences,
+      corruptPlanIds: persistedSnapshot.corruptPlanIds,
+      corruptOccurrenceIds: persistedSnapshot.corruptOccurrenceIds,
+      corruptOccurrenceWakePlanIds:
+          persistedSnapshot.corruptOccurrenceWakePlanIds,
+      now: now,
+    );
+    final decodedPlanIds = plans.map((plan) => plan.id).toSet();
+    final results = <WakePlanSchedulingResult>[
+      for (final planId in inventoryPreparation.blockedPlanIds)
+        if (!decodedPlanIds.contains(planId))
+          _inventoryRecoveryResultForPlanId(
+            wakePlanId: planId,
+            occurrences:
+                inventoryPreparation.occurrencesByPlan[planId] ?? const [],
+            persistenceError:
+                inventoryPreparation.persistenceErrorsByPlan[planId],
+          ),
+    ];
 
     for (final plan in plans) {
       final persistedOccurrences =
@@ -679,6 +696,9 @@ class WakePlanService {
   Future<_WholeInventoryPreparation> _prepareWholeInventory({
     required List<WakePlan> plans,
     required List<AlarmOccurrence> occurrences,
+    required Set<String> corruptPlanIds,
+    required Set<String> corruptOccurrenceIds,
+    required Set<String> corruptOccurrenceWakePlanIds,
     required DateTime now,
   }) async {
     final originalById = {
@@ -694,6 +714,10 @@ class WakePlanService {
         )
         .map((plan) => plan.id)
         .toSet();
+    final corruptInventoryPlanIds = <String>{
+      ...corruptPlanIds,
+      ...corruptOccurrenceWakePlanIds,
+    };
     final desiredById = <String, AlarmOccurrence>{
       for (final plan in plans)
         if (activePlanIds.contains(plan.id))
@@ -704,11 +728,20 @@ class WakePlanService {
             occurrence.id: occurrence,
     };
     final inventory = await _loadNativeInventory();
+    if (inventory != null) {
+      for (final row in inventory.rows) {
+        if (corruptOccurrenceIds.contains(row.reservationId) ||
+            corruptOccurrenceIds.contains(row.occurrenceId)) {
+          corruptInventoryPlanIds.add(row.wakePlanId);
+        }
+      }
+    }
     if (inventory == null || !inventory.isAuthoritative) {
       return _WholeInventoryPreparation(
         inventory: inventory,
         occurrences: occurrences,
-        recoveryPlanIds: activePlanIds,
+        recoveryPlanIds: {...activePlanIds, ...corruptInventoryPlanIds},
+        blockedPlanIds: corruptInventoryPlanIds,
       );
     }
 
@@ -731,13 +764,17 @@ class WakePlanService {
           isAuthoritative: false,
         ),
         occurrences: occurrences,
-        recoveryPlanIds: activePlanIds,
+        recoveryPlanIds: {...activePlanIds, ...corruptInventoryPlanIds},
+        blockedPlanIds: corruptInventoryPlanIds,
       );
     }
 
     final activeRowsByOccurrence = <String, NativeAlarmInventoryRow>{};
     final retainedStoppedPlanIds = <String>{};
     for (final row in inventory.rows) {
+      if (corruptInventoryPlanIds.contains(row.wakePlanId)) {
+        continue;
+      }
       if (row.status == NativeAlarmReservationStatus.scheduled ||
           row.status == NativeAlarmReservationStatus.ringing) {
         activeRowsByOccurrence[row.occurrenceId] = row;
@@ -749,12 +786,18 @@ class WakePlanService {
     final reconciledById = Map<String, AlarmOccurrence>.of(originalById);
     final changed = <AlarmOccurrence>[];
     final ownedNativeOnly = <NativeAlarmInventoryRow>[];
-    final recoveryPlanIds = <String>{...retainedStoppedPlanIds};
+    final recoveryPlanIds = <String>{
+      ...retainedStoppedPlanIds,
+      ...corruptInventoryPlanIds,
+    };
     final repairedPlanIds = <String>{};
-    final blockedPlanIds = <String>{};
+    final blockedPlanIds = <String>{...corruptInventoryPlanIds};
     final persistenceErrorsByPlan = <String, String>{};
 
     for (final occurrence in occurrences) {
+      if (corruptInventoryPlanIds.contains(occurrence.wakePlanId)) {
+        continue;
+      }
       final row = activeRowsByOccurrence.remove(occurrence.id);
       final isFuture = occurrence.scheduledAt.toDateTime().isAfter(now);
       final isActivePlan = activePlanIds.contains(occurrence.wakePlanId);
@@ -942,9 +985,19 @@ class WakePlanService {
     required WakePlan plan,
     required List<AlarmOccurrence> occurrences,
     String? persistenceError,
+  }) => _inventoryRecoveryResultForPlanId(
+    wakePlanId: plan.id,
+    occurrences: occurrences,
+    persistenceError: persistenceError,
+  );
+
+  WakePlanSchedulingResult _inventoryRecoveryResultForPlanId({
+    required String wakePlanId,
+    required List<AlarmOccurrence> occurrences,
+    String? persistenceError,
   }) {
     return WakePlanSchedulingResult(
-      wakePlanId: plan.id,
+      wakePlanId: wakePlanId,
       status: WakePlanSchedulingStatus.recoveryRequired,
       changeState: WakePlanChangeState.recoveryRequired,
       scheduleResult: ScheduleResult.fromRequestResults(
@@ -2608,7 +2661,9 @@ abstract class WakePlanServiceStore {
 
   Future<WakePlan?> fetchWakePlan(String id);
 
-  Future<List<WakePlan>> fetchWakePlans({required DateTime now});
+  Future<WakePlanReconciliationSnapshot> fetchReconciliationSnapshot({
+    required DateTime now,
+  });
 
   Future<void> saveWakePlan(WakePlan plan);
 
@@ -2620,8 +2675,6 @@ abstract class WakePlanServiceStore {
   Future<void> saveAlarmOccurrences(Iterable<AlarmOccurrence> occurrences);
 
   Future<List<AlarmOccurrence>> fetchOccurrencesForPlan(String wakePlanId);
-
-  Future<List<AlarmOccurrence>> fetchOccurrencesForReconciliation();
 
   Future<List<AlarmOccurrence>> fetchReservedOccurrencesForPlan(
     String wakePlanId,
@@ -2642,12 +2695,10 @@ class WakePlanRepositoryServiceStore implements WakePlanServiceStore {
   }
 
   @override
-  Future<List<WakePlan>> fetchWakePlans({required DateTime now}) {
-    return _repository.fetchWakePlans(
-      now: now,
-      includeDeleted: true,
-      includeExpiredOneTimeHistory: true,
-    );
+  Future<WakePlanReconciliationSnapshot> fetchReconciliationSnapshot({
+    required DateTime now,
+  }) {
+    return _repository.fetchReconciliationSnapshot();
   }
 
   @override
@@ -2671,11 +2722,6 @@ class WakePlanRepositoryServiceStore implements WakePlanServiceStore {
   @override
   Future<List<AlarmOccurrence>> fetchOccurrencesForPlan(String wakePlanId) {
     return _repository.fetchOccurrencesForPlan(wakePlanId);
-  }
-
-  @override
-  Future<List<AlarmOccurrence>> fetchOccurrencesForReconciliation() {
-    return _repository.fetchOccurrencesForReconciliation();
   }
 
   @override

@@ -285,12 +285,49 @@ void main() {
           buildOccurrence(id: 'occ-1'),
         ]);
 
-        final inventory = await repository.fetchOccurrencesForReconciliation();
+        final snapshot = await repository.fetchReconciliationSnapshot();
 
-        expect(inventory.map((occurrence) => occurrence.id), [
+        expect(snapshot.occurrences.map((occurrence) => occurrence.id), [
           'occ-1',
           'occ-2',
         ]);
+      },
+    );
+
+    test(
+      'surfaces constructor-invalid rows in reconciliation metadata',
+      () async {
+        await repository.saveWakePlan(buildPlan());
+        await database
+            .into(database.wakePlanRows)
+            .insert(
+              _malformedPlanCompanion(
+                id: 'bad-plan',
+                repeatType: RepeatType.weekly,
+              ),
+            );
+        await database
+            .into(database.alarmOccurrenceRows)
+            .insert(
+              AlarmOccurrenceRowsCompanion.insert(
+                id: 'bad-suppression',
+                wakePlanId: 'plan-1',
+                scheduledAtDays: monday.daysSinceUnixEpoch,
+                scheduledAtMinutes: targetTime.minutesSinceMidnight,
+                status: AlarmOccurrenceStatus.userDisabled.name,
+                platformAlarmId: const Value('native-exact'),
+                createdAt: now,
+                updatedAt: now,
+              ),
+            );
+
+        final snapshot = await repository.fetchReconciliationSnapshot();
+
+        expect(snapshot.plans.map((plan) => plan.id), ['plan-1']);
+        expect(snapshot.occurrences, isEmpty);
+        expect(snapshot.corruptPlanIds, {'bad-plan'});
+        expect(snapshot.corruptOccurrenceIds, {'bad-suppression'});
+        expect(snapshot.corruptOccurrenceWakePlanIds, {'plan-1'});
       },
     );
 
