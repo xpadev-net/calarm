@@ -102,7 +102,7 @@ class AlarmRingingController {
     DateTime now,
   ) {
     if (occurrence.status == AlarmOccurrenceStatus.ringing) {
-      return true;
+      return _isWithinCurrentDueWindow(occurrence, now);
     }
     return occurrence.status == AlarmOccurrenceStatus.scheduled &&
         _isWithinCurrentDueWindow(occurrence, now);

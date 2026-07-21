@@ -283,6 +283,31 @@ void main() {
     expect(store.occurrences[future.id]!.platformAlarmId, 'native-future');
   });
 
+  test('refuses to dismiss stale ringing outside the current window', () async {
+    final gateway = FakeNativeAlarmGateway();
+    final stale = _occurrence(
+      id: 'stale-ringing',
+      day: monday,
+      minute: 390,
+      status: AlarmOccurrenceStatus.ringing,
+      platformAlarmId: 'native-stale',
+      firedAt: DateTime(2026, 7, 6, 6, 34),
+    );
+    final store = _AlarmRingingStore(
+      plans: [_plan(day: monday)],
+      occurrences: [stale],
+    );
+
+    final result = await _controller(
+      store,
+      gateway: gateway,
+    ).dismissCurrent(stale.id);
+
+    expect(result, AlarmDismissResult.notRinging);
+    expect(gateway.cancelledOccurrences, isEmpty);
+    expect(store.savedOccurrences, isEmpty);
+  });
+
   test(
     'dismissCurrent serializes with service mutations on the shared coordinator',
     () async {

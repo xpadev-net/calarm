@@ -399,14 +399,16 @@ void main() {
         final matches = await repository
             .fetchAlarmOccurrencesByPlatformAlarmIds({'native-shared'});
 
-        expect(matches.map((occurrence) => occurrence.id), [
+        expect(matches.occurrences.map((occurrence) => occurrence.id), [
           'retained-1',
           'retained-2',
         ]);
-        expect(
-          await repository.fetchAlarmOccurrencesByPlatformAlarmIds({}),
-          isEmpty,
+        expect(matches.corruptPlatformAlarmIds, {'native-shared'});
+        final empty = await repository.fetchAlarmOccurrencesByPlatformAlarmIds(
+          {},
         );
+        expect(empty.occurrences, isEmpty);
+        expect(empty.corruptPlatformAlarmIds, isEmpty);
       },
     );
 

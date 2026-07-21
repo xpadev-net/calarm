@@ -737,13 +737,17 @@ class WakePlanService {
         .map((occurrence) => occurrence.id)
         .toSet();
     final eventMatches = events.isEmpty
-        ? const <AlarmOccurrence>[]
+        ? AlarmOccurrencePlatformMatchSnapshot(
+            occurrences: const [],
+            corruptPlatformAlarmIds: const {},
+          )
         : await _store.fetchAlarmOccurrencesByPlatformAlarmIds(
             events.map((event) => event.platformAlarmId).toSet(),
           );
     final occurrencesById = <String, AlarmOccurrence>{
       for (final occurrence in snapshot.occurrences) occurrence.id: occurrence,
-      for (final occurrence in eventMatches) occurrence.id: occurrence,
+      for (final occurrence in eventMatches.occurrences)
+        occurrence.id: occurrence,
     };
     final activePlanIds = snapshot.plans
         .where(
@@ -766,7 +770,11 @@ class WakePlanService {
     final changedOccurrenceIds = <String>{};
     for (final event in events) {
       final matchingIds = occurrenceIdsByPlatformId[event.platformAlarmId];
-      if (matchingIds == null || matchingIds.length != 1) {
+      if (eventMatches.corruptPlatformAlarmIds.contains(
+            event.platformAlarmId,
+          ) ||
+          matchingIds == null ||
+          matchingIds.length != 1) {
         continue;
       }
       final occurrenceId = matchingIds.single;
@@ -3073,9 +3081,8 @@ abstract class WakePlanServiceStore {
     required DateTime now,
   });
 
-  Future<List<AlarmOccurrence>> fetchAlarmOccurrencesByPlatformAlarmIds(
-    Set<String> platformAlarmIds,
-  );
+  Future<AlarmOccurrencePlatformMatchSnapshot>
+  fetchAlarmOccurrencesByPlatformAlarmIds(Set<String> platformAlarmIds);
 
   Future<void> saveWakePlan(WakePlan plan);
 
@@ -3111,9 +3118,8 @@ class WakePlanRepositoryServiceStore implements WakePlanServiceStore {
   }
 
   @override
-  Future<List<AlarmOccurrence>> fetchAlarmOccurrencesByPlatformAlarmIds(
-    Set<String> platformAlarmIds,
-  ) {
+  Future<AlarmOccurrencePlatformMatchSnapshot>
+  fetchAlarmOccurrencesByPlatformAlarmIds(Set<String> platformAlarmIds) {
     return _repository.fetchAlarmOccurrencesByPlatformAlarmIds(
       platformAlarmIds,
     );

@@ -932,6 +932,45 @@ void main() {
     );
 
     test(
+      'does not settle a valid row sharing an id with corrupt persistence',
+      () async {
+        final eventNow = DateTime(2026, 7, 6, 6, 52);
+        final plan = buildPlan();
+        final occurrence = buildOccurrence(
+          id: 'plan-1:20640:410',
+          time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 50),
+          platformAlarmId: 'native-current',
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan]
+          ..storedOccurrences = [occurrence]
+          ..corruptPlatformAlarmIds = {'native-current'};
+        final gateway = withUnavailableInventory(FakeNativeAlarmGateway())
+          ..pendingAlarmEvents.add(
+            NativeAlarmEvent(
+              eventId: 'ambiguous-dismissal',
+              platformAlarmId: 'native-current',
+              type: NativeAlarmEventType.dismissed,
+              timestamp: eventNow,
+            ),
+          );
+
+        await service(
+          store: store,
+          gateway: gateway,
+          clockNow: eventNow,
+        ).reconcileSchedules();
+
+        expect(
+          store.storedOccurrences.single.status,
+          AlarmOccurrenceStatus.scheduled,
+        );
+        expect(gateway.acknowledgedAlarmEventIds, isEmpty);
+        expect(gateway.pendingAlarmEvents, hasLength(1));
+      },
+    );
+
+    test(
       'keeps past and exact-now weekly recovery markers terminal while replenishing the future horizon',
       () async {
         final exactNow = DateTime(2026, 7, 6, 7);
@@ -6927,6 +6966,7 @@ class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
   Set<String> corruptPlanIds = {};
   Set<String> corruptOccurrenceIds = {};
   Set<String> corruptOccurrenceWakePlanIds = {};
+  Set<String> corruptPlatformAlarmIds = {};
   final fetchPlanNows = <DateTime>[];
 
   @override
@@ -6951,15 +6991,20 @@ class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
   }
 
   @override
-  Future<List<AlarmOccurrence>> fetchAlarmOccurrencesByPlatformAlarmIds(
-    Set<String> platformAlarmIds,
-  ) async {
+  Future<AlarmOccurrencePlatformMatchSnapshot>
+  fetchAlarmOccurrencesByPlatformAlarmIds(Set<String> platformAlarmIds) async {
     operations.add('fetchAlarmOccurrencesByPlatformAlarmIds');
-    return storedOccurrences
-        .where(
-          (occurrence) => platformAlarmIds.contains(occurrence.platformAlarmId),
-        )
-        .toList(growable: false);
+    return AlarmOccurrencePlatformMatchSnapshot(
+      occurrences: storedOccurrences
+          .where(
+            (occurrence) =>
+                platformAlarmIds.contains(occurrence.platformAlarmId),
+          )
+          .toList(growable: false),
+      corruptPlatformAlarmIds: corruptPlatformAlarmIds.intersection(
+        platformAlarmIds,
+      ),
+    );
   }
 
   @override
