@@ -524,6 +524,413 @@ void main() {
   });
 
   group('WakePlanService reconcileSchedules', () {
+    test('persists an exact native dismissal before acknowledgement', () async {
+      final eventNow = DateTime(2026, 7, 6, 6, 52);
+      final plan = buildPlan();
+      final occurrence = buildOccurrence(
+        id: 'plan-1:20640:410',
+        time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 50),
+        platformAlarmId: 'native-current',
+      );
+      final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+        ..wakePlans = [plan]
+        ..storedOccurrences = [occurrence];
+      late _ObservingAckGateway gateway;
+      gateway =
+          _ObservingAckGateway(
+              onAcknowledge: () {
+                expect(
+                  store.storedOccurrences
+                      .singleWhere((candidate) => candidate.id == occurrence.id)
+                      .status,
+                  AlarmOccurrenceStatus.dismissed,
+                );
+              },
+            )
+            ..pendingAlarmEvents.add(
+              NativeAlarmEvent(
+                eventId: 'dismiss-current',
+                platformAlarmId: 'native-current',
+                type: NativeAlarmEventType.dismissed,
+                timestamp: eventNow.subtract(const Duration(minutes: 1)),
+              ),
+            );
+
+      await service(
+        store: store,
+        gateway: gateway,
+        clockNow: eventNow,
+      ).reconcileSchedules();
+
+      final persisted = store.storedOccurrences.singleWhere(
+        (candidate) => candidate.id == occurrence.id,
+      );
+      expect(persisted.status, AlarmOccurrenceStatus.dismissed);
+      expect(persisted.platformAlarmId, 'native-current');
+      expect(gateway.acknowledgedAlarmEventIds, ['dismiss-current']);
+      expect(gateway.pendingAlarmEvents, isEmpty);
+    });
+
+    test('native dismissal survives a real Drift close and reopen', () async {
+      final eventNow = DateTime(2026, 7, 6, 6, 52);
+      final directory = await Directory.systemTemp.createTemp('calarm-task21-');
+      final file = File('${directory.path}/wake-plan.sqlite');
+      final plan = buildPlan();
+      final occurrence = buildOccurrence(
+        id: 'plan-1:20640:410',
+        time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 50),
+        platformAlarmId: 'native-current',
+      );
+      final gateway = FakeNativeAlarmGateway()
+        ..pendingAlarmEvents.add(
+          NativeAlarmEvent(
+            eventId: 'dismiss-current',
+            platformAlarmId: 'native-current',
+            type: NativeAlarmEventType.dismissed,
+            timestamp: eventNow,
+          ),
+        );
+      try {
+        var database = WakePlanDatabase(NativeDatabase(file));
+        var repository = WakePlanRepository(database);
+        await repository.saveWakePlan(plan);
+        await repository.saveAlarmOccurrences([occurrence]);
+        await WakePlanService(
+          repository: repository,
+          nativeAlarmGateway: gateway,
+          coordinator: WakePlanMutationCoordinator(),
+          clock: () => eventNow,
+        ).reconcileSchedules();
+        await database.close();
+
+        database = WakePlanDatabase(NativeDatabase(file));
+        repository = WakePlanRepository(database);
+        final persisted = await repository.fetchAlarmOccurrence(occurrence.id);
+        expect(persisted!.status, AlarmOccurrenceStatus.dismissed);
+        expect(persisted.platformAlarmId, 'native-current');
+        expect(gateway.pendingAlarmEvents, isEmpty);
+
+        await WakePlanService(
+          repository: repository,
+          nativeAlarmGateway: gateway,
+          coordinator: WakePlanMutationCoordinator(),
+          clock: () => eventNow.add(const Duration(minutes: 1)),
+        ).reconcileSchedules();
+        expect(
+          (await repository.fetchAlarmOccurrence(occurrence.id))!.status,
+          AlarmOccurrenceStatus.dismissed,
+        );
+        await database.close();
+      } finally {
+        await directory.delete(recursive: true);
+      }
+    });
+
+    test('does not acknowledge when native-event persistence fails', () async {
+      final eventNow = DateTime(2026, 7, 6, 6, 52);
+      final plan = buildPlan();
+      final occurrence = buildOccurrence(
+        id: 'plan-1:20640:410',
+        time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 50),
+        platformAlarmId: 'native-current',
+      );
+      final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+        ..wakePlans = [plan]
+        ..storedOccurrences = [occurrence]
+        ..failSaveAlarmOccurrencesAtCalls.add(1);
+      final gateway = FakeNativeAlarmGateway()
+        ..pendingAlarmEvents.add(
+          NativeAlarmEvent(
+            eventId: 'dismiss-current',
+            platformAlarmId: 'native-current',
+            type: NativeAlarmEventType.dismissed,
+            timestamp: eventNow,
+          ),
+        );
+
+      await expectLater(
+        service(
+          store: store,
+          gateway: gateway,
+          clockNow: eventNow,
+        ).reconcileSchedules(),
+        throwsA(isA<StateError>()),
+      );
+
+      expect(
+        store.storedOccurrences.single.status,
+        AlarmOccurrenceStatus.scheduled,
+      );
+      expect(gateway.acknowledgedAlarmEventIds, isEmpty);
+      expect(gateway.pendingAlarmEvents, hasLength(1));
+    });
+
+    test(
+      'replay converges after a save side effect throws before ack',
+      () async {
+        final eventNow = DateTime(2026, 7, 6, 6, 52);
+        final plan = buildPlan();
+        final occurrence = buildOccurrence(
+          id: 'plan-1:20640:410',
+          time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 50),
+          platformAlarmId: 'native-current',
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan]
+          ..storedOccurrences = [occurrence]
+          ..failSaveAlarmOccurrencesAfterMutationAtCalls.add(1);
+        final gateway = FakeNativeAlarmGateway()
+          ..pendingAlarmEvents.add(
+            NativeAlarmEvent(
+              eventId: 'dismiss-current',
+              platformAlarmId: 'native-current',
+              type: NativeAlarmEventType.dismissed,
+              timestamp: eventNow,
+            ),
+          );
+        final serviceUnderTest = service(
+          store: store,
+          gateway: gateway,
+          clockNow: eventNow,
+        );
+
+        await expectLater(
+          serviceUnderTest.reconcileSchedules(),
+          throwsA(isA<StateError>()),
+        );
+        expect(
+          store.storedOccurrences.single.status,
+          AlarmOccurrenceStatus.dismissed,
+        );
+        expect(gateway.pendingAlarmEvents, hasLength(1));
+
+        store.failSaveAlarmOccurrencesAfterMutationAtCalls.clear();
+        await serviceUnderTest.reconcileSchedules();
+        expect(gateway.pendingAlarmEvents, isEmpty);
+        expect(
+          store.storedOccurrences.single.status,
+          AlarmOccurrenceStatus.dismissed,
+        );
+      },
+    );
+
+    test(
+      'ack failure replays idempotently without losing exact identity',
+      () async {
+        final eventNow = DateTime(2026, 7, 6, 6, 52);
+        final plan = buildPlan();
+        final occurrence = buildOccurrence(
+          id: 'plan-1:20640:410',
+          time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 50),
+          platformAlarmId: 'native-current',
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan]
+          ..storedOccurrences = [occurrence];
+        final gateway = _FailingAckGateway()
+          ..pendingAlarmEvents.add(
+            NativeAlarmEvent(
+              eventId: 'dismiss-current',
+              platformAlarmId: 'native-current',
+              type: NativeAlarmEventType.dismissed,
+              timestamp: eventNow,
+            ),
+          );
+
+        await service(
+          store: store,
+          gateway: gateway,
+          clockNow: eventNow,
+        ).reconcileSchedules();
+        expect(gateway.pendingAlarmEvents, hasLength(1));
+        expect(
+          store.storedOccurrences.single.status,
+          AlarmOccurrenceStatus.dismissed,
+        );
+
+        gateway.failAcknowledgement = false;
+        await service(
+          store: store,
+          gateway: gateway,
+          clockNow: eventNow,
+        ).reconcileSchedules();
+
+        expect(gateway.pendingAlarmEvents, isEmpty);
+        expect(
+          store.storedOccurrences.single.status,
+          AlarmOccurrenceStatus.dismissed,
+        );
+        expect(
+          store.storedOccurrences.single.platformAlarmId,
+          'native-current',
+        );
+      },
+    );
+
+    test(
+      'delivered-only events become ringing or missed at the policy boundary',
+      () async {
+        final eventNow = DateTime(2026, 7, 6, 7);
+        final plan = buildPlan();
+        final current = buildOccurrence(
+          id: 'current',
+          time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 55),
+          platformAlarmId: 'native-current',
+        );
+        final stale = buildOccurrence(
+          id: 'stale',
+          time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 40),
+          platformAlarmId: 'native-stale',
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan]
+          ..storedOccurrences = [current, stale];
+        final gateway = FakeNativeAlarmGateway()
+          ..pendingAlarmEvents.addAll([
+            NativeAlarmEvent(
+              eventId: 'delivered-current',
+              platformAlarmId: 'native-current',
+              type: NativeAlarmEventType.delivered,
+              timestamp: eventNow.subtract(const Duration(minutes: 15)),
+            ),
+            NativeAlarmEvent(
+              eventId: 'delivered-stale',
+              platformAlarmId: 'native-stale',
+              type: NativeAlarmEventType.delivered,
+              timestamp: eventNow.subtract(const Duration(minutes: 16)),
+            ),
+          ]);
+
+        await service(
+          store: store,
+          gateway: gateway,
+          clockNow: eventNow,
+        ).reconcileSchedules();
+
+        final byId = {for (final row in store.storedOccurrences) row.id: row};
+        expect(byId['current']!.status, AlarmOccurrenceStatus.ringing);
+        expect(byId['stale']!.status, AlarmOccurrenceStatus.missed);
+        expect(gateway.acknowledgedAlarmEventIds, [
+          'delivered-stale',
+          'delivered-current',
+        ]);
+      },
+    );
+
+    test(
+      'leaves unmatched and corrupt native events durable and unapplied',
+      () async {
+        final eventNow = DateTime(2026, 7, 6, 6, 52);
+        final plan = buildPlan();
+        final occurrence = buildOccurrence(
+          id: 'plan-1:20640:410',
+          time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 50),
+          platformAlarmId: 'native-current',
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan]
+          ..storedOccurrences = [occurrence]
+          ..corruptOccurrenceWakePlanIds = {plan.id};
+        final gateway = FakeNativeAlarmGateway()
+          ..pendingAlarmEvents.addAll([
+            NativeAlarmEvent(
+              eventId: 'corrupt-match',
+              platformAlarmId: 'native-current',
+              type: NativeAlarmEventType.dismissed,
+              timestamp: eventNow,
+            ),
+            NativeAlarmEvent(
+              eventId: 'unmatched',
+              platformAlarmId: 'native-unknown',
+              type: NativeAlarmEventType.dismissed,
+              timestamp: eventNow,
+            ),
+          ]);
+
+        await service(
+          store: store,
+          gateway: gateway,
+          clockNow: eventNow,
+        ).reconcileSchedules();
+
+        expect(
+          store.storedOccurrences.single.status,
+          AlarmOccurrenceStatus.scheduled,
+        );
+        expect(gateway.acknowledgedAlarmEventIds, isEmpty);
+        expect(gateway.pendingAlarmEvents, hasLength(2));
+      },
+    );
+
+    test(
+      'rejects duplicate event batches and conflicting inventory tuples',
+      () async {
+        final eventNow = DateTime(2026, 7, 6, 6, 52);
+        final plan = buildPlan();
+        final occurrence = buildOccurrence(
+          id: 'plan-1:20640:410',
+          time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 50),
+          platformAlarmId: 'native-current',
+        );
+        final duplicateStore = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan]
+          ..storedOccurrences = [occurrence];
+        final duplicateGateway = _DuplicateEventGateway(
+          event: NativeAlarmEvent(
+            eventId: 'duplicate',
+            platformAlarmId: 'native-current',
+            type: NativeAlarmEventType.dismissed,
+            timestamp: eventNow,
+          ),
+        );
+
+        await service(
+          store: duplicateStore,
+          gateway: duplicateGateway,
+          clockNow: eventNow,
+        ).reconcileSchedules();
+        expect(
+          duplicateStore.storedOccurrences.single.status,
+          AlarmOccurrenceStatus.scheduled,
+        );
+        expect(duplicateGateway.acknowledgedAlarmEventIds, isEmpty);
+
+        final conflictStore = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan]
+          ..storedOccurrences = [occurrence];
+        final conflictGateway = FakeNativeAlarmGateway()
+          ..inventoryRows.add(
+            NativeAlarmInventoryRow(
+              reservationId: occurrence.id,
+              occurrenceId: 'other-occurrence',
+              wakePlanId: plan.id,
+              platformAlarmId: 'native-current',
+              status: NativeAlarmReservationStatus.stopped,
+            ),
+          )
+          ..pendingAlarmEvents.add(
+            NativeAlarmEvent(
+              eventId: 'conflicted',
+              platformAlarmId: 'native-current',
+              type: NativeAlarmEventType.dismissed,
+              timestamp: eventNow,
+            ),
+          );
+
+        await service(
+          store: conflictStore,
+          gateway: conflictGateway,
+          clockNow: eventNow,
+        ).reconcileSchedules();
+        expect(
+          conflictStore.storedOccurrences.single.status,
+          AlarmOccurrenceStatus.scheduled,
+        );
+        expect(conflictGateway.acknowledgedAlarmEventIds, isEmpty);
+        expect(conflictGateway.pendingAlarmEvents, hasLength(1));
+      },
+    );
+
     test(
       'keeps past and exact-now weekly recovery markers terminal while replenishing the future horizon',
       () async {
@@ -1528,6 +1935,50 @@ void main() {
         'plan-2',
       ]);
     });
+
+    test(
+      'expired one-time history settles as missed without reactivation',
+      () async {
+        final eventNow = DateTime(2026, 7, 6, 8);
+        final expiredPlan = buildPlan();
+        final occurrence = buildOccurrence(
+          id: 'expired-current',
+          platformAlarmId: 'native-expired',
+        );
+        final database = WakePlanDatabase(NativeDatabase.memory());
+        final repository = WakePlanRepository(database);
+        final gateway = FakeNativeAlarmGateway()
+          ..pendingAlarmEvents.add(
+            NativeAlarmEvent(
+              eventId: 'delivered-expired',
+              platformAlarmId: 'native-expired',
+              type: NativeAlarmEventType.delivered,
+              timestamp: eventNow.subtract(const Duration(minutes: 5)),
+            ),
+          );
+        try {
+          await repository.saveWakePlan(expiredPlan);
+          await repository.saveAlarmOccurrences([occurrence]);
+
+          final results = await WakePlanService(
+            repository: repository,
+            nativeAlarmGateway: gateway,
+            coordinator: WakePlanMutationCoordinator(),
+            clock: () => eventNow,
+          ).reconcileSchedules();
+
+          final persisted = await repository.fetchAlarmOccurrence(
+            occurrence.id,
+          );
+          expect(results, isEmpty);
+          expect(persisted!.status, AlarmOccurrenceStatus.missed);
+          expect(gateway.scheduledRequests, isEmpty);
+          expect(gateway.acknowledgedAlarmEventIds, ['delivered-expired']);
+        } finally {
+          await database.close();
+        }
+      },
+    );
 
     test('per-plan prewrite failure continues with later plans', () async {
       final secondPlan = buildPlan(
@@ -6464,6 +6915,7 @@ class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
   final deletedPlanIds = <String>[];
   bool failSoftDelete = false;
   final failSaveAlarmOccurrencesAtCalls = <int>{};
+  final failSaveAlarmOccurrencesAfterMutationAtCalls = <int>{};
   int? blockSaveAlarmOccurrencesAtCall;
   final saveAlarmOccurrencesBlocked = Completer<void>();
   final releaseBlockedSave = Completer<void>();
@@ -6496,6 +6948,18 @@ class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
       corruptOccurrenceIds: corruptOccurrenceIds,
       corruptOccurrenceWakePlanIds: corruptOccurrenceWakePlanIds,
     );
+  }
+
+  @override
+  Future<List<AlarmOccurrence>> fetchAlarmOccurrencesByPlatformAlarmIds(
+    Set<String> platformAlarmIds,
+  ) async {
+    operations.add('fetchAlarmOccurrencesByPlatformAlarmIds');
+    return storedOccurrences
+        .where(
+          (occurrence) => platformAlarmIds.contains(occurrence.platformAlarmId),
+        )
+        .toList(growable: false);
   }
 
   @override
@@ -6546,6 +7010,14 @@ class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
       byId[occurrence.id] = occurrence;
     }
     storedOccurrences = byId.values.toList(growable: false);
+    if (failSaveAlarmOccurrencesAfterMutationAtCalls.contains(
+      saveAlarmOccurrencesCallCount,
+    )) {
+      throw StateError(
+        'injected post-mutation alarm occurrence persistence failure at call '
+        '$saveAlarmOccurrencesCallCount',
+      );
+    }
   }
 
   @override
@@ -6571,6 +7043,39 @@ class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
 
 extension on NativeAlarmCancelRequest {
   String get idLabel => '$occurrenceId/$platformAlarmId';
+}
+
+class _ObservingAckGateway extends FakeNativeAlarmGateway {
+  _ObservingAckGateway({required this.onAcknowledge});
+
+  final void Function() onAcknowledge;
+
+  @override
+  Future<void> acknowledgeAlarmEvents(List<String> eventIds) async {
+    onAcknowledge();
+    await super.acknowledgeAlarmEvents(eventIds);
+  }
+}
+
+class _FailingAckGateway extends FakeNativeAlarmGateway {
+  bool failAcknowledgement = true;
+
+  @override
+  Future<void> acknowledgeAlarmEvents(List<String> eventIds) async {
+    if (failAcknowledgement) {
+      throw StateError('injected acknowledgement failure');
+    }
+    await super.acknowledgeAlarmEvents(eventIds);
+  }
+}
+
+class _DuplicateEventGateway extends FakeNativeAlarmGateway {
+  _DuplicateEventGateway({required this.event});
+
+  final NativeAlarmEvent event;
+
+  @override
+  Future<List<NativeAlarmEvent>> fetchAlarmEvents() async => [event, event];
 }
 
 class _StrictMissingMirrorGateway extends FakeNativeAlarmGateway {

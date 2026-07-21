@@ -7,6 +7,10 @@ import '../../wake_plan/domain/wake_plan_domain.dart';
 typedef AlarmRingingClock = DateTime Function();
 
 class AlarmRingingController {
+  /// Only alarms due during this recent window can be surfaced or dismissed.
+  /// The newest due occurrence wins ties before the stable occurrence id.
+  static const Duration currentAlarmDueWindow = Duration(minutes: 15);
+
   AlarmRingingController({
     required this.store,
     required this.nativeAlarmGateway,
@@ -42,8 +46,9 @@ class AlarmRingingController {
       if (priorityComparison != 0) {
         return priorityComparison;
       }
-      return left.currentOccurrence.scheduledAt.compareTo(
-        right.currentOccurrence.scheduledAt,
+      return _compareCurrentOccurrences(
+        left.currentOccurrence,
+        right.currentOccurrence,
       );
     });
     return snapshots.firstOrNull;
@@ -100,7 +105,7 @@ class AlarmRingingController {
       return true;
     }
     return occurrence.status == AlarmOccurrenceStatus.scheduled &&
-        !occurrence.scheduledAt.toDateTime().isAfter(now);
+        _isWithinCurrentDueWindow(occurrence, now);
   }
 
   AlarmOccurrence? _selectActiveOccurrence(
@@ -109,13 +114,13 @@ class AlarmRingingController {
   ) {
     final ringing = occurrences
         .where(
-          (occurrence) => occurrence.status == AlarmOccurrenceStatus.ringing,
+          (occurrence) =>
+              occurrence.status == AlarmOccurrenceStatus.ringing &&
+              _isWithinCurrentDueWindow(occurrence, now),
         )
         .toList(growable: false);
     if (ringing.isNotEmpty) {
-      ringing.sort(
-        (left, right) => left.scheduledAt.compareTo(right.scheduledAt),
-      );
+      ringing.sort(_compareCurrentOccurrences);
       return ringing.first;
     }
 
@@ -123,20 +128,39 @@ class AlarmRingingController {
         .where(
           (occurrence) =>
               occurrence.status == AlarmOccurrenceStatus.scheduled &&
-              !occurrence.scheduledAt.toDateTime().isAfter(now),
+              _isWithinCurrentDueWindow(occurrence, now),
         )
         .toList(growable: false);
     if (dueScheduled.isEmpty) {
       return null;
     }
-    dueScheduled.sort(
-      (left, right) => left.scheduledAt.compareTo(right.scheduledAt),
-    );
+    dueScheduled.sort(_compareCurrentOccurrences);
     return dueScheduled.first;
   }
 
   int _activePriority(AlarmOccurrence occurrence) {
     return occurrence.status == AlarmOccurrenceStatus.ringing ? 0 : 1;
+  }
+
+  bool _isWithinCurrentDueWindow(AlarmOccurrence occurrence, DateTime now) {
+    final activeAt = occurrence.status == AlarmOccurrenceStatus.ringing
+        ? occurrence.firedAt!
+        : occurrence.scheduledAt.toDateTime();
+    return !activeAt.isAfter(now) &&
+        !activeAt.isBefore(now.subtract(currentAlarmDueWindow));
+  }
+
+  int _compareCurrentOccurrences(AlarmOccurrence left, AlarmOccurrence right) {
+    final leftActiveAt = left.status == AlarmOccurrenceStatus.ringing
+        ? left.firedAt!
+        : left.scheduledAt.toDateTime();
+    final rightActiveAt = right.status == AlarmOccurrenceStatus.ringing
+        ? right.firedAt!
+        : right.scheduledAt.toDateTime();
+    final activeComparison = rightActiveAt.compareTo(leftActiveAt);
+    return activeComparison != 0
+        ? activeComparison
+        : left.id.compareTo(right.id);
   }
 
   AlarmRingingSnapshot _snapshotFor({

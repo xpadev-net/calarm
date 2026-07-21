@@ -151,6 +151,23 @@ class WakePlanRepository {
     return row == null ? null : _tryAlarmOccurrenceFromRow(row);
   }
 
+  Future<List<AlarmOccurrence>> fetchAlarmOccurrencesByPlatformAlarmIds(
+    Set<String> platformAlarmIds,
+  ) async {
+    if (platformAlarmIds.isEmpty) {
+      return const [];
+    }
+    final rows =
+        await (_database.select(_database.alarmOccurrenceRows)
+              ..where((row) => row.platformAlarmId.isIn(platformAlarmIds))
+              ..orderBy([(row) => OrderingTerm.asc(row.id)]))
+            .get();
+    return rows
+        .map(_tryAlarmOccurrenceFromRow)
+        .whereType<AlarmOccurrence>()
+        .toList(growable: false);
+  }
+
   Future<List<AlarmOccurrence>> fetchOccurrencesForPlan(
     String wakePlanId,
   ) async {
