@@ -971,6 +971,59 @@ void main() {
     );
 
     test(
+      'waits for authoritative inventory before applying an event',
+      () async {
+        final eventNow = DateTime(2026, 7, 6, 6, 52);
+        final plan = buildPlan();
+        final occurrence = buildOccurrence(
+          id: 'plan-1:20640:410',
+          time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 50),
+          platformAlarmId: 'native-current',
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan]
+          ..storedOccurrences = [occurrence];
+        final gateway = withUnavailableInventory(FakeNativeAlarmGateway())
+          ..pendingAlarmEvents.add(
+            NativeAlarmEvent(
+              eventId: 'pending-dismissal',
+              platformAlarmId: 'native-current',
+              type: NativeAlarmEventType.dismissed,
+              timestamp: eventNow,
+            ),
+          );
+
+        await service(
+          store: store,
+          gateway: gateway,
+          clockNow: eventNow,
+        ).reconcileSchedules();
+        expect(
+          store.storedOccurrences.single.status,
+          AlarmOccurrenceStatus.scheduled,
+        );
+        expect(gateway.acknowledgedAlarmEventIds, isEmpty);
+
+        gateway.capability = const NativeAlarmCapability(
+          permissionStatus: NativeAlarmPermissionStatus.authorized,
+          canScheduleAlarms: true,
+          canRequestPermission: true,
+          supportsInventory: true,
+        );
+        await service(
+          store: store,
+          gateway: gateway,
+          clockNow: eventNow,
+        ).reconcileSchedules();
+        expect(
+          store.storedOccurrences.single.status,
+          AlarmOccurrenceStatus.dismissed,
+        );
+        expect(gateway.pendingAlarmEvents, isEmpty);
+      },
+    );
+
+    test(
       'keeps past and exact-now weekly recovery markers terminal while replenishing the future horizon',
       () async {
         final exactNow = DateTime(2026, 7, 6, 7);

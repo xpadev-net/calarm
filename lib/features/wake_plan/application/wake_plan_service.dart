@@ -851,7 +851,7 @@ class WakePlanService {
     required _NativeInventorySnapshot? inventory,
   }) {
     if (inventory == null) {
-      return true;
+      return false;
     }
     if (!inventory.isAuthoritative) {
       return false;
