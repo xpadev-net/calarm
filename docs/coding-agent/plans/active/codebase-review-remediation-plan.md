@@ -515,7 +515,8 @@
 
 ### Task_14: Reconcile native stop state and current-ringing selection
 
-- status: unstarted
+- status: split in progress
+- replacement_tasks: [Task_18, Task_19, Task_20, Task_21]
 - type: impl
 - owns:
   - `lib/features/alarm_ringing/application/alarm_ringing_controller.dart`
@@ -533,12 +534,96 @@
   - kind: command; required: true; owner: worker; detail: `flutter analyze` and `flutter test`.
   - kind: review; required: true; owner: reviewer; detail: lifecycle/state-selection review.
 
+### Task_18: Consolidate wake service providers and mutation serialization
+
+- status: unstarted
+- type: impl
+- owns:
+  - `lib/app.dart`
+  - `lib/features/wake_plan/application/wake_plan_service_providers.dart`
+  - `lib/features/week_calendar/presentation/week_calendar_placeholder.dart`
+  - `lib/features/alarm_ringing/presentation/alarm_ringing_placeholder.dart`
+  - `lib/features/wake_plan/application/wake_plan_service.dart` only for coordinator injection/removal of static coordination
+  - `lib/features/alarm_ringing/application/alarm_ringing_controller.dart` only for shared coordinator serialization
+  - corresponding app/calendar/ringing tests
+- depends_on: [Task_13]
+- acceptance:
+  - App, calendar, and ringing features consume one session-scoped repository, gateway, wake service, clock, and mutation coordinator.
+  - Ringing dismissal serializes with wake-plan mutations, with no static `Expando` coordination.
+  - Riverpod overrides and existing lifecycle reconciliation remain testable and unchanged in behavior.
+  - Only the provider/coordinator intent is salvaged from the dirty parent; calendar redesign and Task_14 event settlement are excluded.
+- validation:
+  - kind: command; required: true; owner: worker; detail: focused app, calendar, ringing-controller, and provider tests plus Dart format, `flutter analyze`, full `flutter test`, and debug APK build.
+  - kind: review; required: true; owner: reviewer; detail: Riverpod lifetime/override, coordinator serialization, disposal, and Task_13 regression review.
+
+### Task_19: Improve the Android ringing surface
+
+- status: unstarted
+- type: impl
+- owns:
+  - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmReceiver.kt`
+  - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmStopActivity.kt`
+  - `android/app/src/main/kotlin/dev/xpa/calarm/AndroidAlarmBridge.kt` only for ringing metadata and next-alarm lookup
+  - `android/app/src/test/kotlin/dev/xpa/calarm/AlarmReceiverTest.kt`
+- depends_on: [Task_13]
+- acceptance:
+  - Native full-screen and notification surfaces show wake target, alarm position, current/scheduled context, and next alarm when available.
+  - Legacy persisted alarm rows remain readable and stopping still removes only the current alarm.
+  - Vibration follows the request and is stopped on cleanup/recreation without adding event-journal behavior.
+  - Notification content avoids unnecessary sensitive detail on the lock screen.
+- validation:
+  - kind: command; required: true; owner: worker; detail: focused Robolectric ringing/notification/storage tests, Android JVM tests, Dart format/diff check, and debug APK build.
+  - kind: review; required: true; owner: reviewer; detail: lock-screen lifecycle, notification privacy/accessibility, vibration cleanup, backward decoding, and current-only stop review.
+
+### Task_20: Add a durable Android native-alarm event journal and Dart contract
+
+- status: unstarted
+- type: impl
+- owns:
+  - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmReceiver.kt` only for proven-delivery journal hooks
+  - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmStopActivity.kt` only for dismissal journal hooks
+  - `android/app/src/main/kotlin/dev/xpa/calarm/AndroidAlarmBridge.kt` only for event storage and channel handlers
+  - `android/app/src/test/kotlin/dev/xpa/calarm/AlarmEventStoreTest.kt`
+  - `lib/core/platform/native_alarm_gateway.dart`
+  - `lib/core/platform/method_channel_native_alarm_gateway.dart`
+  - `lib/core/platform/fake_native_alarm_gateway.dart`
+  - `test/core/platform/method_channel_native_alarm_gateway_test.dart`
+  - `docs/platform/native-alarm-channel.md` only for the additive event protocol
+- depends_on: [Task_19]
+- acceptance:
+  - Delivered/dismissed events survive process death in device-protected storage; fetch is non-destructive and acknowledgement removes only named persisted events.
+  - Delivery is recorded only after at least one native delivery path succeeds, never merely because delivery was attempted.
+  - Duplicate IDs, bounded retention, corrupt rows, Direct Boot, malformed payloads, and old-plugin behavior are explicit and fail safely.
+  - The additive Dart/Kotlin channel contract remains compatible with platforms that do not implement the event journal.
+- validation:
+  - kind: command; required: true; owner: worker; detail: focused Kotlin event/channel tests, Dart gateway tests, Android JVM suite, `flutter analyze`, full `flutter test`, and debug APK build.
+  - kind: review; required: true; owner: reviewer; detail: durability, deduplication, retention/eviction, Direct Boot, schema compatibility, corruption, and destructive acknowledgement review.
+
+### Task_21: Integrate native events with Task_13 reconciliation and current selection
+
+- status: unstarted
+- type: impl
+- owns:
+  - `lib/features/wake_plan/application/wake_plan_service.dart`
+  - `lib/features/wake_plan/data/src/wake_plan_repository.dart` only for the minimal event/ringing query or transactional operation
+  - `lib/features/alarm_ringing/application/alarm_ringing_controller.dart`
+  - corresponding wake-plan repository/service and ringing-controller tests
+- depends_on: [Task_18, Task_20]
+- acceptance:
+  - A native dismissal settles the exact Drift occurrence on reconciliation and acknowledgement happens only after durable persistence.
+  - Repeated, duplicated, save-failed, or crash-interrupted event application converges idempotently without weakening Task_13 whole-inventory authority or corrupt-state protections.
+  - Stale overdue scheduled rows cannot mask a newer active alarm; selection uses a bounded documented due window and deterministic ordering.
+  - Cancel/update failure remains retryable and never dismisses the wrong occurrence.
+- validation:
+  - kind: command; required: true; owner: worker; detail: native-stop/reopen, save-failure-before-ack, duplicate/corrupt/unknown events, delivered-only/missed, stale-vs-current, multiple-due, retry, and lifecycle-repeat tests plus format, `flutter analyze`, full `flutter test`, and debug APK build.
+  - kind: review; required: true; owner: reviewer; detail: Task_13 authority integration, state-machine correctness, selection window/order, crash seams, and exact-head deep review.
+
 ### Task_15: Final harmonization and repository-wide merge gate
 
 - status: unstarted
 - type: review
 - owns: []
-- depends_on: [Task_5, Task_11, Task_12, Task_14]
+- depends_on: [Task_5, Task_11, Task_12, Task_21]
 - acceptance:
   - All confirmed findings map to merged evidence and no cross-PR contract drift remains.
   - Dart/Android/iOS channel schemas, IDs, state transitions, docs, and tests agree.
@@ -576,7 +661,9 @@
 - Wave 6A (Task_12 hosted XCTest validation support): [Task_17]
 - Wave 6B (iOS platform implementation completion): [Task_12]
 - Wave 7 (sequential durable reconciliation): [Task_13]
-- Wave 8 (sequential ringing reconciliation): [Task_14]
+- Wave 8A (parallel dirty-WIP salvage): [Task_18, Task_19]
+- Wave 8B (Android event journal after shared native UX files settle): [Task_20]
+- Wave 8C (Task_13-aware event and ringing reconciliation): [Task_21]
 - Wave 9 (orchestrator/reviewer): [Task_15]
 - Wave 10 (user-owned): [Task_16]
 
@@ -791,7 +878,19 @@
   - Orchestrator validation passed the service/repository suites 155/155, full Flutter suite 472/472, `flutter analyze`, debug APK build, Dart format 61 files/0 changed, and `git diff --check` from a clean detached PR-head worktree.
   - No schema, startup wiring, native-platform, ringing, UI, or calendar changes were included. Task_14 remains the next dependent task and requires ownership attribution/replanning against the dirty parent WIP before dispatch.
 
+- 2026-07-22 Task_14 dirty-WIP audit completed and replacement tasks defined.
+  - Read-only inspection classified the implementation intent as valid but found four mixed concerns authored against pre-Task_13 `master`: provider/coordinator consolidation, Android ringing UX, durable Android event journal, and Task_13-aware event/ringing reconciliation.
+  - Task_14 is split into Task_18 through Task_21 so low-conflict provider and Android UX work can proceed independently before shared Android journal and Dart reconciliation waves.
+  - The dirty parent remains unchanged. Calendar drafts, historical plans/reports, device artifacts, and the destructive lessons-log replacement are excluded from product workers; no whole dirty path is deleted as disposable.
+  - Next action: dispatch Task_18 and Task_19 from current `origin/master`, using the dirty checkout only as read-only source material and requiring fresh implementation against current code.
+
 ## Decision Log
+
+- 2026-07-22 Decision: split dirty Task_14-related WIP into four sequentially safe replacement tasks.
+  - Trigger: the dirty parent contains 17 modified tracked files and untracked source mixed across provider wiring, Android UX, native journaling, Dart reconciliation, calendar work, documentation, and device evidence; PR #60 substantially rewrote the overlapping service/repository/tests.
+  - Plan delta: Task_14 becomes `split in progress`; Task_18 and Task_19 are parallel, Task_20 follows Task_19 on shared Android files, and Task_21 follows Task_18 and Task_20 on Task_13-aware reconciliation.
+  - Tradeoffs considered: a single salvage PR would be faster to stage but unsafe to review and likely to reverse Task_13 invariants; discarding the WIP would lose coherent tested intent.
+  - User approval: yes; the user directed inspection, cleanup only when unnecessary, and commit/PR for valid changes.
 
 - 2026-07-18 Decision: pre-release backward compatibility is not required for Task_12 native state.
   - Trigger: the user explicitly stated that the product is under development and backward compatibility is unnecessary.
