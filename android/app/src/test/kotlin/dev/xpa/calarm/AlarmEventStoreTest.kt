@@ -4,9 +4,9 @@ import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.LinearLayout
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONObject
@@ -112,6 +112,8 @@ class AlarmEventStoreTest {
         assertEquals(listOf(valid), second.events)
         assertTrue(second.corruptKeys.isEmpty())
         assertEquals(listOf(future.eventId), second.unsupportedSchemaKeys)
+        assertTrue(eventPreferences().contains(future.eventId))
+        assertTrue(AlarmEventStore(context).acknowledge(listOf(future.eventId)))
         assertTrue(eventPreferences().contains(future.eventId))
         assertFalse(AlarmEventStore(context).appendDelivered("future", 99L))
         val retained = JSONObject(eventPreferences().getString(future.eventId, null)!!)
@@ -301,9 +303,14 @@ class AlarmEventStoreTest {
             stopIntent(stoppedAlarmId),
         ).setup().get()
         val layout = activity.findViewById<ViewGroup>(android.R.id.content)
-            .getChildAt(0) as LinearLayout
+        val matchingViews = arrayListOf<View>()
+        layout.findViewsWithText(
+            matchingViews,
+            "Stop current alarm",
+            View.FIND_VIEWS_WITH_TEXT,
+        )
 
-        (layout.getChildAt(layout.childCount - 1) as Button).performClick()
+        (matchingViews.single { it is Button } as Button).performClick()
 
         assertEquals(
             "$stoppedAlarmId:dismissed",

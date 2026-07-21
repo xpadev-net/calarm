@@ -810,16 +810,8 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         arguments: Map<*, *>,
         result: MethodChannel.Result,
     ) {
-        val values = arguments["eventIds"] as? List<*>
-        val eventIds = values?.mapNotNull { value ->
-            (value as? String)?.takeIf { it.isNotBlank() }
-        }
-        if (
-            values == null ||
-            eventIds == null ||
-            eventIds.size != values.size ||
-            eventIds.toSet().size != eventIds.size
-        ) {
+        val eventIds = validatedEventIds(arguments["eventIds"])
+        if (eventIds == null) {
             result.error(
                 "INVALID_REQUEST",
                 "eventIds must be a list of unique non-empty strings.",
@@ -832,6 +824,14 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             return
         }
         result.success(mutableResponse("status" to "success"))
+    }
+
+    private fun validatedEventIds(value: Any?): List<String>? {
+        val values = value as? List<*> ?: return null
+        val eventIds = values.map { it as? String ?: return null }
+        return eventIds.takeIf { ids ->
+            ids.all { it.isNotBlank() } && ids.toSet().size == ids.size
+        }
     }
 
     companion object {
@@ -1142,8 +1142,11 @@ class AlarmEventStore(context: Context) {
             eventIds.toSet().size != eventIds.size
         ) return@synchronized false
         if (eventIds.isEmpty()) return@synchronized true
+        val unsupportedSchemaKeys = readRows().unsupportedSchemaKeys.toSet()
+        val removableEventIds = eventIds.filterNot(unsupportedSchemaKeys::contains)
+        if (removableEventIds.isEmpty()) return@synchronized true
         val editor = preferences.edit()
-        eventIds.forEach(editor::remove)
+        removableEventIds.forEach(editor::remove)
         editor.commit()
     }
 
