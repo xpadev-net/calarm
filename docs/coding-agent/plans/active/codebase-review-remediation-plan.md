@@ -486,9 +486,11 @@
 
 ### Task_13: Reconcile Drift and native reservations durably
 
-- status: in progress
+- status: complete
 - worker: `019f85b5-34b1-7611-88f4-0970c1c24f05`
 - branch: `codex/task-13-durable-inventory-reconciliation`
+- pr: [#60](https://github.com/xpadev-net/calarm/pull/60)
+- merged: `76a68c48e9d83c16a8e43503cd6f8bfce0f54fc6`
 - type: impl
 - owns:
   - `lib/features/wake_plan/application/wake_plan_service.dart`
@@ -781,6 +783,13 @@
   - Implementation worker `019f85b5-34b1-7611-88f4-0970c1c24f05` started and passed the startup stability check on `codex/task-13-durable-inventory-reconciliation`.
   - Scope is limited to Task_13's service/repository/database/bootstrap/tests plus the narrow authority-policy documentation and conditional app entry point recorded above. Task_14 ringing/native-stop work and the dirty parent checkout remain excluded.
   - Next action: startup-check the worker, require exact-head independent review, PR/hook/check gates, and orchestrator-owned review/tests before merge.
+
+- 2026-07-22 Task_13 durable reconciliation completed and merged.
+  - PR [#60](https://github.com/xpadev-net/calarm/pull/60) merged exact approved head `859c3e9f830ed51d6cc91b29b562624f81acb088` into `master` as `76a68c48e9d83c16a8e43503cd6f8bfce0f54fc6` without history rewrite.
+  - The final implementation compares one transactional eligible Drift snapshot with one authoritative native inventory, adopts exact stable identities, repairs authoritative DB-only absence, cancels exact owned stale alarms, and blocks corrupt, conflicting, duplicate, inactive, or unavailable state fail-closed while unrelated safe plans continue.
+  - Fresh independent exact-head review approved the final post-hook head with no findings. Worker and orchestrator `gh-review-hook 60` both exited 0; the PR was non-draft, CLEAN, APPROVED, base-current, and all Baseline CI, Greptile, CodeRabbit, and Socket checks succeeded.
+  - Orchestrator validation passed the service/repository suites 155/155, full Flutter suite 472/472, `flutter analyze`, debug APK build, Dart format 61 files/0 changed, and `git diff --check` from a clean detached PR-head worktree.
+  - No schema, startup wiring, native-platform, ringing, UI, or calendar changes were included. Task_14 remains the next dependent task and requires ownership attribution/replanning against the dirty parent WIP before dispatch.
 
 ## Decision Log
 
