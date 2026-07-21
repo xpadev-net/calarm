@@ -9,18 +9,16 @@ import 'occurrence_planner.dart';
 typedef WakePlanClock = DateTime Function();
 
 class WakePlanService {
-  static final Expando<_WakePlanServiceCoordinator> _coordinators =
-      Expando<_WakePlanServiceCoordinator>();
-
   WakePlanService({
     required WakePlanRepository repository,
     required NativeAlarmGateway nativeAlarmGateway,
     OccurrencePlanner occurrencePlanner = const OccurrencePlanner(),
     WakePlanClock? clock,
     int rollingScheduleDays = 7,
+    required WakePlanMutationCoordinator coordinator,
   }) : this._(
          store: WakePlanRepositoryServiceStore(repository),
-         coordinator: _coordinatorFor(repository),
+         coordinator: coordinator,
          nativeAlarmGateway: nativeAlarmGateway,
          occurrencePlanner: occurrencePlanner,
          clock: clock ?? DateTime.now,
@@ -33,9 +31,10 @@ class WakePlanService {
     OccurrencePlanner occurrencePlanner = const OccurrencePlanner(),
     WakePlanClock? clock,
     int rollingScheduleDays = 7,
+    required WakePlanMutationCoordinator coordinator,
   }) : this._(
          store: store,
-         coordinator: _coordinatorFor(store.coordinationKey),
+         coordinator: coordinator,
          nativeAlarmGateway: nativeAlarmGateway,
          occurrencePlanner: occurrencePlanner,
          clock: clock ?? DateTime.now,
@@ -60,7 +59,7 @@ class WakePlanService {
   }
 
   final WakePlanServiceStore _store;
-  final _WakePlanServiceCoordinator _coordinator;
+  final WakePlanMutationCoordinator _coordinator;
   final NativeAlarmGateway _nativeAlarmGateway;
   final OccurrencePlanner _occurrencePlanner;
   final WakePlanClock _clock;
@@ -68,10 +67,6 @@ class WakePlanService {
   Future<List<WakePlanSchedulingResult>>? _reconciliation;
   bool _reconciliationPending = false;
   final Map<String, Future<WakePlanSchedulingResult>> _createOperations = {};
-
-  static _WakePlanServiceCoordinator _coordinatorFor(Object key) {
-    return _coordinators[key] ??= _WakePlanServiceCoordinator();
-  }
 
   Future<WakePlanSchedulingResult> createPlan(WakePlan plan) {
     final currentOperation = _createOperations[plan.id];
@@ -2810,8 +2805,6 @@ CalendarDay? nextWakePlanTargetDay({
 }
 
 abstract class WakePlanServiceStore {
-  Object get coordinationKey;
-
   Future<WakePlan?> fetchWakePlan(String id);
 
   Future<WakePlanReconciliationSnapshot> fetchReconciliationSnapshot({
@@ -2838,9 +2831,6 @@ class WakePlanRepositoryServiceStore implements WakePlanServiceStore {
   WakePlanRepositoryServiceStore(this._repository);
 
   final WakePlanRepository _repository;
-
-  @override
-  Object get coordinationKey => _repository;
 
   @override
   Future<WakePlan?> fetchWakePlan(String id) {
@@ -2885,7 +2875,7 @@ class WakePlanRepositoryServiceStore implements WakePlanServiceStore {
   }
 }
 
-class _WakePlanServiceCoordinator {
+class WakePlanMutationCoordinator {
   Future<void> _tail = Future<void>.value();
 
   Future<T> run<T>(Future<T> Function() operation) {

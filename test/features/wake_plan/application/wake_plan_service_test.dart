@@ -101,6 +101,7 @@ void main() {
     int rollingScheduleDays = 7,
     DateTime? clockNow,
     OccurrencePlanner occurrencePlanner = const OccurrencePlanner(),
+    WakePlanMutationCoordinator? coordinator,
   }) {
     return WakePlanService.withStore(
       store: store,
@@ -108,6 +109,7 @@ void main() {
       occurrencePlanner: occurrencePlanner,
       clock: () => clockNow ?? now,
       rollingScheduleDays: rollingScheduleDays,
+      coordinator: coordinator ?? WakePlanMutationCoordinator(),
     );
   }
 
@@ -201,6 +203,7 @@ void main() {
         final result = await WakePlanService.withStore(
           store: store,
           nativeAlarmGateway: gateway,
+          coordinator: WakePlanMutationCoordinator(),
           clock: () => now,
         ).createPlan(buildPlan());
 
@@ -764,6 +767,7 @@ void main() {
         final serviceUnderTest = WakePlanService.withStore(
           store: store,
           nativeAlarmGateway: gateway,
+          coordinator: WakePlanMutationCoordinator(),
           clock: () => currentNow,
           rollingScheduleDays: 2,
         );
@@ -1612,6 +1616,7 @@ void main() {
           final first = await WakePlanService(
             repository: repository,
             nativeAlarmGateway: gateway,
+            coordinator: WakePlanMutationCoordinator(),
             clock: () => now,
             rollingScheduleDays: 1,
           ).reconcileSchedules();
@@ -1626,6 +1631,7 @@ void main() {
           final reopened = await WakePlanService(
             repository: repository,
             nativeAlarmGateway: gateway,
+            coordinator: WakePlanMutationCoordinator(),
             clock: () => now,
             rollingScheduleDays: 1,
           ).reconcileSchedules();
@@ -1683,6 +1689,7 @@ void main() {
           final serviceUnderTest = WakePlanService(
             repository: repository,
             nativeAlarmGateway: gateway,
+            coordinator: WakePlanMutationCoordinator(),
             clock: () => now,
             rollingScheduleDays: 1,
           );
@@ -1774,6 +1781,7 @@ void main() {
           final serviceUnderTest = WakePlanService(
             repository: repository,
             nativeAlarmGateway: gateway,
+            coordinator: WakePlanMutationCoordinator(),
             clock: () => now,
             rollingScheduleDays: 1,
           );
@@ -1824,6 +1832,7 @@ void main() {
         final results = await WakePlanService(
           repository: repository,
           nativeAlarmGateway: gateway,
+          coordinator: WakePlanMutationCoordinator(),
           clock: () => DateTime(2026, 7, 6, 8),
           rollingScheduleDays: 1,
         ).reconcileSchedules();
@@ -3028,15 +3037,18 @@ void main() {
               status: NativeAlarmReservationStatus.scheduled,
             ),
           );
+        final coordinator = WakePlanMutationCoordinator();
         final toggleService = service(
           store: store,
           gateway: gateway,
           rollingScheduleDays: 1,
+          coordinator: coordinator,
         );
         final reconciliationService = service(
           store: store,
           gateway: gateway,
           rollingScheduleDays: 1,
+          coordinator: coordinator,
         );
 
         final off = toggleService.setOccurrenceEnabled(
@@ -3105,8 +3117,17 @@ void main() {
             status: NativeAlarmReservationStatus.scheduled,
           ),
         );
-      final toggleService = service(store: store, gateway: gateway);
-      final editService = service(store: store, gateway: gateway);
+      final coordinator = WakePlanMutationCoordinator();
+      final toggleService = service(
+        store: store,
+        gateway: gateway,
+        coordinator: coordinator,
+      );
+      final editService = service(
+        store: store,
+        gateway: gateway,
+        coordinator: coordinator,
+      );
 
       final off = toggleService.setOccurrenceEnabled(
         wakePlanId: plan.id,
@@ -6394,14 +6415,48 @@ void main() {
       },
     );
   });
+  group('WakePlanMutationCoordinator', () {
+    test('runs queued operations one at a time in submission order', () async {
+      final coordinator = WakePlanMutationCoordinator();
+      final order = <String>[];
+      final firstGate = Completer<void>();
+
+      final first = coordinator.run(() async {
+        order.add('first-start');
+        await firstGate.future;
+        order.add('first-end');
+        return 1;
+      });
+      final second = coordinator.run(() async {
+        order.add('second-start');
+        return 2;
+      });
+
+      await Future<void>.delayed(Duration.zero);
+      expect(order, ['first-start']);
+
+      firstGate.complete();
+      expect(await first, 1);
+      expect(await second, 2);
+      expect(order, ['first-start', 'first-end', 'second-start']);
+    });
+
+    test('a failed operation does not block later ones', () async {
+      final coordinator = WakePlanMutationCoordinator();
+
+      final failed = coordinator.run(() async {
+        throw StateError('boom');
+      });
+      final succeeded = coordinator.run(() async => 'ok');
+
+      await expectLater(failed, throwsA(isA<StateError>()));
+      expect(await succeeded, 'ok');
+    });
+  });
 }
 
 class _LoggingWakePlanServiceStore implements WakePlanServiceStore {
-  _LoggingWakePlanServiceStore({this.currentPlan, Object? coordinationKey})
-    : coordinationKey = coordinationKey ?? Object();
-
-  @override
-  final Object coordinationKey;
+  _LoggingWakePlanServiceStore({this.currentPlan});
 
   final operations = <String>[];
   final savedPlans = <WakePlan>[];

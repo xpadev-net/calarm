@@ -1256,6 +1256,7 @@ void main() {
       WakePlanService(
         repository: repository,
         nativeAlarmGateway: FakeNativeAlarmGateway(),
+        coordinator: WakePlanMutationCoordinator(),
         clock: () => DateTime(2026, 7, 8, 0, 30),
       ),
     );
@@ -1649,6 +1650,7 @@ void main() {
     final service = WakePlanService(
       repository: repository,
       nativeAlarmGateway: gateway,
+      coordinator: WakePlanMutationCoordinator(),
       clock: () => now,
     );
     await service.createPlan(plan);
@@ -1727,6 +1729,7 @@ void main() {
       final setupService = WakePlanService(
         repository: repository,
         nativeAlarmGateway: gateway,
+        coordinator: WakePlanMutationCoordinator(),
         clock: () => now,
       );
       await setupService.createPlan(plan);
@@ -1792,6 +1795,7 @@ void main() {
       final restartedService = WakePlanService(
         repository: repository,
         nativeAlarmGateway: gateway,
+        coordinator: WakePlanMutationCoordinator(),
         clock: () => now,
       );
       await restartedService.reconcileSchedules();
@@ -1839,6 +1843,7 @@ void main() {
     final service = WakePlanService(
       repository: repository,
       nativeAlarmGateway: gateway,
+      coordinator: WakePlanMutationCoordinator(),
       clock: () => now,
     );
     await service.createPlan(plan);
@@ -1916,6 +1921,7 @@ void main() {
       final service = WakePlanService(
         repository: repository,
         nativeAlarmGateway: gateway,
+        coordinator: WakePlanMutationCoordinator(),
         clock: () => now,
       );
       await service.createPlan(plan);
@@ -1995,6 +2001,7 @@ void main() {
     final service = WakePlanService(
       repository: repository,
       nativeAlarmGateway: gateway,
+      coordinator: WakePlanMutationCoordinator(),
       clock: () => now,
     );
     await service.createPlan(plan);
@@ -2094,7 +2101,7 @@ class _DelayedWakePlanService extends WakePlanService {
     required super.repository,
     required super.nativeAlarmGateway,
     required DateTime Function() clock,
-  }) : super(clock: clock);
+  }) : super(clock: clock, coordinator: WakePlanMutationCoordinator());
 
   final Completer<void> release = Completer<void>();
   int createCalls = 0;

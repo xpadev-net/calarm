@@ -536,9 +536,11 @@
 
 ### Task_18: Consolidate wake service providers and mutation serialization
 
-- status: in progress
+- status: complete
 - worker: `019f862b-b771-7812-abbc-11d1381a08f8`
 - branch: `codex/task-18-provider-coordinator-consolidation`
+- pr: [#62](https://github.com/xpadev-net/calarm/pull/62)
+- merged: `c64e2908b5f5b072995b087d1086a1033298d601`
 - type: impl
 - owns:
   - `lib/app.dart`
@@ -887,6 +889,13 @@
   - Task_14 is split into Task_18 through Task_21 so low-conflict provider and Android UX work can proceed independently before shared Android journal and Dart reconciliation waves.
   - The dirty parent remains unchanged. Calendar drafts, historical plans/reports, device artifacts, and the destructive lessons-log replacement are excluded from product workers; no whole dirty path is deleted as disposable.
   - Next action: dispatch Task_18 and Task_19 from current `origin/master`, using the dirty checkout only as read-only source material and requiring fresh implementation against current code.
+
+- 2026-07-22 Task_18 provider/coordinator consolidation completed and merged.
+  - PR [#62](https://github.com/xpadev-net/calarm/pull/62) merged exact approved head `368758956807f0a82c9d7f50976227379e1962a0` as `c64e2908b5f5b072995b087d1086a1033298d601`.
+  - Session-scoped Riverpod providers now share one repository, native gateway, clock, wake service, and explicit mutation coordinator across app, calendar, and ringing paths; the static `Expando` coordination was removed.
+  - Fresh exact-head review approved with no findings. Worker and orchestrator `gh-review-hook 62` exited 0; hosted Baseline CI, Greptile, CodeRabbit, and Socket checks succeeded with CLEAN, base-current merge state.
+  - Orchestrator validation passed focused 193/193 tests, full Flutter 479/479, `flutter analyze`, format 63 files/0 changed, debug APK build, and `git diff --check`.
+  - Worker thread `019f862b-b771-7812-abbc-11d1381a08f8` is archived. Task_19 remains the other active Wave 8A task; Task_20 waits for its merge.
 
 ## Decision Log
 

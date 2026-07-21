@@ -2,6 +2,7 @@ import 'package:calarm/core/platform/fake_native_alarm_gateway.dart';
 import 'package:calarm/core/time/time.dart';
 import 'package:calarm/features/alarm_ringing/application/alarm_ringing_controller.dart';
 import 'package:calarm/features/alarm_ringing/presentation/alarm_ringing_placeholder.dart';
+import 'package:calarm/features/wake_plan/application/wake_plan_service.dart';
 import 'package:calarm/features/wake_plan/domain/wake_plan_domain.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -95,6 +96,7 @@ void main() {
             return AlarmRingingController(
               store: store,
               nativeAlarmGateway: gateway,
+              coordinator: WakePlanMutationCoordinator(),
               clock: () => DateTime(2026, 7, 6, 6, 50),
             );
           }),
