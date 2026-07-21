@@ -121,9 +121,24 @@ class AlarmEventStoreTest {
         assertFalse(eventPreferences().contains(valid.eventId))
         assertTrue(eventPreferences().contains("ack-corrupt"))
         assertTrue(eventPreferences().contains(future.eventId))
-        assertFalse(AlarmEventStore(context).appendDelivered("future", 99L))
-        val retained = JSONObject(eventPreferences().getString(future.eventId, null)!!)
+        assertTrue(AlarmEventStore(context).appendDelivered("future", 99L))
+
+        val current = AlarmEventStore(context).fetch()
+        assertEquals(listOf("future:delivered"), current.events.map { it.eventId })
+        assertEquals(99L, current.events.single().timestampMillis)
+        assertTrue(current.corruptKeys.isEmpty())
+        assertTrue(current.unsupportedSchemaKeys.isEmpty())
+        val archiveEntry = eventPreferences().all.entries.single {
+            it.key != future.eventId
+        }
+        val archive = JSONObject(archiveEntry.value as String)
+        assertEquals(future.eventId, archive.getString("eventId"))
+        val retained = JSONObject(archive.getString("payload"))
         assertEquals(2, retained.getInt("schemaVersion"))
+
+        assertTrue(AlarmEventStore(context).acknowledge(listOf(future.eventId)))
+        assertFalse(eventPreferences().contains(future.eventId))
+        assertTrue(eventPreferences().contains(archiveEntry.key))
     }
 
     @Test

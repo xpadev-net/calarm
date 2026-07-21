@@ -422,9 +422,14 @@ Persisted rows carry their own storage schema version and must match their
 preference key and derived event identity. On a corrupt or key-mismatched row,
 Android removes the bad row and reports `PlatformException` code `CORRUPT` for
 that fetch. A row with an unknown storage schema is retained for rollback
-safety and causes `CORRUPT` on every fetch until compatible code handles it;
-valid rows remain durable but are not exposed beside an unsafe row. Dart also
-treats a malformed response, unsupported channel schema, unknown event
+safety and causes `CORRUPT` on every fetch until compatible code handles it.
+If a real event later needs that same deterministic key, Android atomically
+wraps the opaque future row under a reserved archival key and writes the new
+schema-1 event at the canonical key. Archived rows are outside schema-1 fetch,
+acknowledgement, and retention; this prevents an unknown payload from blocking
+or being deleted with the current event while preserving it for compatible
+future recovery. Dart also treats a malformed response, unsupported channel
+schema, unknown event
 type, negative timestamp, or duplicate event ID as an empty failed fetch. In
 all of these cases it acknowledges nothing.
 

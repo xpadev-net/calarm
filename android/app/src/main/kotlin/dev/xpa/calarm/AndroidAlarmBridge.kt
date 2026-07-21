@@ -1160,7 +1160,6 @@ class AlarmEventStore(context: Context) {
         val eventId = AlarmEvent.idFor(platformAlarmId, type)
         val event = AlarmEvent(eventId, platformAlarmId, type, timestampMillis)
         val parsed = readRows()
-        if (eventId in parsed.unsupportedSchemaKeys) return@synchronized false
         val existing = parsed.events
             .filterNot { it.eventId == eventId }
             .sortedWith(EVENT_ORDER)
@@ -1168,6 +1167,18 @@ class AlarmEventStore(context: Context) {
         val editor = preferences.edit()
         parsed.corruptKeys.forEach(editor::remove)
         existing.take(overflow).forEach { editor.remove(it.eventId) }
+        if (eventId in parsed.unsupportedSchemaKeys) {
+            val unsupportedPayload = preferences.getString(eventId, null)
+                ?: return@synchronized false
+            editor.putString(
+                nextUnsupportedArchiveKey(eventId),
+                JSONObject()
+                    .put("archiveSchemaVersion", UNSUPPORTED_ARCHIVE_SCHEMA_VERSION)
+                    .put("eventId", eventId)
+                    .put("payload", unsupportedPayload)
+                    .toString(),
+            )
+        }
         editor.putString(eventId, event.toJson().toString())
         editor.commit()
     }
@@ -1177,6 +1188,7 @@ class AlarmEventStore(context: Context) {
         val corruptKeys = mutableListOf<String>()
         val unsupportedSchemaKeys = mutableListOf<String>()
         preferences.all.forEach { (key, value) ->
+            if (isUnsupportedArchive(key, value)) return@forEach
             val json = try {
                 (value as? String)?.let(::JSONObject)
             } catch (_: Exception) {
@@ -1217,9 +1229,38 @@ class AlarmEventStore(context: Context) {
         )
     }
 
+    private fun nextUnsupportedArchiveKey(eventId: String): String {
+        var sequence = 0
+        var key: String
+        do {
+            key = "$UNSUPPORTED_ARCHIVE_PREFIX$sequence:$eventId"
+            sequence += 1
+        } while (preferences.contains(key))
+        return key
+    }
+
+    private fun isUnsupportedArchive(key: String, value: Any?): Boolean {
+        if (!key.startsWith(UNSUPPORTED_ARCHIVE_PREFIX)) return false
+        return try {
+            val archive = JSONObject(value as? String ?: return false)
+            if (archive.getInt("archiveSchemaVersion") != UNSUPPORTED_ARCHIVE_SCHEMA_VERSION) {
+                return false
+            }
+            val eventId = archive.getString("eventId")
+            val payload = JSONObject(archive.getString("payload"))
+            eventId.isNotBlank() &&
+                key.endsWith(":$eventId") &&
+                payload.getInt("schemaVersion") != AlarmEvent.STORAGE_SCHEMA_VERSION
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private companion object {
         const val PREFERENCES_NAME = "native_alarm_events"
         const val MAX_EVENTS = 200
+        const val UNSUPPORTED_ARCHIVE_PREFIX = "__calarm_unsupported_event__:"
+        const val UNSUPPORTED_ARCHIVE_SCHEMA_VERSION = 1
         val lock = Any()
         val EVENT_ORDER = compareBy<AlarmEvent> { it.timestampMillis }.thenBy { it.eventId }
 
