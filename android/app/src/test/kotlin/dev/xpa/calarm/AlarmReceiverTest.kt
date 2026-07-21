@@ -2,6 +2,7 @@ package dev.xpa.calarm
 
 import android.app.AlarmManager
 import android.app.Application
+import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
@@ -17,6 +18,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -155,7 +157,10 @@ class AlarmReceiverTest {
             .get()
         val detailLayout = detailActivity.findViewById<ViewGroup>(android.R.id.content)
             .getChildAt(0) as LinearLayout
-        assertTrue((detailLayout.getChildAt(0) as TextView).text.toString().contains("Wake plan: plan"))
+        val detailText = (detailLayout.getChildAt(0) as TextView).text.toString()
+        assertTrue(detailText.contains("Scheduled:"))
+        assertTrue(detailText.contains("Wake target:"))
+        assertFalse(detailText.contains(request.wakePlanId))
         assertEquals("Close", (detailLayout.getChildAt(1) as Button).text)
         assertFalse(
             detailActivity.window.attributes.flags and
@@ -256,7 +261,7 @@ class AlarmReceiverTest {
             .get()
         val content = activity.findViewById<ViewGroup>(android.R.id.content)
         val layout = content.getChildAt(0) as LinearLayout
-        val stopButton = layout.getChildAt(1) as Button
+        val stopButton = layout.getChildAt(layout.childCount - 1) as Button
 
         stopButton.performClick()
 
@@ -279,8 +284,9 @@ class AlarmReceiverTest {
 
         val content = activity.findViewById<ViewGroup>(android.R.id.content)
         val layout = content.getChildAt(0) as LinearLayout
-        assertEquals("Stop", (layout.getChildAt(1) as Button).text)
-        (layout.getChildAt(1) as Button).performClick()
+        val stopButton = layout.getChildAt(layout.childCount - 1) as Button
+        assertEquals("Stop current alarm", stopButton.text)
+        stopButton.performClick()
         assertNull(AlarmStore(context).get(platformAlarmId))
     }
 
@@ -300,7 +306,7 @@ class AlarmReceiverTest {
 
         val content = activity.findViewById<ViewGroup>(android.R.id.content)
         val layout = content.getChildAt(0) as LinearLayout
-        (layout.getChildAt(1) as Button).performClick()
+        (layout.getChildAt(layout.childCount - 1) as Button).performClick()
 
         assertNull(AlarmStore(context).get(currentAlarmId))
         assertNotNull(AlarmStore(context).get(secondAlarmId))
@@ -321,9 +327,289 @@ class AlarmReceiverTest {
         assertNotNull(AlarmStore(context).get(platformAlarmId))
         val content = recreated.findViewById<ViewGroup>(android.R.id.content)
         val layout = content.getChildAt(0) as LinearLayout
-        assertEquals("Stop", (layout.getChildAt(1) as Button).text)
-        (layout.getChildAt(1) as Button).performClick()
+        val stopButton = layout.getChildAt(layout.childCount - 1) as Button
+        assertEquals("Stop current alarm", stopButton.text)
+        assertEquals(0, shadowVibrator().repeat)
+        stopButton.performClick()
         assertNull(AlarmStore(context).get(platformAlarmId))
+    }
+
+    @Test
+    fun `alarm request round trips position metadata and legacy rows omit it safely`() {
+        val request = alarmRequest(
+            platformAlarmId = "android:plan:positioned",
+            vibrationEnabled = true,
+            indexInPlan = 1,
+            totalInPlan = 3,
+        )
+
+        val positioned = AlarmRequest.fromJson(request.toJson())
+        val legacyJson = request.toJson().apply {
+            remove("indexInPlan")
+            remove("totalInPlan")
+        }
+        deviceProtectedPreferences().edit()
+            .putString(request.platformAlarmId, legacyJson.toString())
+            .commit()
+        val legacy = AlarmStore(context).get(request.platformAlarmId)
+
+        assertEquals(1, positioned.indexInPlan)
+        assertEquals(3, positioned.totalInPlan)
+        assertNotNull(legacy)
+        assertNull(legacy?.indexInPlan)
+        assertNull(legacy?.totalInPlan)
+    }
+
+    @Test
+    fun `persisted position metadata rejects partial or out of range values`() {
+        val request = alarmRequest("android:plan:invalid-position", vibrationEnabled = true)
+        val partial = request.toJson().put("indexInPlan", 0)
+        val outOfRange = request.toJson()
+            .put("indexInPlan", 2)
+            .put("totalInPlan", 2)
+
+        assertThrows(IllegalArgumentException::class.java) {
+            AlarmRequest.fromJson(partial)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            AlarmRequest.fromJson(outOfRange)
+        }
+    }
+
+    @Test
+    fun `schedule decode preserves valid position and rejects malformed position`() {
+        val scheduledAt = java.time.Instant.ofEpochMilli(System.currentTimeMillis() + 60_000)
+            .toString()
+        val base = mutableMapOf<String, Any?>(
+            "occurrenceId" to "positioned",
+            "reservationId" to "positioned",
+            "wakePlanId" to "plan",
+            "scheduledAt" to scheduledAt,
+            "targetAt" to scheduledAt,
+            "soundId" to "default",
+            "vibrationEnabled" to true,
+            "indexInPlan" to 1,
+            "totalInPlan" to 3,
+        )
+
+        val valid = AlarmRequest.fromScheduleMap(base)
+        val malformed = AlarmRequest.fromScheduleMap(base + ("totalInPlan" to 1))
+
+        assertEquals(1, valid?.indexInPlan)
+        assertEquals(3, valid?.totalInPlan)
+        assertNull(malformed)
+    }
+
+    @Test
+    fun `next lookup selects deterministic later scheduled alarm in the same plan`() {
+        val store = AlarmStore(context)
+        val base = System.currentTimeMillis() + 60_000
+        val current = alarmRequest(
+            "android:plan:current",
+            vibrationEnabled = true,
+            scheduledAtMillis = base,
+        )
+        val expected = alarmRequest(
+            "android:plan:a-next",
+            vibrationEnabled = true,
+            scheduledAtMillis = base + 60_000,
+        )
+        val sameTimeLaterTarget = alarmRequest(
+            "android:plan:b-next",
+            vibrationEnabled = true,
+            scheduledAtMillis = base + 60_000,
+            targetAtMillis = base + 90_000,
+        )
+        val ringing = alarmRequest(
+            "android:plan:ringing-next",
+            vibrationEnabled = true,
+            scheduledAtMillis = base + 30_000,
+        )
+        val otherPlan = alarmRequest(
+            "android:other:other-next",
+            vibrationEnabled = true,
+            wakePlanId = "other",
+            scheduledAtMillis = base + 10_000,
+        )
+        val testAlarm = alarmRequest(
+            "android:test:test-next",
+            vibrationEnabled = true,
+            scheduledAtMillis = base + 5_000,
+            isTest = true,
+        )
+        listOf(current, expected, sameTimeLaterTarget, ringing, otherPlan, testAlarm).forEach {
+            assertTrue(store.put(it))
+        }
+        assertTrue(store.markRinging(ringing.platformAlarmId))
+
+        val next = store.nextScheduledAfter(current.wakePlanId, current.scheduledAtMillis)
+
+        assertEquals(expected.platformAlarmId, next?.platformAlarmId)
+        assertNull(store.nextScheduledAfter(current.wakePlanId, expected.scheduledAtMillis))
+    }
+
+    @Test
+    fun `notification keeps rich context private and exposes a generic public version`() {
+        val base = System.currentTimeMillis() + 60_000
+        val current = alarmRequest(
+            "android:plan:notification-current",
+            vibrationEnabled = false,
+            scheduledAtMillis = base,
+            targetAtMillis = base + 120_000,
+            indexInPlan = 1,
+            totalInPlan = 3,
+        )
+        val next = alarmRequest(
+            "android:plan:notification-next",
+            vibrationEnabled = false,
+            scheduledAtMillis = base + 60_000,
+        )
+        val store = AlarmStore(context)
+        assertTrue(store.put(current))
+        assertTrue(store.put(next))
+
+        AlarmReceiver().onReceive(
+            context,
+            Shadows.shadowOf(AlarmIntents.receiver(context, current.platformAlarmId)).savedIntent,
+        )
+
+        val notification = context.getSystemService(NotificationManager::class.java)
+            .activeNotifications
+            .single { it.id == current.platformAlarmId.hashCode() }
+            .notification
+        val privateText = notification.extras
+            .getCharSequence(Notification.EXTRA_BIG_TEXT)
+            .toString()
+        assertEquals(Notification.VISIBILITY_PRIVATE, notification.visibility)
+        assertEquals("Wake alarm ringing now", notification.extras.getCharSequence(Notification.EXTRA_TITLE))
+        assertTrue(privateText.contains("Scheduled:"))
+        assertTrue(privateText.contains("Wake target:"))
+        assertTrue(privateText.contains("Alarm 2 of 3"))
+        assertTrue(privateText.contains("Next alarm:"))
+        assertTrue(notification.`when` > 0)
+
+        val publicVersion = notification.publicVersion
+        assertNotNull(publicVersion)
+        assertEquals(Notification.VISIBILITY_PUBLIC, publicVersion.visibility)
+        assertEquals("Wake alarm", publicVersion.extras.getCharSequence(Notification.EXTRA_TITLE))
+        assertEquals("Alarm is ringing", publicVersion.extras.getCharSequence(Notification.EXTRA_TEXT))
+        assertFalse(publicVersion.extras.toString().contains("Alarm 2 of 3"))
+        assertFalse(publicVersion.extras.toString().contains("Wake target"))
+    }
+
+    @Test
+    fun `late delivery still shows the next staged alarm in plan order`() {
+        val now = System.currentTimeMillis()
+        val current = alarmRequest(
+            "android:plan:late-current",
+            vibrationEnabled = false,
+            scheduledAtMillis = now - 120_000,
+        )
+        val next = alarmRequest(
+            "android:plan:late-next",
+            vibrationEnabled = false,
+            scheduledAtMillis = now - 60_000,
+        )
+        assertTrue(AlarmStore(context).put(current))
+        assertTrue(AlarmStore(context).put(next))
+
+        AlarmReceiver().onReceive(
+            context,
+            Shadows.shadowOf(AlarmIntents.receiver(context, current.platformAlarmId)).savedIntent,
+        )
+
+        val notification = context.getSystemService(NotificationManager::class.java)
+            .activeNotifications
+            .single { it.id == current.platformAlarmId.hashCode() }
+            .notification
+        val privateText = notification.extras
+            .getCharSequence(Notification.EXTRA_BIG_TEXT)
+            .toString()
+        val nextTime = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT)
+            .format(java.util.Date(next.scheduledAtMillis))
+        assertTrue(privateText.contains("Next alarm: $nextTime"))
+    }
+
+    @Test
+    fun `ringing screen shows scheduled current target position and next alarm context`() {
+        val base = System.currentTimeMillis() + 60_000
+        val current = alarmRequest(
+            "android:plan:screen-current",
+            vibrationEnabled = false,
+            scheduledAtMillis = base,
+            targetAtMillis = base + 120_000,
+            indexInPlan = 0,
+            totalInPlan = 2,
+        )
+        val next = alarmRequest(
+            "android:plan:screen-next",
+            vibrationEnabled = false,
+            scheduledAtMillis = base + 60_000,
+        )
+        assertTrue(AlarmStore(context).put(current))
+        assertTrue(AlarmStore(context).put(next))
+
+        val activity = Robolectric.buildActivity(
+            AlarmStopActivity::class.java,
+            AlarmIntents.stopActivityIntent(context, current.platformAlarmId),
+        ).setup().get()
+        val layout = activity.findViewById<ViewGroup>(android.R.id.content)
+            .getChildAt(0) as LinearLayout
+        val currentText = (layout.getChildAt(0) as TextView).text.toString()
+        val summary = (layout.getChildAt(1) as TextView).text.toString()
+
+        assertTrue(currentText.startsWith("Current time:"))
+        assertTrue(summary.contains("Scheduled:"))
+        assertTrue(summary.contains("Wake target:"))
+        assertTrue(summary.contains("Alarm 1 of 2"))
+        assertTrue(summary.contains("Next alarm:"))
+        assertEquals("Stop current alarm", (layout.getChildAt(2) as Button).text)
+        activity.finish()
+    }
+
+    @Test
+    fun `ringing vibration follows request and is cancelled by current alarm cleanup`() {
+        val enabled = alarmRequest("android:plan:vibrate-enabled", vibrationEnabled = true)
+        assertTrue(AlarmStore(context).put(enabled))
+        val enabledActivity = Robolectric.buildActivity(
+            AlarmStopActivity::class.java,
+            AlarmIntents.stopActivityIntent(context, enabled.platformAlarmId),
+        ).setup().get()
+
+        assertTrue(shadowVibrator().isVibrating)
+        assertEquals(0, shadowVibrator().repeat)
+        val layout = enabledActivity.findViewById<ViewGroup>(android.R.id.content)
+            .getChildAt(0) as LinearLayout
+        (layout.getChildAt(layout.childCount - 1) as Button).performClick()
+        assertTrue(shadowVibrator().isCancelled)
+
+        ShadowVibrator.reset()
+        val disabled = alarmRequest("android:plan:vibrate-disabled", vibrationEnabled = false)
+        assertTrue(AlarmStore(context).put(disabled))
+        Robolectric.buildActivity(
+            AlarmStopActivity::class.java,
+            AlarmIntents.stopActivityIntent(context, disabled.platformAlarmId),
+        ).setup()
+        assertFalse(shadowVibrator().isVibrating)
+    }
+
+    @Test
+    fun `missing vibrator service degrades without crashing the alarm activity`() {
+        val request = alarmRequest("android:plan:no-vibrator-service", vibrationEnabled = false)
+        assertTrue(AlarmStore(context).put(request))
+        val activity = Robolectric.buildActivity(
+            AlarmStopActivity::class.java,
+            Shadows.shadowOf(AlarmIntents.showIntent(context, request.platformAlarmId)).savedIntent,
+        ).setup().get()
+
+        val resolved = activity.alarmVibrator(
+            vibratorManagerProvider = { null },
+            vibratorProvider = { null },
+        )
+
+        assertNull(resolved)
+        assertFalse(activity.isFinishing)
+        activity.finish()
     }
 
     private fun shadowVibrator(): ShadowVibrator {
@@ -337,17 +623,28 @@ class AlarmReceiverTest {
         context.getSharedPreferences("native_alarm_store", Context.MODE_PRIVATE)
     }
 
-    private fun alarmRequest(platformAlarmId: String, vibrationEnabled: Boolean): AlarmRequest {
-        val scheduledAt = System.currentTimeMillis() + 60_000
+    private fun alarmRequest(
+        platformAlarmId: String,
+        vibrationEnabled: Boolean,
+        wakePlanId: String = "plan",
+        scheduledAtMillis: Long = System.currentTimeMillis() + 60_000,
+        targetAtMillis: Long = scheduledAtMillis,
+        indexInPlan: Int? = null,
+        totalInPlan: Int? = null,
+        isTest: Boolean = false,
+    ): AlarmRequest {
         val occurrenceId = platformAlarmId.substringAfterLast(':')
         return AlarmRequest(
             occurrenceId = occurrenceId,
-            wakePlanId = "plan",
-            scheduledAtMillis = scheduledAt,
-            targetAtMillis = scheduledAt,
+            wakePlanId = wakePlanId,
+            scheduledAtMillis = scheduledAtMillis,
+            targetAtMillis = targetAtMillis,
             soundId = "default",
             vibrationEnabled = vibrationEnabled,
             platformAlarmIdOverride = platformAlarmId,
+            indexInPlan = indexInPlan,
+            totalInPlan = totalInPlan,
+            isTest = isTest,
         )
     }
 }

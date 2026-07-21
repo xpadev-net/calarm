@@ -10,6 +10,8 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
+import java.text.DateFormat
+import java.util.Date
 
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -25,7 +27,17 @@ class AlarmReceiver : BroadcastReceiver() {
         deliverAlarm(
             store = store,
             platformAlarmId = platformAlarmId,
-            notification = { showAlarmNotification(context, platformAlarmId) },
+            notification = {
+                showAlarmNotification(
+                    context,
+                    platformAlarmId,
+                    request,
+                    store.nextScheduledAfter(
+                        request.wakePlanId,
+                        request.scheduledAtMillis,
+                    ),
+                )
+            },
             screen = { openAlarmScreen(context, platformAlarmId) },
             vibration = if (request.vibrationEnabled) ({ vibrate(context) }) else null,
         )
@@ -79,33 +91,66 @@ class AlarmReceiver : BroadcastReceiver() {
         return delivered
     }
 
-    private fun showAlarmNotification(context: Context, platformAlarmId: String) {
+    private fun showAlarmNotification(
+        context: Context,
+        platformAlarmId: String,
+        request: AlarmRequest,
+        nextAlarm: AlarmRequest?,
+    ) {
         val notificationManager = context.getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             notificationManager.createNotificationChannel(AlarmNotificationChannel.create())
         }
 
         val stopIntent = AlarmIntents.stopActivity(context, platformAlarmId)
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(context, AlarmNotificationChannel.ID)
-        } else {
-            @Suppress("DEPRECATION")
-            Notification.Builder(context)
+        val timeFormat = DateFormat.getTimeInstance(DateFormat.SHORT)
+        val scheduledTime = timeFormat.format(Date(request.scheduledAtMillis))
+        val targetTime = timeFormat.format(Date(request.targetAtMillis))
+        val privateText = buildString {
+            append("Scheduled: $scheduledTime\nWake target: $targetTime")
+            request.positionLabel()?.let { append("\n$it") }
+            nextAlarm?.let {
+                append("\nNext alarm: ${timeFormat.format(Date(it.scheduledAtMillis))}")
+            }
         }
-        val notification = builder
+        val publicNotification = notificationBuilder(context)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle("Calarm")
-            .setContentText("Wake alarm")
+            .setContentTitle("Wake alarm")
+            .setContentText("Alarm is ringing")
             .setPriority(Notification.PRIORITY_MAX)
             .setCategory(Notification.CATEGORY_ALARM)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setContentIntent(stopIntent)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .build()
+        val notification = notificationBuilder(context)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setContentTitle("Wake alarm ringing now")
+            .setContentText("Scheduled $scheduledTime · wake target $targetTime")
+            .setStyle(Notification.BigTextStyle().bigText(privateText))
+            .setPriority(Notification.PRIORITY_MAX)
+            .setCategory(Notification.CATEGORY_ALARM)
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicNotification)
             .setFullScreenIntent(stopIntent, true)
             .setContentIntent(stopIntent)
+            .setWhen(System.currentTimeMillis())
+            .setShowWhen(true)
             .setOngoing(true)
             .setAutoCancel(false)
             .build()
 
         notificationManager.notify(platformAlarmId.hashCode(), notification)
+    }
+
+    private fun notificationBuilder(context: Context): Notification.Builder {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(context, AlarmNotificationChannel.ID)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(context)
+        }
     }
 
     private fun openAlarmScreen(context: Context, platformAlarmId: String) {

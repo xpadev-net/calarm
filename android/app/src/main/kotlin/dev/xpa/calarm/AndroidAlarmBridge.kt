@@ -816,7 +816,20 @@ data class AlarmRequest(
     val platformAlarmIdOverride: String? = null,
     val updatedAtMillis: Long = 0L,
     val state: AlarmState = AlarmState.SCHEDULED,
+    val indexInPlan: Int? = null,
+    val totalInPlan: Int? = null,
 ) {
+    init {
+        require((indexInPlan == null) == (totalInPlan == null)) {
+            "Alarm position must include both indexInPlan and totalInPlan."
+        }
+        if (indexInPlan != null && totalInPlan != null) {
+            require(indexInPlan >= 0) { "indexInPlan must not be negative." }
+            require(totalInPlan > 0) { "totalInPlan must be positive." }
+            require(indexInPlan < totalInPlan) { "indexInPlan must be less than totalInPlan." }
+        }
+    }
+
     val platformAlarmId: String
         get() = platformAlarmIdOverride ?: if (reservationId == occurrenceId) {
             legacyPlatformAlarmId(this)
@@ -833,7 +846,7 @@ data class AlarmRequest(
     }
 
     fun toJson(): JSONObject {
-        return JSONObject()
+        val json = JSONObject()
             .put("occurrenceId", occurrenceId)
             .put("reservationId", reservationId)
             .put("wakePlanId", wakePlanId)
@@ -845,6 +858,9 @@ data class AlarmRequest(
             .put("platformAlarmId", platformAlarmId)
             .put("updatedAtMillis", updatedAtMillis)
             .put("state", state.value)
+        indexInPlan?.let { json.put("indexInPlan", it) }
+        totalInPlan?.let { json.put("totalInPlan", it) }
+        return json
     }
 
     companion object {
@@ -875,6 +891,10 @@ data class AlarmRequest(
                 else -> return null
             }
             return try {
+                val (indexInPlan, totalInPlan) = parsePosition(
+                    map["indexInPlan"],
+                    map["totalInPlan"],
+                )
                 AlarmRequest(
                     occurrenceId = occurrenceId,
                     reservationId = reservationId,
@@ -883,6 +903,8 @@ data class AlarmRequest(
                     targetAtMillis = Instant.parse(targetAt).toEpochMilli(),
                     soundId = soundId,
                     vibrationEnabled = vibrationEnabled,
+                    indexInPlan = indexInPlan,
+                    totalInPlan = totalInPlan,
                 )
             } catch (_: RuntimeException) {
                 null
@@ -903,6 +925,10 @@ data class AlarmRequest(
                     ?: throw IllegalArgumentException("reservationId must not be blank")
                 else -> throw IllegalArgumentException("reservationId must be a string")
             }
+            val (indexInPlan, totalInPlan) = parsePosition(
+                json.opt("indexInPlan"),
+                json.opt("totalInPlan"),
+            )
             return AlarmRequest(
                 occurrenceId = occurrenceId,
                 reservationId = reservationId,
@@ -915,9 +941,37 @@ data class AlarmRequest(
                 platformAlarmIdOverride = json.getString("platformAlarmId"),
                 updatedAtMillis = json.optLong("updatedAtMillis", 0L),
                 state = AlarmState.fromValue(json.optString("state", AlarmState.SCHEDULED.value)),
+                indexInPlan = indexInPlan,
+                totalInPlan = totalInPlan,
             )
         }
+
+        private fun parsePosition(indexValue: Any?, totalValue: Any?): Pair<Int?, Int?> {
+            if (indexValue == null && totalValue == null) return null to null
+            val index = exactInt(indexValue)
+                ?: throw IllegalArgumentException("indexInPlan must be an integer")
+            val total = exactInt(totalValue)
+                ?: throw IllegalArgumentException("totalInPlan must be an integer")
+            if (index < 0 || total <= 0 || index >= total) {
+                throw IllegalArgumentException("Alarm position is out of range")
+            }
+            return index to total
+        }
+
+        private fun exactInt(value: Any?): Int? {
+            val number = value as? Number ?: return null
+            val longValue = number.toLong()
+            if (longValue !in Int.MIN_VALUE..Int.MAX_VALUE) return null
+            if (number.toDouble() != longValue.toDouble()) return null
+            return longValue.toInt()
+        }
     }
+}
+
+internal fun AlarmRequest.positionLabel(): String? {
+    val index = indexInPlan ?: return null
+    val total = totalInPlan ?: return null
+    return "Alarm ${index + 1} of $total"
 }
 
 enum class AlarmState(val value: String) {
@@ -1062,6 +1116,22 @@ class AlarmStore(context: Context) {
             editor.commit()
         }
         return requestsById.values.toList()
+    }
+
+    fun nextScheduledAfter(wakePlanId: String, afterMillis: Long): AlarmRequest? {
+        return all()
+            .asSequence()
+            .filter {
+                it.wakePlanId == wakePlanId &&
+                    !it.isTest &&
+                    it.state == AlarmState.SCHEDULED &&
+                    it.scheduledAtMillis > afterMillis
+            }
+            .minWithOrNull(
+                compareBy<AlarmRequest> { it.scheduledAtMillis }
+                    .thenBy { it.targetAtMillis }
+                    .thenBy { it.platformAlarmId },
+            )
     }
 
     private companion object {

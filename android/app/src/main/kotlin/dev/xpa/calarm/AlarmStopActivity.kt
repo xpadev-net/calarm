@@ -8,6 +8,11 @@ import android.media.Ringtone
 import android.media.RingtoneManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.Button
@@ -20,9 +25,19 @@ class AlarmStopActivity : Activity() {
     private var platformAlarmId: String? = null
     private var alarmCleanedUp = false
     private var ringtone: Ringtone? = null
+    private var vibrator: Vibrator? = null
     private var isRinging = true
     private var titleView: TextView? = null
+    private var currentTimeView: TextView? = null
     private var actionButton: Button? = null
+    private var contentLayout: LinearLayout? = null
+    private val clockHandler = Handler(Looper.getMainLooper())
+    private val clockTick = object : Runnable {
+        override fun run() {
+            updateCurrentTime()
+            clockHandler.postDelayed(this, CLOCK_TICK_MILLIS)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,15 +59,32 @@ class AlarmStopActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(48, 48, 48, 48)
         }
-        val title = TextView(this).apply {
-            text = if (isRinging) "Calarm" else detailSummary()
-            textSize = 28f
-            gravity = Gravity.CENTER
+        if (isRinging) {
+            val currentTime = TextView(this).apply {
+                textSize = 20f
+                gravity = Gravity.CENTER
+            }
+            currentTimeView = currentTime
+            layout.addView(currentTime)
+
+            val info = TextView(this).apply {
+                text = ringingSummary()
+                textSize = 24f
+                gravity = Gravity.CENTER
+            }
+            titleView = info
+            layout.addView(info)
+        } else {
+            val title = TextView(this).apply {
+                text = detailSummary()
+                textSize = 28f
+                gravity = Gravity.CENTER
+            }
+            titleView = title
+            layout.addView(title)
         }
-        titleView = title
-        layout.addView(title)
         val button = Button(this).apply {
-            text = if (isRinging) "Stop" else "Close"
+            text = if (isRinging) "Stop current alarm" else "Close"
             setOnClickListener {
                 if (isRinging) {
                     cleanupAlarm()
@@ -64,9 +96,11 @@ class AlarmStopActivity : Activity() {
         }
         actionButton = button
         layout.addView(button)
+        contentLayout = layout
         setContentView(layout)
         if (isRinging) {
             startAlarmSound()
+            startClockTick()
         }
     }
 
@@ -80,9 +114,18 @@ class AlarmStopActivity : Activity() {
 
         isRinging = true
         configureRingingPresentation()
-        titleView?.text = "Calarm"
-        actionButton?.text = "Stop"
+        if (currentTimeView == null) {
+            val currentTime = TextView(this).apply {
+                textSize = 20f
+                gravity = Gravity.CENTER
+            }
+            currentTimeView = currentTime
+            contentLayout?.addView(currentTime, 0)
+        }
+        titleView?.text = ringingSummary()
+        actionButton?.text = "Stop current alarm"
         startAlarmSound()
+        startClockTick()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -92,6 +135,7 @@ class AlarmStopActivity : Activity() {
     }
 
     override fun onDestroy() {
+        stopClockTick()
         if (isChangingConfigurations) {
             stopAlarmSound()
         } else {
@@ -100,23 +144,68 @@ class AlarmStopActivity : Activity() {
         super.onDestroy()
     }
 
+    private fun ringingSummary(): String {
+        val request = platformAlarmId?.let { AlarmStore(this).get(it) }
+            ?: return "Wake alarm"
+        val timeFormat = DateFormat.getTimeInstance(DateFormat.SHORT)
+        val scheduledTime = timeFormat.format(Date(request.scheduledAtMillis))
+        val targetTime = timeFormat.format(Date(request.targetAtMillis))
+        val nextAlarm = AlarmStore(this)
+            .nextScheduledAfter(
+                request.wakePlanId,
+                request.scheduledAtMillis,
+            )
+        return buildString {
+            append("Wake alarm\n")
+            append("Scheduled: $scheduledTime\n")
+            append("Wake target: $targetTime")
+            request.positionLabel()?.let { append("\n$it") }
+            nextAlarm?.let {
+                append("\nNext alarm: ${timeFormat.format(Date(it.scheduledAtMillis))}")
+            }
+        }
+    }
+
+    private fun updateCurrentTime() {
+        val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date())
+        currentTimeView?.text = "Current time: $time"
+    }
+
+    private fun startClockTick() {
+        clockHandler.removeCallbacks(clockTick)
+        updateCurrentTime()
+        clockHandler.postDelayed(clockTick, CLOCK_TICK_MILLIS)
+    }
+
+    private fun stopClockTick() {
+        clockHandler.removeCallbacks(clockTick)
+    }
+
     private fun detailSummary(): String {
         val request = platformAlarmId?.let { AlarmStore(this).get(it) }
             ?: return "Calarm alarm scheduled\nDetails unavailable"
-        val scheduledAt = DateFormat.getDateTimeInstance(
+        val dateTimeFormat = DateFormat.getDateTimeInstance(
             DateFormat.MEDIUM,
             DateFormat.SHORT,
-        ).format(Date(request.scheduledAtMillis))
-        return "Calarm alarm scheduled\nWake plan: ${request.wakePlanId}\nScheduled: $scheduledAt"
+        )
+        val scheduledAt = dateTimeFormat.format(Date(request.scheduledAtMillis))
+        val targetAt = dateTimeFormat.format(Date(request.targetAtMillis))
+        return buildString {
+            append("Calarm alarm scheduled\n")
+            append("Scheduled: $scheduledAt\n")
+            append("Wake target: $targetAt")
+            request.positionLabel()?.let { append("\n$it") }
+        }
     }
 
     private fun cleanupAlarm() {
         if (!isRinging) return
-        val alarmId = platformAlarmId ?: return
         if (alarmCleanedUp) return
 
         alarmCleanedUp = true
+        stopClockTick()
         stopAlarmSound()
+        val alarmId = platformAlarmId ?: return
         getSystemService(NotificationManager::class.java).cancel(alarmId.hashCode())
         AlarmStore(this).remove(alarmId)
     }
@@ -160,15 +249,63 @@ class AlarmStopActivity : Activity() {
             }
             play()
         }
+        startVibration()
     }
 
     private fun stopAlarmSound() {
         ringtone?.stop()
         ringtone = null
+        stopVibration()
+    }
+
+    private fun startVibration() {
+        stopVibration()
+        val alarmId = platformAlarmId ?: return
+        val request = AlarmStore(this).get(alarmId) ?: return
+        if (!request.vibrationEnabled) return
+
+        val alarmVibrator = alarmVibrator() ?: return
+        vibrator = alarmVibrator
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val effect = VibrationEffect.createWaveform(longArrayOf(0, 800, 400), 0)
+            val attributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .build()
+            alarmVibrator.vibrate(effect, attributes)
+        } else {
+            @Suppress("DEPRECATION")
+            alarmVibrator.vibrate(longArrayOf(0, 800, 400), 0)
+        }
+    }
+
+    private fun stopVibration() {
+        vibrator?.cancel()
+        vibrator = null
+    }
+
+    internal fun alarmVibrator(
+        vibratorManagerProvider: () -> VibratorManager? = {
+            getSystemService(VibratorManager::class.java)
+        },
+        vibratorProvider: () -> Vibrator? = {
+            getSystemService(Vibrator::class.java)
+        },
+    ): Vibrator? {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                vibratorManagerProvider()?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                vibratorProvider()
+            }
+        } catch (_: RuntimeException) {
+            null
+        }
     }
 
     private companion object {
         const val STATE_IS_RINGING = "is_ringing"
         const val STATE_PLATFORM_ALARM_ID = "platform_alarm_id"
+        const val CLOCK_TICK_MILLIS = 60_000L
     }
 }
