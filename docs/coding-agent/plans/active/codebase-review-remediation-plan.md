@@ -486,7 +486,9 @@
 
 ### Task_13: Reconcile Drift and native reservations durably
 
-- status: unstarted
+- status: in progress
+- worker: `019f85b5-34b1-7611-88f4-0970c1c24f05`
+- branch: `codex/task-13-durable-inventory-reconciliation`
 - type: impl
 - owns:
   - `lib/features/wake_plan/application/wake_plan_service.dart`
@@ -494,6 +496,8 @@
   - `lib/features/wake_plan/data/src/wake_plan_database.dart`
   - generated Drift output only when regeneration is required
   - `lib/core/bootstrap/app_bootstrap.dart`
+  - `lib/app.dart` only if the existing startup/resume entry point cannot invoke the reconciliation pass
+  - `docs/platform/native-alarm-channel.md` only for the durable authority/repair policy
   - corresponding repository/service/migration tests
 - depends_on: [Task_7, Task_8, Task_9, Task_11, Task_12]
 - acceptance:
@@ -502,7 +506,8 @@
   - Reconciliation is idempotent across repeated startup/resume calls and survives corrupt/stale rows.
   - Any schema change uses expand-contract migration and remains rollback-aware.
 - validation:
-  - kind: command; required: true; owner: worker; detail: fault-injection tests for every native/DB interruption point, reopen/restart, duplicates, corrupt rows, and migration.
+  - kind: command; required: true; owner: worker; detail: table-driven whole-inventory tests for exact match, DB-only, matching and unrelated native-only, stale ID, duplicate, conflict, corrupt, unavailable, and read-failure states.
+  - kind: command; required: true; owner: worker; detail: fault-injection tests for every create/replenish native/DB interruption point, side-effect-then-throw, post-result persistence failure, per-plan continuation, file-backed reopen/restart, repeated lifecycle reconciliation, and migration if required.
   - kind: command; required: true; owner: worker; detail: `flutter analyze`, full `flutter test`, `flutter build apk --debug`.
   - kind: review; required: true; owner: reviewer; detail: data authority, migration, and failure-recovery review.
 
@@ -768,6 +773,14 @@
   - Worker `019f6b02-c520-7601-a7f9-81447e8915d2` delivered the bounded transition proof and was automatically archived; its archived rollout file was then missing, so neither the accepted continuation prompt nor a bounded unarchive/resume could be delivered.
   - The unrecoverable task was archived again to prevent concurrent branch edits. Replacement worker `019f7575-c7db-7420-a088-2ba9cdd95d2d` started from the same existing PR branch in a fresh worktree and owns the same seven-file Task_12 scope.
   - The replacement was instructed to preserve all existing branch edits/history, normally merge current master, implement the recorded availability-first and stale-inventory fixes, refresh every exact-head gate, and never merge or rewrite history.
+
+- 2026-07-22 Task_13 acceptance audit completed and bounded implementation started.
+  - Read-only audit thread `019f85aa-b3a7-7b51-aa01-3c96ff760455` reviewed exact `origin/master` `6e2cd80e100a08b96c02ba78f4703ab985415026` and returned `NARROW_DELTA_REQUIRED`; it was archived after reporting.
+  - Audit validation passed focused 145/145 tests, full 446/446 tests, `flutter analyze`, debug APK build, and `git diff --check` from a clean worktree.
+  - Existing occurrence-toggle recovery and reconciliation serialization are retained, but Task_13 remains incomplete because ordinary scheduled rows are not compared with one authoritative native inventory snapshot and the required general create/replenish interruption matrix is absent.
+  - Implementation worker `019f85b5-34b1-7611-88f4-0970c1c24f05` started and passed the startup stability check on `codex/task-13-durable-inventory-reconciliation`.
+  - Scope is limited to Task_13's service/repository/database/bootstrap/tests plus the narrow authority-policy documentation and conditional app entry point recorded above. Task_14 ringing/native-stop work and the dirty parent checkout remain excluded.
+  - Next action: startup-check the worker, require exact-head independent review, PR/hook/check gates, and orchestrator-owned review/tests before merge.
 
 ## Decision Log
 
