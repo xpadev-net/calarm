@@ -2851,7 +2851,7 @@ class WakePlanRepositoryServiceStore implements WakePlanServiceStore {
   Future<WakePlanReconciliationSnapshot> fetchReconciliationSnapshot({
     required DateTime now,
   }) {
-    return _repository.fetchReconciliationSnapshot();
+    return _repository.fetchReconciliationSnapshot(now: now);
   }
 
   @override

@@ -1802,6 +1802,39 @@ void main() {
         }
       },
     );
+
+    test('expired one-time history does not re-enter reconciliation', () async {
+      final database = WakePlanDatabase(NativeDatabase.memory());
+      final repository = WakePlanRepository(database);
+      final expiredPlan = buildPlan();
+      final gateway = _CountingInventoryGateway();
+      try {
+        await repository.saveWakePlan(expiredPlan);
+        await repository.saveAlarmOccurrences([
+          AlarmOccurrence(
+            id: 'expired-recovery-marker',
+            wakePlanId: expiredPlan.id,
+            scheduledAt: DateMinute(day: tuesday, time: targetTime),
+            status: AlarmOccurrenceStatus.userEnablePending,
+            createdAt: now,
+            updatedAt: now,
+          ),
+        ]);
+
+        final results = await WakePlanService(
+          repository: repository,
+          nativeAlarmGateway: gateway,
+          clock: () => DateTime(2026, 7, 6, 8),
+          rollingScheduleDays: 1,
+        ).reconcileSchedules();
+
+        expect(results, isEmpty);
+        expect(gateway.scheduledRequests, isEmpty);
+        expect(gateway.cancelledOccurrences, isEmpty);
+      } finally {
+        await database.close();
+      }
+    });
   });
 
   group('WakePlanService occurrence toggles', () {

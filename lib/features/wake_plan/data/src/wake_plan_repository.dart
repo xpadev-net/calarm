@@ -169,7 +169,9 @@ class WakePlanRepository {
         .toList(growable: false);
   }
 
-  Future<WakePlanReconciliationSnapshot> fetchReconciliationSnapshot() async {
+  Future<WakePlanReconciliationSnapshot> fetchReconciliationSnapshot({
+    required DateTime now,
+  }) async {
     return _database.transaction(() async {
       final planRows = await (_database.select(
         _database.wakePlanRows,
@@ -188,7 +190,7 @@ class WakePlanRepository {
         final plan = _tryWakePlanFromRow(row);
         if (plan == null) {
           corruptPlanIds.add(row.id);
-        } else {
+        } else if (!_isExpiredOneTimePlan(plan: plan, now: now)) {
           plans.add(plan);
         }
       }
