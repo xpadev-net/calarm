@@ -636,9 +636,9 @@
 
 ### Task_15: Final harmonization and repository-wide merge gate
 
-- status: complete
-- reviewer: `019f8717-1e82-7dd2-80eb-9135c20cc291`
-- review_verdict: CHANGES_REQUESTED
+- status: in progress
+- reviewer: `019f8717-1e82-7dd2-80eb-9135c20cc291` (prior remediation review); `task15_exact_master_reviewer` (fresh exact-master review)
+- review_verdict: pending
 - type: review
 - owns: []
 - depends_on: [Task_5, Task_11, Task_12, Task_21, Task_22, Task_23, Task_24]
@@ -1126,6 +1126,10 @@
   - The additive schema-v3 reservation ID/generation contract now aligns Drift, Dart/fake gateways, Android, iOS, reconciliation, and ringing cancellation; generation/retirement validation is durable and same-plan only, with cross-plan/duplicate/corrupt state fail-closed.
   - Historical CodeRabbit change requests were preserved and formally dismissed; current review decision is clear. Fresh exact-head independent review approved, all seven GitHub checks and Native Smoke jobs succeeded, and orchestrator `gh-review-hook 67` exited 0.
   - Task_24 worker `019f87ee-5bb5-7933-a622-b0d672d60e3a` is archived. Task_15 final harmonization re-review is now the next gate; queued alarm-sound and ringing-notification plans remain blocked on that harmonization and existing device evidence policy.
+
+- 2026-07-22 Task_15 final harmonization re-review dispatched.
+  - Fresh exact-master read-only reviewer `task15_exact_master_reviewer` is active against origin/master `0fd59ffbe7a1af27866eb05eb52443e4e382f717` after PR #67 merged.
+  - The review covers cross-PR Dart/Android/iOS channel contracts, Task_13 authority, native event state/ack ordering, schema-v3 generation/retirement, serialization/concurrency, Task_25 hosted gates, and Task_26 receiver recovery. Battery override routes heavy evidence to GitHub Actions only.
 
 - 2026-07-22 Task_25 hosted Android JVM gate completed.
   - PR [#68](https://github.com/xpadev-net/calarm/pull/68) merged exact approved head `574c9251f154ba4ab995c0d3de95f941ba21316b` as `35d93d9454d8243d55cace9056ce4588a4f1c0cd`.
