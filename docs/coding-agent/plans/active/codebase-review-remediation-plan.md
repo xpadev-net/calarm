@@ -1132,7 +1132,8 @@
 
 - status: in progress
 - worker: `/root/task28_android_schedule_serialization`
-- PR: [#71](https://github.com/xpadev-net/calarm/pull/71), current reported head `581d3c6`
+- PR: [#71](https://github.com/xpadev-net/calarm/pull/71), current head `492cc2d201377b60a6be98b8ecaa222b2956cc96`
+- reviewer: `/root/task28_exact_head_reviewer` (fresh exact-head review active)
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AndroidAlarmBridge.kt`
@@ -1150,9 +1151,8 @@
 
 - status: in progress
 - worker: `/root/task29_android_delivery_dismissal_idempotency`
-- PR: [#72](https://github.com/xpadev-net/calarm/pull/72), current reported head `9b91c72`
-- current head: `fba42e46dc76da61a74a00a8120f62b442dd7bf1` (ledger-only master integration)
-- reviewer: `/root/task29_exact_head_reviewer_v2` (fresh exact-head review active; prior 9b91c72 review stale)
+- PR: [#72](https://github.com/xpadev-net/calarm/pull/72), current head `b3bd57c223d6032994cd0ec0ef3d7e869280a384`
+- reviewer: pending fresh exact-head review after current-head hook/CI; prior fba42e4 review stale
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmReceiver.kt`
@@ -1183,6 +1183,10 @@
 - 2026-07-22 Task_29 exact-head review refreshed after ledger-only PR advancement.
   - PR #72 advanced from `9b91c72` to `fba42e46dc76da61a74a00a8120f62b442dd7bf1` by integrating current master; the prior review was correctly marked stale rather than reused.
   - No product-tree difference was found beyond the expected ledger/plan merge. A replacement exact-head reviewer is active, and current iOS/native smoke plus `gh-review-hook 72` remain required before merge.
+
+- 2026-07-22 Task_28/Task_29 heads advanced during final gates.
+  - Task_28 normally integrated current master and pushed PR #71 head `492cc2d201377b60a6be98b8ecaa222b2956cc96`; a fresh exact-head reviewer is active and hosted native gates are being refreshed.
+  - Task_29 normally integrated current master and pushed PR #72 head `b3bd57c223d6032994cd0ec0ef3d7e869280a384`; Android/Baseline checks are green, iOS smoke and hook remain pending, and the prior fba42e4 approval is stale by policy.
 
 - 2026-07-22 Task_25 hosted Android JVM gate completed.
   - PR [#68](https://github.com/xpadev-net/calarm/pull/68) merged exact approved head `574c9251f154ba4ab995c0d3de95f941ba21316b` as `35d93d9454d8243d55cace9056ce4588a4f1c0cd`.
