@@ -692,7 +692,7 @@
 ### Task_24: Unify stable reservation recreation identity across platforms
 
 - status: in progress
-- worker: `client-new-thread:1d6b1aaf-b899-48b5-86fb-0003b0bcdb7a`
+- worker: `019f875e-00fb-7440-b136-51c70bad8c78`
 - branch: `codex/task-24-stable-recreation-identity`
 - type: impl
 - owns:
