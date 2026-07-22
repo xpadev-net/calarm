@@ -1,9 +1,12 @@
+import 'dart:io';
+
 import 'package:calarm/core/time/time.dart';
 import 'package:calarm/features/wake_plan/data/wake_plan_data.dart';
 import 'package:calarm/features/wake_plan/domain/wake_plan_domain.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqlite3/sqlite3.dart' as sqlite;
 
 void main() {
   late WakePlanDatabase database;
@@ -73,9 +76,60 @@ void main() {
   }
 
   group('schema', () {
-    test('starts at migration version 1', () {
-      expect(database.schemaVersion, 1);
+    test('starts at migration version 2', () {
+      expect(database.schemaVersion, 2);
       expect(database.migration, isNotNull);
+    });
+
+    test('migrates version 1 rows with no pending dismissal', () async {
+      await database.close();
+      final directory = await Directory.systemTemp.createTemp(
+        'calarm-dismissal-migration-',
+      );
+      final file = File('${directory.path}/wake-plan.sqlite');
+      final legacy = sqlite.sqlite3.open(file.path);
+      legacy.execute('''
+        CREATE TABLE alarm_occurrence_rows (
+          id TEXT NOT NULL PRIMARY KEY,
+          wake_plan_id TEXT NOT NULL,
+          scheduled_at_days INTEGER NOT NULL,
+          scheduled_at_minutes INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          platform_alarm_id TEXT,
+          fired_at INTEGER,
+          dismissed_at INTEGER,
+          failure_reason TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      ''');
+      legacy.execute(
+        'INSERT INTO alarm_occurrence_rows '
+        '(id, wake_plan_id, scheduled_at_days, scheduled_at_minutes, status, '
+        'platform_alarm_id, created_at, updated_at) '
+        "VALUES ('legacy-occ', 'legacy-plan', 20640, 410, 'scheduled', "
+        "'legacy-native', 0, 0)",
+      );
+      legacy.execute('PRAGMA user_version = 1');
+      legacy.dispose();
+
+      final migratedDatabase = WakePlanDatabase(NativeDatabase(file));
+      final migratedRepository = WakePlanRepository(migratedDatabase);
+      try {
+        final occurrence = await migratedRepository.fetchAlarmOccurrence(
+          'legacy-occ',
+        );
+
+        expect(occurrence, isNotNull);
+        expect(occurrence!.platformAlarmId, 'legacy-native');
+        expect(
+          await migratedRepository.fetchPendingAlarmOccurrenceDismissals(),
+          isEmpty,
+        );
+      } finally {
+        await migratedDatabase.close();
+        await directory.delete(recursive: true);
+      }
     });
   });
 
@@ -439,6 +493,150 @@ void main() {
         expect(cleared.hasNativeReservation, isFalse);
       },
     );
+
+    test('prepares and completes an exact durable dismissal', () async {
+      final requestedAt = DateTime(2026, 7, 6, 8, 1);
+      final dismissedAt = DateTime(2026, 7, 6, 8, 2);
+      await repository.saveWakePlan(buildPlan());
+      await repository.saveAlarmOccurrences([
+        buildOccurrence(
+          status: AlarmOccurrenceStatus.ringing,
+          platformAlarmId: 'native-exact',
+          firedAt: now,
+        ),
+      ]);
+
+      final preparation = await repository.prepareAlarmOccurrenceDismissal(
+        occurrenceId: 'occ-1',
+        expectedPlatformAlarmId: 'native-exact',
+        requestedAt: requestedAt,
+      );
+
+      expect(
+        preparation.status,
+        AlarmOccurrenceDismissalPreparationStatus.ready,
+      );
+      expect(preparation.intent!.occurrence.id, 'occ-1');
+      expect(preparation.intent!.occurrence.platformAlarmId, 'native-exact');
+      expect(
+        (await repository.fetchPendingAlarmOccurrenceDismissals())
+            .single
+            .requestedAt,
+        requestedAt,
+      );
+
+      await repository.completeAlarmOccurrenceDismissal(
+        intent: preparation.intent!,
+        dismissedAt: dismissedAt,
+      );
+      final completed = await repository.fetchAlarmOccurrence('occ-1');
+
+      expect(completed!.status, AlarmOccurrenceStatus.dismissed);
+      expect(completed.platformAlarmId, isNull);
+      expect(completed.dismissedAt, dismissedAt);
+      expect(await repository.fetchPendingAlarmOccurrenceDismissals(), isEmpty);
+
+      await repository.completeAlarmOccurrenceDismissal(
+        intent: preparation.intent!,
+        dismissedAt: dismissedAt,
+      );
+    });
+
+    test('preparation rejects a changed exact platform identity', () async {
+      await repository.saveWakePlan(buildPlan());
+      await repository.saveAlarmOccurrences([
+        buildOccurrence(platformAlarmId: 'native-current'),
+      ]);
+
+      final preparation = await repository.prepareAlarmOccurrenceDismissal(
+        occurrenceId: 'occ-1',
+        expectedPlatformAlarmId: 'native-stale',
+        requestedAt: DateTime(2026, 7, 6, 8, 1),
+      );
+
+      expect(
+        preparation.status,
+        AlarmOccurrenceDismissalPreparationStatus.noLongerEligible,
+      );
+      expect(await repository.fetchPendingAlarmOccurrenceDismissals(), isEmpty);
+      expect(
+        (await repository.fetchAlarmOccurrence('occ-1'))!.platformAlarmId,
+        'native-current',
+      );
+    });
+
+    test('generic saves preserve an in-flight dismissal intent', () async {
+      final requestedAt = DateTime(2026, 7, 6, 8, 1);
+      await repository.saveWakePlan(buildPlan());
+      final ringing = buildOccurrence(
+        status: AlarmOccurrenceStatus.ringing,
+        platformAlarmId: 'native-exact',
+        firedAt: now,
+      );
+      await repository.saveAlarmOccurrences([ringing]);
+      final preparation = await repository.prepareAlarmOccurrenceDismissal(
+        occurrenceId: ringing.id,
+        expectedPlatformAlarmId: ringing.platformAlarmId,
+        requestedAt: requestedAt,
+      );
+
+      await repository.saveAlarmOccurrences([
+        ringing.copyWith(
+          status: AlarmOccurrenceStatus.missed,
+          updatedAt: DateTime(2026, 7, 6, 8, 2),
+        ),
+      ]);
+
+      final pending = await repository.fetchPendingAlarmOccurrenceDismissal(
+        ringing.id,
+      );
+      expect(pending, isNotNull);
+      expect(pending!.requestedAt, requestedAt);
+      expect(pending.occurrence.status, AlarmOccurrenceStatus.missed);
+      await repository.completeAlarmOccurrenceDismissal(
+        intent: preparation.intent!,
+        dismissedAt: DateTime(2026, 7, 6, 8, 3),
+      );
+      expect(
+        (await repository.fetchAlarmOccurrence(ringing.id))!.status,
+        AlarmOccurrenceStatus.dismissed,
+      );
+    });
+
+    test('completion cannot dismiss a changed exact identity', () async {
+      final requestedAt = DateTime(2026, 7, 6, 8, 1);
+      await repository.saveWakePlan(buildPlan());
+      await repository.saveAlarmOccurrences([
+        buildOccurrence(platformAlarmId: 'native-exact'),
+      ]);
+      final preparation = await repository.prepareAlarmOccurrenceDismissal(
+        occurrenceId: 'occ-1',
+        expectedPlatformAlarmId: 'native-exact',
+        requestedAt: requestedAt,
+      );
+      await repository.updateOccurrencePlatformAlarmId(
+        occurrenceId: 'occ-1',
+        platformAlarmId: 'native-replacement',
+        updatedAt: DateTime(2026, 7, 6, 8, 2),
+      );
+      expect(
+        (await repository.fetchPendingAlarmOccurrenceDismissal(
+          'occ-1',
+        ))!.platformAlarmId,
+        'native-exact',
+      );
+
+      await expectLater(
+        repository.completeAlarmOccurrenceDismissal(
+          intent: preparation.intent!,
+          dismissedAt: DateTime(2026, 7, 6, 8, 3),
+        ),
+        throwsStateError,
+      );
+      final unchanged = await repository.fetchAlarmOccurrence('occ-1');
+      expect(unchanged!.status, AlarmOccurrenceStatus.scheduled);
+      expect(unchanged.platformAlarmId, 'native-replacement');
+    });
 
     test('round-trips the distinct user-disabled occurrence state', () async {
       await repository.saveWakePlan(buildPlan());

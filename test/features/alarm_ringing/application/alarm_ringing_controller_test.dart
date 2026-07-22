@@ -1,12 +1,15 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:calarm/core/platform/fake_native_alarm_gateway.dart';
 import 'package:calarm/core/platform/native_alarm_gateway.dart';
 import 'package:calarm/core/time/time.dart';
 import 'package:calarm/features/alarm_ringing/application/alarm_ringing_controller.dart';
 import 'package:calarm/features/wake_plan/application/wake_plan_service.dart';
+import 'package:calarm/features/wake_plan/data/wake_plan_data.dart';
 import 'package:calarm/features/wake_plan/domain/wake_plan_domain.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:drift/native.dart';
 
 void main() {
   final monday = CalendarDay(year: 2026, month: 7, day: 6);
@@ -218,7 +221,16 @@ void main() {
 
   test('does not mark dismissed when native cancel fails', () async {
     final gateway = FakeNativeAlarmGateway()
-      ..cancelFailurePlatformAlarmIds.add('native-current');
+      ..cancelFailurePlatformAlarmIds.add('native-current')
+      ..inventoryRows.add(
+        NativeAlarmInventoryRow(
+          reservationId: 'plan-1:20640:410',
+          occurrenceId: 'plan-1:20640:410',
+          wakePlanId: 'plan-1',
+          platformAlarmId: 'native-current',
+          status: NativeAlarmReservationStatus.ringing,
+        ),
+      );
     final current = _occurrence(
       id: 'plan-1:20640:410',
       day: monday,
@@ -254,6 +266,312 @@ void main() {
       AlarmOccurrenceStatus.dismissed,
     );
   });
+
+  test('does not call native when intent persistence fails', () async {
+    final gateway = FakeNativeAlarmGateway();
+    final current = _occurrence(
+      id: 'plan-1:20640:410',
+      day: monday,
+      minute: 410,
+      status: AlarmOccurrenceStatus.ringing,
+      platformAlarmId: 'native-current',
+      firedAt: DateTime(2026, 7, 6, 6, 50),
+    );
+    final store = _AlarmRingingStore(
+      plans: [_plan(day: monday)],
+      occurrences: [current],
+    )..failNextPrepareBeforeEffect = true;
+
+    await expectLater(
+      _controller(store, gateway: gateway).dismissCurrent(current.id),
+      throwsStateError,
+    );
+
+    expect(gateway.cancelledOccurrences, isEmpty);
+    expect(store.pendingDismissals, isEmpty);
+    expect(
+      store.occurrences[current.id]!.status,
+      AlarmOccurrenceStatus.ringing,
+    );
+  });
+
+  test(
+    'retries an intent persisted before the preparation reply was lost',
+    () async {
+      final gateway = FakeNativeAlarmGateway();
+      final current = _occurrence(
+        id: 'plan-1:20640:410',
+        day: monday,
+        minute: 410,
+        status: AlarmOccurrenceStatus.ringing,
+        platformAlarmId: 'native-current',
+        firedAt: DateTime(2026, 7, 6, 6, 50),
+      );
+      final store = _AlarmRingingStore(
+        plans: [_plan(day: monday)],
+        occurrences: [current],
+      )..throwAfterNextPrepare = true;
+
+      await expectLater(
+        _controller(store, gateway: gateway).dismissCurrent(current.id),
+        throwsStateError,
+      );
+      expect(gateway.cancelledOccurrences, isEmpty);
+      expect(store.pendingDismissals, contains(current.id));
+
+      final retry = AlarmRingingController(
+        store: store,
+        nativeAlarmGateway: gateway,
+        coordinator: WakePlanMutationCoordinator(),
+        clock: () => DateTime(2026, 7, 6, 7, 30),
+      );
+      expect(
+        await retry.dismissCurrent(current.id),
+        AlarmDismissResult.dismissed,
+      );
+      expect(
+        store.occurrences[current.id]!.status,
+        AlarmOccurrenceStatus.dismissed,
+      );
+    },
+  );
+
+  test('keeps a pre-effect native throw retryable', () async {
+    final current = _occurrence(
+      id: 'plan-1:20640:410',
+      day: monday,
+      minute: 410,
+      status: AlarmOccurrenceStatus.ringing,
+      platformAlarmId: 'native-current',
+      firedAt: DateTime(2026, 7, 6, 6, 50),
+    );
+    final gateway = _ThrowingCancelGateway(throwBeforeEffect: true)
+      ..inventoryRows.add(_inventoryRow(current));
+    final store = _AlarmRingingStore(
+      plans: [_plan(day: monday)],
+      occurrences: [current],
+    );
+
+    expect(
+      await _controller(store, gateway: gateway).dismissCurrent(current.id),
+      AlarmDismissResult.nativeCancelFailed,
+    );
+    expect(store.pendingDismissals, contains(current.id));
+    expect(
+      store.occurrences[current.id]!.status,
+      AlarmOccurrenceStatus.ringing,
+    );
+
+    expect(
+      await _controller(store, gateway: gateway).dismissCurrent(current.id),
+      AlarmDismissResult.dismissed,
+    );
+  });
+
+  test(
+    'finalizes when native cancellation side effect precedes a throw',
+    () async {
+      final current = _occurrence(
+        id: 'plan-1:20640:410',
+        day: monday,
+        minute: 410,
+        status: AlarmOccurrenceStatus.ringing,
+        platformAlarmId: 'native-current',
+        firedAt: DateTime(2026, 7, 6, 6, 50),
+      );
+      final gateway = _ThrowingCancelGateway(throwAfterEffect: true)
+        ..inventoryRows.add(_inventoryRow(current));
+      final store = _AlarmRingingStore(
+        plans: [_plan(day: monday)],
+        occurrences: [current],
+      );
+
+      expect(
+        await _controller(store, gateway: gateway).dismissCurrent(current.id),
+        AlarmDismissResult.dismissed,
+      );
+      expect(gateway.inventoryRows, isEmpty);
+      expect(store.pendingDismissals, isEmpty);
+      expect(
+        store.occurrences[current.id]!.status,
+        AlarmOccurrenceStatus.dismissed,
+      );
+    },
+  );
+
+  test(
+    'retries after native success and pre-effect completion failure',
+    () async {
+      final current = _occurrence(
+        id: 'plan-1:20640:410',
+        day: monday,
+        minute: 410,
+        status: AlarmOccurrenceStatus.ringing,
+        platformAlarmId: 'native-current',
+        firedAt: DateTime(2026, 7, 6, 6, 50),
+      );
+      final gateway = FakeNativeAlarmGateway()
+        ..inventoryRows.add(_inventoryRow(current));
+      final store = _AlarmRingingStore(
+        plans: [_plan(day: monday)],
+        occurrences: [current],
+      )..failNextCompleteBeforeEffect = true;
+
+      await expectLater(
+        _controller(store, gateway: gateway).dismissCurrent(current.id),
+        throwsStateError,
+      );
+      expect(gateway.inventoryRows, isEmpty);
+      expect(store.pendingDismissals, contains(current.id));
+
+      expect(
+        await _controller(store, gateway: gateway).dismissCurrent(current.id),
+        AlarmDismissResult.dismissed,
+      );
+      expect(store.pendingDismissals, isEmpty);
+    },
+  );
+
+  test('is idempotent when completion commits before throwing', () async {
+    final current = _occurrence(
+      id: 'plan-1:20640:410',
+      day: monday,
+      minute: 410,
+      status: AlarmOccurrenceStatus.ringing,
+      platformAlarmId: 'native-current',
+      firedAt: DateTime(2026, 7, 6, 6, 50),
+    );
+    final store = _AlarmRingingStore(
+      plans: [_plan(day: monday)],
+      occurrences: [current],
+    )..throwAfterNextComplete = true;
+
+    await expectLater(
+      _controller(store).dismissCurrent(current.id),
+      throwsStateError,
+    );
+    expect(
+      store.occurrences[current.id]!.status,
+      AlarmOccurrenceStatus.dismissed,
+    );
+    expect(store.pendingDismissals, isEmpty);
+    expect(
+      await _controller(store).dismissCurrent(current.id),
+      AlarmDismissResult.alreadyDismissed,
+    );
+  });
+
+  test('replays an exact pending dismissal before bounded selection', () async {
+    final current = _occurrence(
+      id: 'plan-1:20640:410',
+      day: monday,
+      minute: 410,
+      status: AlarmOccurrenceStatus.ringing,
+      platformAlarmId: 'native-current',
+      firedAt: DateTime(2026, 7, 6, 6, 50),
+    );
+    final gateway = FakeNativeAlarmGateway()
+      ..inventoryRows.add(_inventoryRow(current));
+    final store = _AlarmRingingStore(
+      plans: [_plan(day: monday)],
+      occurrences: [current],
+    );
+    store.pendingDismissals[current.id] = AlarmOccurrenceDismissalIntent(
+      occurrence: current,
+      requestedAt: DateTime(2026, 7, 6, 6, 50),
+      platformAlarmId: current.platformAlarmId,
+    );
+    final controller = AlarmRingingController(
+      store: store,
+      nativeAlarmGateway: gateway,
+      coordinator: WakePlanMutationCoordinator(),
+      clock: () => DateTime(2026, 7, 6, 7, 30),
+    );
+
+    expect(await controller.loadCurrentRinging(), isNull);
+    expect(
+      store.occurrences[current.id]!.status,
+      AlarmOccurrenceStatus.dismissed,
+    );
+    expect(store.pendingDismissals, isEmpty);
+  });
+
+  test(
+    'reopen replays native success after Drift completion failure exactly once',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'calarm-ringing-reopen-',
+      );
+      final file = File('${directory.path}/wake-plan.sqlite');
+      final current = _occurrence(
+        id: 'plan-1:20640:410',
+        day: monday,
+        minute: 410,
+        status: AlarmOccurrenceStatus.ringing,
+        platformAlarmId: 'native-current',
+        firedAt: DateTime(2026, 7, 6, 6, 50),
+      );
+      final future = _occurrence(
+        id: 'plan-1:20640:415',
+        day: monday,
+        minute: 415,
+        platformAlarmId: 'native-future',
+      );
+      final gateway = FakeNativeAlarmGateway()
+        ..inventoryRows.add(_inventoryRow(current));
+
+      var database = WakePlanDatabase(NativeDatabase(file));
+      var repository = WakePlanRepository(database);
+      await repository.saveWakePlan(_plan(day: monday));
+      await repository.saveAlarmOccurrences([current, future]);
+      final failingStore = _FailingCompleteRepositoryStore(repository);
+      final controller = AlarmRingingController(
+        store: failingStore,
+        nativeAlarmGateway: gateway,
+        coordinator: WakePlanMutationCoordinator(),
+        clock: () => DateTime(2026, 7, 6, 6, 50),
+      );
+
+      await expectLater(
+        controller.dismissCurrent(current.id),
+        throwsStateError,
+      );
+      expect(gateway.inventoryRows, isEmpty);
+      expect(
+        await repository.fetchPendingAlarmOccurrenceDismissal(current.id),
+        isNotNull,
+      );
+      await database.close();
+
+      database = WakePlanDatabase(NativeDatabase(file));
+      repository = WakePlanRepository(database);
+      gateway.cancelFailurePlatformAlarmIds.add('native-current');
+      final reopened = AlarmRingingController(
+        store: AlarmRingingRepositoryStore(repository),
+        nativeAlarmGateway: gateway,
+        coordinator: WakePlanMutationCoordinator(),
+        clock: () => DateTime(2026, 7, 6, 7, 30),
+      );
+      try {
+        expect(await reopened.loadCurrentRinging(), isNull);
+        final dismissed = await repository.fetchAlarmOccurrence(current.id);
+        final untouchedFuture = await repository.fetchAlarmOccurrence(
+          future.id,
+        );
+        expect(dismissed!.status, AlarmOccurrenceStatus.dismissed);
+        expect(dismissed.platformAlarmId, isNull);
+        expect(untouchedFuture!.status, AlarmOccurrenceStatus.scheduled);
+        expect(untouchedFuture.platformAlarmId, 'native-future');
+        expect(
+          await repository.fetchPendingAlarmOccurrenceDismissals(),
+          isEmpty,
+        );
+      } finally {
+        await database.close();
+        await directory.delete(recursive: true);
+      }
+    },
+  );
 
   test('refuses to dismiss a future scheduled occurrence', () async {
     final gateway = FakeNativeAlarmGateway();
@@ -413,6 +731,65 @@ AlarmOccurrence _occurrence({
   );
 }
 
+NativeAlarmInventoryRow _inventoryRow(AlarmOccurrence occurrence) {
+  return NativeAlarmInventoryRow(
+    reservationId: occurrence.id,
+    occurrenceId: occurrence.id,
+    wakePlanId: occurrence.wakePlanId,
+    platformAlarmId: occurrence.platformAlarmId!,
+    status: occurrence.status == AlarmOccurrenceStatus.ringing
+        ? NativeAlarmReservationStatus.ringing
+        : NativeAlarmReservationStatus.scheduled,
+  );
+}
+
+class _ThrowingCancelGateway extends FakeNativeAlarmGateway {
+  _ThrowingCancelGateway({
+    this.throwBeforeEffect = false,
+    this.throwAfterEffect = false,
+  });
+
+  bool throwBeforeEffect;
+  bool throwAfterEffect;
+
+  @override
+  Future<CancelResult> cancelOccurrences(
+    List<NativeAlarmCancelRequest> alarms,
+  ) async {
+    if (throwBeforeEffect) {
+      throwBeforeEffect = false;
+      throw StateError('native cancel failed before effect');
+    }
+    final result = await super.cancelOccurrences(alarms);
+    if (throwAfterEffect) {
+      throwAfterEffect = false;
+      throw StateError('native cancel reply was lost');
+    }
+    return result;
+  }
+}
+
+class _FailingCompleteRepositoryStore extends AlarmRingingRepositoryStore {
+  _FailingCompleteRepositoryStore(super.repository);
+
+  bool _shouldFail = true;
+
+  @override
+  Future<void> completeAlarmOccurrenceDismissal({
+    required AlarmOccurrenceDismissalIntent intent,
+    required DateTime dismissedAt,
+  }) {
+    if (_shouldFail) {
+      _shouldFail = false;
+      throw StateError('Drift completion failed before effect');
+    }
+    return super.completeAlarmOccurrenceDismissal(
+      intent: intent,
+      dismissedAt: dismissedAt,
+    );
+  }
+}
+
 class _AlarmRingingStore implements AlarmRingingStore {
   _AlarmRingingStore({
     required this.plans,
@@ -424,6 +801,11 @@ class _AlarmRingingStore implements AlarmRingingStore {
   final List<WakePlan> plans;
   final Map<String, AlarmOccurrence> occurrences;
   final List<AlarmOccurrence> savedOccurrences = [];
+  final Map<String, AlarmOccurrenceDismissalIntent> pendingDismissals = {};
+  bool failNextPrepareBeforeEffect = false;
+  bool throwAfterNextPrepare = false;
+  bool failNextCompleteBeforeEffect = false;
+  bool throwAfterNextComplete = false;
 
   @override
   Future<List<WakePlan>> fetchWakePlans({required DateTime now}) async {
@@ -436,22 +818,90 @@ class _AlarmRingingStore implements AlarmRingingStore {
   }
 
   @override
+  Future<List<AlarmOccurrenceDismissalIntent>>
+  fetchPendingAlarmOccurrenceDismissals() async {
+    return pendingDismissals.values.toList(growable: false);
+  }
+
+  @override
+  Future<AlarmOccurrenceDismissalIntent?> fetchPendingAlarmOccurrenceDismissal(
+    String occurrenceId,
+  ) async {
+    return pendingDismissals[occurrenceId];
+  }
+
+  @override
+  Future<AlarmOccurrenceDismissalPreparation> prepareAlarmOccurrenceDismissal({
+    required String occurrenceId,
+    required String? expectedPlatformAlarmId,
+    required DateTime requestedAt,
+  }) async {
+    if (failNextPrepareBeforeEffect) {
+      failNextPrepareBeforeEffect = false;
+      throw StateError('prepare failed before effect');
+    }
+    final pending = pendingDismissals[occurrenceId];
+    if (pending != null) {
+      return AlarmOccurrenceDismissalPreparation.ready(pending);
+    }
+    final occurrence = occurrences[occurrenceId];
+    if (occurrence == null) {
+      return const AlarmOccurrenceDismissalPreparation.notFound();
+    }
+    if (occurrence.status == AlarmOccurrenceStatus.dismissed) {
+      return const AlarmOccurrenceDismissalPreparation.alreadyDismissed();
+    }
+    if (occurrence.platformAlarmId != expectedPlatformAlarmId ||
+        (occurrence.status != AlarmOccurrenceStatus.scheduled &&
+            occurrence.status != AlarmOccurrenceStatus.ringing)) {
+      return const AlarmOccurrenceDismissalPreparation.noLongerEligible();
+    }
+    final intent = AlarmOccurrenceDismissalIntent(
+      occurrence: occurrence,
+      requestedAt: requestedAt,
+      platformAlarmId: expectedPlatformAlarmId,
+    );
+    pendingDismissals[occurrenceId] = intent;
+    if (throwAfterNextPrepare) {
+      throwAfterNextPrepare = false;
+      throw StateError('prepare threw after effect');
+    }
+    return AlarmOccurrenceDismissalPreparation.ready(intent);
+  }
+
+  @override
+  Future<void> completeAlarmOccurrenceDismissal({
+    required AlarmOccurrenceDismissalIntent intent,
+    required DateTime dismissedAt,
+  }) async {
+    if (failNextCompleteBeforeEffect) {
+      failNextCompleteBeforeEffect = false;
+      throw StateError('complete failed before effect');
+    }
+    final occurrence = occurrences[intent.occurrence.id]!;
+    final completed = occurrence.copyWith(
+      status: AlarmOccurrenceStatus.dismissed,
+      platformAlarmId: null,
+      firedAt: occurrence.firedAt ?? intent.requestedAt,
+      dismissedAt: dismissedAt,
+      updatedAt: dismissedAt,
+    );
+    occurrences[completed.id] = completed;
+    pendingDismissals.remove(completed.id);
+    savedOccurrences.add(completed);
+    if (throwAfterNextComplete) {
+      throwAfterNextComplete = false;
+      throw StateError('complete threw after effect');
+    }
+  }
+
+  @override
   Future<List<AlarmOccurrence>> fetchOccurrencesForPlan(
     String wakePlanId,
   ) async {
     return occurrences.values
         .where((occurrence) => occurrence.wakePlanId == wakePlanId)
         .toList(growable: false);
-  }
-
-  @override
-  Future<void> saveAlarmOccurrences(
-    Iterable<AlarmOccurrence> occurrences,
-  ) async {
-    for (final occurrence in occurrences) {
-      savedOccurrences.add(occurrence);
-      this.occurrences[occurrence.id] = occurrence;
-    }
   }
 }
 
