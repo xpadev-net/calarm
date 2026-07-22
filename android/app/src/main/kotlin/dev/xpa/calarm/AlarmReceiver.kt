@@ -16,6 +16,19 @@ import java.util.Date
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val platformAlarmId = intent.getStringExtra(AlarmIntents.EXTRA_PLATFORM_ALARM_ID) ?: return
+        val recovery = AndroidAlarmReplacementRecovery.reconcile(
+            storageContext = context,
+            serviceContext = context,
+            admittingPlatformAlarmId = platformAlarmId,
+        )
+        if (!recovery.isSuccess) {
+            Log.e(
+                TAG,
+                "Failed to recover native alarm replacement before delivery admission: " +
+                    recovery.message,
+            )
+            return
+        }
         val store = AlarmStore(context)
         val request = store.get(platformAlarmId)
         if (request == null) return
@@ -23,6 +36,7 @@ class AlarmReceiver : BroadcastReceiver() {
             request.platformAlarmId != platformAlarmId ||
             !request.hasCanonicalPlatformAlarmId()
         ) return
+        if (request.state == AlarmState.RINGING) return
         if (!store.markRinging(platformAlarmId)) return
         deliverAlarm(
             store = store,
