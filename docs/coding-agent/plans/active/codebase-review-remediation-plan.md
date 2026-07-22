@@ -752,7 +752,7 @@
 ### Task_27: Publish the Android replacement-recovery foundation
 
 - status: in progress
-- worker: `client-new-thread:460c4657-00e8-49ba-8256-2078588368f7`
+- worker: `019f8824-9855-7e80-bc41-c97f56a43815`
 - branch: `codex/task-27-android-recovery-foundation`
 - type: impl
 - owns:
