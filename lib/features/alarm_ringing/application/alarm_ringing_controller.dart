@@ -64,7 +64,8 @@ class AlarmRingingController {
       occurrenceId,
     );
     if (pending != null) {
-      if (pending.occurrence.platformAlarmId == pending.platformAlarmId) {
+      if (pending.occurrence.platformAlarmId == null ||
+          pending.occurrence.platformAlarmId == pending.platformAlarmId) {
         return _completePendingDismissal(pending);
       }
       return _completePreparation(

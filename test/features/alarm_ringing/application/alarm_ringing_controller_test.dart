@@ -581,6 +581,76 @@ void main() {
   });
 
   test(
+    'direct retry completes after service retires the pending identity',
+    () async {
+      final database = WakePlanDatabase(NativeDatabase.memory());
+      final repository = WakePlanRepository(database);
+      final current = _occurrence(
+        id: 'plan-1:20640:410',
+        day: monday,
+        minute: 410,
+        platformAlarmId: 'native-current',
+      );
+      final gateway = FakeNativeAlarmGateway()
+        ..inventoryRows.add(_inventoryRow(current));
+      try {
+        await repository.saveWakePlan(_plan(day: monday));
+        await repository.saveAlarmOccurrences([current]);
+        final firstAttempt = AlarmRingingController(
+          store: _FailingCompleteRepositoryStore(repository),
+          nativeAlarmGateway: gateway,
+          coordinator: WakePlanMutationCoordinator(),
+          clock: () => DateTime(2026, 7, 6, 6, 50),
+        );
+
+        await expectLater(
+          firstAttempt.dismissCurrent(current.id),
+          throwsStateError,
+        );
+        expect(gateway.inventoryRows, isEmpty);
+        expect(
+          await repository.fetchPendingAlarmOccurrenceDismissal(current.id),
+          isNotNull,
+        );
+
+        await repository.saveAlarmOccurrences([
+          current.copyWith(
+            status: AlarmOccurrenceStatus.cancelled,
+            platformAlarmId: null,
+            updatedAt: DateTime(2026, 7, 6, 6, 51),
+          ),
+        ]);
+        final retired = await repository.fetchPendingAlarmOccurrenceDismissal(
+          current.id,
+        );
+        expect(retired!.occurrence.status, AlarmOccurrenceStatus.cancelled);
+        expect(retired.occurrence.platformAlarmId, isNull);
+        expect(retired.platformAlarmId, 'native-current');
+
+        final retry = AlarmRingingController(
+          store: AlarmRingingRepositoryStore(repository),
+          nativeAlarmGateway: gateway,
+          coordinator: WakePlanMutationCoordinator(),
+          clock: () => DateTime(2026, 7, 6, 6, 52),
+        );
+        expect(
+          await retry.dismissCurrent(current.id),
+          AlarmDismissResult.dismissed,
+        );
+        final dismissed = await repository.fetchAlarmOccurrence(current.id);
+        expect(dismissed!.status, AlarmOccurrenceStatus.dismissed);
+        expect(dismissed.platformAlarmId, isNull);
+        expect(
+          await repository.fetchPendingAlarmOccurrenceDismissal(current.id),
+          isNull,
+        );
+      } finally {
+        await database.close();
+      }
+    },
+  );
+
+  test(
     'reopen replays native success after Drift completion failure exactly once',
     () async {
       final directory = await Directory.systemTemp.createTemp(
