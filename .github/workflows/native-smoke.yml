@@ -142,7 +142,8 @@ jobs:
             echo "gradle-version=${GRADLE_VERSION}"
             echo "gradle-task=:app:testDebugUnitTest"
           } >> "${SMOKE_ARTIFACT_ROOT}/logs/android-tested-revision.log"
-          gradle -p android :app:testDebugUnitTest --stacktrace --console=plain \
+          gradle -p android -Pandroid.builtInKotlin=false \
+            :app:testDebugUnitTest --stacktrace --console=plain \
             2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/android-jvm-tests.log"
 
       - name: Build Android debug APK
