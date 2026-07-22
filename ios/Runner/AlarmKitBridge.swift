@@ -611,8 +611,6 @@ final class AlarmKitBridge {
         mirrorSnapshot = try recoverMirrorSnapshot(from: recoveryAlarms)
       }
       var authorities = try loadReservationAuthorities()
-      let ownedBeforeRecovery = mirrorSnapshot.normalized[platformAlarmId]
-        ?? mirrorSnapshot.pendingNormalized[platformAlarmId]
       let hasReplacementJournal = try loadReplacementJournal() != nil
       if hasReplacementJournal {
         if let failure = cancelOwnershipFailure(
@@ -627,25 +625,10 @@ final class AlarmKitBridge {
         }
         mirrorSnapshot = try await reconcileReplacementJournal(in: mirrorSnapshot)
         authorities = try loadReservationAuthorities()
-        guard let authority = authorities[requestedReservationId],
-          authority.state == .active,
-          authority.matchesCancellation(
-            occurrenceId: occurrenceId,
-            reservationId: requestedReservationId,
-            reservationGeneration: reservationGeneration,
-            platformAlarmId: platformAlarmId
-          )
-        else {
-          return cancelFailureRow(
-            occurrenceId: occurrenceId,
-            reservationId: responseReservationId,
-            reservationGeneration: reservationGeneration,
-            platformAlarmId: responsePlatformAlarmId,
-            reason: "invalidRequest",
-            message: "AlarmKit generation authority does not match the cancellation."
-          )
-        }
-      } else if let authority = authorities[requestedReservationId] {
+      }
+      let ownedAfterRecovery = mirrorSnapshot.normalized[platformAlarmId]
+        ?? mirrorSnapshot.pendingNormalized[platformAlarmId]
+      if let authority = authorities[requestedReservationId] {
         guard authority.matchesCancellation(
           occurrenceId: occurrenceId,
           reservationId: requestedReservationId,
@@ -662,7 +645,7 @@ final class AlarmKitBridge {
           )
         }
         if authority.state == .retired {
-          if ownedBeforeRecovery != nil {
+          if ownedAfterRecovery != nil {
             if let failure = cancelOwnershipFailure(
               in: mirrorSnapshot,
               occurrenceId: occurrenceId,
@@ -704,10 +687,10 @@ final class AlarmKitBridge {
           )
         }
       } else {
-        guard let ownedBeforeRecovery,
-          ownedBeforeRecovery.reservationId == requestedReservationId,
-          ownedBeforeRecovery.occurrenceId == occurrenceId,
-          ownedBeforeRecovery.generation == reservationGeneration
+        guard let ownedAfterRecovery,
+          ownedAfterRecovery.reservationId == requestedReservationId,
+          ownedAfterRecovery.occurrenceId == occurrenceId,
+          ownedAfterRecovery.generation == reservationGeneration
         else {
           return cancelFailureRow(
             occurrenceId: occurrenceId,
@@ -719,20 +702,10 @@ final class AlarmKitBridge {
           )
         }
         authorities[requestedReservationId] = ReservationAuthorityRecord(
-          record: ownedBeforeRecovery,
+          record: ownedAfterRecovery,
           state: .active
         )
         try saveReservationAuthorities(authorities)
-      }
-      if let failure = cancelOwnershipFailure(
-        in: mirrorSnapshot,
-        occurrenceId: occurrenceId,
-        reservationId: requestedReservationId,
-        reservationGeneration: reservationGeneration,
-        platformAlarmId: platformAlarmId,
-        responsePlatformAlarmId: responsePlatformAlarmId
-      ) {
-        return failure
       }
       if let failure = cancelOwnershipFailure(
         in: mirrorSnapshot,

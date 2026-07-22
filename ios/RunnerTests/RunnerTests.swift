@@ -666,20 +666,25 @@ class RunnerTests: XCTestCase {
       as? [[String: Any?]]
     XCTAssertEqual(recoveredRows?.first?["occurrenceId"] as? String, replacement.occurrenceId)
     XCTAssertNil(UserDefaults.standard.data(forKey: replacementJournalKey))
+    guard let recoveredPlatformAlarmId = recoveredRows?.first?["platformAlarmId"] as? String else {
+      XCTFail("Expected the recovered candidate platform identity.")
+      return
+    }
     UserDefaults.standard.set(staleJournal, forKey: replacementJournalKey)
 
     fake.nativeAlarmIds.removeAll()
     fake.scheduledRequests.removeAll()
     let restartedBridge = AlarmKitBridge(nativeClient: fake)
-    let emptyInventory = await inventoryValue(restartedBridge)
-    let emptyRows = (emptyInventory as? [String: Any?])?["reservations"]
-      as? [[String: Any?]]
-    XCTAssertEqual(emptyRows?.count, 0)
+    let cancelCallsBefore = fake.cancelCalls
+    let cancelResult = await restartedBridge.cancelAlarm([
+      "occurrenceId": replacement.occurrenceId,
+      "reservationId": replacement.reservationId,
+      "reservationGeneration": replacement.reservationGeneration,
+      "platformAlarmId": recoveredPlatformAlarmId,
+    ])
+    XCTAssertEqual(cancelResult["status"] as? String, "success")
+    XCTAssertEqual(fake.cancelCalls, cancelCallsBefore + 1)
     XCTAssertNil(UserDefaults.standard.data(forKey: replacementJournalKey))
-    guard let recoveredPlatformAlarmId = recoveredRows?.first?["platformAlarmId"] as? String else {
-      XCTFail("Expected the recovered candidate platform identity.")
-      return
-    }
     XCTAssertFalse(mirrorContains(recoveredPlatformAlarmId))
   }
 
