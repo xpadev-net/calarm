@@ -11,7 +11,9 @@ private let nativeAlarmPendingMirrorKey = "net.xpadev.calarm/native_alarm_pendin
 private let nativeAlarmMirrorEnvelopeKey = "net.xpadev.calarm/native_alarm_mirror_envelope"
 private let nativeAlarmMirrorTransactionKey = "net.xpadev.calarm/native_alarm_mirror_transaction"
 private let nativeAlarmReplacementJournalKey = "net.xpadev.calarm/native_alarm_replacement_journal"
+private let nativeAlarmReservationAuthorityKey = "net.xpadev.calarm/native_alarm_reservation_authority"
 private let nativeAlarmMirrorEnvelopeVersion = 1
+private let nativeAlarmReservationAuthorityVersion = 1
 
 @MainActor
 final class AlarmKitBridge {
@@ -192,6 +194,7 @@ final class AlarmKitBridge {
     }
 
     do {
+      try validateAuthorityConsistency(mirrorSnapshot)
       if try loadReplacementJournal() != nil {
         mirrorSnapshot = try await reconcileReplacementJournal(
           in: mirrorSnapshot,
@@ -282,6 +285,10 @@ final class AlarmKitBridge {
         currentIds.contains($0.key)
           || pendingNativeAlarmIds.contains($0.key)
           || $0.value.requiresNativeRestoration == true
+      }
+      for (platformAlarmId, record) in reconciledMirror
+      where prunedMirror[platformAlarmId] == nil {
+        try persistRetirement(record)
       }
       if !mirrorSnapshot.isEnvelope
         || mirrorSnapshot.needsProjectionRewrite
@@ -428,10 +435,25 @@ final class AlarmKitBridge {
     } else {
       reservationId = occurrenceId
     }
+    guard let reservationGeneration = exactNonNegativeInt(
+      payload.keys.contains("reservationGeneration")
+        ? payloadValue(payload, "reservationGeneration")
+        : 0
+    ) else {
+      return scheduleFailureRow(
+        occurrenceId: occurrenceId,
+        reservationId: reservationId,
+        reservationGeneration: 0,
+        wakePlanId: wakePlanId,
+        reason: "invalidRequest",
+        message: "reservationGeneration must be a non-negative integer."
+      )
+    }
 
     let request = ScheduleRequest(
       occurrenceId: occurrenceId,
       reservationId: reservationId,
+      reservationGeneration: reservationGeneration,
       wakePlanId: wakePlanId,
       scheduledAt: scheduledAt,
       targetAt: targetAt,
@@ -443,6 +465,7 @@ final class AlarmKitBridge {
       return scheduleSuccessRow(
         occurrenceId: occurrenceId,
         reservationId: reservationId,
+        reservationGeneration: reservationGeneration,
         wakePlanId: wakePlanId,
         platformAlarmId: row.platformAlarmId ?? ""
       )
@@ -450,6 +473,7 @@ final class AlarmKitBridge {
     return scheduleFailureRow(
       occurrenceId: occurrenceId,
       reservationId: reservationId,
+      reservationGeneration: reservationGeneration,
       wakePlanId: wakePlanId,
       reason: row.failureReason ?? "nativeError",
       message: row.failureMessage,
@@ -479,6 +503,20 @@ final class AlarmKitBridge {
       )
     }
     let responseReservationId = requestedReservationId
+    guard let reservationGeneration = exactNonNegativeInt(
+      payload.keys.contains("reservationGeneration")
+        ? payloadValue(payload, "reservationGeneration")
+        : 0
+    ) else {
+      return cancelFailureRow(
+        occurrenceId: occurrenceId,
+        reservationId: responseReservationId,
+        reservationGeneration: 0,
+        platformAlarmId: stringValue(payloadValue(payload, "platformAlarmId")) ?? "",
+        reason: "invalidRequest",
+        message: "reservationGeneration must be a non-negative integer."
+      )
+    }
     // Cancel rows are correlated by the caller's exact (occurrenceId,
     // platformAlarmId) tuple in Dart. Keep the accepted caller spelling in
     // the response while using the canonical UUID text for native ownership
@@ -489,6 +527,7 @@ final class AlarmKitBridge {
       return cancelFailureRow(
         occurrenceId: occurrenceId,
         reservationId: responseReservationId,
+        reservationGeneration: reservationGeneration,
         platformAlarmId: "",
         reason: "missingPlatformAlarmId",
         message: "platformAlarmId is required."
@@ -500,6 +539,7 @@ final class AlarmKitBridge {
       return cancelFailureRow(
         occurrenceId: occurrenceId,
         reservationId: responseReservationId,
+        reservationGeneration: reservationGeneration,
         platformAlarmId: responsePlatformAlarmId,
         reason: "invalidRequest",
         message: "platformAlarmId must be an AlarmKit UUID."
@@ -509,6 +549,7 @@ final class AlarmKitBridge {
       return cancelFailureRow(
         occurrenceId: occurrenceId,
         reservationId: responseReservationId,
+        reservationGeneration: reservationGeneration,
         platformAlarmId: responsePlatformAlarmId,
         reason: "unavailable",
         message: "AlarmKit requires iOS 26.0 or newer."
@@ -520,6 +561,7 @@ final class AlarmKitBridge {
         occurrenceId: occurrenceId,
         requestedReservationId: requestedReservationId,
         responseReservationId: responseReservationId,
+        reservationGeneration: reservationGeneration,
         platformAlarmId: platformAlarmId,
         responsePlatformAlarmId: responsePlatformAlarmId,
         alarmId: alarmId
@@ -532,6 +574,7 @@ final class AlarmKitBridge {
     occurrenceId: String,
     requestedReservationId: String,
     responseReservationId: String,
+    reservationGeneration: Int,
     platformAlarmId: String,
     responsePlatformAlarmId: String,
     alarmId: UUID
@@ -541,6 +584,7 @@ final class AlarmKitBridge {
         occurrenceId: occurrenceId,
         requestedReservationId: requestedReservationId,
         responseReservationId: responseReservationId,
+        reservationGeneration: reservationGeneration,
         platformAlarmId: platformAlarmId,
         responsePlatformAlarmId: responsePlatformAlarmId,
         alarmId: alarmId
@@ -553,6 +597,7 @@ final class AlarmKitBridge {
     occurrenceId: String,
     requestedReservationId: String,
     responseReservationId: String,
+    reservationGeneration: Int,
     platformAlarmId: String,
     responsePlatformAlarmId: String,
     alarmId: UUID
@@ -565,22 +610,108 @@ final class AlarmKitBridge {
         let recoveryAlarms = try nativeClientForAlarmKit().inventory()
         mirrorSnapshot = try recoverMirrorSnapshot(from: recoveryAlarms)
       }
-      if let failure = cancelOwnershipFailure(
-        in: mirrorSnapshot,
-        occurrenceId: occurrenceId,
-        reservationId: requestedReservationId,
-        platformAlarmId: platformAlarmId,
-        responsePlatformAlarmId: responsePlatformAlarmId
-      ) {
-        return failure
-      }
-      if try loadReplacementJournal() != nil {
+      var authorities = try loadReservationAuthorities()
+      let hasReplacementJournal = try loadReplacementJournal() != nil
+      if hasReplacementJournal {
+        if let failure = cancelOwnershipFailure(
+          in: mirrorSnapshot,
+          occurrenceId: occurrenceId,
+          reservationId: requestedReservationId,
+          reservationGeneration: reservationGeneration,
+          platformAlarmId: platformAlarmId,
+          responsePlatformAlarmId: responsePlatformAlarmId
+        ) {
+          return failure
+        }
         mirrorSnapshot = try await reconcileReplacementJournal(in: mirrorSnapshot)
+        authorities = try loadReservationAuthorities()
+      }
+      let ownedAfterRecovery = mirrorSnapshot.normalized[platformAlarmId]
+        ?? mirrorSnapshot.pendingNormalized[platformAlarmId]
+      if let authority = authorities[requestedReservationId] {
+        guard authority.matchesCancellation(
+          occurrenceId: occurrenceId,
+          reservationId: requestedReservationId,
+          reservationGeneration: reservationGeneration,
+          platformAlarmId: platformAlarmId
+        ) else {
+          return cancelFailureRow(
+            occurrenceId: occurrenceId,
+            reservationId: responseReservationId,
+            reservationGeneration: reservationGeneration,
+            platformAlarmId: responsePlatformAlarmId,
+            reason: "invalidRequest",
+            message: "AlarmKit generation authority does not match the cancellation."
+          )
+        }
+        if authority.state == .retired {
+          if ownedAfterRecovery != nil {
+            if let failure = cancelOwnershipFailure(
+              in: mirrorSnapshot,
+              occurrenceId: occurrenceId,
+              reservationId: requestedReservationId,
+              reservationGeneration: reservationGeneration,
+              platformAlarmId: platformAlarmId,
+              responsePlatformAlarmId: responsePlatformAlarmId
+            ) {
+              return failure
+            }
+            try nativeClientForAlarmKit().cancel(id: alarmId)
+            var mirror = mirrorSnapshot.normalized
+            var pending = mirrorSnapshot.pendingNormalized
+            mirror.removeValue(forKey: platformAlarmId)
+            pending.removeValue(forKey: platformAlarmId)
+            try saveMirrorState(mirror, pending: pending)
+          } else {
+            let nativeAlarmIds = Set(
+              try canonicalNativeAlarmIds(
+                nativeClientForAlarmKit().inventory().map { $0.platformAlarmId }
+              )
+            )
+            if nativeAlarmIds.contains(platformAlarmId) {
+              return cancelFailureRow(
+                occurrenceId: occurrenceId,
+                reservationId: responseReservationId,
+                reservationGeneration: reservationGeneration,
+                platformAlarmId: responsePlatformAlarmId,
+                reason: "invalidRequest",
+                message: "AlarmKit identity ownership could not be verified."
+              )
+            }
+          }
+          return cancelSuccessRow(
+            occurrenceId: occurrenceId,
+            reservationId: responseReservationId,
+            reservationGeneration: reservationGeneration,
+            platformAlarmId: responsePlatformAlarmId
+          )
+        }
+      } else {
+        guard let ownedAfterRecovery,
+          ownedAfterRecovery.reservationId == requestedReservationId,
+          ownedAfterRecovery.occurrenceId == occurrenceId,
+          ownedAfterRecovery.generation == reservationGeneration
+        else {
+          return cancelFailureRow(
+            occurrenceId: occurrenceId,
+            reservationId: responseReservationId,
+            reservationGeneration: reservationGeneration,
+            platformAlarmId: responsePlatformAlarmId,
+            reason: "invalidRequest",
+            message: "AlarmKit identity ownership could not be verified."
+          )
+        }
+        authorities[requestedReservationId] = ReservationAuthorityRecord(
+          record: ownedAfterRecovery,
+          state: .active
+        )
+        try saveReservationAuthorities(authorities)
       }
       if let failure = cancelOwnershipFailure(
         in: mirrorSnapshot,
         occurrenceId: occurrenceId,
         reservationId: requestedReservationId,
+        reservationGeneration: reservationGeneration,
         platformAlarmId: platformAlarmId,
         responsePlatformAlarmId: responsePlatformAlarmId
       ) {
@@ -588,6 +719,9 @@ final class AlarmKitBridge {
       }
       var mirror = mirrorSnapshot.normalized
       var pendingMirror = mirrorSnapshot.pendingNormalized
+      guard let retiringRecord = mirror[platformAlarmId] ?? pendingMirror[platformAlarmId]
+      else { throw MirrorValidationError.invalid }
+      try persistRetirement(retiringRecord)
       try nativeClientForAlarmKit().cancel(id: alarmId)
       mirror.removeValue(forKey: platformAlarmId)
       pendingMirror.removeValue(forKey: platformAlarmId)
@@ -595,12 +729,14 @@ final class AlarmKitBridge {
       return cancelSuccessRow(
         occurrenceId: occurrenceId,
         reservationId: responseReservationId,
+        reservationGeneration: reservationGeneration,
         platformAlarmId: responsePlatformAlarmId
       )
     } catch {
       return cancelFailureRow(
         occurrenceId: occurrenceId,
         reservationId: responseReservationId,
+        reservationGeneration: reservationGeneration,
         platformAlarmId: responsePlatformAlarmId,
         reason: "nativeError",
         message: error.localizedDescription
@@ -612,6 +748,7 @@ final class AlarmKitBridge {
     in mirrorSnapshot: MirrorSnapshot,
     occurrenceId: String,
     reservationId: String,
+    reservationGeneration: Int,
     platformAlarmId: String,
     responsePlatformAlarmId: String
   ) -> [String: Any?]? {
@@ -622,6 +759,7 @@ final class AlarmKitBridge {
       return cancelFailureRow(
         occurrenceId: occurrenceId,
         reservationId: reservationId,
+        reservationGeneration: reservationGeneration,
         platformAlarmId: responsePlatformAlarmId,
         reason: "invalidRequest",
         message: "AlarmKit identity ownership could not be verified."
@@ -631,6 +769,7 @@ final class AlarmKitBridge {
       return cancelFailureRow(
         occurrenceId: occurrenceId,
         reservationId: reservationId,
+        reservationGeneration: reservationGeneration,
         platformAlarmId: responsePlatformAlarmId,
         reason: "unknown",
         message: "AlarmKit identity must be restored before it can be cancelled."
@@ -638,11 +777,13 @@ final class AlarmKitBridge {
     }
     guard ownedRecord.reservationId == reservationId,
       ownedRecord.occurrenceId == occurrenceId,
+      ownedRecord.generation == reservationGeneration,
       ownedRecord.platformAlarmId == platformAlarmId
     else {
       return cancelFailureRow(
         occurrenceId: occurrenceId,
         reservationId: reservationId,
+        reservationGeneration: reservationGeneration,
         platformAlarmId: responsePlatformAlarmId,
         reason: "invalidRequest",
         message: "AlarmKit identity does not match the requested reservation."
@@ -722,6 +863,32 @@ final class AlarmKitBridge {
           )
         }
       }
+      let authorityPlatformAlarmId = mirrorSnapshot.normalized.first(where: {
+        $0.value.reservationId == request.reservationId
+      })?.key ?? mirrorSnapshot.pendingNormalized.first(where: {
+        $0.value.reservationId == request.reservationId
+      })?.key ?? platformAlarmId
+      do {
+        try admitScheduleGeneration(
+          request,
+          platformAlarmId: authorityPlatformAlarmId,
+          snapshot: mirrorSnapshot
+        )
+      } catch is ReservationAuthorityError {
+        return ScheduleRow(
+          status: "failure",
+          platformAlarmId: nil,
+          failureReason: "invalidRequest",
+          failureMessage: "reservationGeneration conflicts with durable native authority."
+        )
+      } catch {
+        return ScheduleRow(
+          status: "failure",
+          platformAlarmId: nil,
+          failureReason: "unknown",
+          failureMessage: "Native reservation generation authority is corrupt."
+        )
+      }
       if try loadReplacementJournal() != nil {
         mirrorSnapshot = try await reconcileReplacementJournal(in: mirrorSnapshot)
       }
@@ -741,6 +908,23 @@ final class AlarmKitBridge {
       }
       guard committedReservationMatches.count + pendingReservationMatches.count <= 1 else {
         throw MirrorValidationError.invalid
+      }
+      let conflictingOccurrenceOwner = mirror.values.contains { record in
+        record.occurrenceId == request.occurrenceId
+          && (record.reservationId != request.reservationId
+            || record.wakePlanId != request.wakePlanId)
+      } || pendingMirror.values.contains { record in
+        record.occurrenceId == request.occurrenceId
+          && (record.reservationId != request.reservationId
+            || record.wakePlanId != request.wakePlanId)
+      }
+      if conflictingOccurrenceOwner {
+        return ScheduleRow(
+          status: "failure",
+          platformAlarmId: nil,
+          failureReason: "invalidRequest",
+          failureMessage: "occurrenceId is already owned by another reservation."
+        )
       }
       if let active = committedReservationMatches.first ?? pendingReservationMatches.first {
         platformAlarmId = active.key
@@ -833,6 +1017,10 @@ final class AlarmKitBridge {
             request: request,
             platformAlarmId: candidatePlatformAlarmId
           )
+          try updateScheduleAuthorityPlatform(
+            request,
+            platformAlarmId: candidatePlatformAlarmId
+          )
           let journal = AlarmReplacementJournal(
             old: existing,
             new: candidateRecord,
@@ -874,6 +1062,7 @@ final class AlarmKitBridge {
           // authoritative and rolls the candidate back on restart. If cancel
           // mutates and then throws, authoritative inventory is new-only and
           // staging recovery safely commits the candidate.
+          try persistRetirement(existing)
           do { try nativeClientForAlarmKit().cancel(id: alarmId) } catch {}
 
           // Do not expose an application-controlled failure boundary while
@@ -1134,6 +1323,10 @@ final class AlarmKitBridge {
         currentIds.contains($0.key)
           || pendingNativeAlarmIds.contains($0.key)
           || $0.value.requiresNativeRestoration == true
+      }
+      for (platformAlarmId, record) in reconciledMirror
+      where prunedMirror[platformAlarmId] == nil {
+        try persistRetirement(record)
       }
       if !mirrorSnapshot.isEnvelope
         || mirrorSnapshot.needsProjectionRewrite
@@ -1591,6 +1784,7 @@ final class AlarmKitBridge {
         normalizedKey == normalizedRecordId,
         !record.reservationId.isEmpty,
         !record.occurrenceId.isEmpty,
+        record.generation >= 0,
         !record.wakePlanId.isEmpty,
         hasLegacyConfiguration || hasCompleteConfiguration,
         record.requiresNativeRestoration != false,
@@ -1605,6 +1799,7 @@ final class AlarmKitBridge {
       normalizedMirror[normalizedKey] = AlarmMirrorRecord(
         reservationId: record.reservationId,
         occurrenceId: record.occurrenceId,
+        reservationGeneration: record.reservationGeneration,
         wakePlanId: record.wakePlanId,
         platformAlarmId: normalizedKey,
         scheduledAt: record.scheduledAt,
@@ -1655,6 +1850,186 @@ final class AlarmKitBridge {
     UserDefaults.standard.set(envelopeData, forKey: nativeAlarmMirrorEnvelopeKey)
   }
 
+  private func loadReservationAuthorities() throws -> [String: ReservationAuthorityRecord] {
+    guard let data = UserDefaults.standard.data(forKey: nativeAlarmReservationAuthorityKey)
+    else { return [:] }
+    let ledger = try JSONDecoder().decode(ReservationAuthorityLedger.self, from: data)
+    guard ledger.version == nativeAlarmReservationAuthorityVersion else {
+      throw MirrorValidationError.invalid
+    }
+    var occurrences = Set<String>()
+    var platformAlarmIds = Set<String>()
+    for (key, record) in ledger.reservations {
+      let hasLegacyConfiguration = record.hasLegacyConfigurationGap
+      let hasCompleteConfiguration = record.scheduledAt != nil
+        && record.targetAt != nil
+        && record.soundId?.isEmpty == false
+        && record.vibrationEnabled != nil
+      guard key == record.reservationId,
+        !record.reservationId.isEmpty,
+        !record.occurrenceId.isEmpty,
+        !record.wakePlanId.isEmpty,
+        record.reservationGeneration >= 0,
+        (try? canonicalPlatformAlarmId(record.platformAlarmId)) == record.platformAlarmId,
+        occurrences.insert(record.occurrenceId).inserted,
+        platformAlarmIds.insert(record.platformAlarmId).inserted,
+        hasLegacyConfiguration || hasCompleteConfiguration
+      else { throw MirrorValidationError.invalid }
+    }
+    return ledger.reservations
+  }
+
+  private func saveReservationAuthorities(
+    _ authorities: [String: ReservationAuthorityRecord]
+  ) throws {
+    let ledger = ReservationAuthorityLedger(
+      version: nativeAlarmReservationAuthorityVersion,
+      reservations: authorities
+    )
+    UserDefaults.standard.set(
+      try JSONEncoder().encode(ledger),
+      forKey: nativeAlarmReservationAuthorityKey
+    )
+  }
+
+  private func validateAuthorityConsistency(_ snapshot: MirrorSnapshot) throws {
+    var authorities = try loadReservationAuthorities()
+    var didAddLegacyAuthority = false
+    for record in Array(snapshot.normalized.values) + Array(snapshot.pendingNormalized.values) {
+      guard let authority = authorities[record.reservationId] else {
+        guard !authorities.values.contains(where: { $0.occurrenceId == record.occurrenceId })
+        else { throw MirrorValidationError.invalid }
+        authorities[record.reservationId] = ReservationAuthorityRecord(
+          record: record,
+          state: .active
+        )
+        didAddLegacyAuthority = true
+        continue
+      }
+      guard authority.wakePlanId == record.wakePlanId,
+        authority.reservationGeneration >= record.generation
+      else { throw MirrorValidationError.invalid }
+      if authority.reservationGeneration == record.generation {
+        guard authority.occurrenceId == record.occurrenceId else {
+          throw MirrorValidationError.invalid
+        }
+      }
+    }
+    if didAddLegacyAuthority {
+      try saveReservationAuthorities(authorities)
+    }
+  }
+
+  private func admitScheduleGeneration(
+    _ request: ScheduleRequest,
+    platformAlarmId: String,
+    snapshot: MirrorSnapshot
+  ) throws {
+    if isNativeSmokeTestReservation(request) { return }
+    guard request.reservationGeneration >= 0 else {
+      throw ReservationAuthorityError.invalidRequest
+    }
+    var authorities = try loadReservationAuthorities()
+    if authorities.values.contains(where: {
+      $0.occurrenceId == request.occurrenceId && $0.reservationId != request.reservationId
+    }) || snapshot.normalized.values.contains(where: {
+      $0.occurrenceId == request.occurrenceId && $0.reservationId != request.reservationId
+    }) || snapshot.pendingNormalized.values.contains(where: {
+      $0.occurrenceId == request.occurrenceId && $0.reservationId != request.reservationId
+    }) {
+      throw ReservationAuthorityError.invalidRequest
+    }
+    let activeRecords = snapshot.normalized.values.filter {
+      $0.reservationId == request.reservationId
+    } + snapshot.pendingNormalized.values.filter {
+      $0.reservationId == request.reservationId
+    }
+    guard activeRecords.count <= 1 else { throw MirrorValidationError.invalid }
+
+    if let authority = authorities[request.reservationId] {
+      guard authority.wakePlanId == request.wakePlanId else {
+        throw ReservationAuthorityError.invalidRequest
+      }
+      guard request.reservationGeneration >= authority.reservationGeneration else {
+        throw ReservationAuthorityError.invalidRequest
+      }
+      if request.reservationGeneration == authority.reservationGeneration {
+        guard authority.state == .active else {
+          throw ReservationAuthorityError.invalidRequest
+        }
+        if !authority.matches(request) {
+          guard authority.hasLegacyConfigurationGap,
+            authority.occurrenceId == request.occurrenceId
+          else { throw ReservationAuthorityError.invalidRequest }
+          authorities[request.reservationId] = ReservationAuthorityRecord(
+            request: request,
+            platformAlarmId: authority.platformAlarmId,
+            state: .active
+          )
+          try saveReservationAuthorities(authorities)
+        }
+        return
+      }
+    } else if let active = activeRecords.first {
+      guard active.wakePlanId == request.wakePlanId,
+        request.reservationGeneration >= active.generation
+      else { throw ReservationAuthorityError.invalidRequest }
+      if request.reservationGeneration == active.generation,
+        active.scheduleRequest() != nil,
+        !active.matches(request)
+      {
+        throw ReservationAuthorityError.invalidRequest
+      }
+    } else if request.reservationGeneration != 0 {
+      // A non-zero first sighting has no durable predecessor proving that it
+      // belongs to this reservation. Fail closed rather than invent history.
+      throw ReservationAuthorityError.invalidRequest
+    }
+
+    authorities[request.reservationId] = ReservationAuthorityRecord(
+      request: request,
+      platformAlarmId: platformAlarmId,
+      state: .active
+    )
+    try saveReservationAuthorities(authorities)
+  }
+
+  private func updateScheduleAuthorityPlatform(
+    _ request: ScheduleRequest,
+    platformAlarmId: String
+  ) throws {
+    if isNativeSmokeTestReservation(request) { return }
+    var authorities = try loadReservationAuthorities()
+    guard let authority = authorities[request.reservationId],
+      authority.state == .active,
+      authority.matches(request)
+    else { throw MirrorValidationError.invalid }
+    authorities[request.reservationId] = ReservationAuthorityRecord(
+      request: request,
+      platformAlarmId: platformAlarmId,
+      state: .active
+    )
+    try saveReservationAuthorities(authorities)
+  }
+
+  private func persistRetirement(_ record: AlarmMirrorRecord) throws {
+    var authorities = try loadReservationAuthorities()
+    if let authority = authorities[record.reservationId] {
+      guard authority.wakePlanId == record.wakePlanId,
+        authority.reservationGeneration >= record.generation
+      else { throw MirrorValidationError.invalid }
+      if authority.reservationGeneration == record.generation {
+        guard authority.occurrenceId == record.occurrenceId else {
+          throw MirrorValidationError.invalid
+        }
+        authorities[record.reservationId] = authority.retiring()
+      }
+    } else {
+      authorities[record.reservationId] = ReservationAuthorityRecord(record: record, state: .retired)
+    }
+    try saveReservationAuthorities(authorities)
+  }
+
   private func validatedReplacementJournal(
     _ journal: AlarmReplacementJournal
   ) throws -> AlarmReplacementJournal {
@@ -1665,6 +2040,11 @@ final class AlarmKitBridge {
       old.platformAlarmId != new.platformAlarmId,
       old.reservationId == new.reservationId,
       old.wakePlanId == new.wakePlanId,
+      (old.generation < new.generation
+        || (old.reservationGeneration == nil && new.reservationGeneration == nil)
+        || (old.reservationId == "ci-smoke-test-alarm"
+          && old.wakePlanId == "test"
+          && old.generation == new.generation)),
       old.requiresNativeRestoration != true,
       new.requiresNativeRestoration != true,
       old.scheduleRequest() != nil,
@@ -1723,7 +2103,32 @@ final class AlarmKitBridge {
       throw NativeSnapshotValidationError.unknownIdentity
     }
 
+    func persistResolvedAuthority(
+      _ record: AlarmMirrorRecord,
+      state: ReservationAuthorityState = .active
+    ) throws {
+      var authorities = try loadReservationAuthorities()
+      if let current = authorities[record.reservationId] {
+        let allowedRecords = [journal.old, journal.new]
+        let matchesJournal = allowedRecords.contains { candidate in
+          current == ReservationAuthorityRecord(record: candidate, state: .active)
+            || current == ReservationAuthorityRecord(record: candidate, state: .retired)
+        }
+        guard matchesJournal else { throw MirrorValidationError.invalid }
+      }
+      guard !authorities.contains(where: { reservationId, authority in
+        reservationId != record.reservationId
+          && authority.occurrenceId == record.occurrenceId
+      }) else { throw MirrorValidationError.invalid }
+      authorities[record.reservationId] = ReservationAuthorityRecord(
+        record: record,
+        state: state
+      )
+      try saveReservationAuthorities(authorities)
+    }
+
     func commitNew() throws -> MirrorSnapshot {
+      try persistResolvedAuthority(journal.new)
       mirror.removeValue(forKey: oldId)
       mirror[newId] = journal.new
       try saveMirrorState(mirror, pending: pendingMirror)
@@ -1735,6 +2140,7 @@ final class AlarmKitBridge {
       guard ids.contains(oldId), !ids.contains(newId) else {
         throw MirrorValidationError.invalid
       }
+      try persistResolvedAuthority(journal.old)
       mirror.removeValue(forKey: newId)
       mirror[oldId] = journal.old
       try saveMirrorState(mirror, pending: pendingMirror)
@@ -1749,17 +2155,20 @@ final class AlarmKitBridge {
     // terminal state, not an ambiguous handover. Clear the stale journal so
     // the caller can prune the resolved mirror against the empty snapshot.
     if !ids.contains(oldId), !ids.contains(newId) {
+      try persistResolvedAuthority(journal.new, state: .retired)
       clearReplacementJournal()
       return try loadMirrorSnapshot()
     }
 
     if mirror[newId] == journal.new {
       if ids.contains(oldId) {
+        try persistRetirement(journal.old)
         do { try nativeClientForAlarmKit().cancel(id: oldUUID) } catch {}
         ids = try nativeIds(nativeClientForAlarmKit().inventory())
         guard !ids.contains(oldId) else { throw MirrorValidationError.invalid }
       }
       guard ids.contains(newId) else { throw MirrorValidationError.invalid }
+      try persistResolvedAuthority(journal.new)
       clearReplacementJournal()
       return try loadMirrorSnapshot()
     }
@@ -1780,6 +2189,7 @@ final class AlarmKitBridge {
 
     case .newVerified:
       if ids.contains(newId), ids.contains(oldId) {
+        try persistRetirement(journal.old)
         do { try nativeClientForAlarmKit().cancel(id: oldUUID) } catch {}
         ids = try nativeIds(nativeClientForAlarmKit().inventory())
       }
@@ -1898,16 +2308,38 @@ private struct CalarmAlarmMetadata: AlarmMetadata {
 struct ScheduleRequest {
   let occurrenceId: String
   let reservationId: String
+  let reservationGeneration: Int
   let wakePlanId: String
   let scheduledAt: Date
   let targetAt: Date
   let soundId: String
   let vibrationEnabled: Bool
+
+  init(
+    occurrenceId: String,
+    reservationId: String,
+    reservationGeneration: Int = 0,
+    wakePlanId: String,
+    scheduledAt: Date,
+    targetAt: Date,
+    soundId: String,
+    vibrationEnabled: Bool
+  ) {
+    self.occurrenceId = occurrenceId
+    self.reservationId = reservationId
+    self.reservationGeneration = reservationGeneration
+    self.wakePlanId = wakePlanId
+    self.scheduledAt = scheduledAt
+    self.targetAt = targetAt
+    self.soundId = soundId
+    self.vibrationEnabled = vibrationEnabled
+  }
 }
 
 private struct AlarmMirrorRecord: Codable, Equatable {
   let reservationId: String
   let occurrenceId: String
+  let reservationGeneration: Int?
   let wakePlanId: String
   let platformAlarmId: String
   // These fields were added after the initial mirror schema. They remain
@@ -1925,6 +2357,7 @@ private struct AlarmMirrorRecord: Codable, Equatable {
   init(request: ScheduleRequest, platformAlarmId: String) {
     reservationId = request.reservationId
     occurrenceId = request.occurrenceId
+    reservationGeneration = request.reservationGeneration
     wakePlanId = request.wakePlanId
     self.platformAlarmId = platformAlarmId
     scheduledAt = request.scheduledAt
@@ -1937,6 +2370,7 @@ private struct AlarmMirrorRecord: Codable, Equatable {
   init(
     reservationId: String,
     occurrenceId: String,
+    reservationGeneration: Int? = nil,
     wakePlanId: String,
     platformAlarmId: String,
     scheduledAt: Date? = nil,
@@ -1947,6 +2381,7 @@ private struct AlarmMirrorRecord: Codable, Equatable {
   ) {
     self.reservationId = reservationId
     self.occurrenceId = occurrenceId
+    self.reservationGeneration = reservationGeneration
     self.wakePlanId = wakePlanId
     self.platformAlarmId = platformAlarmId
     self.scheduledAt = scheduledAt
@@ -1959,6 +2394,7 @@ private struct AlarmMirrorRecord: Codable, Equatable {
   func matches(_ request: ScheduleRequest) -> Bool {
     guard reservationId == request.reservationId &&
       occurrenceId == request.occurrenceId &&
+      generation == request.reservationGeneration &&
       wakePlanId == request.wakePlanId,
       let scheduledAt,
       let targetAt,
@@ -1978,6 +2414,8 @@ private struct AlarmMirrorRecord: Codable, Equatable {
       wakePlanId == request.wakePlanId
   }
 
+  var generation: Int { reservationGeneration ?? 0 }
+
   func scheduleRequest() -> ScheduleRequest? {
     guard let scheduledAt,
       let targetAt,
@@ -1989,6 +2427,7 @@ private struct AlarmMirrorRecord: Codable, Equatable {
     return ScheduleRequest(
       occurrenceId: occurrenceId,
       reservationId: reservationId,
+      reservationGeneration: generation,
       wakePlanId: wakePlanId,
       scheduledAt: scheduledAt,
       targetAt: targetAt,
@@ -2001,6 +2440,7 @@ private struct AlarmMirrorRecord: Codable, Equatable {
     AlarmMirrorRecord(
       reservationId: reservationId,
       occurrenceId: occurrenceId,
+      reservationGeneration: generation,
       wakePlanId: wakePlanId,
       platformAlarmId: platformAlarmId,
       scheduledAt: scheduledAt,
@@ -2015,6 +2455,7 @@ private struct AlarmMirrorRecord: Codable, Equatable {
     AlarmMirrorRecord(
       reservationId: reservationId,
       occurrenceId: occurrenceId,
+      reservationGeneration: generation,
       wakePlanId: wakePlanId,
       platformAlarmId: platformAlarmId,
       scheduledAt: scheduledAt,
@@ -2027,6 +2468,7 @@ private struct AlarmMirrorRecord: Codable, Equatable {
   func mergedRecoveryRecord(with other: AlarmMirrorRecord) throws -> AlarmMirrorRecord {
     guard reservationId == other.reservationId,
       occurrenceId == other.occurrenceId,
+      generation == other.generation,
       wakePlanId == other.wakePlanId,
       platformAlarmId == other.platformAlarmId
     else {
@@ -2035,6 +2477,7 @@ private struct AlarmMirrorRecord: Codable, Equatable {
     return AlarmMirrorRecord(
       reservationId: reservationId,
       occurrenceId: occurrenceId,
+      reservationGeneration: generation,
       wakePlanId: wakePlanId,
       platformAlarmId: platformAlarmId,
       scheduledAt: try mergeRecoveryValue(scheduledAt, other.scheduledAt),
@@ -2047,6 +2490,124 @@ private struct AlarmMirrorRecord: Codable, Equatable {
           : nil
     )
   }
+}
+
+private enum ReservationAuthorityState: String, Codable {
+  case active
+  case retired
+}
+
+private struct ReservationAuthorityRecord: Codable, Equatable {
+  let reservationId: String
+  let reservationGeneration: Int
+  let occurrenceId: String
+  let wakePlanId: String
+  let platformAlarmId: String
+  let scheduledAt: Date?
+  let targetAt: Date?
+  let soundId: String?
+  let vibrationEnabled: Bool?
+  let state: ReservationAuthorityState
+
+  init(request: ScheduleRequest, platformAlarmId: String, state: ReservationAuthorityState) {
+    reservationId = request.reservationId
+    reservationGeneration = request.reservationGeneration
+    occurrenceId = request.occurrenceId
+    wakePlanId = request.wakePlanId
+    self.platformAlarmId = platformAlarmId
+    scheduledAt = request.scheduledAt
+    targetAt = request.targetAt
+    soundId = request.soundId
+    vibrationEnabled = request.vibrationEnabled
+    self.state = state
+  }
+
+  init(record: AlarmMirrorRecord, state: ReservationAuthorityState) {
+    reservationId = record.reservationId
+    reservationGeneration = record.generation
+    occurrenceId = record.occurrenceId
+    wakePlanId = record.wakePlanId
+    platformAlarmId = record.platformAlarmId
+    scheduledAt = record.scheduledAt
+    targetAt = record.targetAt
+    soundId = record.soundId
+    vibrationEnabled = record.vibrationEnabled
+    self.state = state
+  }
+
+  func matches(_ request: ScheduleRequest) -> Bool {
+    reservationId == request.reservationId
+      && reservationGeneration == request.reservationGeneration
+      && occurrenceId == request.occurrenceId
+      && wakePlanId == request.wakePlanId
+      && scheduledAt == request.scheduledAt
+      && targetAt == request.targetAt
+      && soundId == request.soundId
+      && vibrationEnabled == request.vibrationEnabled
+  }
+
+  var hasLegacyConfigurationGap: Bool {
+    scheduledAt == nil
+      && targetAt == nil
+      && soundId == nil
+      && vibrationEnabled == nil
+  }
+
+  func matchesCancellation(
+    occurrenceId: String,
+    reservationId: String,
+    reservationGeneration: Int,
+    platformAlarmId: String
+  ) -> Bool {
+    self.reservationId == reservationId
+      && self.reservationGeneration == reservationGeneration
+      && self.occurrenceId == occurrenceId
+      && self.platformAlarmId == platformAlarmId
+  }
+
+  func retiring() -> ReservationAuthorityRecord {
+    ReservationAuthorityRecord(
+      reservationId: reservationId,
+      reservationGeneration: reservationGeneration,
+      occurrenceId: occurrenceId,
+      wakePlanId: wakePlanId,
+      platformAlarmId: platformAlarmId,
+      scheduledAt: scheduledAt,
+      targetAt: targetAt,
+      soundId: soundId,
+      vibrationEnabled: vibrationEnabled,
+      state: .retired
+    )
+  }
+
+  private init(
+    reservationId: String,
+    reservationGeneration: Int,
+    occurrenceId: String,
+    wakePlanId: String,
+    platformAlarmId: String,
+    scheduledAt: Date?,
+    targetAt: Date?,
+    soundId: String?,
+    vibrationEnabled: Bool?,
+    state: ReservationAuthorityState
+  ) {
+    self.reservationId = reservationId
+    self.reservationGeneration = reservationGeneration
+    self.occurrenceId = occurrenceId
+    self.wakePlanId = wakePlanId
+    self.platformAlarmId = platformAlarmId
+    self.scheduledAt = scheduledAt
+    self.targetAt = targetAt
+    self.soundId = soundId
+    self.vibrationEnabled = vibrationEnabled
+    self.state = state
+  }
+}
+
+private struct ReservationAuthorityLedger: Codable {
+  let version: Int
+  let reservations: [String: ReservationAuthorityRecord]
 }
 
 private enum AlarmReplacementPhase: String, Codable {
@@ -2066,6 +2627,10 @@ private struct AlarmReplacementJournal: Codable, Equatable {
 
 private enum MirrorValidationError: Error {
   case invalid
+}
+
+private enum ReservationAuthorityError: Error {
+  case invalidRequest
 }
 
 private enum NativeSnapshotValidationError: Error {
@@ -2336,12 +2901,14 @@ private func permissionStatus(_ state: AlarmManager.AuthorizationState) -> Strin
 private func scheduleSuccessRow(
   occurrenceId: String,
   reservationId: String,
+  reservationGeneration: Int = 0,
   wakePlanId: String,
   platformAlarmId: String
 ) -> [String: Any?] {
   [
     "occurrenceId": occurrenceId,
     "reservationId": reservationId,
+    "reservationGeneration": reservationGeneration,
     "wakePlanId": wakePlanId,
     "status": "success",
     "platformAlarmId": platformAlarmId,
@@ -2351,6 +2918,7 @@ private func scheduleSuccessRow(
 private func scheduleFailureRow(
   occurrenceId: String,
   reservationId: String,
+  reservationGeneration: Int = 0,
   wakePlanId: String,
   reason: String,
   message: String?,
@@ -2359,6 +2927,7 @@ private func scheduleFailureRow(
   [
     "occurrenceId": occurrenceId,
     "reservationId": reservationId,
+    "reservationGeneration": reservationGeneration,
     "wakePlanId": wakePlanId,
     "status": "failure",
     "failureReason": reason,
@@ -2370,11 +2939,13 @@ private func scheduleFailureRow(
 private func cancelSuccessRow(
   occurrenceId: String,
   reservationId: String,
+  reservationGeneration: Int = 0,
   platformAlarmId: String
 ) -> [String: Any?] {
   [
     "occurrenceId": occurrenceId,
     "reservationId": reservationId,
+    "reservationGeneration": reservationGeneration,
     "platformAlarmId": platformAlarmId,
     "status": "success",
   ]
@@ -2383,6 +2954,7 @@ private func cancelSuccessRow(
 private func cancelFailureRow(
   occurrenceId: String,
   reservationId: String,
+  reservationGeneration: Int = 0,
   platformAlarmId: String,
   reason: String,
   message: String?
@@ -2390,6 +2962,7 @@ private func cancelFailureRow(
   [
     "occurrenceId": occurrenceId,
     "reservationId": reservationId,
+    "reservationGeneration": reservationGeneration,
     "platformAlarmId": platformAlarmId,
     "status": "failure",
     "failureReason": reason,
@@ -2407,6 +2980,12 @@ func calarmPlatformAlarmId(for reservationId: String) -> String {
   bytes[8] = (bytes[8] & 0x3f) | 0x80
   let hex = bytes.map { String(format: "%02x", $0) }
   return "\(hex[0])\(hex[1])\(hex[2])\(hex[3])-\(hex[4])\(hex[5])-\(hex[6])\(hex[7])-\(hex[8])\(hex[9])-\(hex[10])\(hex[11])\(hex[12])\(hex[13])\(hex[14])\(hex[15])"
+}
+
+private func isNativeSmokeTestReservation(_ request: ScheduleRequest) -> Bool {
+  request.reservationId == "ci-smoke-test-alarm"
+    && request.occurrenceId == "ci-smoke-test-alarm"
+    && request.wakePlanId == "test"
 }
 
 private func canonicalPlatformAlarmId(_ platformAlarmId: String) throws -> String {
@@ -2477,6 +3056,7 @@ private func inventoryRow(
   [
     "reservationId": record.reservationId,
     "occurrenceId": record.occurrenceId,
+    "reservationGeneration": record.generation,
     "wakePlanId": record.wakePlanId,
     "platformAlarmId": record.platformAlarmId,
     "status": status,
@@ -2516,6 +3096,28 @@ private func intValue(_ value: Any?) -> Int? {
     return value.intValue
   }
   return nil
+}
+
+private func exactNonNegativeInt(_ value: Any?) -> Int? {
+  guard let value else { return nil }
+  if type(of: value) == Int.self, let integer = value as? Int {
+    return integer >= 0 ? integer : nil
+  }
+  if type(of: value as Any) == Int32.self, let integer = value as? Int32 {
+    return integer >= 0 ? Int(integer) : nil
+  }
+  if type(of: value as Any) == Int64.self, let integer = value as? Int64,
+    let exact = Int(exactly: integer)
+  {
+    return exact >= 0 ? exact : nil
+  }
+  guard let number = value as? NSNumber else { return nil }
+  let encodedType = String(cString: number.objCType)
+  guard !["c", "B", "f", "d"].contains(encodedType),
+    let exact = Int(number.stringValue),
+    exact >= 0
+  else { return nil }
+  return exact
 }
 
 private func isoDate(_ value: String) -> Date? {

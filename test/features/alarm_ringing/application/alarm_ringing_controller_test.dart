@@ -219,6 +219,90 @@ void main() {
     },
   );
 
+  test('dismisses the current recreated reservation generation', () async {
+    final current = _occurrence(
+      id: 'plan-1:20640:410-recreated',
+      reservationId: 'stable-ringing-slot',
+      reservationGeneration: 7,
+      day: monday,
+      minute: 410,
+      status: AlarmOccurrenceStatus.ringing,
+      platformAlarmId: 'native-recreated-current',
+      firedAt: DateTime(2026, 7, 6, 6, 50),
+    );
+    final gateway = FakeNativeAlarmGateway()
+      ..inventoryRows.add(_inventoryRow(current));
+    final store = _AlarmRingingStore(
+      plans: [_plan(day: monday)],
+      occurrences: [current],
+    );
+
+    final result = await _controller(
+      store,
+      gateway: gateway,
+    ).dismissCurrent(current.id);
+
+    expect(result, AlarmDismissResult.dismissed);
+    expect(gateway.cancelledOccurrences, hasLength(1));
+    expect(
+      gateway.cancelledOccurrences.single.reservationId,
+      current.reservationId,
+    );
+    expect(
+      gateway.cancelledOccurrences.single.reservationGeneration,
+      current.reservationGeneration,
+    );
+    expect(gateway.inventoryRows, isEmpty);
+    expect(
+      store.occurrences[current.id]!.status,
+      AlarmOccurrenceStatus.dismissed,
+    );
+  });
+
+  test('fails closed for stale or wrong dismissal generations', () async {
+    for (final generationPair in const [
+      (persisted: 6, native: 7),
+      (persisted: 8, native: 7),
+    ]) {
+      final current = _occurrence(
+        id: 'plan-1:20640:410-${generationPair.persisted}',
+        reservationId: 'stable-ringing-slot',
+        reservationGeneration: generationPair.persisted,
+        day: monday,
+        minute: 410,
+        status: AlarmOccurrenceStatus.ringing,
+        platformAlarmId: 'native-generation-${generationPair.native}',
+        firedAt: DateTime(2026, 7, 6, 6, 50),
+      );
+      final native = current.copyWith(
+        reservationGeneration: generationPair.native,
+      );
+      final gateway = FakeNativeAlarmGateway()
+        ..inventoryRows.add(_inventoryRow(native));
+      final store = _AlarmRingingStore(
+        plans: [_plan(day: monday)],
+        occurrences: [current],
+      );
+
+      final result = await _controller(
+        store,
+        gateway: gateway,
+      ).dismissCurrent(current.id);
+
+      expect(
+        result,
+        AlarmDismissResult.nativeCancelFailed,
+        reason: '$generationPair',
+      );
+      expect(gateway.inventoryRows, hasLength(1), reason: '$generationPair');
+      expect(
+        store.occurrences[current.id]!.status,
+        AlarmOccurrenceStatus.ringing,
+        reason: '$generationPair',
+      );
+    }
+  });
+
   test('does not mark dismissed when native cancel fails', () async {
     final gateway = FakeNativeAlarmGateway()
       ..cancelFailurePlatformAlarmIds.add('native-current')
@@ -899,6 +983,8 @@ WakePlan _plan({String id = 'plan-1', required CalendarDay day}) {
 
 AlarmOccurrence _occurrence({
   required String id,
+  String? reservationId,
+  int reservationGeneration = 0,
   String wakePlanId = 'plan-1',
   required CalendarDay day,
   required int minute,
@@ -919,6 +1005,8 @@ AlarmOccurrence _occurrence({
     platformAlarmId: platformAlarmId,
     firedAt: firedAt,
     dismissedAt: dismissedAt,
+    reservationId: reservationId,
+    reservationGeneration: reservationGeneration,
     createdAt: createdAt,
     updatedAt: createdAt,
   );
@@ -926,7 +1014,8 @@ AlarmOccurrence _occurrence({
 
 NativeAlarmInventoryRow _inventoryRow(AlarmOccurrence occurrence) {
   return NativeAlarmInventoryRow(
-    reservationId: occurrence.id,
+    reservationId: occurrence.reservationId,
+    reservationGeneration: occurrence.reservationGeneration,
     occurrenceId: occurrence.id,
     wakePlanId: occurrence.wakePlanId,
     platformAlarmId: occurrence.platformAlarmId!,

@@ -30,6 +30,8 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
     private val alarmManager = appContext.getSystemService(AlarmManager::class.java)
     private val notificationManager = appContext.getSystemService(NotificationManager::class.java)
     private val store = AlarmStore(appContext)
+    private val authorityStore = ReservationAuthorityStore(appContext)
+    private val activationCleanupStore = AlarmActivationCleanupStore(appContext)
     private val eventStore = AlarmEventStore(appContext)
     private var pendingNotificationPermissionResult: MethodChannel.Result? = null
     private var requestNotificationRuntimePermission: (Activity, Array<String>, Int) -> Unit =
@@ -221,12 +223,22 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 val invalidReservationId = (map?.get("reservationId") as? String)
                     ?.takeIf { it.isNotBlank() }
                     ?: (map?.get("occurrenceId") as? String).orEmpty()
+                val invalidReservationGeneration = when (
+                    val value = map?.get("reservationGeneration")
+                ) {
+                    is Byte -> value.toLong()
+                    is Short -> value.toLong()
+                    is Int -> value.toLong()
+                    is Long -> value
+                    else -> 0L
+                }.coerceAtLeast(0L)
                 scheduleFailure(
                     map?.get("occurrenceId") as? String ?: "",
                     map?.get("wakePlanId") as? String ?: "",
                     "invalidRequest",
                     "Invalid schedule occurrence.",
                     invalidReservationId,
+                    invalidReservationGeneration,
                 )
             } else {
                 schedule(request)
@@ -271,8 +283,100 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
     }
 
     private fun schedule(request: AlarmRequest): Map<String, Any?> {
+        val replacementRecovery = AndroidAlarmReplacementRecovery.reconcile(
+            storageContext = appContext,
+            serviceContext = appContext,
+        )
+        if (!replacementRecovery.isSuccess) {
+            return scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "nativeError",
+                replacementRecovery.message ?: "Native alarm replacement recovery failed.",
+                request.reservationId,
+                request.reservationGeneration,
+            )
+        }
         val requestedPlatformAlarmId = request.platformAlarmId
         val legacyPlatformAlarmId = AlarmRequest.legacyPlatformAlarmId(request)
+        val identitySnapshot = store.inspectIdentities(appContext, System.currentTimeMillis())
+        if (identitySnapshot.corruptKeys.isNotEmpty() || identitySnapshot.duplicateIdentity != null) {
+            return scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "nativeError",
+                identitySnapshot.duplicateIdentity
+                    ?: "Native alarm mirror contains corrupt identity rows.",
+                request.reservationId,
+                request.reservationGeneration,
+            )
+        }
+        val adoptableLegacyIdentity = identitySnapshot.requests.firstOrNull {
+            it.occurrenceId == request.occurrenceId &&
+                it.platformAlarmId == legacyPlatformAlarmId &&
+                it.reservationId == it.occurrenceId &&
+                it.wakePlanId == request.wakePlanId
+        }
+        val authorityValidationFailure = authorityStore.validateAndSeedActive(
+            identitySnapshot.requests.filterNot { it == adoptableLegacyIdentity },
+        )
+        if (authorityValidationFailure != null) {
+            return scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "nativeError",
+                authorityValidationFailure,
+                request.reservationId,
+                request.reservationGeneration,
+            )
+        }
+        val authorityFailure = authorityStore.admissionFailure(request)
+        if (authorityFailure != null) {
+            return scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                authorityFailure.failureReason,
+                authorityFailure.message,
+                request.reservationId,
+                request.reservationGeneration,
+            )
+        }
+        val reservationOwner = identitySnapshot.requests.firstOrNull {
+            it.reservationId == request.reservationId
+        }
+        val persistedAuthority = try {
+            authorityStore.load().reservations[request.reservationId]
+        } catch (_: Exception) {
+            null
+        }
+        if (
+            reservationOwner == null &&
+            persistedAuthority?.state == ReservationAuthorityState.ACTIVE
+        ) {
+            return scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "invalidRequest",
+                "Native reservation generation has no authoritative mirror row.",
+                request.reservationId,
+                request.reservationGeneration,
+            )
+        }
+        val occurrenceOwner = identitySnapshot.requests.firstOrNull {
+            it.occurrenceId == request.occurrenceId && it.reservationId != request.reservationId
+        }
+        val isAdoptableLegacyOwner = occurrenceOwner != null &&
+            occurrenceOwner == adoptableLegacyIdentity
+        if (occurrenceOwner != null && !isAdoptableLegacyOwner) {
+            return scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "invalidRequest",
+                "Native occurrence identity is already owned by another reservation.",
+                request.reservationId,
+                request.reservationGeneration,
+            )
+        }
         val legacyRequest = if (legacyPlatformAlarmId != requestedPlatformAlarmId) {
             store.get(legacyPlatformAlarmId)
         } else {
@@ -289,6 +393,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 "nativeError",
                 "Legacy native alarm mirror row is corrupt.",
                 request.reservationId,
+                request.reservationGeneration,
             )
         }
         val legacyIdentityMatches = legacyRequest != null &&
@@ -303,6 +408,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 "nativeError",
                 "Legacy native alarm mirror row is corrupt.",
                 request.reservationId,
+                request.reservationGeneration,
             )
         }
         if (legacyRequest != null && !legacyRequest.hasCanonicalPlatformAlarmId()) {
@@ -312,6 +418,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 "nativeError",
                 "Legacy native alarm mirror row is corrupt.",
                 request.reservationId,
+                request.reservationGeneration,
             )
         }
         if (legacyRequest != null && !legacyIdentityMatches) {
@@ -321,23 +428,29 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 "invalidRequest",
                 "Legacy native alarm identity conflicts with the requested reservation.",
                 request.reservationId,
+                request.reservationGeneration,
             )
         }
 
-        if (legacyRequest != null && store.contains(requestedPlatformAlarmId)) {
+        if (
+            legacyRequest != null &&
+            reservationOwner != null &&
+            reservationOwner.platformAlarmId != legacyPlatformAlarmId
+        ) {
             return scheduleFailure(
                 request.occurrenceId,
                 request.wakePlanId,
                 "invalidRequest",
                 "Stable and legacy native alarm identities both exist for the occurrence.",
                 request.reservationId,
+                request.reservationGeneration,
             )
         }
 
-        val platformAlarmId = if (legacyRequest != null) {
-            legacyPlatformAlarmId
-        } else {
-            requestedPlatformAlarmId
+        val platformAlarmId = when {
+            legacyRequest != null -> legacyPlatformAlarmId
+            reservationOwner != null -> reservationOwner.platformAlarmId
+            else -> requestedPlatformAlarmId
         }
         val existing = store.get(platformAlarmId)
         if (store.contains(platformAlarmId) && existing == null) {
@@ -347,6 +460,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 "nativeError",
                 "Native alarm mirror row is corrupt.",
                 request.reservationId,
+                request.reservationGeneration,
             )
         }
         if (existing != null && !existing.hasCanonicalPlatformAlarmId()) {
@@ -356,12 +470,13 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 "nativeError",
                 "Native alarm mirror row is corrupt.",
                 request.reservationId,
+                request.reservationGeneration,
             )
         }
         if (
             existing != null &&
             legacyRequest == null &&
-            !sameIdentity(existing, request)
+            !sameStableReservation(existing, request)
         ) {
             return scheduleFailure(
                 request.occurrenceId,
@@ -369,13 +484,23 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 "invalidRequest",
                 "Native alarm identity is already owned by another reservation.",
                 request.reservationId,
+                request.reservationGeneration,
             )
         }
         if (existing?.state == AlarmState.RINGING) {
+            val comparableExisting = if (
+                legacyRequest != null && legacyIdentityMatches
+            ) {
+                existing.copy(
+                    reservationId = request.reservationId,
+                    indexInPlan = existing.indexInPlan ?: request.indexInPlan,
+                    totalInPlan = existing.totalInPlan ?: request.totalInPlan,
+                )
+            } else {
+                existing
+            }
             if (
-                existing.occurrenceId != request.occurrenceId ||
-                existing.wakePlanId != request.wakePlanId ||
-                existing.scheduledAtMillis != request.scheduledAtMillis
+                !sameSchedulePayload(comparableExisting, request)
             ) {
                 return scheduleFailure(
                     request.occurrenceId,
@@ -383,11 +508,11 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                     "invalidRequest",
                     "Cannot replace an actively ringing native alarm.",
                     request.reservationId,
+                    request.reservationGeneration,
                 )
             }
-            if (legacyRequest != null && existing.reservationId != request.reservationId) {
-                val adoptedRingingRequest = existing.copy(
-                    reservationId = request.reservationId,
+            if (legacyRequest != null && comparableExisting != existing) {
+                val adoptedRingingRequest = comparableExisting.copy(
                     platformAlarmIdOverride = platformAlarmId,
                 )
                 if (!store.put(adoptedRingingRequest)) {
@@ -397,8 +522,61 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                         "nativeError",
                         "Failed to persist native alarm mirror state.",
                         request.reservationId,
+                        request.reservationGeneration,
                     )
                 }
+                if (!authorityStore.recordActive(adoptedRingingRequest)) {
+                    store.put(existing)
+                    return scheduleFailure(
+                        request.occurrenceId,
+                        request.wakePlanId,
+                        "nativeError",
+                        "Failed to persist native reservation generation authority.",
+                        request.reservationId,
+                        request.reservationGeneration,
+                    )
+                }
+            }
+            return scheduleSuccess(request, platformAlarmId)
+        }
+        if (existing != null && existing.reservationGeneration == request.reservationGeneration) {
+            if (legacyRequest != null && legacyIdentityMatches) {
+                val adopted = request.copy(
+                    platformAlarmIdOverride = platformAlarmId,
+                    state = existing.state,
+                )
+                if (!store.put(adopted)) {
+                    return scheduleFailure(
+                        request.occurrenceId,
+                        request.wakePlanId,
+                        "nativeError",
+                        "Failed to persist adopted native reservation generation.",
+                        request.reservationId,
+                        request.reservationGeneration,
+                    )
+                }
+                if (!authorityStore.recordActive(adopted)) {
+                    store.put(existing)
+                    return scheduleFailure(
+                        request.occurrenceId,
+                        request.wakePlanId,
+                        "nativeError",
+                        "Failed to persist adopted native reservation generation authority.",
+                        request.reservationId,
+                        request.reservationGeneration,
+                    )
+                }
+                return scheduleSuccess(request, platformAlarmId)
+            }
+            if (!sameSchedulePayload(existing, request)) {
+                return scheduleFailure(
+                    request.occurrenceId,
+                    request.wakePlanId,
+                    "invalidRequest",
+                    "Native reservation generation does not match its persisted payload.",
+                    request.reservationId,
+                    request.reservationGeneration,
+                )
             }
             return scheduleSuccess(request, platformAlarmId)
         }
@@ -409,6 +587,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 "permissionMissing",
                 "Exact alarm permission is not granted.",
                 request.reservationId,
+                request.reservationGeneration,
             )
         }
         if (!notificationsAllowed()) {
@@ -418,6 +597,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 "permissionMissing",
                 "Notification permission is not granted.",
                 request.reservationId,
+                request.reservationGeneration,
             )
         }
         if (!canUseFullScreenIntent()) {
@@ -427,6 +607,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 "permissionMissing",
                 "Full-screen intent permission is not granted.",
                 request.reservationId,
+                request.reservationGeneration,
             )
         }
         if (!notificationChannelReady()) {
@@ -436,6 +617,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 "osConstraint",
                 "Wake alarm notification channel is disabled.",
                 request.reservationId,
+                request.reservationGeneration,
             )
         }
         if (request.scheduledAtMillis <= System.currentTimeMillis()) {
@@ -445,10 +627,15 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 "invalidRequest",
                 "scheduledAt must be in the future.",
                 request.reservationId,
+                request.reservationGeneration,
             )
         }
 
-        return armAndPersist(request, platformAlarmId)
+        return if (existing != null) {
+            replaceStableReservation(existing, request)
+        } else {
+            armAndPersist(request, platformAlarmId)
+        }
     }
 
     private fun armAndPersist(
@@ -466,38 +653,116 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         persist: () -> Boolean = {
             store.put(request.copy(platformAlarmIdOverride = platformAlarmId, state = AlarmState.SCHEDULED))
         },
-        cancel: () -> Unit = { cancelReceiver(platformAlarmId) },
+        cancel: () -> Boolean = { cancelReceiver(platformAlarmId) },
+        recordActive: (AlarmRequest) -> Boolean = { authorityStore.recordActive(it) },
+        recordRetired: (AlarmRequest) -> Boolean = {
+            authorityStore.recordRetired(listOf(it))
+        },
+        removePersisted: () -> Boolean = { store.removeRaw(platformAlarmId) },
     ): MutableMap<String, Any?> {
+        val persisted = request.copy(
+            platformAlarmIdOverride = platformAlarmId,
+            state = AlarmState.SCHEDULED,
+        )
         return try {
-            arm()
-            if (!persist()) {
-                cancel()
+            if (!activationCleanupStore.save(persisted)) {
                 return scheduleFailure(
                     request.occurrenceId,
                     request.wakePlanId,
                     "nativeError",
-                    "Failed to persist native alarm mirror state.",
+                    "Failed to persist native alarm activation cleanup evidence.",
                     request.reservationId,
+                    request.reservationGeneration,
+                )
+            }
+            arm()
+            if (!persist()) {
+                val cleanupCompleted = cleanupStagedActivation(
+                    persisted,
+                    cancel,
+                    removePersisted,
+                    recordRetired,
+                )
+                return scheduleFailure(
+                    request.occurrenceId,
+                    request.wakePlanId,
+                    "nativeError",
+                    activationFailureMessage(
+                        "Failed to persist native alarm mirror state.",
+                        cleanupCompleted,
+                    ),
+                    request.reservationId,
+                    request.reservationGeneration,
+                )
+            }
+            if (!recordActive(persisted)) {
+                val cleanupCompleted = cleanupStagedActivation(
+                    persisted,
+                    cancel,
+                    removePersisted,
+                    recordRetired,
+                )
+                return scheduleFailure(
+                    request.occurrenceId,
+                    request.wakePlanId,
+                    "nativeError",
+                    activationFailureMessage(
+                        "Failed to persist native reservation generation authority.",
+                        cleanupCompleted,
+                    ),
+                    request.reservationId,
+                    request.reservationGeneration,
+                )
+            }
+            if (!activationCleanupStore.clear()) {
+                return scheduleFailure(
+                    request.occurrenceId,
+                    request.wakePlanId,
+                    "nativeError",
+                    activationFailureMessage(
+                        "Failed to clear native alarm activation cleanup evidence.",
+                        cleanupCompleted = false,
+                    ),
+                    request.reservationId,
+                    request.reservationGeneration,
                 )
             }
             scheduleSuccess(request, platformAlarmId)
         } catch (error: JSONException) {
-            cancel()
+            val cleanupCompleted = cleanupStagedActivation(
+                persisted,
+                cancel,
+                removePersisted,
+                recordRetired,
+            )
             scheduleFailure(
                 request.occurrenceId,
                 request.wakePlanId,
                 "nativeError",
-                error.message ?: "Failed to persist native alarm mirror state.",
+                activationFailureMessage(
+                    error.message ?: "Failed to persist native alarm mirror state.",
+                    cleanupCompleted,
+                ),
                 request.reservationId,
+                request.reservationGeneration,
             )
         } catch (error: RuntimeException) {
-            cancel()
+            val cleanupCompleted = cleanupStagedActivation(
+                persisted,
+                cancel,
+                removePersisted,
+                recordRetired,
+            )
             scheduleFailure(
                 request.occurrenceId,
                 request.wakePlanId,
                 "nativeError",
-                error.message ?: "AlarmManager rejected the alarm.",
+                activationFailureMessage(
+                    error.message ?: "AlarmManager rejected the alarm.",
+                    cleanupCompleted,
+                ),
                 request.reservationId,
+                request.reservationGeneration,
             )
         }
     }
@@ -507,16 +772,68 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         platformAlarmId: String,
         arm: () -> Unit,
         persist: () -> Boolean,
-        cancel: () -> Unit,
+        cancel: () -> Boolean,
+        recordActive: (AlarmRequest) -> Boolean = { authorityStore.recordActive(it) },
+        recordRetired: (AlarmRequest) -> Boolean = {
+            authorityStore.recordRetired(listOf(it))
+        },
+        removePersisted: () -> Boolean = { store.removeRaw(platformAlarmId) },
     ): Map<String, Any?> {
-        return armAndPersist(request, platformAlarmId, arm, persist, cancel)
+        return armAndPersist(
+            request,
+            platformAlarmId,
+            arm,
+            persist,
+            cancel,
+            recordActive,
+            recordRetired,
+            removePersisted,
+        )
     }
 
-    private fun cancelReceiver(platformAlarmId: String) {
-        try {
-            alarmManager.cancel(AlarmIntents.receiver(appContext, platformAlarmId))
+    private fun activationFailureMessage(
+        message: String,
+        cleanupCompleted: Boolean,
+    ): String = if (cleanupCompleted) {
+        message
+    } else {
+        "$message Activation cleanup remains pending durable recovery."
+    }
+
+    private fun cleanupStagedActivation(
+        request: AlarmRequest,
+        cancel: () -> Boolean,
+        removePersisted: () -> Boolean,
+        recordRetired: (AlarmRequest) -> Boolean,
+    ): Boolean {
+        if (!recordRetired(request)) return false
+        val (cancelled, mirrorRemoved) = cleanupActivation(cancel, removePersisted)
+        return cancelled && mirrorRemoved && activationCleanupStore.clear()
+    }
+
+    private fun cleanupActivation(
+        cancel: () -> Boolean,
+        removePersisted: () -> Boolean,
+    ): Pair<Boolean, Boolean> {
+        val cancelled = try {
+            cancel()
         } catch (_: RuntimeException) {
-            // Preserve the original schedule failure if cleanup is rejected.
+            false
+        }
+        val mirrorRemoved = cancelled && try {
+            removePersisted()
+        } catch (_: RuntimeException) {
+            false
+        }
+        return cancelled to mirrorRemoved
+    }
+
+    private fun cancelReceiver(platformAlarmId: String): Boolean {
+        return try {
+            alarmManager.cancel(AlarmIntents.receiver(appContext, platformAlarmId))
+            true
+        } catch (_: RuntimeException) {
+            false
         }
     }
 
@@ -527,16 +844,116 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         return mutableMapOf(
             "occurrenceId" to request.occurrenceId,
             "reservationId" to request.reservationId,
+            "reservationGeneration" to request.reservationGeneration,
             "wakePlanId" to request.wakePlanId,
             "status" to "success",
             "platformAlarmId" to platformAlarmId,
         )
     }
 
-    private fun sameIdentity(left: AlarmRequest, right: AlarmRequest): Boolean {
+    private fun sameStableReservation(left: AlarmRequest, right: AlarmRequest): Boolean {
         return left.reservationId == right.reservationId &&
-            left.occurrenceId == right.occurrenceId &&
             left.wakePlanId == right.wakePlanId
+    }
+
+    private fun sameSchedulePayload(left: AlarmRequest, right: AlarmRequest): Boolean {
+        return left.reservationId == right.reservationId &&
+            left.reservationGeneration == right.reservationGeneration &&
+            left.occurrenceId == right.occurrenceId &&
+            left.wakePlanId == right.wakePlanId &&
+            left.scheduledAtMillis == right.scheduledAtMillis &&
+            left.targetAtMillis == right.targetAtMillis &&
+            left.soundId == right.soundId &&
+            left.vibrationEnabled == right.vibrationEnabled &&
+            left.indexInPlan == right.indexInPlan &&
+            left.totalInPlan == right.totalInPlan
+    }
+
+    private fun replaceStableReservation(
+        existing: AlarmRequest,
+        request: AlarmRequest,
+    ): MutableMap<String, Any?> {
+        val replacementPlatformAlarmId = AlarmRequest.replacementPlatformAlarmId(request)
+        val replacement = request.copy(
+            platformAlarmIdOverride = replacementPlatformAlarmId,
+            state = AlarmState.SCHEDULED,
+        )
+        val journalStore = AlarmReplacementJournalStore(appContext)
+        var journal = AlarmReplacementJournal(old = existing, new = replacement)
+        if (!journalStore.save(journal)) {
+            return scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "nativeError",
+                "Failed to persist native alarm replacement intent.",
+                request.reservationId,
+                request.reservationGeneration,
+            )
+        }
+        try {
+            alarmManager.setAlarmClock(
+                AlarmManager.AlarmClockInfo(
+                    replacement.scheduledAtMillis,
+                    AlarmIntents.showIntent(appContext, replacementPlatformAlarmId),
+                ),
+                AlarmIntents.receiver(appContext, replacementPlatformAlarmId),
+            )
+            journal = journal.copy(phase = AlarmReplacementPhase.CANDIDATE_ARMED)
+            if (!journalStore.save(journal)) {
+                AndroidAlarmReplacementRecovery.reconcile(appContext, appContext)
+                return scheduleFailure(
+                    request.occurrenceId,
+                    request.wakePlanId,
+                    "nativeError",
+                    "Failed to persist the armed replacement generation.",
+                    request.reservationId,
+                    request.reservationGeneration,
+                )
+            }
+        } catch (error: RuntimeException) {
+            AndroidAlarmReplacementRecovery.reconcile(appContext, appContext)
+            return scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "nativeError",
+                error.message ?: "AlarmManager rejected the replacement alarm.",
+                request.reservationId,
+                request.reservationGeneration,
+            )
+        }
+
+        journal = journal.copy(phase = AlarmReplacementPhase.OLD_RETIRED)
+        if (!journalStore.save(journal)) {
+            AndroidAlarmReplacementRecovery.reconcile(appContext, appContext)
+            return scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "nativeError",
+                "Failed to persist retirement of the prior generation.",
+                request.reservationId,
+                request.reservationGeneration,
+            )
+        }
+        val recovery = AndroidAlarmReplacementRecovery.reconcile(appContext, appContext)
+        val committed = store.get(replacementPlatformAlarmId)
+        return if (
+            recovery.isSuccess &&
+            committed?.reservationId == request.reservationId &&
+            committed.reservationGeneration == request.reservationGeneration &&
+            committed.occurrenceId == request.occurrenceId &&
+            committed.wakePlanId == request.wakePlanId
+        ) {
+            scheduleSuccess(request, replacementPlatformAlarmId)
+        } else {
+            scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "nativeError",
+                recovery.message ?: "Native alarm replacement retained the prior occurrence.",
+                request.reservationId,
+                request.reservationGeneration,
+            )
+        }
     }
 
     private fun cancel(arguments: Map<*, *>): Map<String, Any?> {
@@ -550,8 +967,16 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 is String -> rawReservationId
                 else -> ""
             }
+            val reservationGeneration = when (val value = map?.get("reservationGeneration")) {
+                null -> 0L
+                is Byte -> value.toLong()
+                is Short -> value.toLong()
+                is Int -> value.toLong()
+                is Long -> value
+                else -> -1L
+            }
             val platformAlarmId = map?.get("platformAlarmId") as? String ?: ""
-            cancelOne(occurrenceId, reservationId, platformAlarmId)
+            cancelOne(occurrenceId, reservationId, reservationGeneration, platformAlarmId)
         }
         return mutableResponse("alarms" to results)
     }
@@ -559,60 +984,162 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
     private fun cancelOne(
         occurrenceId: String,
         reservationId: String,
+        reservationGeneration: Long,
         platformAlarmId: String,
     ): MutableMap<String, Any?> {
-        if (occurrenceId.isBlank() || reservationId.isBlank() || platformAlarmId.isBlank()) {
+        if (
+            occurrenceId.isBlank() ||
+            reservationId.isBlank() ||
+            reservationGeneration < 0L ||
+            platformAlarmId.isBlank()
+        ) {
             return cancelFailure(
                 occurrenceId,
                 platformAlarmId,
                 if (platformAlarmId.isBlank()) "missingPlatformAlarmId" else "invalidRequest",
                 if (platformAlarmId.isBlank()) "Missing platformAlarmId." else "Invalid cancel identity.",
                 reservationId,
+                reservationGeneration.coerceAtLeast(0L),
             )
         }
+        val replacementRecovery = AndroidAlarmReplacementRecovery.reconcile(
+            storageContext = appContext,
+            serviceContext = appContext,
+        )
+        if (!replacementRecovery.isSuccess) {
+            return cancelFailure(
+                occurrenceId,
+                platformAlarmId,
+                "nativeError",
+                replacementRecovery.message ?: "Native alarm replacement recovery failed.",
+                reservationId,
+                reservationGeneration,
+            )
+        }
+        val identitySnapshot = store.inspectIdentities(appContext, System.currentTimeMillis())
+        if (identitySnapshot.corruptKeys.isNotEmpty() || identitySnapshot.duplicateIdentity != null) {
+            return cancelFailure(
+                occurrenceId,
+                platformAlarmId,
+                "nativeError",
+                identitySnapshot.duplicateIdentity
+                    ?: "Native alarm mirror contains corrupt identity rows.",
+                reservationId,
+                reservationGeneration,
+            )
+        }
+        val requestedRow = identitySnapshot.requests.singleOrNull {
+            it.platformAlarmId == platformAlarmId
+        }
+        if (
+            requestedRow != null &&
+            !cancelIdentityMatches(
+                requestedRow,
+                occurrenceId,
+                reservationId,
+                reservationGeneration,
+            )
+        ) {
+            return cancelFailure(
+                occurrenceId,
+                platformAlarmId,
+                "invalidRequest",
+                "Native alarm identity does not match the requested reservation.",
+                reservationId,
+                reservationGeneration,
+            )
+        }
+        val exactRow = identitySnapshot.requests.singleOrNull {
+            it.occurrenceId == occurrenceId &&
+                it.reservationId == reservationId &&
+                it.reservationGeneration == reservationGeneration
+        } ?: requestedRow?.takeIf {
+            cancelIdentityMatches(
+                it,
+                occurrenceId,
+                reservationId,
+                reservationGeneration,
+            )
+        }
+        if (
+            exactRow == null &&
+            identitySnapshot.requests.any {
+                it.occurrenceId == occurrenceId || it.reservationId == reservationId
+            }
+        ) {
+            return cancelFailure(
+                occurrenceId,
+                platformAlarmId,
+                "invalidRequest",
+                "Native alarm identity does not match the requested reservation.",
+                reservationId,
+                reservationGeneration,
+            )
+        }
+        val effectivePlatformAlarmId = exactRow?.platformAlarmId ?: platformAlarmId
         return try {
-            val stored = store.get(platformAlarmId)
+            val stored = store.get(effectivePlatformAlarmId)
             when {
-                store.contains(platformAlarmId) && stored == null -> cancelFailure(
+                store.contains(effectivePlatformAlarmId) && stored == null -> cancelFailure(
                     occurrenceId,
                     platformAlarmId,
                     "nativeError",
                     "Native alarm mirror row is corrupt.",
                     reservationId,
+                    reservationGeneration,
                 )
                 stored != null &&
-                    (stored.platformAlarmId != platformAlarmId ||
+                    (stored.platformAlarmId != effectivePlatformAlarmId ||
                         !stored.hasCanonicalPlatformAlarmId()) -> cancelFailure(
                     occurrenceId,
                     platformAlarmId,
                     "nativeError",
                     "Native alarm mirror row is corrupt.",
                     reservationId,
+                    reservationGeneration,
                 )
                 stored != null &&
-                    !cancelIdentityMatches(stored, occurrenceId, reservationId) ->
+                    !cancelIdentityMatches(
+                        stored,
+                        occurrenceId,
+                        reservationId,
+                        reservationGeneration,
+                    ) ->
                     cancelFailure(
                         occurrenceId,
                         platformAlarmId,
                         "invalidRequest",
                         "Native alarm identity does not match the requested reservation.",
                         reservationId,
+                        reservationGeneration,
                     )
                 else -> {
-                    alarmManager.cancel(AlarmIntents.receiver(appContext, platformAlarmId))
-                    if (!store.remove(platformAlarmId)) {
+                    if (stored != null && !authorityStore.recordRetired(listOf(stored))) {
+                        return cancelFailure(
+                            occurrenceId,
+                            platformAlarmId,
+                            "nativeError",
+                            "Failed to persist native alarm generation retirement.",
+                            reservationId,
+                            reservationGeneration,
+                        )
+                    }
+                    alarmManager.cancel(AlarmIntents.receiver(appContext, effectivePlatformAlarmId))
+                    if (!store.removeRaw(effectivePlatformAlarmId)) {
                         cancelFailure(
                             occurrenceId,
                             platformAlarmId,
                             "nativeError",
                             "Failed to persist native alarm mirror removal.",
                             reservationId,
+                            reservationGeneration,
                         )
                     } else {
-                        notificationManager.cancel(platformAlarmId.hashCode())
+                        notificationManager.cancel(effectivePlatformAlarmId.hashCode())
                         mutableMapOf(
                             "occurrenceId" to occurrenceId,
                             "reservationId" to reservationId,
+                            "reservationGeneration" to reservationGeneration,
                             "platformAlarmId" to platformAlarmId,
                             "status" to "success",
                         )
@@ -626,6 +1153,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 "nativeError",
                 error.message ?: "AlarmManager cancel failed.",
                 reservationId,
+                reservationGeneration,
             )
         }
     }
@@ -634,9 +1162,11 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         stored: AlarmRequest,
         occurrenceId: String,
         reservationId: String,
+        reservationGeneration: Long,
     ): Boolean {
         if (isSyntheticTestAlarm(stored)) return true
         if (stored.occurrenceId != occurrenceId) return false
+        if (stored.reservationGeneration != reservationGeneration) return false
         if (stored.reservationId == reservationId) return true
         return reservationId == occurrenceId &&
             stored.reservationId != stored.occurrenceId &&
@@ -710,10 +1240,12 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         reason: String,
         message: String,
         reservationId: String = occurrenceId,
+        reservationGeneration: Long = 0L,
     ): MutableMap<String, Any?> {
         return mutableMapOf(
             "occurrenceId" to occurrenceId,
             "reservationId" to reservationId,
+            "reservationGeneration" to reservationGeneration,
             "wakePlanId" to wakePlanId,
             "status" to "failure",
             "failureReason" to reason,
@@ -727,10 +1259,12 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         reason: String,
         message: String,
         reservationId: String = occurrenceId,
+        reservationGeneration: Long = 0L,
     ): MutableMap<String, Any?> {
         return mutableMapOf(
             "occurrenceId" to occurrenceId,
             "reservationId" to reservationId,
+            "reservationGeneration" to reservationGeneration,
             "platformAlarmId" to platformAlarmId,
             "status" to "failure",
             "failureReason" to reason,
@@ -747,6 +1281,17 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
     }
 
     private fun inventoryResponse(): InventoryResponse {
+        val replacementRecovery = AndroidAlarmReplacementRecovery.reconcile(
+            storageContext = appContext,
+            serviceContext = appContext,
+        )
+        if (!replacementRecovery.isSuccess) {
+            return InventoryResponse(
+                response = null,
+                failureCode = "NATIVE_ERROR",
+                failureMessage = replacementRecovery.message,
+            )
+        }
         val snapshot = store.inventory(appContext, System.currentTimeMillis())
         if (snapshot.corruptKeys.isNotEmpty()) {
             return InventoryResponse(
@@ -762,11 +1307,20 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 failureMessage = snapshot.duplicateIdentity,
             )
         }
+        val authorityFailure = authorityStore.validateAndSeedActive(snapshot.requests)
+        if (authorityFailure != null) {
+            return InventoryResponse(
+                response = null,
+                failureCode = "CORRUPT",
+                failureMessage = authorityFailure,
+            )
+        }
         return InventoryResponse(
             response = mutableResponse(
                 "reservations" to snapshot.requests.map { request ->
                     mutableMapOf(
                         "reservationId" to request.reservationId,
+                        "reservationGeneration" to request.reservationGeneration,
                         "occurrenceId" to request.occurrenceId,
                         "wakePlanId" to request.wakePlanId,
                         "platformAlarmId" to request.platformAlarmId,
@@ -863,6 +1417,7 @@ object AlarmNotificationChannel {
 data class AlarmRequest(
     val occurrenceId: String,
     val reservationId: String = occurrenceId,
+    val reservationGeneration: Long = 0L,
     val wakePlanId: String,
     val scheduledAtMillis: Long,
     val targetAtMillis: Long,
@@ -876,6 +1431,7 @@ data class AlarmRequest(
     val totalInPlan: Int? = null,
 ) {
     init {
+        require(reservationGeneration >= 0L) { "reservationGeneration must not be negative." }
         require((indexInPlan == null) == (totalInPlan == null)) {
             "Alarm position must include both indexInPlan and totalInPlan."
         }
@@ -899,6 +1455,8 @@ data class AlarmRequest(
             (platformAlarmId == stablePlatformAlarmId(this) ||
                 platformAlarmId == legacyPlatformAlarmId(this) ||
                 platformAlarmId == replacementPlatformAlarmId(this) ||
+                (reservationGeneration == 0L &&
+                    platformAlarmId == legacyReplacementPlatformAlarmId(this)) ||
                 (isTest && platformAlarmId == "android:test:$occurrenceId"))
     }
 
@@ -906,6 +1464,7 @@ data class AlarmRequest(
         val json = JSONObject()
             .put("occurrenceId", occurrenceId)
             .put("reservationId", reservationId)
+            .put("reservationGeneration", reservationGeneration)
             .put("wakePlanId", wakePlanId)
             .put("scheduledAtMillis", scheduledAtMillis)
             .put("targetAtMillis", targetAtMillis)
@@ -930,6 +1489,19 @@ data class AlarmRequest(
         }
 
         fun replacementPlatformAlarmId(request: AlarmRequest): String {
+            if (request.reservationGeneration == 0L) {
+                return legacyReplacementPlatformAlarmId(request)
+            }
+            val digest = MessageDigest.getInstance("SHA-256")
+                .digest(
+                    "${request.reservationId}\u0000${request.reservationGeneration}\u0000${request.occurrenceId}"
+                        .toByteArray(),
+                )
+                .joinToString("") { byte -> "%02x".format(byte) }
+            return "android:replacement:$digest"
+        }
+
+        fun legacyReplacementPlatformAlarmId(request: AlarmRequest): String {
             val digest = MessageDigest.getInstance("SHA-256")
                 .digest("${request.reservationId}\u0000${request.occurrenceId}".toByteArray())
                 .joinToString("") { byte -> "%02x".format(byte) }
@@ -954,6 +1526,9 @@ data class AlarmRequest(
                 is String -> reservationValue.takeIf { it.isNotBlank() } ?: return null
                 else -> return null
             }
+            val reservationGeneration = exactNonNegativeLong(
+                map["reservationGeneration"] ?: 0L,
+            ) ?: return null
             return try {
                 val (indexInPlan, totalInPlan) = parsePosition(
                     map["indexInPlan"],
@@ -962,6 +1537,7 @@ data class AlarmRequest(
                 AlarmRequest(
                     occurrenceId = occurrenceId,
                     reservationId = reservationId,
+                    reservationGeneration = reservationGeneration,
                     wakePlanId = wakePlanId,
                     scheduledAtMillis = Instant.parse(scheduledAt).toEpochMilli(),
                     targetAtMillis = Instant.parse(targetAt).toEpochMilli(),
@@ -989,6 +1565,14 @@ data class AlarmRequest(
                     ?: throw IllegalArgumentException("reservationId must not be blank")
                 else -> throw IllegalArgumentException("reservationId must be a string")
             }
+            val reservationGeneration = if (json.has("reservationGeneration")) {
+                exactNonNegativeLong(json.opt("reservationGeneration"))
+                    ?: throw IllegalArgumentException(
+                        "reservationGeneration must be a non-negative integer",
+                    )
+            } else {
+                0L
+            }
             val (indexInPlan, totalInPlan) = parsePosition(
                 json.opt("indexInPlan"),
                 json.opt("totalInPlan"),
@@ -996,6 +1580,7 @@ data class AlarmRequest(
             return AlarmRequest(
                 occurrenceId = occurrenceId,
                 reservationId = reservationId,
+                reservationGeneration = reservationGeneration,
                 wakePlanId = wakePlanId,
                 scheduledAtMillis = json.getLong("scheduledAtMillis"),
                 targetAtMillis = json.getLong("targetAtMillis"),
@@ -1028,6 +1613,17 @@ data class AlarmRequest(
             if (longValue !in Int.MIN_VALUE..Int.MAX_VALUE) return null
             if (number.toDouble() != longValue.toDouble()) return null
             return longValue.toInt()
+        }
+
+        private fun exactNonNegativeLong(value: Any?): Long? {
+            val result = when (value) {
+                is Byte -> value.toLong()
+                is Short -> value.toLong()
+                is Int -> value.toLong()
+                is Long -> value
+                else -> return null
+            }
+            return result.takeIf { it >= 0L }
         }
     }
 }
@@ -1305,8 +1901,15 @@ class AlarmStore(context: Context) {
     }
 
     fun remove(platformAlarmId: String): Boolean {
-        return preferences.edit().remove(platformAlarmId).commit()
+        val request = get(platformAlarmId)
+        if (request != null && !ReservationAuthorityStore(storageContext).recordRetired(listOf(request))) {
+            return false
+        }
+        return removeRaw(platformAlarmId)
     }
+
+    internal fun removeRaw(platformAlarmId: String): Boolean =
+        preferences.edit().remove(platformAlarmId).commit()
 
     fun replace(
         oldPlatformAlarmId: String,
@@ -1355,6 +1958,7 @@ class AlarmStore(context: Context) {
     fun inventory(context: Context, nowMillis: Long): AlarmInventorySnapshot {
         val corruptKeys = mutableListOf<String>()
         val expiredKeys = mutableListOf<String>()
+        val expiredRequests = mutableListOf<AlarmRequest>()
         val requests = mutableListOf<AlarmRequest>()
         preferences.all.forEach { (key, value) ->
             val request = try {
@@ -1370,12 +1974,38 @@ class AlarmStore(context: Context) {
                 corruptKeys += key
             } else if (request.state != AlarmState.RINGING && request.scheduledAtMillis <= nowMillis) {
                 expiredKeys += key
+                expiredRequests += request
             } else {
                 requests += request
             }
         }
         val cleanupKeys = corruptKeys + expiredKeys
         if (cleanupKeys.isNotEmpty()) {
+            if (
+                expiredRequests.isNotEmpty() &&
+                !ReservationAuthorityStore(storageContext).recordRetired(expiredRequests)
+            ) {
+                return AlarmInventorySnapshot(
+                    requests = emptyList(),
+                    corruptKeys = cleanupKeys,
+                    duplicateIdentity = "Failed to persist expired native alarm generation retirement.",
+                    context = context,
+                )
+            }
+            try {
+                val alarmManager = context.getSystemService(AlarmManager::class.java)
+                expiredRequests.forEach { request ->
+                    alarmManager.cancel(AlarmIntents.receiver(context, request.platformAlarmId))
+                }
+            } catch (error: RuntimeException) {
+                return AlarmInventorySnapshot(
+                    requests = emptyList(),
+                    corruptKeys = cleanupKeys,
+                    duplicateIdentity = error.message
+                        ?: "Failed to cancel expired native alarm rows.",
+                    context = context,
+                )
+            }
             val editor = preferences.edit()
             cleanupKeys.forEach { key -> editor.remove(key) }
             if (!editor.commit()) {
@@ -1415,6 +2045,47 @@ class AlarmStore(context: Context) {
         )
     }
 
+    fun inspectIdentities(context: Context, nowMillis: Long): AlarmInventorySnapshot {
+        val corruptKeys = mutableListOf<String>()
+        val requests = mutableListOf<AlarmRequest>()
+        preferences.all.forEach { (key, value) ->
+            val request = try {
+                (value as? String)?.let { AlarmRequest.fromJson(JSONObject(it)) }
+            } catch (_: Exception) {
+                null
+            }
+            if (
+                request == null ||
+                request.platformAlarmId != key ||
+                !request.hasCanonicalPlatformAlarmId()
+            ) {
+                corruptKeys += key
+            } else {
+                requests += request
+            }
+        }
+        val duplicateReservation = requests.groupBy { it.reservationId }
+            .values.firstOrNull { it.size > 1 }
+        val duplicateOccurrence = requests.groupBy { it.occurrenceId }
+            .values.firstOrNull { it.size > 1 }
+        return AlarmInventorySnapshot(
+            requests = if (duplicateReservation == null && duplicateOccurrence == null) {
+                requests
+            } else {
+                emptyList()
+            },
+            corruptKeys = corruptKeys,
+            duplicateIdentity = when {
+                duplicateReservation != null ->
+                    "Duplicate native reservation identity: ${duplicateReservation.first().reservationId}."
+                duplicateOccurrence != null ->
+                    "Duplicate native occurrence identity: ${duplicateOccurrence.first().occurrenceId}."
+                else -> null
+            },
+            context = context,
+        )
+    }
+
     fun all(): List<AlarmRequest> {
         val invalidKeys = mutableListOf<String>()
         val requestsById = linkedMapOf<String, AlarmRequest>()
@@ -1439,7 +2110,14 @@ class AlarmStore(context: Context) {
             invalidKeys.forEach { key -> editor.remove(key) }
             editor.commit()
         }
-        return requestsById.values.toList()
+        val requests = requestsById.values.toList()
+        return if (
+            ReservationAuthorityStore(storageContext).validateAndSeedActive(requests) == null
+        ) {
+            requests
+        } else {
+            emptyList()
+        }
     }
 
     fun nextScheduledAfter(wakePlanId: String, afterMillis: Long): AlarmRequest? {
@@ -1594,6 +2272,310 @@ data class AlarmInventorySnapshot(
     }
 }
 
+internal enum class ReservationAuthorityState {
+    ACTIVE,
+    RETIRED,
+}
+
+internal data class ReservationAuthority(
+    val reservationId: String,
+    val wakePlanId: String,
+    val reservationGeneration: Long,
+    val occurrenceId: String,
+    val state: ReservationAuthorityState,
+) {
+    init {
+        require(reservationId.isNotBlank())
+        require(wakePlanId.isNotBlank())
+        require(reservationGeneration >= 0L)
+        require(occurrenceId.isNotBlank())
+    }
+
+    fun toJson(): JSONObject = JSONObject()
+        .put("reservationId", reservationId)
+        .put("wakePlanId", wakePlanId)
+        .put("reservationGeneration", reservationGeneration)
+        .put("occurrenceId", occurrenceId)
+        .put("state", state.name)
+
+    companion object {
+        fun fromJson(json: JSONObject): ReservationAuthority {
+            val generation = json.opt("reservationGeneration")
+            require(generation is Long || generation is Int)
+            val exactGeneration = (generation as Number).toLong()
+            require(exactGeneration >= 0L)
+            return ReservationAuthority(
+                reservationId = json.getString("reservationId"),
+                wakePlanId = json.getString("wakePlanId"),
+                reservationGeneration = exactGeneration,
+                occurrenceId = json.getString("occurrenceId"),
+                state = ReservationAuthorityState.valueOf(json.getString("state")),
+            )
+        }
+    }
+}
+
+internal data class ReservationAuthoritySnapshot(
+    val reservations: Map<String, ReservationAuthority> = emptyMap(),
+    val occurrenceOwners: Map<String, Pair<String, String>> = emptyMap(),
+)
+
+internal data class ReservationAdmissionFailure(
+    val failureReason: String,
+    val message: String,
+)
+
+internal class ReservationAuthorityStore(context: Context) {
+    private val preferences = (if (
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !context.isDeviceProtectedStorage
+    ) {
+        context.createDeviceProtectedStorageContext()
+    } else {
+        context
+    }).getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+
+    fun load(): ReservationAuthoritySnapshot = synchronized(lock) {
+        loadUnlocked()
+    }
+
+    fun validateAndSeedActive(requests: Collection<AlarmRequest>): String? = synchronized(lock) {
+        if (requests.groupBy { it.reservationId }.values.any { it.size > 1 }) {
+            return@synchronized "Duplicate native reservation identity."
+        }
+        if (requests.groupBy { it.occurrenceId }.values.any { it.size > 1 }) {
+            return@synchronized "Duplicate native occurrence identity."
+        }
+        val snapshot = try {
+            loadUnlocked()
+        } catch (_: Exception) {
+            return@synchronized "Native reservation generation authority is corrupt."
+        }
+        val reservations = snapshot.reservations.toMutableMap()
+        val occurrenceOwners = snapshot.occurrenceOwners.toMutableMap()
+        var changed = false
+        for (request in requests) {
+            val occurrenceOwner = occurrenceOwners[request.occurrenceId]
+            if (
+                occurrenceOwner != null &&
+                occurrenceOwner != (request.reservationId to request.wakePlanId)
+            ) {
+                return@synchronized "Native occurrence generation ownership conflicts."
+            }
+            val authority = reservations[request.reservationId]
+            if (authority == null) {
+                reservations[request.reservationId] = request.activeAuthority()
+                occurrenceOwners[request.occurrenceId] =
+                    request.reservationId to request.wakePlanId
+                changed = true
+                continue
+            }
+            if (
+                authority.wakePlanId == request.wakePlanId &&
+                request.reservationGeneration > authority.reservationGeneration
+            ) {
+                reservations[request.reservationId] = request.activeAuthority()
+                occurrenceOwners[request.occurrenceId] =
+                    request.reservationId to request.wakePlanId
+                changed = true
+                continue
+            }
+            if (
+                authority.wakePlanId != request.wakePlanId ||
+                request.reservationGeneration != authority.reservationGeneration ||
+                authority.occurrenceId != request.occurrenceId ||
+                authority.state != ReservationAuthorityState.ACTIVE
+            ) {
+                return@synchronized "Native reservation generation authority does not match its mirror."
+            }
+            if (occurrenceOwner == null) {
+                occurrenceOwners[request.occurrenceId] =
+                    request.reservationId to request.wakePlanId
+                changed = true
+            }
+        }
+        if (
+            changed &&
+            !saveUnlocked(ReservationAuthoritySnapshot(reservations, occurrenceOwners))
+        ) {
+            return@synchronized "Failed to persist native reservation generation authority."
+        }
+        null
+    }
+
+    fun admissionFailure(request: AlarmRequest): ReservationAdmissionFailure? = synchronized(lock) {
+        val snapshot = try {
+            loadUnlocked()
+        } catch (_: Exception) {
+            return@synchronized ReservationAdmissionFailure(
+                failureReason = "nativeError",
+                message = "Native reservation generation authority is corrupt.",
+            )
+        }
+        val occurrenceOwner = snapshot.occurrenceOwners[request.occurrenceId]
+        if (
+            occurrenceOwner != null &&
+            occurrenceOwner != (request.reservationId to request.wakePlanId)
+        ) {
+            return@synchronized ReservationAdmissionFailure(
+                failureReason = "invalidRequest",
+                message = "Native occurrence identity is already owned by another reservation.",
+            )
+        }
+        val authority = snapshot.reservations[request.reservationId] ?: return@synchronized null
+        val message = when {
+            authority.wakePlanId != request.wakePlanId ->
+                "Native reservation identity is already owned by another wake plan."
+            request.reservationGeneration < authority.reservationGeneration ->
+                "Native reservation generation is stale."
+            request.reservationGeneration == authority.reservationGeneration &&
+                authority.state == ReservationAuthorityState.RETIRED ->
+                "Native reservation generation has been retired."
+            request.reservationGeneration == authority.reservationGeneration &&
+                authority.occurrenceId != request.occurrenceId ->
+                "Native reservation generation does not match its occurrence."
+            else -> null
+        }
+        message?.let {
+            ReservationAdmissionFailure(
+                failureReason = "invalidRequest",
+                message = it,
+            )
+        }
+    }
+
+    fun recordActive(request: AlarmRequest): Boolean = synchronized(lock) {
+        val snapshot = try {
+            loadUnlocked()
+        } catch (_: Exception) {
+            return@synchronized false
+        }
+        val occurrenceOwner = snapshot.occurrenceOwners[request.occurrenceId]
+        if (
+            occurrenceOwner != null &&
+            occurrenceOwner != (request.reservationId to request.wakePlanId)
+        ) return@synchronized false
+        val current = snapshot.reservations[request.reservationId]
+        if (current != null) {
+            if (current.wakePlanId != request.wakePlanId) return@synchronized false
+            if (request.reservationGeneration < current.reservationGeneration) {
+                return@synchronized false
+            }
+            if (
+                request.reservationGeneration == current.reservationGeneration &&
+                (current.state != ReservationAuthorityState.ACTIVE ||
+                    current.occurrenceId != request.occurrenceId)
+            ) return@synchronized false
+        }
+        val reservations = snapshot.reservations.toMutableMap()
+        val occurrenceOwners = snapshot.occurrenceOwners.toMutableMap()
+        reservations[request.reservationId] = request.activeAuthority()
+        occurrenceOwners[request.occurrenceId] = request.reservationId to request.wakePlanId
+        saveUnlocked(ReservationAuthoritySnapshot(reservations, occurrenceOwners))
+    }
+
+    fun recordRetired(requests: Collection<AlarmRequest>): Boolean = synchronized(lock) {
+        if (requests.isEmpty()) return@synchronized true
+        val snapshot = try {
+            loadUnlocked()
+        } catch (_: Exception) {
+            return@synchronized false
+        }
+        val reservations = snapshot.reservations.toMutableMap()
+        val occurrenceOwners = snapshot.occurrenceOwners.toMutableMap()
+        for (request in requests.sortedBy { it.reservationGeneration }) {
+            val owner = occurrenceOwners[request.occurrenceId]
+            if (owner != null && owner != (request.reservationId to request.wakePlanId)) {
+                return@synchronized false
+            }
+            occurrenceOwners[request.occurrenceId] = request.reservationId to request.wakePlanId
+            val current = reservations[request.reservationId]
+            if (current != null && current.wakePlanId != request.wakePlanId) {
+                return@synchronized false
+            }
+            if (current == null || request.reservationGeneration >= current.reservationGeneration) {
+                reservations[request.reservationId] = ReservationAuthority(
+                    reservationId = request.reservationId,
+                    wakePlanId = request.wakePlanId,
+                    reservationGeneration = request.reservationGeneration,
+                    occurrenceId = request.occurrenceId,
+                    state = ReservationAuthorityState.RETIRED,
+                )
+            }
+        }
+        saveUnlocked(ReservationAuthoritySnapshot(reservations, occurrenceOwners))
+    }
+
+    private fun loadUnlocked(): ReservationAuthoritySnapshot {
+        val encoded = preferences.getString(AUTHORITY_KEY, null)
+            ?: return ReservationAuthoritySnapshot()
+        val json = JSONObject(encoded)
+        require(json.getInt("schemaVersion") == STORAGE_SCHEMA_VERSION)
+        val reservationsJson = json.getJSONObject("reservations")
+        val reservations = linkedMapOf<String, ReservationAuthority>()
+        val reservationKeys = reservationsJson.keys()
+        while (reservationKeys.hasNext()) {
+            val key = reservationKeys.next()
+            val authority = ReservationAuthority.fromJson(reservationsJson.getJSONObject(key))
+            require(authority.reservationId == key)
+            require(reservations.put(key, authority) == null)
+        }
+        val ownersJson = json.getJSONObject("occurrenceOwners")
+        val occurrenceOwners = linkedMapOf<String, Pair<String, String>>()
+        val ownerKeys = ownersJson.keys()
+        while (ownerKeys.hasNext()) {
+            val occurrenceId = ownerKeys.next()
+            require(occurrenceId.isNotBlank())
+            val ownerJson = ownersJson.getJSONObject(occurrenceId)
+            val owner = ownerJson.getString("reservationId") to
+                ownerJson.getString("wakePlanId")
+            require(owner.first.isNotBlank() && owner.second.isNotBlank())
+            require(occurrenceOwners.put(occurrenceId, owner) == null)
+        }
+        reservations.values.forEach { authority ->
+            require(
+                occurrenceOwners[authority.occurrenceId] ==
+                    (authority.reservationId to authority.wakePlanId),
+            )
+        }
+        return ReservationAuthoritySnapshot(reservations, occurrenceOwners)
+    }
+
+    private fun saveUnlocked(snapshot: ReservationAuthoritySnapshot): Boolean {
+        val reservations = JSONObject()
+        snapshot.reservations.toSortedMap().forEach { (key, value) ->
+            reservations.put(key, value.toJson())
+        }
+        val occurrenceOwners = JSONObject()
+        snapshot.occurrenceOwners.toSortedMap().forEach { (occurrenceId, owner) ->
+            occurrenceOwners.put(
+                occurrenceId,
+                JSONObject().put("reservationId", owner.first).put("wakePlanId", owner.second),
+            )
+        }
+        val encoded = JSONObject()
+            .put("schemaVersion", STORAGE_SCHEMA_VERSION)
+            .put("reservations", reservations)
+            .put("occurrenceOwners", occurrenceOwners)
+            .toString()
+        return preferences.edit().putString(AUTHORITY_KEY, encoded).commit()
+    }
+
+    private fun AlarmRequest.activeAuthority() = ReservationAuthority(
+        reservationId = reservationId,
+        wakePlanId = wakePlanId,
+        reservationGeneration = reservationGeneration,
+        occurrenceId = occurrenceId,
+        state = ReservationAuthorityState.ACTIVE,
+    )
+
+    private companion object {
+        const val PREFERENCES_NAME = "native_alarm_reservation_authority"
+        const val AUTHORITY_KEY = "authority"
+        const val STORAGE_SCHEMA_VERSION = 1
+        val lock = Any()
+    }
+}
+
 internal enum class AlarmReplacementPhase {
     STAGING,
     CANDIDATE_ARMED,
@@ -1604,31 +2586,64 @@ internal data class AlarmReplacementJournal(
     val old: AlarmRequest,
     val new: AlarmRequest,
     val phase: AlarmReplacementPhase = AlarmReplacementPhase.STAGING,
+    val schemaVersion: Int = if (
+        new.reservationGeneration > old.reservationGeneration
+    ) 2 else 1,
 ) {
     init {
         require(old.reservationId == new.reservationId)
         require(old.wakePlanId == new.wakePlanId)
-        require(old.occurrenceId != new.occurrenceId)
+        require(
+            old.occurrenceId != new.occurrenceId ||
+                schemaVersion == 2 &&
+                new.reservationGeneration > old.reservationGeneration,
+        )
         require(old.platformAlarmId != new.platformAlarmId)
         require(old.hasCanonicalPlatformAlarmId())
-        require(new.platformAlarmId == AlarmRequest.replacementPlatformAlarmId(new))
+        require(
+            schemaVersion == 1 &&
+                old.reservationGeneration == 0L &&
+                new.reservationGeneration == 0L &&
+                new.platformAlarmId == AlarmRequest.legacyReplacementPlatformAlarmId(new) ||
+                schemaVersion == 2 &&
+                new.reservationGeneration > old.reservationGeneration &&
+                new.platformAlarmId == AlarmRequest.replacementPlatformAlarmId(new),
+        )
     }
 
     fun toJson(): JSONObject {
+        val oldJson = old.toJson()
+        val newJson = new.toJson()
+        if (schemaVersion == 1) {
+            oldJson.remove("reservationGeneration")
+            newJson.remove("reservationGeneration")
+        }
         return JSONObject()
-            .put("schemaVersion", 1)
-            .put("old", old.toJson())
-            .put("new", new.toJson())
+            .put("schemaVersion", schemaVersion)
+            .put("old", oldJson)
+            .put("new", newJson)
             .put("phase", phase.name)
     }
 
     companion object {
         fun fromJson(json: JSONObject): AlarmReplacementJournal {
-            require(json.getInt("schemaVersion") == 1)
+            val schemaVersion = json.getInt("schemaVersion")
+            require(schemaVersion == 1 || schemaVersion == 2)
+            val oldJson = json.getJSONObject("old")
+            val newJson = json.getJSONObject("new")
+            require(
+                schemaVersion == 1 &&
+                    !oldJson.has("reservationGeneration") &&
+                    !newJson.has("reservationGeneration") ||
+                    schemaVersion == 2 &&
+                    oldJson.has("reservationGeneration") &&
+                    newJson.has("reservationGeneration"),
+            )
             return AlarmReplacementJournal(
-                old = AlarmRequest.fromJson(json.getJSONObject("old")),
-                new = AlarmRequest.fromJson(json.getJSONObject("new")),
+                old = AlarmRequest.fromJson(oldJson),
+                new = AlarmRequest.fromJson(newJson),
                 phase = AlarmReplacementPhase.valueOf(json.getString("phase")),
+                schemaVersion = schemaVersion,
             )
         }
     }
@@ -1663,6 +2678,43 @@ internal class AlarmReplacementJournalStore(context: Context) {
     }
 }
 
+internal class AlarmActivationCleanupStore(context: Context) {
+    private val preferences = (if (
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !context.isDeviceProtectedStorage
+    ) {
+        context.createDeviceProtectedStorageContext()
+    } else {
+        context
+    }).getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+
+    fun load(): AlarmRequest? = synchronized(lock) {
+        val value = preferences.getString(JOURNAL_KEY, null) ?: return@synchronized null
+        val json = JSONObject(value)
+        require(json.getInt("schemaVersion") == STORAGE_SCHEMA_VERSION)
+        AlarmRequest.fromJson(json.getJSONObject("request"))
+    }
+
+    fun save(request: AlarmRequest): Boolean = synchronized(lock) {
+        if (preferences.contains(JOURNAL_KEY)) return@synchronized false
+        val encoded = JSONObject()
+            .put("schemaVersion", STORAGE_SCHEMA_VERSION)
+            .put("request", request.toJson())
+            .toString()
+        preferences.edit().putString(JOURNAL_KEY, encoded).commit()
+    }
+
+    fun clear(): Boolean = synchronized(lock) {
+        preferences.edit().remove(JOURNAL_KEY).commit()
+    }
+
+    private companion object {
+        const val PREFERENCES_NAME = "native_alarm_activation_cleanup"
+        const val JOURNAL_KEY = "active"
+        const val STORAGE_SCHEMA_VERSION = 1
+        val lock = Any()
+    }
+}
+
 internal data class AlarmReplacementRecoveryResult(
     val isSuccess: Boolean,
     val message: String? = null,
@@ -1678,6 +2730,7 @@ internal object AndroidAlarmReplacementRecovery {
     ): AlarmReplacementRecoveryResult = synchronized(lock) {
         val appContext = serviceContext.applicationContext
         val journalStore = AlarmReplacementJournalStore(storageContext)
+        val activationCleanupStore = AlarmActivationCleanupStore(storageContext)
         val journal = try {
             journalStore.load()
         } catch (error: Exception) {
@@ -1685,10 +2738,49 @@ internal object AndroidAlarmReplacementRecovery {
                 isSuccess = false,
                 message = error.message ?: "Native alarm replacement journal is corrupt.",
             )
-        } ?: return@synchronized AlarmReplacementRecoveryResult(isSuccess = true)
+        }
+        val activationCleanup = try {
+            activationCleanupStore.load()
+        } catch (error: Exception) {
+            return@synchronized AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = error.message ?: "Native alarm activation cleanup journal is corrupt.",
+            )
+        }
+        if (journal != null && activationCleanup != null) {
+            return@synchronized AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Native alarm replacement and activation cleanup journals conflict.",
+            )
+        }
 
         val alarmManager = appContext.getSystemService(AlarmManager::class.java)
         val store = AlarmStore(storageContext)
+        val authorityStore = ReservationAuthorityStore(storageContext)
+        if (
+            activationCleanup != null &&
+            (admittingPlatformAlarmId == null ||
+                admittingPlatformAlarmId == activationCleanup.platformAlarmId)
+        ) {
+            val cleanup = reconcileActivationCleanup(
+                activationCleanup,
+                appContext,
+                alarmManager,
+                store,
+                authorityStore,
+                activationCleanupStore,
+            )
+            if (!cleanup.isSuccess) return@synchronized cleanup
+        }
+        if (journal == null) {
+            return@synchronized reconcileRetiredMirrors(
+                appContext,
+                alarmManager,
+                store,
+                authorityStore,
+                admittingPlatformAlarmId,
+            )
+        }
         if (
             admittingPlatformAlarmId != null &&
             admittingPlatformAlarmId != journal.old.platformAlarmId &&
@@ -1703,15 +2795,36 @@ internal object AndroidAlarmReplacementRecovery {
             journal,
             System.currentTimeMillis(),
             admittingPlatformAlarmId,
-        ) ?: return@synchronized retireExpired(
-            journal,
-            appContext,
-            alarmManager,
-            store,
-            journalStore,
         )
+        if (winner == null) {
+            val retired = retireExpired(
+                journal,
+                appContext,
+                alarmManager,
+                store,
+                journalStore,
+                authorityStore,
+            )
+            return@synchronized if (retired.isSuccess) {
+                reconcileRetiredMirrors(
+                    appContext,
+                    alarmManager,
+                    store,
+                    authorityStore,
+                    admittingPlatformAlarmId,
+                )
+            } else {
+                retired
+            }
+        }
         val loser = if (winner == journal.new) journal.old else journal.new
 
+        if (!authorityStore.recordActive(winner)) {
+            return@synchronized AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Failed to persist native alarm replacement generation authority.",
+            )
+        }
         if (!store.replace(
                 journal.old.platformAlarmId,
                 journal.new.platformAlarmId,
@@ -1740,7 +2853,225 @@ internal object AndroidAlarmReplacementRecovery {
                 message = "Failed to clear native alarm replacement journal.",
             )
         }
-        AlarmReplacementRecoveryResult(isSuccess = true)
+        reconcileRetiredMirrors(
+            appContext,
+            alarmManager,
+            store,
+            authorityStore,
+            admittingPlatformAlarmId,
+        )
+    }
+
+    private fun reconcileActivationCleanup(
+        request: AlarmRequest,
+        appContext: Context,
+        alarmManager: AlarmManager,
+        store: AlarmStore,
+        authorityStore: ReservationAuthorityStore,
+        cleanupStore: AlarmActivationCleanupStore,
+    ): AlarmReplacementRecoveryResult {
+        val authority = try {
+            authorityStore.load().reservations[request.reservationId]
+        } catch (error: Exception) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = error.message ?: "Native reservation generation authority is corrupt.",
+            )
+        }
+        if (
+            authority?.state == ReservationAuthorityState.ACTIVE &&
+            authority.wakePlanId == request.wakePlanId &&
+            authority.reservationGeneration == request.reservationGeneration &&
+            authority.occurrenceId == request.occurrenceId
+        ) {
+            val snapshot = store.inspectIdentities(appContext, System.currentTimeMillis())
+            if (snapshot.duplicateIdentity != null || snapshot.corruptKeys.isNotEmpty()) {
+                return AlarmReplacementRecoveryResult(
+                    isSuccess = false,
+                    message = snapshot.duplicateIdentity
+                        ?: "Native alarm mirror state is corrupt during activation recovery.",
+                )
+            }
+            val mirror = snapshot.requests.singleOrNull {
+                it.platformAlarmId == request.platformAlarmId
+            }
+            if (mirror?.copy(updatedAtMillis = request.updatedAtMillis) == request) {
+                return if (cleanupStore.clear()) {
+                    AlarmReplacementRecoveryResult(isSuccess = true)
+                } else {
+                    AlarmReplacementRecoveryResult(
+                        isSuccess = false,
+                        message = "Failed to clear committed native alarm activation evidence.",
+                    )
+                }
+            }
+        }
+        if (!authorityStore.recordRetired(listOf(request))) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Failed to persist pending native alarm activation retirement.",
+            )
+        }
+        val retired = try {
+            authorityStore.load().reservations[request.reservationId]
+        } catch (error: Exception) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = error.message ?: "Native reservation generation authority is corrupt.",
+            )
+        }
+        if (
+            retired?.state != ReservationAuthorityState.RETIRED ||
+            retired.wakePlanId != request.wakePlanId ||
+            retired.reservationGeneration != request.reservationGeneration ||
+            retired.occurrenceId != request.occurrenceId
+        ) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Pending native alarm activation retirement is non-monotonic.",
+            )
+        }
+        try {
+            cancel(appContext, alarmManager, request.platformAlarmId)
+        } catch (error: RuntimeException) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = error.message ?: "Failed to cancel a pending native alarm activation.",
+            )
+        }
+        if (!store.removeRaw(request.platformAlarmId)) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Failed to remove a pending native alarm activation mirror.",
+            )
+        }
+        appContext.getSystemService(NotificationManager::class.java)
+            .cancel(request.platformAlarmId.hashCode())
+        if (!cleanupStore.clear()) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Failed to clear native alarm activation cleanup evidence.",
+            )
+        }
+        return AlarmReplacementRecoveryResult(isSuccess = true)
+    }
+
+    private fun reconcileRetiredMirrors(
+        appContext: Context,
+        alarmManager: AlarmManager,
+        store: AlarmStore,
+        authorityStore: ReservationAuthorityStore,
+        admittingPlatformAlarmId: String?,
+    ): AlarmReplacementRecoveryResult {
+        var authority = try {
+            authorityStore.load()
+        } catch (error: Exception) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = error.message ?: "Native reservation generation authority is corrupt.",
+            )
+        }
+        val snapshot = store.inspectIdentities(appContext, System.currentTimeMillis())
+        val admittedMirrorIsCorrupt = admittingPlatformAlarmId != null &&
+            snapshot.corruptKeys.contains(admittingPlatformAlarmId)
+        if (snapshot.duplicateIdentity != null || admittedMirrorIsCorrupt) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = snapshot.duplicateIdentity
+                    ?: "Native alarm mirror state is corrupt during reservation recovery.",
+            )
+        }
+        val relevantRequests = snapshot.requests.filter { request ->
+            admittingPlatformAlarmId == null ||
+                request.platformAlarmId == admittingPlatformAlarmId
+        }
+        for (request in relevantRequests) {
+            val persisted = authority.reservations[request.reservationId] ?: continue
+            val samePlan = persisted.wakePlanId == request.wakePlanId
+            val exactTuple = samePlan &&
+                persisted.reservationGeneration == request.reservationGeneration &&
+                persisted.occurrenceId == request.occurrenceId
+            val recoverableAdvance = samePlan &&
+                request.reservationGeneration > persisted.reservationGeneration
+            if (!exactTuple && !recoverableAdvance) {
+                return AlarmReplacementRecoveryResult(
+                    isSuccess = false,
+                    message = "Native alarm mirror conflicts with reservation generation authority.",
+                )
+            }
+        }
+        val pendingActivations = snapshot.requests.filter { request ->
+            val persisted = authority.reservations[request.reservationId]
+            val matchesAdmission = admittingPlatformAlarmId == null ||
+                request.platformAlarmId == admittingPlatformAlarmId
+            val advancesAuthority = persisted != null &&
+                persisted.wakePlanId == request.wakePlanId &&
+                request.reservationGeneration > persisted.reservationGeneration
+            val seedsStableAuthority = persisted == null &&
+                request.reservationId != request.occurrenceId &&
+                request.platformAlarmId != AlarmRequest.legacyPlatformAlarmId(request)
+            matchesAdmission && (advancesAuthority || seedsStableAuthority)
+        }
+        for (request in pendingActivations) {
+            if (
+                request.state != AlarmState.RINGING &&
+                request.platformAlarmId != admittingPlatformAlarmId
+            ) {
+                try {
+                    arm(appContext, alarmManager, request)
+                } catch (error: RuntimeException) {
+                    return AlarmReplacementRecoveryResult(
+                        isSuccess = false,
+                        message = error.message ?: "Failed to restore native alarm activation.",
+                    )
+                }
+            }
+            if (!authorityStore.recordActive(request)) {
+                return AlarmReplacementRecoveryResult(
+                    isSuccess = false,
+                    message = "Failed to finish native alarm generation activation.",
+                )
+            }
+        }
+        if (pendingActivations.isNotEmpty()) {
+            authority = try {
+                authorityStore.load()
+            } catch (error: Exception) {
+                return AlarmReplacementRecoveryResult(
+                    isSuccess = false,
+                    message = error.message
+                        ?: "Native reservation generation authority is corrupt.",
+                )
+            }
+        }
+        val pendingRetirements = snapshot.requests.filter { request ->
+            val persisted = authority.reservations[request.reservationId]
+            (admittingPlatformAlarmId == null ||
+                request.platformAlarmId == admittingPlatformAlarmId) &&
+                persisted?.state == ReservationAuthorityState.RETIRED &&
+                persisted.wakePlanId == request.wakePlanId &&
+                persisted.reservationGeneration == request.reservationGeneration &&
+                persisted.occurrenceId == request.occurrenceId
+        }
+        for (request in pendingRetirements) {
+            try {
+                cancel(appContext, alarmManager, request.platformAlarmId)
+            } catch (error: RuntimeException) {
+                return AlarmReplacementRecoveryResult(
+                    isSuccess = false,
+                    message = error.message ?: "Failed to finish native alarm retirement.",
+                )
+            }
+            if (!store.removeRaw(request.platformAlarmId)) {
+                return AlarmReplacementRecoveryResult(
+                    isSuccess = false,
+                    message = "Failed to remove a retired native alarm mirror row.",
+                )
+            }
+            appContext.getSystemService(NotificationManager::class.java)
+                .cancel(request.platformAlarmId.hashCode())
+        }
+        return AlarmReplacementRecoveryResult(isSuccess = true)
     }
 
     private fun selectWinner(
@@ -1768,15 +3099,16 @@ internal object AndroidAlarmReplacementRecovery {
         alarmManager: AlarmManager,
         store: AlarmStore,
         journalStore: AlarmReplacementJournalStore,
+        authorityStore: ReservationAuthorityStore,
     ): AlarmReplacementRecoveryResult {
         val expiredPlatformAlarmIds = setOf(
             journal.old.platformAlarmId,
             journal.new.platformAlarmId,
         )
-        if (!store.removeAll(expiredPlatformAlarmIds)) {
+        if (!authorityStore.recordRetired(listOf(journal.old, journal.new))) {
             return AlarmReplacementRecoveryResult(
                 isSuccess = false,
-                message = "Failed to retire expired native alarm replacement rows.",
+                message = "Failed to persist expired native alarm generation retirement.",
             )
         }
         try {
@@ -1786,6 +3118,12 @@ internal object AndroidAlarmReplacementRecovery {
             return AlarmReplacementRecoveryResult(
                 isSuccess = false,
                 message = error.message ?: "Failed to retire expired native alarms.",
+            )
+        }
+        if (!store.removeAll(expiredPlatformAlarmIds)) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Failed to retire expired native alarm replacement rows.",
             )
         }
         if (!journalStore.clear()) {
@@ -1859,6 +3197,13 @@ object AlarmRestore {
         synchronized(restoreLock) {
             val alarmManager = appContext.getSystemService(AlarmManager::class.java)
             val store = AlarmStore(storageContext)
+            val replacementRecovery = AndroidAlarmReplacementRecovery.reconcile(
+                storageContext,
+                appContext,
+            )
+            if (!replacementRecovery.isSuccess) {
+                return
+            }
             val now = System.currentTimeMillis()
             val requests = store.all()
             requests.forEach { request ->

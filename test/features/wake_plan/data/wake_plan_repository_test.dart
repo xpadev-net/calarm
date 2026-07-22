@@ -60,6 +60,8 @@ void main() {
     TimeOfDayMinutes? time,
     AlarmOccurrenceStatus status = AlarmOccurrenceStatus.scheduled,
     String? platformAlarmId,
+    String? reservationId,
+    int reservationGeneration = 0,
     DateTime? firedAt,
     DateTime? updatedAt,
   }) {
@@ -69,6 +71,8 @@ void main() {
       scheduledAt: DateMinute(day: day ?? monday, time: time ?? targetTime),
       status: status,
       platformAlarmId: platformAlarmId,
+      reservationId: reservationId,
+      reservationGeneration: reservationGeneration,
       firedAt: firedAt,
       createdAt: now,
       updatedAt: updatedAt ?? now,
@@ -76,8 +80,8 @@ void main() {
   }
 
   group('schema', () {
-    test('starts at migration version 2', () {
-      expect(database.schemaVersion, 2);
+    test('starts at migration version 3', () {
+      expect(database.schemaVersion, 3);
       expect(database.migration, isNotNull);
     });
 
@@ -122,6 +126,8 @@ void main() {
 
         expect(occurrence, isNotNull);
         expect(occurrence!.platformAlarmId, 'legacy-native');
+        expect(occurrence.reservationId, 'legacy-occ');
+        expect(occurrence.reservationGeneration, 0);
         expect(
           await migratedRepository.fetchPendingAlarmOccurrenceDismissals(),
           isEmpty,
@@ -169,6 +175,99 @@ void main() {
           expect(pending, isNotNull);
           expect(pending!.platformAlarmId, 'native-exact');
           expect(pending.occurrence.status, AlarmOccurrenceStatus.scheduled);
+          expect(pending.occurrence.reservationId, 'occ-1');
+          expect(pending.occurrence.reservationGeneration, 0);
+        } finally {
+          await upgradedDatabase.close();
+          await directory.delete(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'migrates version 2 rows with deterministic reservation defaults',
+      () async {
+        await database.close();
+        final directory = await Directory.systemTemp.createTemp(
+          'calarm-reservation-v2-migration-',
+        );
+        final file = File('${directory.path}/wake-plan.sqlite');
+        final legacy = sqlite.sqlite3.open(file.path);
+        legacy.execute('''
+        CREATE TABLE alarm_occurrence_rows (
+          id TEXT NOT NULL PRIMARY KEY,
+          wake_plan_id TEXT NOT NULL,
+          scheduled_at_days INTEGER NOT NULL,
+          scheduled_at_minutes INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          platform_alarm_id TEXT,
+          fired_at INTEGER,
+          dismissed_at INTEGER,
+          failure_reason TEXT,
+          dismissal_requested_at INTEGER,
+          dismissal_platform_alarm_id TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      ''');
+        legacy.execute(
+          'INSERT INTO alarm_occurrence_rows '
+          '(id, wake_plan_id, scheduled_at_days, scheduled_at_minutes, status, '
+          'platform_alarm_id, created_at, updated_at) '
+          "VALUES ('v2-occ', 'legacy-plan', 20640, 410, 'scheduled', "
+          "'v2-native', 0, 0)",
+        );
+        legacy.execute('PRAGMA user_version = 2');
+        legacy.dispose();
+
+        final migratedDatabase = WakePlanDatabase(NativeDatabase(file));
+        final migratedRepository = WakePlanRepository(migratedDatabase);
+        try {
+          final occurrence = await migratedRepository.fetchAlarmOccurrence(
+            'v2-occ',
+          );
+          expect(occurrence, isNotNull);
+          expect(occurrence!.reservationId, 'v2-occ');
+          expect(occurrence.reservationGeneration, 0);
+          expect(occurrence.platformAlarmId, 'v2-native');
+        } finally {
+          await migratedDatabase.close();
+          await directory.delete(recursive: true);
+        }
+      },
+    );
+
+    test(
+      're-upgrades v3 reservation columns after a version 2 rollback',
+      () async {
+        await database.close();
+        final directory = await Directory.systemTemp.createTemp(
+          'calarm-reservation-reupgrade-',
+        );
+        final file = File('${directory.path}/wake-plan.sqlite');
+        var upgradedDatabase = WakePlanDatabase(NativeDatabase(file));
+        var upgradedRepository = WakePlanRepository(upgradedDatabase);
+        await upgradedRepository.saveWakePlan(buildPlan());
+        await upgradedRepository.saveAlarmOccurrences([
+          buildOccurrence(
+            reservationId: 'stable-slot',
+            reservationGeneration: 11,
+          ),
+        ]);
+        await upgradedDatabase.close();
+
+        final rolledBack = sqlite.sqlite3.open(file.path);
+        rolledBack.execute('PRAGMA user_version = 2');
+        rolledBack.dispose();
+
+        upgradedDatabase = WakePlanDatabase(NativeDatabase(file));
+        upgradedRepository = WakePlanRepository(upgradedDatabase);
+        try {
+          final occurrence = await upgradedRepository.fetchAlarmOccurrence(
+            'occ-1',
+          );
+          expect(occurrence!.reservationId, 'stable-slot');
+          expect(occurrence.reservationGeneration, 11);
         } finally {
           await upgradedDatabase.close();
           await directory.delete(recursive: true);
@@ -537,6 +636,208 @@ void main() {
         expect(cleared.hasNativeReservation, isFalse);
       },
     );
+
+    test('reopens durable reservation identity and generation', () async {
+      await database.close();
+      final directory = await Directory.systemTemp.createTemp(
+        'calarm-reservation-reopen-',
+      );
+      final file = File('${directory.path}/wake-plan.sqlite');
+      var reopenedDatabase = WakePlanDatabase(NativeDatabase(file));
+      var reopenedRepository = WakePlanRepository(reopenedDatabase);
+      await reopenedRepository.saveWakePlan(buildPlan());
+      await reopenedRepository.saveAlarmOccurrences([
+        buildOccurrence(
+          platformAlarmId: 'native-current',
+          reservationId: 'stable-slot',
+          reservationGeneration: 6,
+        ),
+      ]);
+      await reopenedDatabase.close();
+
+      reopenedDatabase = WakePlanDatabase(NativeDatabase(file));
+      reopenedRepository = WakePlanRepository(reopenedDatabase);
+      try {
+        final occurrence = await reopenedRepository.fetchAlarmOccurrence(
+          'occ-1',
+        );
+        expect(occurrence, isNotNull);
+        expect(occurrence!.reservationId, 'stable-slot');
+        expect(occurrence.reservationGeneration, 6);
+        expect(occurrence.platformAlarmId, 'native-current');
+      } finally {
+        await reopenedDatabase.close();
+        await directory.delete(recursive: true);
+      }
+    });
+
+    test('rejects reservation generation rollback without mutation', () async {
+      await repository.saveWakePlan(buildPlan());
+      final current = buildOccurrence(
+        reservationId: 'stable-slot',
+        reservationGeneration: 4,
+      );
+      await repository.saveAlarmOccurrences([current]);
+
+      await expectLater(
+        repository.saveAlarmOccurrences([
+          current.copyWith(reservationGeneration: 3),
+        ]),
+        throwsStateError,
+      );
+
+      expect(
+        (await repository.fetchAlarmOccurrence(
+          current.id,
+        ))!.reservationGeneration,
+        4,
+      );
+    });
+
+    test(
+      'rejects corrupt persisted generations without replacing authority',
+      () async {
+        await repository.saveWakePlan(buildPlan());
+        final current = buildOccurrence(
+          id: 'corrupt-generation-old',
+          reservationId: 'stable-slot',
+          reservationGeneration: 3,
+        );
+        await repository.saveAlarmOccurrences([current]);
+        await database.customUpdate(
+          'UPDATE alarm_occurrence_rows '
+          'SET reservation_generation = -1 '
+          "WHERE id = 'corrupt-generation-old'",
+        );
+
+        await expectLater(
+          repository.saveAlarmOccurrences([
+            current.copyWith(reservationGeneration: 0),
+          ]),
+          throwsStateError,
+        );
+        await expectLater(
+          repository.saveAlarmOccurrences([
+            buildOccurrence(
+              id: 'corrupt-generation-new',
+              reservationId: 'stable-slot',
+              reservationGeneration: 0,
+            ),
+          ]),
+          throwsStateError,
+        );
+
+        final raw = await database
+            .customSelect(
+              'SELECT id, reservation_generation '
+              'FROM alarm_occurrence_rows '
+              "WHERE reservation_id = 'stable-slot'",
+            )
+            .get();
+        expect(raw, hasLength(1));
+        expect(raw.single.read<String>('id'), 'corrupt-generation-old');
+        expect(raw.single.read<int>('reservation_generation'), -1);
+      },
+    );
+
+    test('rejects equal-generation rebinding but allows higher gaps', () async {
+      await repository.saveWakePlan(buildPlan());
+      await repository.saveAlarmOccurrences([
+        buildOccurrence(
+          id: 'old-occ',
+          reservationId: 'stable-slot',
+          reservationGeneration: 2,
+          status: AlarmOccurrenceStatus.cancelled,
+        ),
+      ]);
+
+      await expectLater(
+        repository.saveAlarmOccurrences([
+          buildOccurrence(
+            id: 'equal-occ',
+            reservationId: 'stable-slot',
+            reservationGeneration: 2,
+          ),
+        ]),
+        throwsStateError,
+      );
+
+      await repository.saveAlarmOccurrences([
+        buildOccurrence(
+          id: 'higher-occ',
+          reservationId: 'stable-slot',
+          reservationGeneration: 9,
+        ),
+      ]);
+      expect(
+        (await repository.fetchAlarmOccurrence(
+          'higher-occ',
+        ))!.reservationGeneration,
+        9,
+      );
+    });
+
+    test('rejects cross-plan reservation reuse atomically', () async {
+      await repository.saveWakePlan(buildPlan());
+      await repository.saveWakePlan(buildPlan(id: 'plan-2'));
+      await repository.saveAlarmOccurrences([
+        buildOccurrence(
+          id: 'old-occ',
+          reservationId: 'stable-slot',
+          reservationGeneration: 1,
+          status: AlarmOccurrenceStatus.cancelled,
+        ),
+      ]);
+
+      await expectLater(
+        repository.saveAlarmOccurrences([
+          buildOccurrence(id: 'otherwise-valid'),
+          buildOccurrence(
+            id: 'cross-plan',
+            wakePlanId: 'plan-2',
+            reservationId: 'stable-slot',
+            reservationGeneration: 8,
+          ),
+        ]),
+        throwsStateError,
+      );
+
+      expect(await repository.fetchAlarmOccurrence('otherwise-valid'), isNull);
+      expect(await repository.fetchAlarmOccurrence('cross-plan'), isNull);
+    });
+
+    test('retains retired identity as a recreation tombstone', () async {
+      await repository.saveWakePlan(buildPlan());
+      final active = buildOccurrence(
+        id: 'old-occ',
+        platformAlarmId: 'native-old',
+        reservationId: 'stable-slot',
+        reservationGeneration: 3,
+      );
+      await repository.saveAlarmOccurrences([active]);
+      await repository.saveAlarmOccurrences([
+        active.copyWith(
+          status: AlarmOccurrenceStatus.cancelled,
+          platformAlarmId: null,
+        ),
+      ]);
+      await repository.saveAlarmOccurrences([
+        buildOccurrence(
+          id: 'new-occ',
+          reservationId: 'stable-slot',
+          reservationGeneration: 5,
+        ),
+      ]);
+
+      final retired = await repository.fetchAlarmOccurrence('old-occ');
+      final recreated = await repository.fetchAlarmOccurrence('new-occ');
+      expect(retired!.status, AlarmOccurrenceStatus.cancelled);
+      expect(retired.platformAlarmId, isNull);
+      expect(retired.reservationId, 'stable-slot');
+      expect(retired.reservationGeneration, 3);
+      expect(recreated!.reservationId, 'stable-slot');
+      expect(recreated.reservationGeneration, 5);
+    });
 
     test('prepares and completes an exact durable dismissal', () async {
       final requestedAt = DateTime(2026, 7, 6, 8, 1, 0, 123, 456);

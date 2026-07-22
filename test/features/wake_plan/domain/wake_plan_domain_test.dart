@@ -34,6 +34,8 @@ void main() {
   AlarmOccurrence buildOccurrence({
     AlarmOccurrenceStatus status = AlarmOccurrenceStatus.scheduled,
     String? platformAlarmId,
+    String? reservationId,
+    int reservationGeneration = 0,
     DateTime? firedAt,
     DateTime? dismissedAt,
     String? failureReason,
@@ -44,6 +46,8 @@ void main() {
       scheduledAt: DateMinute(day: monday, time: targetTime),
       status: status,
       platformAlarmId: platformAlarmId,
+      reservationId: reservationId,
+      reservationGeneration: reservationGeneration,
       firedAt: firedAt,
       dismissedAt: dismissedAt,
       failureReason: failureReason,
@@ -185,6 +189,28 @@ void main() {
       expect(scheduled.platformAlarmId, 'ios-42');
       expect(scheduled.hasNativeReservation, isTrue);
       expect(scheduled.copyWith(platformAlarmId: null).platformAlarmId, isNull);
+    });
+
+    test('defaults and validates durable reservation identity', () {
+      final legacy = buildOccurrence();
+      final recreated = buildOccurrence(
+        reservationId: 'stable-slot',
+        reservationGeneration: 4,
+      );
+
+      expect(legacy.reservationId, legacy.id);
+      expect(legacy.reservationGeneration, 0);
+      expect(recreated.reservationId, 'stable-slot');
+      expect(recreated.reservationGeneration, 4);
+      expect(
+        recreated.copyWith(reservationGeneration: 7).reservationGeneration,
+        7,
+      );
+      expect(
+        () => buildOccurrence(reservationGeneration: -1),
+        throwsRangeError,
+      );
+      expect(() => buildOccurrence(reservationId: '   '), throwsArgumentError);
     });
 
     test('dismissing one occurrence does not model stopping the plan', () {

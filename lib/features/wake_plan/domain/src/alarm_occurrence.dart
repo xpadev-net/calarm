@@ -26,6 +26,8 @@ class AlarmOccurrence {
     DateTime? firedAt,
     DateTime? dismissedAt,
     String? failureReason,
+    String? reservationId,
+    int reservationGeneration = 0,
   }) {
     _validateId(id, 'id');
     _validateId(wakePlanId, 'wakePlanId');
@@ -36,6 +38,16 @@ class AlarmOccurrence {
       firedAt: firedAt,
       dismissedAt: dismissedAt,
     );
+    final resolvedReservationId = reservationId ?? id;
+    _validateId(resolvedReservationId, 'reservationId');
+    if (reservationGeneration < 0) {
+      throw RangeError.range(
+        reservationGeneration,
+        0,
+        null,
+        'reservationGeneration',
+      );
+    }
 
     return AlarmOccurrence._(
       id: id,
@@ -46,6 +58,8 @@ class AlarmOccurrence {
       firedAt: firedAt,
       dismissedAt: dismissedAt,
       failureReason: failureReason,
+      reservationId: resolvedReservationId,
+      reservationGeneration: reservationGeneration,
       createdAt: createdAt,
       updatedAt: updatedAt,
     );
@@ -60,6 +74,8 @@ class AlarmOccurrence {
     required this.firedAt,
     required this.dismissedAt,
     required this.failureReason,
+    required this.reservationId,
+    required this.reservationGeneration,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -72,6 +88,8 @@ class AlarmOccurrence {
   final DateTime? firedAt;
   final DateTime? dismissedAt;
   final String? failureReason;
+  final String reservationId;
+  final int reservationGeneration;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -96,6 +114,8 @@ class AlarmOccurrence {
     Object? firedAt = _unchanged,
     Object? dismissedAt = _unchanged,
     Object? failureReason = _unchanged,
+    String? reservationId,
+    int? reservationGeneration,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -114,6 +134,9 @@ class AlarmOccurrence {
       failureReason: failureReason == _unchanged
           ? this.failureReason
           : failureReason as String?,
+      reservationId: reservationId ?? this.reservationId,
+      reservationGeneration:
+          reservationGeneration ?? this.reservationGeneration,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
