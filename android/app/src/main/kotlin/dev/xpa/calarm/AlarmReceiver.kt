@@ -10,12 +10,38 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
+import org.json.JSONObject
 import java.text.DateFormat
 import java.util.Date
 
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val platformAlarmId = intent.getStringExtra(AlarmIntents.EXTRA_PLATFORM_ALARM_ID) ?: return
+        val recovery = AndroidAlarmReplacementRecovery.reconcile(
+            storageContext = context,
+            serviceContext = context,
+            admittingPlatformAlarmId = platformAlarmId,
+        )
+        if (!recovery.isSuccess) {
+            if (
+                replacementRecoveryClaims(
+                    recoveryContext = context,
+                    platformAlarmId = platformAlarmId,
+                )
+            ) {
+                Log.e(
+                    TAG,
+                    "Failed to recover native alarm replacement before delivery admission: " +
+                        recovery.message,
+                )
+                return
+            }
+            Log.w(
+                TAG,
+                "Ignoring unrelated native alarm replacement recovery failure for delivery: " +
+                    recovery.message,
+            )
+        }
         val store = AlarmStore(context)
         val request = store.get(platformAlarmId)
         if (request == null) return
@@ -23,6 +49,7 @@ class AlarmReceiver : BroadcastReceiver() {
             request.platformAlarmId != platformAlarmId ||
             !request.hasCanonicalPlatformAlarmId()
         ) return
+        if (request.state == AlarmState.RINGING) return
         if (!store.markRinging(platformAlarmId)) return
         deliverAlarm(
             store = store,
@@ -46,6 +73,31 @@ class AlarmReceiver : BroadcastReceiver() {
                 }
             },
         )
+    }
+
+    private fun replacementRecoveryClaims(
+        recoveryContext: Context,
+        platformAlarmId: String,
+    ): Boolean {
+        val storageContext = if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.N &&
+                !recoveryContext.isDeviceProtectedStorage
+        ) {
+            recoveryContext.createDeviceProtectedStorageContext()
+        } else {
+            recoveryContext
+        }
+        val rawJournal = storageContext
+            .getSharedPreferences(REPLACEMENT_JOURNAL_PREFERENCES, Context.MODE_PRIVATE)
+            .getString(REPLACEMENT_JOURNAL_KEY, null)
+            ?: return true
+        val journal = try {
+            AlarmReplacementJournalStore(recoveryContext).load()
+        } catch (_: Exception) {
+            return rawJournal.contains(JSONObject.quote(platformAlarmId))
+        } ?: return true
+        return platformAlarmId == journal.old.platformAlarmId ||
+            platformAlarmId == journal.new.platformAlarmId
     }
 
     internal fun deliverAlarm(
@@ -187,5 +239,7 @@ class AlarmReceiver : BroadcastReceiver() {
 
     private companion object {
         const val TAG = "CalarmAlarmReceiver"
+        const val REPLACEMENT_JOURNAL_PREFERENCES = "native_alarm_replacement_journal"
+        const val REPLACEMENT_JOURNAL_KEY = "active"
     }
 }

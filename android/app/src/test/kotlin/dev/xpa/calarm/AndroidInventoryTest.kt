@@ -898,6 +898,46 @@ class AndroidInventoryTest {
     }
 
     @Test
+    fun `receiver admission recovers armed and committed candidates before mirror lookup`() {
+        for (phase in listOf(
+            AlarmReplacementPhase.CANDIDATE_ARMED,
+            AlarmReplacementPhase.OLD_RETIRED,
+        )) {
+            setUp()
+            val reservationId = "receiver-seam-${phase.name.lowercase()}"
+            val old = alarmRequest(
+                platformAlarmId = "android:reservation:$reservationId",
+                reservationId = reservationId,
+                occurrenceId = "$reservationId-old",
+                wakePlanId = "receiver-seam-plan",
+            )
+            val candidateTemplate = old.copy(occurrenceId = "$reservationId-new")
+            val candidate = candidateTemplate.copy(
+                platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(candidateTemplate),
+            )
+            val store = AlarmStore(context)
+            assertTrue(
+                store.put(if (phase == AlarmReplacementPhase.OLD_RETIRED) candidate else old),
+            )
+            assertTrue(
+                AlarmReplacementJournalStore(context).save(
+                    AlarmReplacementJournal(old = old, new = candidate, phase = phase),
+                ),
+            )
+
+            AlarmReceiver().onReceive(
+                context,
+                Shadows.shadowOf(AlarmIntents.receiver(context, candidate.platformAlarmId))
+                    .savedIntent,
+            )
+
+            assertEquals(AlarmState.RINGING, store.get(candidate.platformAlarmId)?.state)
+            assertNull(store.get(old.platformAlarmId))
+            assertNull(AlarmReplacementJournalStore(context).load())
+        }
+    }
+
+    @Test
     fun `committed due candidate remains authoritative during its admission`() {
         val dueAt = System.currentTimeMillis() - 1_000
         val old = alarmRequest(
