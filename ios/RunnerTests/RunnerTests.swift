@@ -547,7 +547,8 @@ class RunnerTests: XCTestCase {
     let original = makeScheduleRequest("reservation-cancel-ambiguous")
     let replacement = makeScheduleRequest(
       original.reservationId,
-      occurrenceId: "occurrence-after-ambiguous-cancel"
+      occurrenceId: "occurrence-after-ambiguous-cancel",
+      reservationGeneration: 1
     )
     let oldPlatformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
     clearMirror()
@@ -575,7 +576,8 @@ class RunnerTests: XCTestCase {
     let original = makeScheduleRequest("reservation-lost-committed-replacement")
     let replacement = makeScheduleRequest(
       original.reservationId,
-      occurrenceId: "occurrence-lost-committed-replacement"
+      occurrenceId: "occurrence-lost-committed-replacement",
+      reservationGeneration: 1
     )
     clearMirror()
     defer { clearMirror() }
@@ -626,7 +628,8 @@ class RunnerTests: XCTestCase {
     let original = makeScheduleRequest("reservation-stale-committed-new-journal")
     let replacement = makeScheduleRequest(
       original.reservationId,
-      occurrenceId: "occurrence-stale-committed-new-journal"
+      occurrenceId: "occurrence-stale-committed-new-journal",
+      reservationGeneration: 1
     )
     clearMirror()
     defer { clearMirror() }
@@ -688,7 +691,8 @@ class RunnerTests: XCTestCase {
     let original = makeScheduleRequest("reservation-stale-retained-old-journal")
     let replacement = makeScheduleRequest(
       original.reservationId,
-      occurrenceId: "occurrence-stale-retained-old-journal"
+      occurrenceId: "occurrence-stale-retained-old-journal",
+      reservationGeneration: 1
     )
     let oldPlatformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
     clearMirror()
@@ -740,7 +744,8 @@ class RunnerTests: XCTestCase {
     let original = makeScheduleRequest("reservation-owned-duplicate")
     let replacement = makeScheduleRequest(
       original.reservationId,
-      occurrenceId: "occurrence-owned-duplicate"
+      occurrenceId: "occurrence-owned-duplicate",
+      reservationGeneration: 1
     )
     let oldPlatformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
     clearMirror()
@@ -1679,7 +1684,8 @@ class RunnerTests: XCTestCase {
     let original = makeScheduleRequest("reservation-cancel-pre-journal-guard")
     let replacement = makeScheduleRequest(
       original.reservationId,
-      occurrenceId: "occurrence-cancel-pre-journal-candidate"
+      occurrenceId: "occurrence-cancel-pre-journal-candidate",
+      reservationGeneration: 1
     )
     let oldPlatformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
     let bridge = AlarmKitBridge(
@@ -1739,7 +1745,8 @@ class RunnerTests: XCTestCase {
     let original = makeScheduleRequest("reservation-cancel-post-journal-guard")
     let replacement = makeScheduleRequest(
       original.reservationId,
-      occurrenceId: "occurrence-cancel-post-journal-candidate"
+      occurrenceId: "occurrence-cancel-post-journal-candidate",
+      reservationGeneration: 1
     )
     let oldPlatformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
     let bridge = AlarmKitBridge(
