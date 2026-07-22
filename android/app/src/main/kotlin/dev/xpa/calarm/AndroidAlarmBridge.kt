@@ -476,8 +476,15 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             )
         }
         if (existing?.state == AlarmState.RINGING) {
+            val comparableExisting = if (
+                legacyRequest != null && legacyIdentityMatches
+            ) {
+                existing.copy(reservationId = request.reservationId)
+            } else {
+                existing
+            }
             if (
-                !sameSchedulePayload(existing, request)
+                !sameSchedulePayload(comparableExisting, request)
             ) {
                 return scheduleFailure(
                     request.occurrenceId,
@@ -2328,7 +2335,11 @@ internal data class AlarmReplacementJournal(
     init {
         require(old.reservationId == new.reservationId)
         require(old.wakePlanId == new.wakePlanId)
-        require(old.occurrenceId != new.occurrenceId)
+        require(
+            old.occurrenceId != new.occurrenceId ||
+                schemaVersion == 2 &&
+                new.reservationGeneration > old.reservationGeneration,
+        )
         require(old.platformAlarmId != new.platformAlarmId)
         require(old.hasCanonicalPlatformAlarmId())
         require(

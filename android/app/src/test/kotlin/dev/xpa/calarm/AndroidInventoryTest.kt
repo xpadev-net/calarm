@@ -1542,7 +1542,13 @@ class AndroidInventoryTest {
     @Test
     fun `replacement journal chooses one authoritative generation after process death`() {
         for (phase in AlarmReplacementPhase.values()) {
+            val previousAlarmManager = context.getSystemService(AlarmManager::class.java)
+            scheduledAlarms().mapNotNull { it.operation }.forEach { operation ->
+                previousAlarmManager.cancel(operation)
+                operation.cancel()
+            }
             setUp()
+            val alarmManager = context.getSystemService(AlarmManager::class.java)
             val reservationId = "restart-slot-${phase.name.lowercase()}"
             val old = alarmRequest(
                 platformAlarmId = "android:reservation:$reservationId",
@@ -1563,7 +1569,6 @@ class AndroidInventoryTest {
                     AlarmReplacementJournal(old = old, new = replacement, phase = phase),
                 ),
             )
-            val alarmManager = context.getSystemService(AlarmManager::class.java)
             fun arm(request: AlarmRequest) {
                 alarmManager.setAlarmClock(
                     AlarmManager.AlarmClockInfo(
