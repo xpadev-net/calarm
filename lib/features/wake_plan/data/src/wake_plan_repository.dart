@@ -225,14 +225,7 @@ class WakePlanRepository {
           .select(_database.alarmOccurrenceRows)
           .get();
       final identities = <_PersistedReservationIdentity>[
-        for (final row in persisted)
-          _PersistedReservationIdentity(
-            occurrenceId: row.id,
-            reservationId: row.reservationId ?? row.id,
-            wakePlanId: row.wakePlanId,
-            generation: row.reservationGeneration,
-            reservationWasExplicit: row.reservationId != null,
-          ),
+        for (final row in persisted) _validatedPersistedIdentity(row),
       ];
 
       final validationOrder = [...incoming]
@@ -297,6 +290,27 @@ class WakePlanRepository {
         );
       });
     });
+  }
+
+  _PersistedReservationIdentity _validatedPersistedIdentity(
+    AlarmOccurrenceRow row,
+  ) {
+    final reservationId = row.reservationId ?? row.id;
+    if (row.id.trim().isEmpty ||
+        reservationId.trim().isEmpty ||
+        row.wakePlanId.trim().isEmpty ||
+        row.reservationGeneration < 0) {
+      throw StateError(
+        'Persisted alarm reservation identity is corrupt: ${row.id}',
+      );
+    }
+    return _PersistedReservationIdentity(
+      occurrenceId: row.id,
+      reservationId: reservationId,
+      wakePlanId: row.wakePlanId,
+      generation: row.reservationGeneration,
+      reservationWasExplicit: row.reservationId != null,
+    );
   }
 
   Future<AlarmOccurrence?> fetchAlarmOccurrence(String id) async {

@@ -694,6 +694,52 @@ void main() {
       );
     });
 
+    test(
+      'rejects corrupt persisted generations without replacing authority',
+      () async {
+        await repository.saveWakePlan(buildPlan());
+        final current = buildOccurrence(
+          id: 'corrupt-generation-old',
+          reservationId: 'stable-slot',
+          reservationGeneration: 3,
+        );
+        await repository.saveAlarmOccurrences([current]);
+        await database.customUpdate(
+          'UPDATE alarm_occurrence_rows '
+          'SET reservation_generation = -1 '
+          "WHERE id = 'corrupt-generation-old'",
+        );
+
+        await expectLater(
+          repository.saveAlarmOccurrences([
+            current.copyWith(reservationGeneration: 0),
+          ]),
+          throwsStateError,
+        );
+        await expectLater(
+          repository.saveAlarmOccurrences([
+            buildOccurrence(
+              id: 'corrupt-generation-new',
+              reservationId: 'stable-slot',
+              reservationGeneration: 0,
+            ),
+          ]),
+          throwsStateError,
+        );
+
+        final raw = await database
+            .customSelect(
+              'SELECT id, reservation_generation '
+              'FROM alarm_occurrence_rows '
+              "WHERE reservation_id = 'stable-slot'",
+            )
+            .get();
+        expect(raw, hasLength(1));
+        expect(raw.single.read<String>('id'), 'corrupt-generation-old');
+        expect(raw.single.read<int>('reservation_generation'), -1);
+      },
+    );
+
     test('rejects equal-generation rebinding but allows higher gaps', () async {
       await repository.saveWakePlan(buildPlan());
       await repository.saveAlarmOccurrences([
