@@ -5590,6 +5590,60 @@ void main() {
     );
 
     test(
+      'recreates a historical occurrence above the slot high water mark',
+      () async {
+        final plan = buildPlan();
+        final historical = buildOccurrence(
+          id: 'plan-1:20640:405',
+          time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 45),
+          reservationId: 'stable-round-trip-slot',
+          reservationGeneration: 0,
+          status: AlarmOccurrenceStatus.cancelled,
+          platformAlarmId: null,
+        );
+        final current = buildOccurrence(
+          id: 'replacement-occurrence',
+          time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 45),
+          reservationId: historical.reservationId,
+          reservationGeneration: 1,
+          platformAlarmId: 'native-replacement',
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..reservedOccurrences = [current]
+          ..storedOccurrences = [historical, current];
+        final gateway = FakeNativeAlarmGateway()
+          ..inventoryRows.add(
+            NativeAlarmInventoryRow(
+              reservationId: current.reservationId,
+              reservationGeneration: current.reservationGeneration,
+              occurrenceId: current.id,
+              wakePlanId: current.wakePlanId,
+              platformAlarmId: current.platformAlarmId!,
+              status: NativeAlarmReservationStatus.scheduled,
+            ),
+          );
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+        ).editPlan(plan.copyWith(soundId: 'round-trip-edit'));
+
+        expect(result.status, WakePlanSchedulingStatus.scheduled);
+        final recreated = gateway.scheduledRequests.singleWhere(
+          (request) => request.occurrenceId == historical.id,
+        );
+        expect(recreated.reservationId, historical.reservationId);
+        expect(recreated.reservationGeneration, 2);
+        expect(
+          gateway.inventoryRows.where(
+            (row) => row.reservationId == historical.reservationId,
+          ),
+          hasLength(1),
+        );
+      },
+    );
+
+    test(
       'does not schedule replacements when old future alarm cancellation fails',
       () async {
         final originalPlan = buildPlan(

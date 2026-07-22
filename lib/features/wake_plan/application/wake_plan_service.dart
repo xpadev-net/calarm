@@ -2094,6 +2094,14 @@ class WakePlanService {
     final existingById = {
       for (final occurrence in existingOccurrences) occurrence.id: occurrence,
     };
+    final highestGenerationByReservation = <String, int>{};
+    for (final occurrence in [...existingOccurrences, ...retired]) {
+      final current = highestGenerationByReservation[occurrence.reservationId];
+      if (current == null || current < occurrence.reservationGeneration) {
+        highestGenerationByReservation[occurrence.reservationId] =
+            occurrence.reservationGeneration;
+      }
+    }
     final desiredBundle = _buildOccurrenceBundle(plan: plan, now: now);
     if (desiredBundle.occurrences.isEmpty) {
       if (pendingEnableReconciliation.hasUnresolved ||
@@ -2740,13 +2748,19 @@ class WakePlanService {
           exactRetired.wakePlanId == desired.wakePlanId) {
         rebound = desired.copyWith(
           reservationId: exactRetired.reservationId,
-          reservationGeneration: exactRetired.reservationGeneration + 1,
+          reservationGeneration:
+              highestGenerationByReservation[exactRetired.reservationId]! + 1,
         );
       } else if (existing != null &&
           existing.wakePlanId == desired.wakePlanId) {
+        final highestGeneration =
+            highestGenerationByReservation[existing.reservationId]!;
         rebound = desired.copyWith(
           reservationId: existing.reservationId,
-          reservationGeneration: existing.reservationGeneration,
+          reservationGeneration:
+              highestGeneration > existing.reservationGeneration
+              ? highestGeneration + 1
+              : existing.reservationGeneration,
         );
       } else {
         AlarmOccurrence? prior;
@@ -2760,7 +2774,8 @@ class WakePlanService {
             ? desired
             : desired.copyWith(
                 reservationId: prior.reservationId,
-                reservationGeneration: prior.reservationGeneration + 1,
+                reservationGeneration:
+                    highestGenerationByReservation[prior.reservationId]! + 1,
               );
       }
       final request = requestByOccurrenceId[desired.id]!;
