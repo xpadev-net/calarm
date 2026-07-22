@@ -830,8 +830,8 @@
 
 ## Worker Contract
 
-- Future workers and reviewers must be dispatched explicitly with model `gpt-5.6-luna`; this does not retarget already-running threads.
-- Every worker uses `gpt-5.6-luna` with `xhigh` reasoning in a separate Codex worktree and `codex/reviewfix-*` branch.
+- Future workers and reviewers must be dispatched explicitly with model `gpt-5.6-luna` and `medium` reasoning; this does not retarget already-running threads.
+- Every worker uses `gpt-5.6-luna` with `medium` reasoning in a separate Codex worktree and `codex/reviewfix-*` branch.
 - Every worker loads repository instructions, `$task-pr-worker`, `$orchestration-harness`, `$engineering-quality-baselines`, `$git-workflow`, and `$deep-review` before editing.
 - Every shell command is prefixed with `rtk`; no force push, history rewrite, broad cleanup, or other worker's changes.
 - Workers perform bounded investigation before editing, use subagents when allowed, obtain independent review, create a PR, iterate `gh-review-hook` to exit 0, and never merge.
