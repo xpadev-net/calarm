@@ -1132,6 +1132,7 @@
 
 - status: in progress
 - worker: `/root/task28_android_schedule_serialization`
+- PR: [#71](https://github.com/xpadev-net/calarm/pull/71), current reported head `581d3c6`
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AndroidAlarmBridge.kt`
@@ -1149,6 +1150,8 @@
 
 - status: in progress
 - worker: `/root/task29_android_delivery_dismissal_idempotency`
+- PR: [#72](https://github.com/xpadev-net/calarm/pull/72), current reported head `9b91c72`
+- reviewer: `/root/task29_exact_head_reviewer` (fresh exact-head review active)
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmReceiver.kt`
@@ -1171,6 +1174,10 @@
   - Fresh reviewer found a major Android scheduling admission race: identity inspection, authority validation, mirror persistence, and AlarmManager mutation are not one serialized transaction. Task_28 owns the bridge-only fix and interleaving tests.
   - Reviewer also raised receiver markRinging atomicity and missing-mirror dismissal-event semantics. Task_29 owns only receiver/stop/event paths; it must confirm the intended Android dispatch and durable-dismissal contracts before editing.
   - Task_15 remains split in progress and will be re-reviewed only after Task_28 and Task_29 merge with fresh exact-head approvals and hosted gates.
+
+- 2026-07-22 Task_28/Task_29 Android work isolated after a shared-worktree collision.
+  - Task_28's two-file commit was initially placed on the Task_29 branch; the worker moved it to Task_28 without rewriting history or touching Task_29's files. Task_29 continued on a clean replacement branch and opened PR #72.
+  - Task_29 pre-edit investigation classified the receiver overlap concern as intentional under the manifest, non-exported synchronous main-thread BroadcastReceiver contract, but confirmed the missing-mirror dismissal event as in-scope. A fresh independent exact-head reviewer is active for PR #72.
 
 - 2026-07-22 Task_25 hosted Android JVM gate completed.
   - PR [#68](https://github.com/xpadev-net/calarm/pull/68) merged exact approved head `574c9251f154ba4ab995c0d3de95f941ba21316b` as `35d93d9454d8243d55cace9056ce4588a4f1c0cd`.
