@@ -716,7 +716,7 @@
   - `lib/features/wake_plan/data/src/wake_plan_repository.dart`
   - corresponding domain/repository/migration tests only for durable generation/tombstone persistence
   - `docs/platform/native-alarm-channel.md`
-- depends_on: [Task_22, Task_23, Task_25, Task_26]
+- depends_on: [Task_22, Task_23, Task_25, Task_27, Task_26]
 - acceptance:
   - One documented reservation/occurrence identity rule governs iOS, Android, fake, Dart validation, and Task_13 reconciliation for recreated occurrences.
   - Side-effect/reply-loss and process-restart seams converge without silently accepting cross-plan ownership, duplicate logical identities, or corrupt tuples.
@@ -749,6 +749,23 @@
   - kind: command; required: true; owner: worker; detail: workflow/YAML/static shell validation that does not compile locally, followed by exact-head GitHub Actions execution proving the full Android JVM suite passes.
   - kind: review; required: true; owner: reviewer; detail: trigger/path coverage, failure propagation, timeout/logging, exact-head provenance, and non-duplication review.
 
+### Task_27: Publish the Android replacement-recovery foundation
+
+- status: unstarted
+- type: impl
+- owns:
+  - `android/app/src/main/kotlin/dev/xpa/calarm/AndroidAlarmBridge.kt` only for the callable serialized replacement-recovery API and its existing journal/mirror helpers
+  - `android/app/src/test/kotlin/dev/xpa/calarm/AndroidInventoryTest.kt` and focused bridge tests only for replacement-recovery crash seams
+- depends_on: [Task_25]
+- acceptance:
+  - A narrow callable recovery entry point restores or retires interrupted Android replacement state before any receiver admission consumer reads the mirror.
+  - The foundation matches the already-reviewed recovery behavior committed on Task_24 PR #67 head `76707340b7bc86cc08b6b321fdd11dee2c3309e5`, without importing Task_24 generation/schema/Dart/iOS/service work.
+  - Pre-arm, post-arm/pre-mirror, mirror-commit/pre-retirement, lost-reply, corrupt journal, and repeated recovery paths are serialized, idempotent, and fail closed without deleting recoverable evidence.
+  - The API remains stable for Task_26 to call and for Task_24 to extend with generation checks after both foundation and receiver tasks merge.
+- validation:
+  - kind: command; required: true; owner: worker; detail: exact-head GitHub Actions focused/full Android JVM tests, debug APK, Android native smoke, lightweight format/static checks, and diff-check; no local compile-heavy execution.
+  - kind: review; required: true; owner: reviewer; detail: exact-head journal/mirror state machine, serialization, crash-window, rollback, and scope-isolation review.
+
 ### Task_26: Recover Android recreation state before delivery admission
 
 - status: in progress
@@ -759,7 +776,7 @@
   - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmReceiver.kt`
   - `android/app/src/test/kotlin/dev/xpa/calarm/AlarmReceiverTest.kt`
   - `android/app/src/test/kotlin/dev/xpa/calarm/AndroidInventoryTest.kt` only for delivery/recovery integration coverage
-- depends_on: [Task_25]
+- depends_on: [Task_25, Task_27]
 - acceptance:
   - Alarm delivery runs the existing serialized native recovery entry point before mirror lookup, so an OS-armed candidate cannot be dropped solely because its mirror commit was interrupted.
   - Recovery failure or corrupt/ambiguous journal state fails closed without delivering the wrong reservation, duplicating events, or deleting recoverable evidence.
@@ -802,9 +819,10 @@
 - Wave 8C (Task_13-aware event and ringing reconciliation): [Task_21]
 - Wave 9A (parallel final-review remediation): [Task_22, Task_23]
 - Wave 9B (hosted Android JVM gate): [Task_25]
-- Wave 9C (Android delivery admission after hosted JVM gate): [Task_26]
-- Wave 9D (cross-platform identity contract after Task_23, Task_25, and Task_26): [Task_24]
-- Wave 9E (orchestrator/reviewer): [Task_15]
+- Wave 9C (Android replacement-recovery foundation): [Task_27]
+- Wave 9D (Android delivery admission after the recovery foundation): [Task_26]
+- Wave 9E (cross-platform identity contract after Task_23, Task_25, Task_27, and Task_26): [Task_24]
+- Wave 9F (orchestrator/reviewer): [Task_15]
 - Wave 10 (user-owned): [Task_16]
 
 ## Worker Contract
@@ -1102,6 +1120,11 @@
 - 2026-07-22 Task_24 ringing-cancellation call site narrowly attributed.
   - Static call-site audit found `AlarmRingingController` still constructed cancellation requests without the new persisted reservation ID/generation, which would make valid recreated alarms fail strict native admission.
   - Task_24 owns only copying those two exact fields into the request and direct regression coverage. Task_23 dismissal ordering, replay, schema-v2 intent, and controller state transitions remain frozen and out of scope.
+
+- 2026-07-22 Task_26 startup exposed a Task_24 dependency cycle; Task_27 split out.
+  - Current master has no callable Android replacement-recovery implementation, so a receiver-only Task_26 change would not compile. The API exists only in Task_24's open branch, while Task_24 was waiting for Task_26.
+  - Task_27 now publishes only the already-committed Android bridge recovery foundation first. Task_26 then calls that merged API, and Task_24 finally integrates both plus generation enforcement.
+  - No Task_24 generation/schema/Dart/iOS/service code moves into Task_27, and no receiver code moves out of Task_26.
 
 ## Decision Log
 
