@@ -810,91 +810,43 @@ class AndroidInventoryTest {
     }
 
     @Test
-    fun `replacement recovery converges every crash seam and lost reply`() {
-        data class CrashSeam(
-            val name: String,
-            val phase: AlarmReplacementPhase,
-            val armCandidate: Boolean,
-            val mirrorCommitted: Boolean,
-            val expectedNewWinner: Boolean,
+    fun `replacement recovery converges the pre-arm seam and lost reply`() {
+        assertRecoveryCrashSeam(
+            phase = AlarmReplacementPhase.STAGING,
+            armCandidate = false,
+            mirrorCommitted = false,
+            expectedNewWinner = false,
         )
+    }
 
-        val seams = listOf(
-            CrashSeam(
-                name = "pre-arm",
-                phase = AlarmReplacementPhase.STAGING,
-                armCandidate = false,
-                mirrorCommitted = false,
-                expectedNewWinner = false,
-            ),
-            CrashSeam(
-                name = "post-arm-pre-phase",
-                phase = AlarmReplacementPhase.STAGING,
-                armCandidate = true,
-                mirrorCommitted = false,
-                expectedNewWinner = false,
-            ),
-            CrashSeam(
-                name = "post-arm-pre-mirror",
-                phase = AlarmReplacementPhase.CANDIDATE_ARMED,
-                armCandidate = true,
-                mirrorCommitted = false,
-                expectedNewWinner = false,
-            ),
-            CrashSeam(
-                name = "mirror-commit-pre-retirement",
-                phase = AlarmReplacementPhase.OLD_RETIRED,
-                armCandidate = true,
-                mirrorCommitted = true,
-                expectedNewWinner = true,
-            ),
+    @Test
+    fun `replacement recovery converges the post-arm pre-phase seam and lost reply`() {
+        assertRecoveryCrashSeam(
+            phase = AlarmReplacementPhase.STAGING,
+            armCandidate = true,
+            mirrorCommitted = false,
+            expectedNewWinner = false,
         )
+    }
 
-        for (seam in seams) {
-            setUp()
-            val reservationId = "recovery-${seam.name}"
-            val old = alarmRequest(
-                platformAlarmId = "android:reservation:$reservationId",
-                reservationId = reservationId,
-                occurrenceId = "$reservationId-old",
-                wakePlanId = "recovery-plan",
-            )
-            val newTemplate = old.copy(occurrenceId = "$reservationId-new")
-            val candidate = newTemplate.copy(
-                platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(newTemplate),
-            )
-            val store = AlarmStore(context)
-            assertTrue(store.put(old))
-            armForRecoveryTest(old)
-            if (seam.armCandidate) armForRecoveryTest(candidate)
-            if (seam.mirrorCommitted) {
-                assertTrue(store.replace(old.platformAlarmId, candidate.platformAlarmId, candidate))
-            }
-            assertTrue(
-                AlarmReplacementJournalStore(context).save(
-                    AlarmReplacementJournal(old = old, new = candidate, phase = seam.phase),
-                ),
-            )
-            assertNotNull(replacementPreferences().getString("active", null))
-            assertFalse(replacementCredentialPreferences().contains("active"))
+    @Test
+    fun `replacement recovery converges the post-arm pre-mirror seam and lost reply`() {
+        assertRecoveryCrashSeam(
+            phase = AlarmReplacementPhase.CANDIDATE_ARMED,
+            armCandidate = true,
+            mirrorCommitted = false,
+            expectedNewWinner = false,
+        )
+    }
 
-            val first = AndroidAlarmReplacementRecovery.reconcile(context, context)
-            val firstWinner = AlarmStore(context).inventory(context, System.currentTimeMillis())
-                .requests.single()
-            val second = AndroidAlarmReplacementRecovery.reconcile(context, context)
-            val secondWinner = AlarmStore(context).inventory(context, System.currentTimeMillis())
-                .requests.single()
-
-            assertTrue(seam.name, first.isSuccess)
-            assertTrue("${seam.name} lost reply", second.isSuccess)
-            assertEquals(
-                if (seam.expectedNewWinner) candidate.occurrenceId else old.occurrenceId,
-                firstWinner.occurrenceId,
-            )
-            assertEquals(firstWinner, secondWinner)
-            assertEquals(listOf(firstWinner.platformAlarmId), scheduledAlarmIds())
-            assertNull(AlarmReplacementJournalStore(context).load())
-        }
+    @Test
+    fun `replacement recovery converges the mirror-commit pre-retirement seam and lost reply`() {
+        assertRecoveryCrashSeam(
+            phase = AlarmReplacementPhase.OLD_RETIRED,
+            armCandidate = true,
+            mirrorCommitted = true,
+            expectedNewWinner = true,
+        )
     }
 
     @Test
@@ -1149,6 +1101,56 @@ class AndroidInventoryTest {
             ),
             AlarmIntents.receiver(context, request.platformAlarmId),
         )
+    }
+
+    private fun assertRecoveryCrashSeam(
+        phase: AlarmReplacementPhase,
+        armCandidate: Boolean,
+        mirrorCommitted: Boolean,
+        expectedNewWinner: Boolean,
+    ) {
+        val reservationId = "recovery-${phase.name.lowercase()}-$armCandidate-$mirrorCommitted"
+        val old = alarmRequest(
+            platformAlarmId = "android:reservation:$reservationId",
+            reservationId = reservationId,
+            occurrenceId = "$reservationId-old",
+            wakePlanId = "recovery-plan",
+        )
+        val newTemplate = old.copy(occurrenceId = "$reservationId-new")
+        val candidate = newTemplate.copy(
+            platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(newTemplate),
+        )
+        val store = AlarmStore(context)
+        assertTrue(store.put(old))
+        armForRecoveryTest(old)
+        if (armCandidate) armForRecoveryTest(candidate)
+        if (mirrorCommitted) {
+            assertTrue(store.replace(old.platformAlarmId, candidate.platformAlarmId, candidate))
+        }
+        assertTrue(
+            AlarmReplacementJournalStore(context).save(
+                AlarmReplacementJournal(old = old, new = candidate, phase = phase),
+            ),
+        )
+        assertNotNull(replacementPreferences().getString("active", null))
+        assertFalse(replacementCredentialPreferences().contains("active"))
+
+        val first = AndroidAlarmReplacementRecovery.reconcile(context, context)
+        val firstWinner = AlarmStore(context).inventory(context, System.currentTimeMillis())
+            .requests.single()
+        val second = AndroidAlarmReplacementRecovery.reconcile(context, context)
+        val secondWinner = AlarmStore(context).inventory(context, System.currentTimeMillis())
+            .requests.single()
+
+        assertTrue(first.isSuccess)
+        assertTrue(second.isSuccess)
+        assertEquals(
+            if (expectedNewWinner) candidate.occurrenceId else old.occurrenceId,
+            firstWinner.occurrenceId,
+        )
+        assertEquals(firstWinner, secondWinner)
+        assertEquals(listOf(firstWinner.platformAlarmId), scheduledAlarmIds())
+        assertNull(AlarmReplacementJournalStore(context).load())
     }
 
     private fun scheduleArguments(
