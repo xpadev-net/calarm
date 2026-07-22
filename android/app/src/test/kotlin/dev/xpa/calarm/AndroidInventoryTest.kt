@@ -987,6 +987,56 @@ class AndroidInventoryTest {
         assertEquals("not-json", replacementPreferences().getString("active", null))
     }
 
+    @Test
+    fun `expired replacement journal retires both generations and unblocks scheduling`() {
+        val expiredAt = System.currentTimeMillis() - 1_000
+        val old = alarmRequest(
+            platformAlarmId = "android:reservation:expired-journal-slot",
+            reservationId = "expired-journal-slot",
+            occurrenceId = "expired-journal-old",
+            wakePlanId = "expired-journal-plan",
+            scheduledAtMillis = expiredAt,
+        )
+        val newTemplate = old.copy(occurrenceId = "expired-journal-new")
+        val replacement = newTemplate.copy(
+            platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(newTemplate),
+        )
+        assertTrue(AlarmStore(context).put(old))
+        assertTrue(AlarmStore(context).put(replacement))
+        assertTrue(
+            AlarmReplacementJournalStore(context).save(
+                AlarmReplacementJournal(
+                    old = old,
+                    new = replacement,
+                    phase = AlarmReplacementPhase.CANDIDATE_ARMED,
+                ),
+            ),
+        )
+
+        val recovery = AndroidAlarmReplacementRecovery.reconcile(context, context)
+        val schedule = CapturingResult()
+        AndroidAlarmBridge(context).onMethodCall(
+            MethodCall(
+                "scheduleOccurrences",
+                scheduleArguments(
+                    occurrenceId = "unrelated-after-expired-journal",
+                    reservationId = "unrelated-after-expired-journal",
+                    wakePlanId = "unrelated-plan",
+                ),
+            ),
+            schedule,
+        )
+
+        assertTrue(recovery.isSuccess)
+        assertNull(AlarmStore(context).get(old.platformAlarmId))
+        assertNull(AlarmStore(context).get(replacement.platformAlarmId))
+        assertNull(AlarmReplacementJournalStore(context).load())
+        assertNull(schedule.errorCode)
+        val row = ((schedule.value as Map<*, *>)["occurrences"] as List<*>)
+            .single() as Map<*, *>
+        assertEquals("success", row["status"])
+    }
+
     private fun scheduleArguments(
         occurrenceId: String,
         reservationId: String,

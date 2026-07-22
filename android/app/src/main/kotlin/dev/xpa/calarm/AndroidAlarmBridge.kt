@@ -1479,6 +1479,12 @@ class AlarmStore(context: Context) {
             .commit()
     }
 
+    fun removeAll(platformAlarmIds: Set<String>): Boolean {
+        val editor = preferences.edit()
+        platformAlarmIds.forEach { platformAlarmId -> editor.remove(platformAlarmId) }
+        return editor.commit()
+    }
+
     fun get(platformAlarmId: String): AlarmRequest? {
         return try {
             val value = preferences.getString(platformAlarmId, null) ?: return null
@@ -1886,10 +1892,35 @@ internal object AndroidAlarmReplacementRecovery {
             journal.phase == AlarmReplacementPhase.OLD_RETIRED -> journal.new
             journal.old.scheduledAtMillis > now -> journal.old
             journal.new.scheduledAtMillis > now -> journal.new
-            else -> return@synchronized AlarmReplacementRecoveryResult(
-                isSuccess = false,
-                message = "Both native alarm replacement generations expired during recovery.",
+            else -> null
+        }
+        if (winner == null) {
+            val expiredPlatformAlarmIds = setOf(
+                journal.old.platformAlarmId,
+                journal.new.platformAlarmId,
             )
+            if (!store.removeAll(expiredPlatformAlarmIds)) {
+                return@synchronized AlarmReplacementRecoveryResult(
+                    isSuccess = false,
+                    message = "Failed to retire expired native alarm replacement rows.",
+                )
+            }
+            try {
+                cancel(appContext, alarmManager, journal.old.platformAlarmId)
+                cancel(appContext, alarmManager, journal.new.platformAlarmId)
+            } catch (error: RuntimeException) {
+                return@synchronized AlarmReplacementRecoveryResult(
+                    isSuccess = false,
+                    message = error.message ?: "Failed to retire expired native alarms.",
+                )
+            }
+            if (!journalStore.clear()) {
+                return@synchronized AlarmReplacementRecoveryResult(
+                    isSuccess = false,
+                    message = "Failed to clear expired native alarm replacement journal.",
+                )
+            }
+            return@synchronized AlarmReplacementRecoveryResult(isSuccess = true)
         }
         val loser = if (winner == journal.new) journal.old else journal.new
 

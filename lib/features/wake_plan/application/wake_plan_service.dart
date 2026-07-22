@@ -214,8 +214,13 @@ class WakePlanService {
       );
     }
 
+    final cancellationInventory = await _loadNativeInventory();
     final cancelRequest = NativeAlarmCancelRequest(
       occurrenceId: occurrence.id,
+      reservationId: _reservationIdForCancellation(
+        occurrence: occurrence,
+        inventory: cancellationInventory,
+      ),
       platformAlarmId: occurrence.platformAlarmId!,
     );
     CancelResult cancelResult;
@@ -385,6 +390,10 @@ class WakePlanService {
       compensationCancelResult = await _nativeAlarmGateway.cancelOccurrences([
         NativeAlarmCancelRequest(
           occurrenceId: completed.id,
+          reservationId: _reservationIdForCancellation(
+            occurrence: completed,
+            inventory: await _loadNativeInventory(),
+          ),
           platformAlarmId: platformAlarmId,
         ),
       ]);
@@ -2351,6 +2360,8 @@ class WakePlanService {
         final result = await _nativeAlarmGateway.cancelOccurrences([
           NativeAlarmCancelRequest(
             occurrenceId: occurrence.id,
+            reservationId:
+                observation.activeRow?.reservationId ?? occurrence.id,
             platformAlarmId: platformAlarmId,
           ),
         ]);
@@ -2747,10 +2758,17 @@ class WakePlanService {
     final cancellableOccurrences = occurrences
         .where((occurrence) => occurrence.platformAlarmId != null)
         .toList(growable: false);
+    final cancellationInventory = cancellableOccurrences.isEmpty
+        ? null
+        : await _loadNativeInventory();
     final requests = cancellableOccurrences
         .map(
           (occurrence) => NativeAlarmCancelRequest(
             occurrenceId: occurrence.id,
+            reservationId: _reservationIdForCancellation(
+              occurrence: occurrence,
+              inventory: cancellationInventory,
+            ),
             platformAlarmId: occurrence.platformAlarmId!,
           ),
         )
@@ -3045,6 +3063,25 @@ class WakePlanService {
     } catch (error) {
       return 'Alarm occurrence persistence failed: $error';
     }
+  }
+
+  String _reservationIdForCancellation({
+    required AlarmOccurrence occurrence,
+    required _NativeInventorySnapshot? inventory,
+  }) {
+    final platformAlarmId = occurrence.platformAlarmId;
+    if (platformAlarmId == null || inventory?.isAuthoritative != true) {
+      return occurrence.id;
+    }
+    final matches = inventory!.rows
+        .where(
+          (row) =>
+              row.occurrenceId == occurrence.id &&
+              row.wakePlanId == occurrence.wakePlanId &&
+              row.platformAlarmId == platformAlarmId,
+        )
+        .toList(growable: false);
+    return matches.length == 1 ? matches.single.reservationId : occurrence.id;
   }
 
   Future<String?> _trySaveWakePlan(WakePlan plan) async {

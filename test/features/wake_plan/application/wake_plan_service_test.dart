@@ -1737,17 +1737,18 @@ void main() {
             ),
           );
 
-        final first = await service(
+        final firstService = service(
           store: store,
           gateway: gateway,
           rollingScheduleDays: 1,
-        ).reconcileSchedules();
-        final reopened = await service(
+        );
+        final first = await firstService.reconcileSchedules();
+        final reopenedService = service(
           store: store,
           gateway: gateway,
           rollingScheduleDays: 1,
-        ).reconcileSchedules();
-
+        );
+        final reopened = await reopenedService.reconcileSchedules();
         expect(first.single.status, WakePlanSchedulingStatus.scheduled);
         expect(reopened.single.status, WakePlanSchedulingStatus.scheduled);
         expect(
@@ -1759,8 +1760,18 @@ void main() {
           'native-recreated',
         );
         expect(gateway.scheduledRequests, isEmpty);
-        expect(gateway.cancelledOccurrences, isEmpty);
-        expect(gateway.inventoryRows, hasLength(1));
+        final disabled = await reopenedService.setOccurrenceEnabled(
+          wakePlanId: pending.wakePlanId,
+          occurrenceId: pending.id,
+          enabled: false,
+        );
+        expect(disabled.status, AlarmOccurrenceToggleStatus.disabled);
+        expect(
+          gateway.cancelledOccurrences.single.reservationId,
+          'stable-recreation-slot',
+        );
+        expect(gateway.cancelledOccurrences.single.occurrenceId, pending.id);
+        expect(gateway.inventoryRows, isEmpty);
       },
     );
 
