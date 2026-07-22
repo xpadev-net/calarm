@@ -641,6 +641,70 @@ class AndroidInventoryTest {
     }
 
     @Test
+    fun `ringing stable identity on a legacy key persists missing metadata once`() {
+        val scheduledAtMillis = System.currentTimeMillis() + 60_000
+        val stableReservationId = "ringing-stable-legacy-reservation"
+        val legacy = alarmRequest(
+            platformAlarmId = "android:plan:ringing-stable-legacy-occurrence",
+            reservationId = stableReservationId,
+            occurrenceId = "ringing-stable-legacy-occurrence",
+            state = AlarmState.RINGING,
+            scheduledAtMillis = scheduledAtMillis,
+        )
+        assertNull(legacy.indexInPlan)
+        assertNull(legacy.totalInPlan)
+        assertTrue(AlarmStore(context).put(legacy))
+        val bridge = AndroidAlarmBridge(context)
+        val exactArguments = scheduleArguments(
+            occurrenceId = legacy.occurrenceId,
+            reservationId = stableReservationId,
+            wakePlanId = legacy.wakePlanId,
+            scheduledAtMillis = scheduledAtMillis,
+            indexInPlan = 0,
+            totalInPlan = 2,
+        )
+        val scheduledBeforeRetry = scheduledAlarms()
+
+        val first = CapturingResult()
+        bridge.onMethodCall(MethodCall("scheduleOccurrences", exactArguments), first)
+        val firstRow = ((first.value as Map<*, *>)["occurrences"] as List<*>)
+            .single() as Map<*, *>
+        assertEquals("success", firstRow["status"])
+        assertEquals(0, AlarmStore(context).get(legacy.platformAlarmId)?.indexInPlan)
+        assertEquals(2, AlarmStore(context).get(legacy.platformAlarmId)?.totalInPlan)
+        assertEquals(scheduledBeforeRetry, scheduledAlarms())
+
+        val duplicate = CapturingResult()
+        bridge.onMethodCall(MethodCall("scheduleOccurrences", exactArguments), duplicate)
+        val duplicateRow = ((duplicate.value as Map<*, *>)["occurrences"] as List<*>)
+            .single() as Map<*, *>
+        assertEquals("success", duplicateRow["status"])
+        assertEquals(scheduledBeforeRetry, scheduledAlarms())
+
+        val mismatch = CapturingResult()
+        bridge.onMethodCall(
+            MethodCall(
+                "scheduleOccurrences",
+                scheduleArguments(
+                    occurrenceId = legacy.occurrenceId,
+                    reservationId = stableReservationId,
+                    wakePlanId = legacy.wakePlanId,
+                    scheduledAtMillis = scheduledAtMillis,
+                    indexInPlan = 1,
+                    totalInPlan = 2,
+                ),
+            ),
+            mismatch,
+        )
+        val mismatchRow = ((mismatch.value as Map<*, *>)["occurrences"] as List<*>)
+            .single() as Map<*, *>
+        assertEquals("failure", mismatchRow["status"])
+        assertEquals("invalidRequest", mismatchRow["failureReason"])
+        assertEquals(0, AlarmStore(context).get(legacy.platformAlarmId)?.indexInPlan)
+        assertEquals(scheduledBeforeRetry, scheduledAlarms())
+    }
+
+    @Test
     fun `legacy adoption rejects a foreign platform key without mutation`() {
         val legacy = alarmRequest(
             platformAlarmId = "android:plan:corrupt-occurrence",

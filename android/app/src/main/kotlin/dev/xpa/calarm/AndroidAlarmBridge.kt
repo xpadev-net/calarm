@@ -499,7 +499,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                     request.reservationGeneration,
                 )
             }
-            if (legacyRequest != null && existing.reservationId != request.reservationId) {
+            if (legacyRequest != null && comparableExisting != existing) {
                 val adoptedRingingRequest = comparableExisting.copy(
                     platformAlarmIdOverride = platformAlarmId,
                 )
