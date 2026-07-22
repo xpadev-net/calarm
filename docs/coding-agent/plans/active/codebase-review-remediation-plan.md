@@ -717,7 +717,9 @@
 
 ### Task_25: Add the hosted Android JVM test gate
 
-- status: unstarted
+- status: in progress
+- worker: `client-new-thread:b02a6dc6-65a9-4283-a82a-d52b3c4aedbb`
+- branch: `codex/task-25-hosted-android-jvm-gate`
 - type: ci
 - owns:
   - `.github/workflows/native-smoke.yml`
