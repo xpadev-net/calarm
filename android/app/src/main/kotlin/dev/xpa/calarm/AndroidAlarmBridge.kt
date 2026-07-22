@@ -3211,7 +3211,7 @@ object AlarmRestore {
         appContext: Context,
         schedule: (AlarmRequest) -> Unit,
     ) {
-        AndroidAlarmMutationTransaction.run {
+        AndroidAlarmMutationTransaction.run restore@ {
             val alarmManager = appContext.getSystemService(AlarmManager::class.java)
             val store = AlarmStore(storageContext)
             val replacementRecovery = AndroidAlarmReplacementRecovery.reconcile(
@@ -3219,7 +3219,7 @@ object AlarmRestore {
                 appContext,
             )
             if (!replacementRecovery.isSuccess) {
-                return
+                return@restore
             }
             val now = System.currentTimeMillis()
             val requests = store.all()
@@ -3229,7 +3229,7 @@ object AlarmRestore {
                 }
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
-                return
+                return@restore
             }
             requests.asSequence()
                 .filter { it.state != AlarmState.RINGING && it.scheduledAtMillis > now }
