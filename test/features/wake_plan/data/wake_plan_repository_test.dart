@@ -131,6 +131,50 @@ void main() {
         await directory.delete(recursive: true);
       }
     });
+
+    test(
+      're-upgrades after rollback leaves additive columns in place',
+      () async {
+        await database.close();
+        final directory = await Directory.systemTemp.createTemp(
+          'calarm-dismissal-reupgrade-',
+        );
+        final file = File('${directory.path}/wake-plan.sqlite');
+        var upgradedDatabase = WakePlanDatabase(NativeDatabase(file));
+        var upgradedRepository = WakePlanRepository(upgradedDatabase);
+        await upgradedRepository.saveWakePlan(buildPlan());
+        await upgradedRepository.saveAlarmOccurrences([
+          buildOccurrence(platformAlarmId: 'native-exact'),
+        ]);
+        await upgradedRepository.prepareAlarmOccurrenceDismissal(
+          occurrenceId: 'occ-1',
+          expectedPlatformAlarmId: 'native-exact',
+          requestedAt: DateTime(2026, 7, 6, 8, 1),
+        );
+        await upgradedDatabase.close();
+
+        final rolledBack = sqlite.sqlite3.open(file.path);
+        rolledBack.execute('PRAGMA user_version = 1');
+        rolledBack.execute(
+          "UPDATE alarm_occurrence_rows SET updated_at = 1 WHERE id = 'occ-1'",
+        );
+        rolledBack.dispose();
+
+        upgradedDatabase = WakePlanDatabase(NativeDatabase(file));
+        upgradedRepository = WakePlanRepository(upgradedDatabase);
+        try {
+          final pending = await upgradedRepository
+              .fetchPendingAlarmOccurrenceDismissal('occ-1');
+
+          expect(pending, isNotNull);
+          expect(pending!.platformAlarmId, 'native-exact');
+          expect(pending.occurrence.status, AlarmOccurrenceStatus.scheduled);
+        } finally {
+          await upgradedDatabase.close();
+          await directory.delete(recursive: true);
+        }
+      },
+    );
   });
 
   group('wake plans', () {

@@ -76,14 +76,24 @@ class WakePlanDatabase extends _$WakePlanDatabase {
           return;
         }
         if (from < 2) {
-          await migrator.addColumn(
-            alarmOccurrenceRows,
-            alarmOccurrenceRows.dismissalRequestedAt,
-          );
-          await migrator.addColumn(
-            alarmOccurrenceRows,
-            alarmOccurrenceRows.dismissalPlatformAlarmId,
-          );
+          final existingColumns = await customSelect(
+            'PRAGMA table_info(alarm_occurrence_rows)',
+          ).get();
+          final existingColumnNames = existingColumns
+              .map((row) => row.read<String>('name'))
+              .toSet();
+          if (!existingColumnNames.contains('dismissal_requested_at')) {
+            await migrator.addColumn(
+              alarmOccurrenceRows,
+              alarmOccurrenceRows.dismissalRequestedAt,
+            );
+          }
+          if (!existingColumnNames.contains('dismissal_platform_alarm_id')) {
+            await migrator.addColumn(
+              alarmOccurrenceRows,
+              alarmOccurrenceRows.dismissalPlatformAlarmId,
+            );
+          }
         }
       },
     );
