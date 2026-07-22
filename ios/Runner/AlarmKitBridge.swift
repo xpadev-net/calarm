@@ -613,7 +613,39 @@ final class AlarmKitBridge {
       var authorities = try loadReservationAuthorities()
       let ownedBeforeRecovery = mirrorSnapshot.normalized[platformAlarmId]
         ?? mirrorSnapshot.pendingNormalized[platformAlarmId]
-      if let authority = authorities[requestedReservationId] {
+      let hasReplacementJournal = try loadReplacementJournal() != nil
+      if hasReplacementJournal {
+        if let failure = cancelOwnershipFailure(
+          in: mirrorSnapshot,
+          occurrenceId: occurrenceId,
+          reservationId: requestedReservationId,
+          reservationGeneration: reservationGeneration,
+          platformAlarmId: platformAlarmId,
+          responsePlatformAlarmId: responsePlatformAlarmId
+        ) {
+          return failure
+        }
+        mirrorSnapshot = try await reconcileReplacementJournal(in: mirrorSnapshot)
+        authorities = try loadReservationAuthorities()
+        guard let authority = authorities[requestedReservationId],
+          authority.state == .active,
+          authority.matchesCancellation(
+            occurrenceId: occurrenceId,
+            reservationId: requestedReservationId,
+            reservationGeneration: reservationGeneration,
+            platformAlarmId: platformAlarmId
+          )
+        else {
+          return cancelFailureRow(
+            occurrenceId: occurrenceId,
+            reservationId: responseReservationId,
+            reservationGeneration: reservationGeneration,
+            platformAlarmId: responsePlatformAlarmId,
+            reason: "invalidRequest",
+            message: "AlarmKit generation authority does not match the cancellation."
+          )
+        }
+      } else if let authority = authorities[requestedReservationId] {
         guard authority.matchesCancellation(
           occurrenceId: occurrenceId,
           reservationId: requestedReservationId,
@@ -631,12 +663,38 @@ final class AlarmKitBridge {
         }
         if authority.state == .retired {
           if ownedBeforeRecovery != nil {
+            if let failure = cancelOwnershipFailure(
+              in: mirrorSnapshot,
+              occurrenceId: occurrenceId,
+              reservationId: requestedReservationId,
+              reservationGeneration: reservationGeneration,
+              platformAlarmId: platformAlarmId,
+              responsePlatformAlarmId: responsePlatformAlarmId
+            ) {
+              return failure
+            }
             try nativeClientForAlarmKit().cancel(id: alarmId)
             var mirror = mirrorSnapshot.normalized
             var pending = mirrorSnapshot.pendingNormalized
             mirror.removeValue(forKey: platformAlarmId)
             pending.removeValue(forKey: platformAlarmId)
             try saveMirrorState(mirror, pending: pending)
+          } else {
+            let nativeAlarmIds = Set(
+              try canonicalNativeAlarmIds(
+                nativeClientForAlarmKit().inventory().map { $0.platformAlarmId }
+              )
+            )
+            if nativeAlarmIds.contains(platformAlarmId) {
+              return cancelFailureRow(
+                occurrenceId: occurrenceId,
+                reservationId: responseReservationId,
+                reservationGeneration: reservationGeneration,
+                platformAlarmId: responsePlatformAlarmId,
+                reason: "invalidRequest",
+                message: "AlarmKit identity ownership could not be verified."
+              )
+            }
           }
           return cancelSuccessRow(
             occurrenceId: occurrenceId,
@@ -675,9 +733,6 @@ final class AlarmKitBridge {
         responsePlatformAlarmId: responsePlatformAlarmId
       ) {
         return failure
-      }
-      if try loadReplacementJournal() != nil {
-        mirrorSnapshot = try await reconcileReplacementJournal(in: mirrorSnapshot)
       }
       if let failure = cancelOwnershipFailure(
         in: mirrorSnapshot,
@@ -2075,7 +2130,32 @@ final class AlarmKitBridge {
       throw NativeSnapshotValidationError.unknownIdentity
     }
 
+    func persistResolvedAuthority(
+      _ record: AlarmMirrorRecord,
+      state: ReservationAuthorityState = .active
+    ) throws {
+      var authorities = try loadReservationAuthorities()
+      if let current = authorities[record.reservationId] {
+        let allowedRecords = [journal.old, journal.new]
+        let matchesJournal = allowedRecords.contains { candidate in
+          current == ReservationAuthorityRecord(record: candidate, state: .active)
+            || current == ReservationAuthorityRecord(record: candidate, state: .retired)
+        }
+        guard matchesJournal else { throw MirrorValidationError.invalid }
+      }
+      guard !authorities.contains(where: { reservationId, authority in
+        reservationId != record.reservationId
+          && authority.occurrenceId == record.occurrenceId
+      }) else { throw MirrorValidationError.invalid }
+      authorities[record.reservationId] = ReservationAuthorityRecord(
+        record: record,
+        state: state
+      )
+      try saveReservationAuthorities(authorities)
+    }
+
     func commitNew() throws -> MirrorSnapshot {
+      try persistResolvedAuthority(journal.new)
       mirror.removeValue(forKey: oldId)
       mirror[newId] = journal.new
       try saveMirrorState(mirror, pending: pendingMirror)
@@ -2087,6 +2167,7 @@ final class AlarmKitBridge {
       guard ids.contains(oldId), !ids.contains(newId) else {
         throw MirrorValidationError.invalid
       }
+      try persistResolvedAuthority(journal.old)
       mirror.removeValue(forKey: newId)
       mirror[oldId] = journal.old
       try saveMirrorState(mirror, pending: pendingMirror)
@@ -2101,6 +2182,7 @@ final class AlarmKitBridge {
     // terminal state, not an ambiguous handover. Clear the stale journal so
     // the caller can prune the resolved mirror against the empty snapshot.
     if !ids.contains(oldId), !ids.contains(newId) {
+      try persistResolvedAuthority(journal.new, state: .retired)
       clearReplacementJournal()
       return try loadMirrorSnapshot()
     }
@@ -2113,6 +2195,7 @@ final class AlarmKitBridge {
         guard !ids.contains(oldId) else { throw MirrorValidationError.invalid }
       }
       guard ids.contains(newId) else { throw MirrorValidationError.invalid }
+      try persistResolvedAuthority(journal.new)
       clearReplacementJournal()
       return try loadMirrorSnapshot()
     }
@@ -3043,7 +3126,18 @@ private func intValue(_ value: Any?) -> Int? {
 }
 
 private func exactNonNegativeInt(_ value: Any?) -> Int? {
-  if value is Bool { return nil }
+  guard let value else { return nil }
+  if type(of: value) == Int.self, let integer = value as? Int {
+    return integer >= 0 ? integer : nil
+  }
+  if type(of: value as Any) == Int32.self, let integer = value as? Int32 {
+    return integer >= 0 ? Int(integer) : nil
+  }
+  if type(of: value as Any) == Int64.self, let integer = value as? Int64,
+    let exact = Int(exactly: integer)
+  {
+    return exact >= 0 ? exact : nil
+  }
   guard let number = value as? NSNumber else { return nil }
   let encodedType = String(cString: number.objCType)
   guard !["c", "B", "f", "d"].contains(encodedType),

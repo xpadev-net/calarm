@@ -1147,9 +1147,14 @@ class RunnerTests: XCTestCase {
 
     fake.inventoryErrorOnCall = nil
     let retried = await bridge.scheduleAlarm(
-      makeScheduleRequest("reservation-uncertain-new", occurrenceId: "occurrence-retry")
+      makeScheduleRequest(
+        "reservation-uncertain-new",
+        occurrenceId: "occurrence-retry",
+        reservationGeneration: 1
+      )
     )
     XCTAssertEqual(retried.status, "success")
+    XCTAssertEqual(retried.platformAlarmId, id)
     XCTAssertTrue(mirrorContains(id))
     XCTAssertTrue(mirrorContains(unrelatedId))
     XCTAssertFalse(pendingMirrorContains(id))
@@ -1643,7 +1648,13 @@ class RunnerTests: XCTestCase {
     XCTAssertTrue(fake.nativeAlarmIds.isEmpty)
     XCTAssertFalse(mirrorContains(platformAlarmId))
 
-    let retryResult = await bridge.scheduleAlarm(request)
+    let retryResult = await bridge.scheduleAlarm(
+      makeScheduleRequest(
+        request.reservationId,
+        occurrenceId: request.occurrenceId,
+        reservationGeneration: 1
+      )
+    )
     XCTAssertEqual(retryResult.status, "success")
     XCTAssertEqual(fake.nativeAlarmIds, Set([platformAlarmId.uppercased()]))
     XCTAssertTrue(mirrorContains(platformAlarmId))
@@ -2741,6 +2752,17 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(legacy["reservationGeneration"] as? Int, 0)
     XCTAssertEqual(fake.scheduleAttempts, 1)
 
+    let encodedZeroGenerations: [Any] = [NSNumber(value: 0), Int32(0), Int64(0)]
+    for (index, generation) in encodedZeroGenerations.enumerated() {
+      var payload = makeSchedulePayload(occurrenceId: "typed-zero-\(index)")
+      payload["reservationId"] = "reservation-typed-zero-\(index)"
+      payload["reservationGeneration"] = generation
+      let row = await bridge.scheduleOccurrence(payload)
+      XCTAssertEqual(row["status"] as? String, "success")
+      XCTAssertEqual(row["reservationGeneration"] as? Int, 0)
+    }
+    XCTAssertEqual(fake.scheduleAttempts, 4)
+
     for invalid: Any in [-1, 1.25, true, "1"] {
       var payload = makeSchedulePayload(occurrenceId: "invalid-\(String(describing: invalid))")
       payload["reservationId"] = "reservation-invalid-\(String(describing: invalid))"
@@ -2748,7 +2770,7 @@ class RunnerTests: XCTestCase {
       let row = await bridge.scheduleOccurrence(payload)
       XCTAssertEqual(row["status"] as? String, "failure")
       XCTAssertEqual(row["failureReason"] as? String, "invalidRequest")
-      XCTAssertEqual(fake.scheduleAttempts, 1)
+      XCTAssertEqual(fake.scheduleAttempts, 4)
     }
   }
 
