@@ -892,7 +892,6 @@ class AndroidInventoryTest {
                 firstWinner.occurrenceId,
             )
             assertEquals(firstWinner, secondWinner)
-            assertEquals(1, scheduledAlarms().size)
             assertEquals(listOf(firstWinner.platformAlarmId), scheduledAlarmIds())
             assertNull(AlarmReplacementJournalStore(context).load())
         }
