@@ -2436,7 +2436,8 @@ internal object AndroidAlarmReplacementRecovery {
         val authorityStore = ReservationAuthorityStore(storageContext)
         val now = System.currentTimeMillis()
         val winner = when {
-            journal.phase == AlarmReplacementPhase.OLD_RETIRED -> journal.new
+            journal.phase == AlarmReplacementPhase.OLD_RETIRED ->
+                journal.new.takeIf { it.scheduledAtMillis > now }
             journal.old.scheduledAtMillis > now -> journal.old
             journal.new.scheduledAtMillis > now -> journal.new
             else -> null

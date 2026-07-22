@@ -1307,6 +1307,48 @@ class AndroidInventoryTest {
         assertEquals("failure", replayRow["status"])
     }
 
+    @Test
+    fun `expired old retired journal does not rearm its candidate`() {
+        val expiredAt = System.currentTimeMillis() - 1_000
+        val old = alarmRequest(
+            platformAlarmId = "android:reservation:expired-retired-slot",
+            reservationId = "expired-retired-slot",
+            occurrenceId = "expired-retired-old",
+            wakePlanId = "expired-retired-plan",
+            scheduledAtMillis = expiredAt,
+        )
+        val newTemplate = old.copy(
+            occurrenceId = "expired-retired-new",
+            reservationGeneration = 5L,
+        )
+        val replacement = newTemplate.copy(
+            platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(newTemplate),
+        )
+        assertTrue(AlarmStore(context).put(old))
+        assertTrue(AlarmStore(context).put(replacement))
+        assertTrue(
+            AlarmReplacementJournalStore(context).save(
+                AlarmReplacementJournal(
+                    old = old,
+                    new = replacement,
+                    phase = AlarmReplacementPhase.OLD_RETIRED,
+                ),
+            ),
+        )
+
+        val recovery = AndroidAlarmReplacementRecovery.reconcile(context, context)
+
+        assertTrue(recovery.isSuccess)
+        assertNull(AlarmStore(context).get(old.platformAlarmId))
+        assertNull(AlarmStore(context).get(replacement.platformAlarmId))
+        assertNull(AlarmReplacementJournalStore(context).load())
+        assertTrue(scheduledAlarms().isEmpty())
+        val authority = ReservationAuthorityStore(context).load()
+            .reservations[old.reservationId]
+        assertEquals(5L, authority?.reservationGeneration)
+        assertEquals(ReservationAuthorityState.RETIRED, authority?.state)
+    }
+
     private fun scheduleArguments(
         occurrenceId: String,
         reservationId: String,

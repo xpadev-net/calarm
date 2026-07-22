@@ -353,11 +353,11 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
-  func testBridgeSameOccurrenceRetryUpdatesNativeConfiguration() async {
+  func testBridgeSameOccurrenceConfigurationUpdateRequiresHigherGeneration() async {
     let fake = FakeAlarmKitNativeClient()
     let bridge = AlarmKitBridge(nativeClient: fake)
     let original = makeScheduleRequest("reservation-config-retry")
-    let updated = ScheduleRequest(
+    let equalGenerationUpdate = ScheduleRequest(
       occurrenceId: original.occurrenceId,
       reservationId: original.reservationId,
       wakePlanId: original.wakePlanId,
@@ -366,11 +366,24 @@ class RunnerTests: XCTestCase {
       soundId: "updated",
       vibrationEnabled: false
     )
+    let updated = ScheduleRequest(
+      occurrenceId: equalGenerationUpdate.occurrenceId,
+      reservationId: equalGenerationUpdate.reservationId,
+      reservationGeneration: original.reservationGeneration + 1,
+      wakePlanId: equalGenerationUpdate.wakePlanId,
+      scheduledAt: equalGenerationUpdate.scheduledAt,
+      targetAt: equalGenerationUpdate.targetAt,
+      soundId: equalGenerationUpdate.soundId,
+      vibrationEnabled: equalGenerationUpdate.vibrationEnabled
+    )
     clearMirror()
     defer { clearMirror() }
 
     let originalResult = await bridge.scheduleAlarm(original)
     XCTAssertEqual(originalResult.status, "success")
+    let equalGenerationResult = await bridge.scheduleAlarm(equalGenerationUpdate)
+    XCTAssertEqual(equalGenerationResult.failureReason, "invalidRequest")
+    XCTAssertEqual(fake.scheduleAttempts, 1)
     let updatedResult = await bridge.scheduleAlarm(updated)
     XCTAssertEqual(updatedResult.status, "success")
     XCTAssertEqual(fake.scheduleAttempts, 2)
