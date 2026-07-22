@@ -479,7 +479,11 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             val comparableExisting = if (
                 legacyRequest != null && legacyIdentityMatches
             ) {
-                existing.copy(reservationId = request.reservationId)
+                existing.copy(
+                    reservationId = request.reservationId,
+                    indexInPlan = existing.indexInPlan ?: request.indexInPlan,
+                    totalInPlan = existing.totalInPlan ?: request.totalInPlan,
+                )
             } else {
                 existing
             }
