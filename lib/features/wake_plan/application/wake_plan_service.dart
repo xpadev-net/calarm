@@ -1120,15 +1120,18 @@ class WakePlanService {
       }
     }
     propagateBlockedParticipants();
+    // An edited plan must not schedule replacement identities until native
+    // authority proves its persisted old identities have been retired.
+    Set<String> nonAuthoritativeBlockedPlanIds() => {
+      ...corruptInventoryPlanIds,
+      ...plansAwaitingAuthoritativeRetirement,
+    };
     if (inventory == null || !inventory.isAuthoritative) {
       return _WholeInventoryPreparation(
         inventory: inventory,
         occurrences: occurrences,
         recoveryPlanIds: {...activePlanIds, ...corruptInventoryPlanIds},
-        blockedPlanIds: {
-          ...corruptInventoryPlanIds,
-          ...plansAwaitingAuthoritativeRetirement,
-        },
+        blockedPlanIds: nonAuthoritativeBlockedPlanIds(),
       );
     }
 
@@ -1151,10 +1154,7 @@ class WakePlanService {
         ),
         occurrences: occurrences,
         recoveryPlanIds: {...activePlanIds, ...corruptInventoryPlanIds},
-        blockedPlanIds: {
-          ...corruptInventoryPlanIds,
-          ...plansAwaitingAuthoritativeRetirement,
-        },
+        blockedPlanIds: nonAuthoritativeBlockedPlanIds(),
       );
     }
 
