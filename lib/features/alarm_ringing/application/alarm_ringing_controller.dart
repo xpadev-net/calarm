@@ -64,17 +64,7 @@ class AlarmRingingController {
       occurrenceId,
     );
     if (pending != null) {
-      if (pending.occurrence.platformAlarmId == null ||
-          pending.occurrence.platformAlarmId == pending.platformAlarmId) {
-        return _completePendingDismissal(pending);
-      }
-      return _completePreparation(
-        await store.prepareAlarmOccurrenceDismissal(
-          occurrenceId: pending.occurrence.id,
-          expectedPlatformAlarmId: pending.occurrence.platformAlarmId,
-          requestedAt: _clock(),
-        ),
-      );
+      return _resumePendingDismissal(pending);
     }
 
     final occurrence = await store.fetchAlarmOccurrence(occurrenceId);
@@ -117,12 +107,28 @@ class AlarmRingingController {
     final pending = await store.fetchPendingAlarmOccurrenceDismissals();
     for (final intent in pending) {
       try {
-        await _completePendingDismissal(intent);
+        await _resumePendingDismissal(intent);
       } catch (_) {
         // Keep a failed intent durable without preventing later exact intents
         // from being replayed during the same load.
       }
     }
+  }
+
+  Future<AlarmDismissResult> _resumePendingDismissal(
+    AlarmOccurrenceDismissalIntent intent,
+  ) async {
+    if (intent.occurrence.platformAlarmId == null ||
+        intent.occurrence.platformAlarmId == intent.platformAlarmId) {
+      return _completePendingDismissal(intent);
+    }
+    return _completePreparation(
+      await store.prepareAlarmOccurrenceDismissal(
+        occurrenceId: intent.occurrence.id,
+        expectedPlatformAlarmId: intent.occurrence.platformAlarmId,
+        requestedAt: _clock(),
+      ),
+    );
   }
 
   Future<AlarmDismissResult> _completePendingDismissal(

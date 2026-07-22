@@ -580,6 +580,45 @@ void main() {
     expect(store.pendingDismissals, isEmpty);
   });
 
+  test('refreshes a stale pending identity during automatic replay', () async {
+    final current = _occurrence(
+      id: 'plan-1:20640:410',
+      day: monday,
+      minute: 410,
+      status: AlarmOccurrenceStatus.ringing,
+      platformAlarmId: 'native-current',
+      firedAt: DateTime(2026, 7, 6, 6, 50),
+    );
+    final gateway = FakeNativeAlarmGateway()
+      ..inventoryRows.add(_inventoryRow(current));
+    final store = _AlarmRingingStore(
+      plans: [_plan(day: monday)],
+      occurrences: [current],
+    );
+    store.pendingDismissals[current.id] = AlarmOccurrenceDismissalIntent(
+      occurrence: current,
+      requestedAt: DateTime(2026, 7, 6, 6, 45),
+      platformAlarmId: 'native-stale',
+    );
+    final controller = AlarmRingingController(
+      store: store,
+      nativeAlarmGateway: gateway,
+      coordinator: WakePlanMutationCoordinator(),
+      clock: () => DateTime(2026, 7, 6, 6, 55),
+    );
+
+    expect(await controller.loadCurrentRinging(), isNull);
+    expect(
+      store.occurrences[current.id]!.status,
+      AlarmOccurrenceStatus.dismissed,
+    );
+    expect(
+      gateway.cancelledOccurrences.single.platformAlarmId,
+      'native-current',
+    );
+    expect(store.pendingDismissals, isEmpty);
+  });
+
   test(
     'direct retry completes after service retires the pending identity',
     () async {
