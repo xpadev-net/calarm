@@ -10,6 +10,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
+import org.json.JSONObject
 import java.text.DateFormat
 import java.util.Date
 
@@ -93,7 +94,7 @@ class AlarmReceiver : BroadcastReceiver() {
         val journal = try {
             AlarmReplacementJournalStore(recoveryContext).load()
         } catch (_: Exception) {
-            return rawJournal.contains(platformAlarmId)
+            return rawJournal.contains(JSONObject.quote(platformAlarmId))
         } ?: return true
         return platformAlarmId == journal.old.platformAlarmId ||
             platformAlarmId == journal.new.platformAlarmId
