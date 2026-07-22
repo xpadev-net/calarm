@@ -95,7 +95,8 @@ class RunnerTests: XCTestCase {
     let original = makeScheduleRequest("reservation-recreated")
     let recreated = makeScheduleRequest(
       "reservation-recreated",
-      occurrenceId: "occurrence-recreated"
+      occurrenceId: "occurrence-recreated",
+      reservationGeneration: 1
     )
     let platformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
     clearMirror()
@@ -251,6 +252,7 @@ class RunnerTests: XCTestCase {
     originalPayload["reservationId"] = reservationId
     var replacementPayload = makeSchedulePayload(occurrenceId: replacementOccurrenceId)
     replacementPayload["reservationId"] = reservationId
+    replacementPayload["reservationGeneration"] = 1
     let originalArguments: [String: Any?] = [
       "schemaVersion": 1,
       "occurrences": [originalPayload],
@@ -407,7 +409,8 @@ class RunnerTests: XCTestCase {
     let original = makeScheduleRequest("reservation-replacement-rollback")
     let replacement = makeScheduleRequest(
       "reservation-replacement-rollback",
-      occurrenceId: "occurrence-replacement"
+      occurrenceId: "occurrence-replacement",
+      reservationGeneration: 1
     )
     let platformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
     clearMirror()
@@ -444,7 +447,8 @@ class RunnerTests: XCTestCase {
     let original = makeScheduleRequest("reservation-replacement-unknown")
     let replacement = makeScheduleRequest(
       "reservation-replacement-unknown",
-      occurrenceId: "occurrence-replacement-unknown"
+      occurrenceId: "occurrence-replacement-unknown",
+      reservationGeneration: 1
     )
     let platformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
     clearMirror()
@@ -485,7 +489,8 @@ class RunnerTests: XCTestCase {
     let original = makeScheduleRequest("reservation-replacement-recovery")
     let replacement = makeScheduleRequest(
       "reservation-replacement-recovery",
-      occurrenceId: "occurrence-replacement-recovery"
+      occurrenceId: "occurrence-replacement-recovery",
+      reservationGeneration: 1
     )
     let platformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
     clearMirror()
@@ -773,7 +778,8 @@ class RunnerTests: XCTestCase {
     let original = makeScheduleRequest("reservation-legacy-replacement")
     let replacement = makeScheduleRequest(
       "reservation-legacy-replacement",
-      occurrenceId: "occurrence-legacy-replacement"
+      occurrenceId: "occurrence-legacy-replacement",
+      reservationGeneration: 1
     )
     let platformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
     let legacyData = mirrorData([
@@ -1508,7 +1514,8 @@ class RunnerTests: XCTestCase {
     let original = makeScheduleRequest("reservation-pending-replacement")
     let replacement = makeScheduleRequest(
       "reservation-pending-replacement",
-      occurrenceId: "occurrence-pending-replacement"
+      occurrenceId: "occurrence-pending-replacement",
+      reservationGeneration: 1
     )
     let oldPlatformAlarmId = calarmPlatformAlarmId(for: original.reservationId)
     let interruptedBridge = AlarmKitBridge(
@@ -1820,6 +1827,7 @@ class RunnerTests: XCTestCase {
 
     var collisionPayload = makeSchedulePayload(occurrenceId: "occurrence-collision")
     collisionPayload["reservationId"] = "stable-reservation"
+    collisionPayload["reservationGeneration"] = 1
     let collisionResult = await stableBridge.scheduleOccurrence(collisionPayload)
     XCTAssertEqual(collisionResult["status"] as? String, "success")
     XCTAssertEqual(stableFake.scheduleAttempts, 2)
@@ -1855,7 +1863,7 @@ class RunnerTests: XCTestCase {
     defer { clearMirror() }
 
     let result = await bridge.scheduleAlarm(request)
-    XCTAssertEqual(result.failureReason, "unknown")
+    XCTAssertEqual(result.failureReason, "invalidRequest")
     XCTAssertEqual(fake.scheduleAttempts, 0)
     XCTAssertEqual(fake.inventoryCalls, 0)
     XCTAssertNil(UserDefaults.standard.data(forKey: mirrorKey))
