@@ -24,6 +24,7 @@ class AlarmRingingController {
   final AlarmRingingClock _clock;
 
   Future<AlarmRingingSnapshot?> loadCurrentRinging() async {
+    await coordinator.run(_replayPendingDismissals);
     final now = _clock();
     final plans = await store.fetchWakePlans(now: now);
     final snapshots = <AlarmRingingSnapshot>[];
@@ -59,6 +60,13 @@ class AlarmRingingController {
   }
 
   Future<AlarmDismissResult> _dismissCurrent(String occurrenceId) async {
+    final pending = await store.fetchPendingAlarmOccurrenceDismissal(
+      occurrenceId,
+    );
+    if (pending != null) {
+      return _resumePendingDismissal(pending);
+    }
+
     final occurrence = await store.fetchAlarmOccurrence(occurrenceId);
     if (occurrence == null) {
       return AlarmDismissResult.notFound;
@@ -72,29 +80,107 @@ class AlarmRingingController {
       return AlarmDismissResult.notRinging;
     }
 
-    final platformAlarmId = occurrence.platformAlarmId;
-    if (platformAlarmId != null) {
-      final cancelResult = await nativeAlarmGateway.cancelOccurrences([
-        NativeAlarmCancelRequest(
-          occurrenceId: occurrence.id,
-          platformAlarmId: platformAlarmId,
-        ),
-      ]);
-      if (!cancelResult.isSuccess) {
-        return AlarmDismissResult.nativeCancelFailed;
+    final preparation = await store.prepareAlarmOccurrenceDismissal(
+      occurrenceId: occurrence.id,
+      expectedPlatformAlarmId: occurrence.platformAlarmId,
+      requestedAt: now,
+    );
+    return _completePreparation(preparation);
+  }
+
+  Future<AlarmDismissResult> _completePreparation(
+    AlarmOccurrenceDismissalPreparation preparation,
+  ) async {
+    switch (preparation.status) {
+      case AlarmOccurrenceDismissalPreparationStatus.ready:
+        return _completePendingDismissal(preparation.intent!);
+      case AlarmOccurrenceDismissalPreparationStatus.notFound:
+        return AlarmDismissResult.notFound;
+      case AlarmOccurrenceDismissalPreparationStatus.alreadyDismissed:
+        return AlarmDismissResult.alreadyDismissed;
+      case AlarmOccurrenceDismissalPreparationStatus.noLongerEligible:
+        return AlarmDismissResult.notRinging;
+    }
+  }
+
+  Future<void> _replayPendingDismissals() async {
+    final pending = await store.fetchPendingAlarmOccurrenceDismissals();
+    for (final intent in pending) {
+      try {
+        await _resumePendingDismissal(intent);
+      } catch (_) {
+        // Keep a failed intent durable without preventing later exact intents
+        // from being replayed during the same load.
       }
     }
+  }
 
-    await store.saveAlarmOccurrences([
-      occurrence.copyWith(
-        status: AlarmOccurrenceStatus.dismissed,
-        platformAlarmId: null,
-        firedAt: occurrence.firedAt ?? now,
-        dismissedAt: now,
-        updatedAt: now,
+  Future<AlarmDismissResult> _resumePendingDismissal(
+    AlarmOccurrenceDismissalIntent intent,
+  ) async {
+    if (intent.occurrence.platformAlarmId == null ||
+        intent.occurrence.platformAlarmId == intent.platformAlarmId) {
+      return _completePendingDismissal(intent);
+    }
+    return _completePreparation(
+      await store.prepareAlarmOccurrenceDismissal(
+        occurrenceId: intent.occurrence.id,
+        expectedPlatformAlarmId: intent.occurrence.platformAlarmId,
+        requestedAt: _clock(),
       ),
-    ]);
+    );
+  }
+
+  Future<AlarmDismissResult> _completePendingDismissal(
+    AlarmOccurrenceDismissalIntent intent,
+  ) async {
+    if (!await _cancelledOrAuthoritativelyAbsent(intent)) {
+      return AlarmDismissResult.nativeCancelFailed;
+    }
+    await store.completeAlarmOccurrenceDismissal(
+      intent: intent,
+      dismissedAt: _clock(),
+    );
     return AlarmDismissResult.dismissed;
+  }
+
+  Future<bool> _cancelledOrAuthoritativelyAbsent(
+    AlarmOccurrenceDismissalIntent intent,
+  ) async {
+    final platformAlarmId = intent.platformAlarmId;
+    if (platformAlarmId == null) {
+      return true;
+    }
+    final request = NativeAlarmCancelRequest(
+      occurrenceId: intent.occurrence.id,
+      platformAlarmId: platformAlarmId,
+    );
+    try {
+      final cancelResult = await nativeAlarmGateway.cancelOccurrences([
+        request,
+      ]);
+      if (cancelResult.isSuccess) {
+        return true;
+      }
+    } catch (_) {
+      // A lost reply can follow a completed native cancellation. Authoritative
+      // inventory below distinguishes that case from a pre-effect failure.
+    }
+
+    try {
+      final inventory = await nativeAlarmGateway.getInventory();
+      if (!inventory.isSuccess) {
+        return false;
+      }
+      return !inventory.rows.any(
+        (row) =>
+            row.reservationId == request.reservationId ||
+            row.occurrenceId == request.occurrenceId ||
+            row.platformAlarmId == request.platformAlarmId,
+      );
+    } catch (_) {
+      return false;
+    }
   }
 
   bool _isDismissibleCurrentOccurrence(
@@ -196,9 +282,25 @@ abstract class AlarmRingingStore {
 
   Future<AlarmOccurrence?> fetchAlarmOccurrence(String id);
 
-  Future<List<AlarmOccurrence>> fetchOccurrencesForPlan(String wakePlanId);
+  Future<List<AlarmOccurrenceDismissalIntent>>
+  fetchPendingAlarmOccurrenceDismissals();
 
-  Future<void> saveAlarmOccurrences(Iterable<AlarmOccurrence> occurrences);
+  Future<AlarmOccurrenceDismissalIntent?> fetchPendingAlarmOccurrenceDismissal(
+    String occurrenceId,
+  );
+
+  Future<AlarmOccurrenceDismissalPreparation> prepareAlarmOccurrenceDismissal({
+    required String occurrenceId,
+    required String? expectedPlatformAlarmId,
+    required DateTime requestedAt,
+  });
+
+  Future<void> completeAlarmOccurrenceDismissal({
+    required AlarmOccurrenceDismissalIntent intent,
+    required DateTime dismissedAt,
+  });
+
+  Future<List<AlarmOccurrence>> fetchOccurrencesForPlan(String wakePlanId);
 }
 
 class AlarmRingingRepositoryStore implements AlarmRingingStore {
@@ -217,13 +319,45 @@ class AlarmRingingRepositoryStore implements AlarmRingingStore {
   }
 
   @override
-  Future<List<AlarmOccurrence>> fetchOccurrencesForPlan(String wakePlanId) {
-    return _repository.fetchOccurrencesForPlan(wakePlanId);
+  Future<List<AlarmOccurrenceDismissalIntent>>
+  fetchPendingAlarmOccurrenceDismissals() {
+    return _repository.fetchPendingAlarmOccurrenceDismissals();
   }
 
   @override
-  Future<void> saveAlarmOccurrences(Iterable<AlarmOccurrence> occurrences) {
-    return _repository.saveAlarmOccurrences(occurrences);
+  Future<AlarmOccurrenceDismissalIntent?> fetchPendingAlarmOccurrenceDismissal(
+    String occurrenceId,
+  ) {
+    return _repository.fetchPendingAlarmOccurrenceDismissal(occurrenceId);
+  }
+
+  @override
+  Future<AlarmOccurrenceDismissalPreparation> prepareAlarmOccurrenceDismissal({
+    required String occurrenceId,
+    required String? expectedPlatformAlarmId,
+    required DateTime requestedAt,
+  }) {
+    return _repository.prepareAlarmOccurrenceDismissal(
+      occurrenceId: occurrenceId,
+      expectedPlatformAlarmId: expectedPlatformAlarmId,
+      requestedAt: requestedAt,
+    );
+  }
+
+  @override
+  Future<void> completeAlarmOccurrenceDismissal({
+    required AlarmOccurrenceDismissalIntent intent,
+    required DateTime dismissedAt,
+  }) {
+    return _repository.completeAlarmOccurrenceDismissal(
+      intent: intent,
+      dismissedAt: dismissedAt,
+    );
+  }
+
+  @override
+  Future<List<AlarmOccurrence>> fetchOccurrencesForPlan(String wakePlanId) {
+    return _repository.fetchOccurrencesForPlan(wakePlanId);
   }
 }
 

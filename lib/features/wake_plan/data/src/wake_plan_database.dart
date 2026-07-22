@@ -36,6 +36,8 @@ class AlarmOccurrenceRows extends Table {
   DateTimeColumn get firedAt => dateTime().nullable()();
   DateTimeColumn get dismissedAt => dateTime().nullable()();
   TextColumn get failureReason => text().nullable()();
+  DateTimeColumn get dismissalRequestedAt => dateTime().nullable()();
+  TextColumn get dismissalPlatformAlarmId => text().nullable()();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 
@@ -62,7 +64,7 @@ class WakePlanDatabase extends _$WakePlanDatabase {
   WakePlanDatabase(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration {
@@ -71,6 +73,27 @@ class WakePlanDatabase extends _$WakePlanDatabase {
       onUpgrade: (migrator, from, to) async {
         if (from < 1) {
           await migrator.createAll();
+          return;
+        }
+        if (from < 2) {
+          final existingColumns = await customSelect(
+            'PRAGMA table_info(alarm_occurrence_rows)',
+          ).get();
+          final existingColumnNames = existingColumns
+              .map((row) => row.read<String>('name'))
+              .toSet();
+          if (!existingColumnNames.contains('dismissal_requested_at')) {
+            await migrator.addColumn(
+              alarmOccurrenceRows,
+              alarmOccurrenceRows.dismissalRequestedAt,
+            );
+          }
+          if (!existingColumnNames.contains('dismissal_platform_alarm_id')) {
+            await migrator.addColumn(
+              alarmOccurrenceRows,
+              alarmOccurrenceRows.dismissalPlatformAlarmId,
+            );
+          }
         }
       },
     );
