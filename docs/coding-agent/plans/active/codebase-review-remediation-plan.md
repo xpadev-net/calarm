@@ -770,7 +770,7 @@
 
 ### Task_26: Recover Android recreation state before delivery admission
 
-- status: in progress
+- status: blocked
 - worker: `019f881b-da51-7a40-8590-e43e4b3d1172`
 - branch: `codex/task-26-receiver-delivery-recovery`
 - type: impl
@@ -779,6 +779,7 @@
   - `android/app/src/test/kotlin/dev/xpa/calarm/AlarmReceiverTest.kt`
   - `android/app/src/test/kotlin/dev/xpa/calarm/AndroidInventoryTest.kt` only for delivery/recovery integration coverage
 - depends_on: [Task_25, Task_27]
+- blocker: Task_27 must merge the callable Android replacement-recovery foundation before receiver-only code can compile or be validated.
 - acceptance:
   - Alarm delivery runs the existing serialized native recovery entry point before mirror lookup, so an OS-armed candidate cannot be dropped solely because its mirror commit was interrupted.
   - Recovery failure or corrupt/ambiguous journal state fails closed without delivering the wrong reservation, duplicating events, or deleting recoverable evidence.
