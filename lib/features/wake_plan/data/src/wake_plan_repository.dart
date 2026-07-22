@@ -26,6 +26,22 @@ class WakePlanReconciliationSnapshot {
   final Set<String> corruptOccurrenceWakePlanIds;
 }
 
+class _PersistedReservationIdentity {
+  const _PersistedReservationIdentity({
+    required this.occurrenceId,
+    required this.reservationId,
+    required this.wakePlanId,
+    required this.generation,
+    required this.reservationWasExplicit,
+  });
+
+  final String occurrenceId;
+  final String reservationId;
+  final String wakePlanId;
+  final int generation;
+  final bool reservationWasExplicit;
+}
+
 class AlarmOccurrencePlatformMatchSnapshot {
   AlarmOccurrencePlatformMatchSnapshot({
     required List<AlarmOccurrence> occurrences,
@@ -195,11 +211,91 @@ class WakePlanRepository {
   }
 
   Future<void> saveAlarmOccurrences(Iterable<AlarmOccurrence> occurrences) {
-    return _database.batch((batch) {
-      batch.insertAllOnConflictUpdate(
-        _database.alarmOccurrenceRows,
-        occurrences.map(_alarmOccurrenceCompanion).toList(growable: false),
+    final incoming = occurrences.toList(growable: false);
+    if (incoming.map((occurrence) => occurrence.id).toSet().length !=
+        incoming.length) {
+      throw ArgumentError.value(
+        incoming,
+        'occurrences',
+        'must contain unique occurrence ids',
       );
+    }
+    return _database.transaction(() async {
+      final persisted = await _database
+          .select(_database.alarmOccurrenceRows)
+          .get();
+      final identities = <_PersistedReservationIdentity>[
+        for (final row in persisted)
+          _PersistedReservationIdentity(
+            occurrenceId: row.id,
+            reservationId: row.reservationId ?? row.id,
+            wakePlanId: row.wakePlanId,
+            generation: row.reservationGeneration,
+            reservationWasExplicit: row.reservationId != null,
+          ),
+      ];
+
+      final validationOrder = [...incoming]
+        ..sort(
+          (left, right) =>
+              left.reservationGeneration.compareTo(right.reservationGeneration),
+        );
+      for (final occurrence in validationOrder) {
+        final reservationId = occurrence.reservationId;
+        final sameOccurrence = identities
+            .where((identity) => identity.occurrenceId == occurrence.id)
+            .firstOrNull;
+        if (sameOccurrence != null &&
+            (sameOccurrence.wakePlanId != occurrence.wakePlanId ||
+                (sameOccurrence.reservationWasExplicit &&
+                    sameOccurrence.reservationId != reservationId) ||
+                occurrence.reservationGeneration < sameOccurrence.generation)) {
+          throw StateError(
+            'Alarm occurrence reservation identity is non-monotonic: '
+            '${occurrence.id}',
+          );
+        }
+        final related = identities
+            .where(
+              (identity) =>
+                  identity.reservationId == reservationId &&
+                  identity.occurrenceId != occurrence.id,
+            )
+            .toList(growable: false);
+        if (related.any(
+              (identity) => identity.wakePlanId != occurrence.wakePlanId,
+            ) ||
+            (related.isNotEmpty &&
+                occurrence.reservationGeneration <=
+                    related
+                        .map((identity) => identity.generation)
+                        .reduce(
+                          (left, right) => left > right ? left : right,
+                        ))) {
+          throw StateError(
+            'Alarm reservation generation does not retire its predecessor: '
+            '$reservationId',
+          );
+        }
+        identities
+          ..removeWhere((identity) => identity.occurrenceId == occurrence.id)
+          ..add(
+            _PersistedReservationIdentity(
+              occurrenceId: occurrence.id,
+              reservationId: reservationId,
+              wakePlanId: occurrence.wakePlanId,
+              generation: occurrence.reservationGeneration,
+              reservationWasExplicit: true,
+            ),
+          );
+      }
+
+      await _database.batch((batch) {
+        batch.insertAllOnConflictUpdate(
+          _database.alarmOccurrenceRows,
+          incoming.map(_alarmOccurrenceCompanion).toList(growable: false),
+        );
+      });
     });
   }
 
@@ -697,6 +793,8 @@ class WakePlanRepository {
       firedAt: Value(occurrence.firedAt),
       dismissedAt: Value(occurrence.dismissedAt),
       failureReason: Value(occurrence.failureReason),
+      reservationId: Value(occurrence.reservationId),
+      reservationGeneration: Value(occurrence.reservationGeneration),
       createdAt: occurrence.createdAt,
       updatedAt: occurrence.updatedAt,
     );
@@ -715,6 +813,8 @@ class WakePlanRepository {
       firedAt: row.firedAt,
       dismissedAt: row.dismissedAt,
       failureReason: row.failureReason,
+      reservationId: row.reservationId ?? row.id,
+      reservationGeneration: row.reservationGeneration,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     );

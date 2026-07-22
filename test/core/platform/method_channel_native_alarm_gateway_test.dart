@@ -117,6 +117,7 @@ void main() {
         'reservations': [
           {
             'reservationId': 'reservation-1',
+            'reservationGeneration': 3,
             'occurrenceId': 'occ-1',
             'wakePlanId': 'plan-1',
             'platformAlarmId': 'platform-occ-1',
@@ -130,8 +131,43 @@ void main() {
 
     expect(result.status, NativeAlarmInventoryResultStatus.success);
     expect(result.rows.single.reservationId, 'reservation-1');
+    expect(result.rows.single.reservationGeneration, 3);
     expect(result.rows.single.status, NativeAlarmReservationStatus.ringing);
   });
+
+  test(
+    'getInventory defaults omitted generation and rejects negative values',
+    () async {
+      int? generation;
+      _setHandler(channel, calls, (_) {
+        return {
+          'schemaVersion': 1,
+          'reservations': [
+            {
+              'reservationId': 'reservation-1',
+              if (generation != null) 'reservationGeneration': generation,
+              'occurrenceId': 'occ-1',
+              'wakePlanId': 'plan-1',
+              'platformAlarmId': 'platform-occ-1',
+              'status': 'scheduled',
+            },
+          ],
+        };
+      });
+
+      final legacy = await gateway.getInventory();
+      expect(legacy.isSuccess, isTrue);
+      expect(legacy.rows.single.reservationGeneration, 0);
+
+      generation = -1;
+      final malformed = await gateway.getInventory();
+      expect(malformed.isSuccess, isFalse);
+      expect(
+        malformed.failureReason,
+        NativeAlarmInventoryFailureReason.corrupt,
+      );
+    },
+  );
 
   test(
     'getInventory treats old native implementations as unavailable',
@@ -486,6 +522,7 @@ void main() {
             {
               'occurrenceId': 'occ-1',
               'reservationId': 'occ-1',
+              'reservationGeneration': 0,
               'wakePlanId': 'plan-1',
               'scheduledAt': '2026-07-06T21:00:00.000Z',
               'targetAt': '2026-07-06T22:00:00.000Z',
@@ -497,6 +534,7 @@ void main() {
             {
               'occurrenceId': 'occ-2',
               'reservationId': 'occ-2',
+              'reservationGeneration': 0,
               'wakePlanId': 'plan-1',
               'scheduledAt': '2026-07-06T21:05:00.000Z',
               'targetAt': '2026-07-06T22:00:00.000Z',
@@ -559,6 +597,59 @@ void main() {
     },
   );
 
+  test(
+    'scheduleOccurrences parses and enforces reservation generation',
+    () async {
+      final base = _requests().first;
+      final request = NativeAlarmScheduleRequest(
+        occurrenceId: base.occurrenceId,
+        reservationId: 'stable-slot',
+        reservationGeneration: 5,
+        wakePlanId: base.wakePlanId,
+        scheduledAt: base.scheduledAt,
+        targetAt: base.targetAt,
+        indexInPlan: 0,
+        totalInPlan: 1,
+        soundId: base.soundId,
+        vibrationEnabled: base.vibrationEnabled,
+      );
+      var responseGeneration = 5;
+      _setHandler(channel, calls, (call) {
+        final payload = call.arguments as Map<Object?, Object?>;
+        final occurrence =
+            (payload['occurrences'] as List<Object?>).single
+                as Map<Object?, Object?>;
+        expect(occurrence['reservationGeneration'], 5);
+        return {
+          'schemaVersion': 1,
+          'occurrences': [
+            {
+              'occurrenceId': request.occurrenceId,
+              'reservationId': request.reservationId,
+              'reservationGeneration': responseGeneration,
+              'wakePlanId': request.wakePlanId,
+              'status': 'success',
+              'platformAlarmId': 'native-5',
+            },
+          ],
+        };
+      });
+
+      final exact = await gateway.scheduleOccurrences([request]);
+      expect(exact.isSuccess, isTrue);
+      expect(exact.occurrences.single.reservationGeneration, 5);
+
+      responseGeneration = 4;
+      final mismatched = await gateway.scheduleOccurrences([request]);
+      expect(mismatched.isSuccess, isFalse);
+      expect(
+        mismatched.occurrences.single.failureReason,
+        ScheduleFailureReason.nativeError,
+      );
+      expect(mismatched.occurrences.single.reservationGeneration, 5);
+    },
+  );
+
   test('scheduleOccurrences normalizes malformed result per request', () async {
     _setHandler(
       channel,
@@ -603,11 +694,13 @@ void main() {
             {
               'occurrenceId': 'occ-1',
               'reservationId': 'occ-1',
+              'reservationGeneration': 0,
               'platformAlarmId': 'platform-occ-1',
             },
             {
               'occurrenceId': 'occ-2',
               'reservationId': 'occ-2',
+              'reservationGeneration': 0,
               'platformAlarmId': 'platform-occ-2',
             },
           ],
@@ -650,11 +743,13 @@ void main() {
           {
             'occurrenceId': 'occ-1',
             'reservationId': 'occ-1',
+            'reservationGeneration': 0,
             'platformAlarmId': 'platform-occ-1',
           },
           {
             'occurrenceId': 'occ-2',
             'reservationId': 'occ-2',
+            'reservationGeneration': 0,
             'platformAlarmId': 'platform-occ-2',
           },
         ],
@@ -680,6 +775,51 @@ void main() {
 
     expect(result.status, CancelResultStatus.success);
   });
+
+  test(
+    'cancelOccurrences parses and enforces reservation generation',
+    () async {
+      final request = NativeAlarmCancelRequest(
+        occurrenceId: 'occ-1',
+        reservationId: 'stable-slot',
+        reservationGeneration: 8,
+        platformAlarmId: 'native-8',
+      );
+      var responseGeneration = 8;
+      _setHandler(channel, calls, (call) {
+        final payload = call.arguments as Map<Object?, Object?>;
+        final alarm =
+            (payload['alarms'] as List<Object?>).single
+                as Map<Object?, Object?>;
+        expect(alarm['reservationGeneration'], 8);
+        return {
+          'schemaVersion': 1,
+          'alarms': [
+            {
+              'occurrenceId': request.occurrenceId,
+              'reservationId': request.reservationId,
+              'reservationGeneration': responseGeneration,
+              'platformAlarmId': request.platformAlarmId,
+              'status': 'success',
+            },
+          ],
+        };
+      });
+
+      final exact = await gateway.cancelOccurrences([request]);
+      expect(exact.isSuccess, isTrue);
+      expect(exact.alarms.single.reservationGeneration, 8);
+
+      responseGeneration = 7;
+      final mismatched = await gateway.cancelOccurrences([request]);
+      expect(mismatched.isSuccess, isFalse);
+      expect(
+        mismatched.alarms.single.failureReason,
+        CancelFailureReason.nativeError,
+      );
+      expect(mismatched.alarms.single.reservationGeneration, 8);
+    },
+  );
 
   test(
     'cancelOccurrences rejects duplicate requests before native call',

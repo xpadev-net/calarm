@@ -12,10 +12,12 @@ This document fixes the Dart/native contract for the wake alarm gateway.
   legacy row by `occurrenceId` and restores the requested `reservationId`.
 - `reservationId` names one durable reservation slot, `wakePlanId` is the
   immutable owner of that slot, and `occurrenceId` names its current logical
-  generation. An exact retry is idempotent. A serialized same-plan recreation
-  may atomically rebind the slot to one new `occurrenceId`; the old occurrence
-  and platform identity then become stale. Reusing the slot across plans, or
-  reusing an occurrence/platform identity across slots, fails before mutation.
+  payload. `reservationGeneration` is the slot's non-negative monotonic
+  high-water mark and defaults to `0` only for legacy rows. An exact tuple
+  retry is idempotent; any higher generation may rebind the same-plan slot
+  because intermediate plan revisions need not create a native alarm. A lower
+  generation, an equal generation with changed payload, cross-plan ownership,
+  or duplicate identity fails before mutation.
 - `getInventory` is an additive read method. Older native implementations may
   report `unavailable`; callers must not infer that the native inventory is
   empty from an unavailable or failed read.
@@ -151,6 +153,7 @@ Request:
     {
       "occurrenceId": "occ-1",
       "reservationId": "reservation-occ-1",
+      "reservationGeneration": 4,
       "wakePlanId": "plan-1",
       "scheduledAt": "2026-07-06T21:00:00.000Z",
       "targetAt": "2026-07-06T22:00:00.000Z",
@@ -174,6 +177,7 @@ Response:
     {
       "occurrenceId": "occ-1",
       "reservationId": "reservation-occ-1",
+      "reservationGeneration": 4,
       "wakePlanId": "plan-1",
       "status": "success",
       "platformAlarmId": "platform-occ-1"
@@ -181,6 +185,7 @@ Response:
     {
       "occurrenceId": "occ-2",
       "reservationId": "reservation-occ-2",
+      "reservationGeneration": 0,
       "wakePlanId": "plan-1",
       "status": "failure",
       "failureReason": "osConstraint",
@@ -202,15 +207,23 @@ reads. A successful response should echo it. Omitting it is accepted only for
 rolling compatibility with the original schema, and Dart treats the row as a
 legacy response for the requested occurrence.
 
-When the same `reservationId` and `wakePlanId` arrive with a changed
-`occurrenceId`, the request is a recreation, not a conflicting identity. The
-native implementation must serialize it and durably record the
-old/new transition before changing OS state. A lost reply or process restart
-must reconcile to exactly one authoritative generation. iOS may briefly own
-two journaled AlarmKit UUIDs while preserving delivery; Android uses a distinct
-candidate PendingIntent identity and a durable replacement journal. Neither
-transient state is exposed as successful steady-state inventory. A currently
-ringing reservation may only accept an exact retry.
+When a higher `reservationGeneration` arrives for the same `reservationId` and
+`wakePlanId`, the request is a recreation even when `occurrenceId` is unchanged
+for a configuration-only edit. Native code persists the new high-water mark
+and old/new transition before changing OS state. A lost reply or process
+restart reconciles to exactly one authoritative generation. iOS may briefly
+own two journaled AlarmKit UUIDs while preserving delivery; Android uses a
+generation-specific candidate PendingIntent identity and a durable replacement
+journal. Neither transient state is exposed as successful steady-state
+inventory. A currently ringing reservation may only accept the exact current
+tuple.
+
+Cancellation and one-shot disappearance persist a retired authority record
+before removing OS or mirror state. Retirement is not inventory, but it blocks
+all delayed requests at or below its generation. Only a higher same-plan
+generation can reuse the slot. Native rollback readers may ignore this
+additive evidence; current readers must retain it and fail closed if an older
+generation-less mirror conflicts with it.
 
 On method-level `PlatformException`, Dart converts the error to one failed `ScheduleOccurrenceResult` for each requested occurrence.
 
@@ -225,6 +238,7 @@ Request:
     {
       "occurrenceId": "occ-1",
       "reservationId": "reservation-occ-1",
+      "reservationGeneration": 4,
       "platformAlarmId": "platform-occ-1"
     }
   ]
@@ -240,6 +254,7 @@ Response:
     {
       "occurrenceId": "occ-1",
       "reservationId": "reservation-occ-1",
+      "reservationGeneration": 4,
       "platformAlarmId": "platform-occ-1",
       "status": "success"
     }
@@ -262,11 +277,13 @@ Request:
     {
       "occurrenceId": "occ-1",
       "reservationId": "reservation-occ-1",
+      "reservationGeneration": 4,
       "platformAlarmId": "platform-occ-1"
     },
     {
       "occurrenceId": "occ-2",
       "reservationId": "reservation-occ-2",
+      "reservationGeneration": 0,
       "platformAlarmId": "platform-occ-2"
     }
   ]
@@ -282,6 +299,7 @@ Response:
     {
       "occurrenceId": "occ-1",
       "reservationId": "reservation-occ-1",
+      "reservationGeneration": 4,
       "platformAlarmId": "platform-occ-1",
       "status": "success"
     },
@@ -391,8 +409,9 @@ rows must not be adopted or cancelled until the Drift corruption is resolved.
 Identity conflicts block every decoded, raw, and native plan participant before
 any affected scheduling or repair can run.
 Cancellation always requires the current authoritative
-`(reservationId, occurrenceId, platformAlarmId)` tuple. A stale pre-recreation
-platform ID or occurrence cannot cancel the new generation.
+`(reservationId, reservationGeneration, occurrenceId, platformAlarmId)` tuple.
+A stale pre-recreation generation, platform ID, or occurrence cannot cancel the
+current reservation.
 Repeated startup and resume passes must be serialized and idempotent; a failed
 plan repair must not prevent later plans in the same pass from making safe
 progress.

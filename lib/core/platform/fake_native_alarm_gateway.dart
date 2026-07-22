@@ -47,6 +47,10 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
       <NativeTestAlarmScheduleRequest>[];
   final List<NativeAlarmInventoryRow> inventoryRows =
       <NativeAlarmInventoryRow>[];
+  final Map<String, _FakeReservationRetirement> retiredReservations =
+      <String, _FakeReservationRetirement>{};
+  final Map<String, NativeAlarmScheduleRequest> _activeRequests =
+      <String, NativeAlarmScheduleRequest>{};
   final List<NativeAlarmEvent> pendingAlarmEvents = <NativeAlarmEvent>[];
   final List<String> acknowledgedAlarmEventIds = <String>[];
   NativeAlarmInventoryFailureReason? inventoryFailureReason;
@@ -88,14 +92,31 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
           relatedRows.every(
             (row) =>
                 row.reservationId == request.reservationId &&
-                row.wakePlanId == request.wakePlanId,
+                row.wakePlanId == request.wakePlanId &&
+                (row.occurrenceId == request.occurrenceId
+                    ? request.reservationGeneration >
+                              row.reservationGeneration ||
+                          (request.reservationGeneration ==
+                                  row.reservationGeneration &&
+                              _sameSchedulePayload(
+                                _activeRequests[row.reservationId],
+                                request,
+                              ))
+                    : request.reservationGeneration >
+                          row.reservationGeneration),
           );
-      if (!canRebind) {
+      final retirement = retiredReservations[request.reservationId];
+      final canAdvanceRetirement = retirement == null
+          ? true
+          : retirement.wakePlanId == request.wakePlanId &&
+                request.reservationGeneration > retirement.generation;
+      if (!canRebind || (relatedRows.isEmpty && !canAdvanceRetirement)) {
         return ScheduleOccurrenceResult.failure(
           occurrenceId: request.occurrenceId,
           wakePlanId: request.wakePlanId,
           reason: ScheduleFailureReason.invalidRequest,
           reservationId: request.reservationId,
+          reservationGeneration: request.reservationGeneration,
           message: 'Fake native alarm identity conflicts with the request.',
         );
       }
@@ -116,6 +137,7 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
           reason: occurrenceFailureReason,
           platformAlarmId: failedPlatformAlarmId,
           reservationId: request.reservationId,
+          reservationGeneration: request.reservationGeneration,
         );
         if (failedPlatformAlarmId != null) {
           _upsertInventoryRow(request, failedPlatformAlarmId);
@@ -129,6 +151,7 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
         wakePlanId: request.wakePlanId,
         platformAlarmId: platformAlarmId,
         reservationId: request.reservationId,
+        reservationGeneration: request.reservationGeneration,
       );
     }).toList();
 
@@ -261,28 +284,46 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
           platformAlarmId: alarm.platformAlarmId,
           reason: CancelFailureReason.nativeError,
           reservationId: alarm.reservationId,
+          reservationGeneration: alarm.reservationGeneration,
         );
       }
 
-      final relatedRows = inventoryRows.where(
-        (row) =>
-            row.reservationId == alarm.reservationId ||
-            row.occurrenceId == alarm.occurrenceId ||
-            row.platformAlarmId == alarm.platformAlarmId,
-      );
+      final relatedRows = inventoryRows
+          .where(
+            (row) =>
+                row.reservationId == alarm.reservationId ||
+                row.occurrenceId == alarm.occurrenceId ||
+                row.platformAlarmId == alarm.platformAlarmId,
+          )
+          .toList(growable: false);
       final hasExactRow = relatedRows.any(
         (row) =>
             row.reservationId == alarm.reservationId &&
             row.occurrenceId == alarm.occurrenceId &&
-            row.platformAlarmId == alarm.platformAlarmId,
+            row.platformAlarmId == alarm.platformAlarmId &&
+            row.reservationGeneration == alarm.reservationGeneration,
       );
+      final retired = retiredReservations[alarm.reservationId];
+      final matchesRetirement =
+          retired == null || retired.generation == alarm.reservationGeneration;
       if (relatedRows.isNotEmpty && (relatedRows.length != 1 || !hasExactRow)) {
         return CancelAlarmResult.failure(
           occurrenceId: alarm.occurrenceId,
           platformAlarmId: alarm.platformAlarmId,
           reservationId: alarm.reservationId,
+          reservationGeneration: alarm.reservationGeneration,
           reason: CancelFailureReason.invalidRequest,
           message: 'Cancel identity does not match fake inventory.',
+        );
+      }
+      if (relatedRows.isEmpty && !matchesRetirement) {
+        return CancelAlarmResult.failure(
+          occurrenceId: alarm.occurrenceId,
+          platformAlarmId: alarm.platformAlarmId,
+          reservationId: alarm.reservationId,
+          reservationGeneration: alarm.reservationGeneration,
+          reason: CancelFailureReason.invalidRequest,
+          message: 'Cancel generation does not match fake retirement state.',
         );
       }
 
@@ -292,10 +333,18 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
             row.occurrenceId == alarm.occurrenceId &&
             row.platformAlarmId == alarm.platformAlarmId,
       );
+      _activeRequests.remove(alarm.reservationId);
+      if (relatedRows.isNotEmpty) {
+        retiredReservations[alarm.reservationId] = _FakeReservationRetirement(
+          wakePlanId: relatedRows.single.wakePlanId,
+          generation: alarm.reservationGeneration,
+        );
+      }
       return CancelAlarmResult.success(
         occurrenceId: alarm.occurrenceId,
         platformAlarmId: alarm.platformAlarmId,
         reservationId: alarm.reservationId,
+        reservationGeneration: alarm.reservationGeneration,
       );
     }).toList();
 
@@ -306,9 +355,20 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
     NativeAlarmScheduleRequest request,
     String platformAlarmId,
   ) {
+    final previous = inventoryRows
+        .where((row) => row.reservationId == request.reservationId)
+        .firstOrNull;
+    if (previous != null &&
+        previous.reservationGeneration < request.reservationGeneration) {
+      retiredReservations[request.reservationId] = _FakeReservationRetirement(
+        wakePlanId: previous.wakePlanId,
+        generation: previous.reservationGeneration,
+      );
+    }
     inventoryRows.removeWhere(
       (row) => row.reservationId == request.reservationId,
     );
+    _activeRequests[request.reservationId] = request;
     inventoryRows.add(
       NativeAlarmInventoryRow.create(
         reservationId: request.reservationId,
@@ -316,7 +376,35 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
         wakePlanId: request.wakePlanId,
         platformAlarmId: platformAlarmId,
         status: NativeAlarmReservationStatus.scheduled,
+        reservationGeneration: request.reservationGeneration,
       ),
     );
   }
+
+  bool _sameSchedulePayload(
+    NativeAlarmScheduleRequest? left,
+    NativeAlarmScheduleRequest right,
+  ) {
+    return left != null &&
+        left.occurrenceId == right.occurrenceId &&
+        left.reservationId == right.reservationId &&
+        left.reservationGeneration == right.reservationGeneration &&
+        left.wakePlanId == right.wakePlanId &&
+        left.scheduledAt == right.scheduledAt &&
+        left.targetAt == right.targetAt &&
+        left.indexInPlan == right.indexInPlan &&
+        left.totalInPlan == right.totalInPlan &&
+        left.soundId == right.soundId &&
+        left.vibrationEnabled == right.vibrationEnabled;
+  }
+}
+
+class _FakeReservationRetirement {
+  const _FakeReservationRetirement({
+    required this.wakePlanId,
+    required this.generation,
+  });
+
+  final String wakePlanId;
+  final int generation;
 }

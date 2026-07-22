@@ -175,6 +175,7 @@ class NativeAlarmScheduleRequest {
     required this.soundId,
     required this.vibrationEnabled,
     String? reservationId,
+    this.reservationGeneration = 0,
   }) {
     if (occurrenceId.isEmpty) {
       throw ArgumentError.value(
@@ -204,6 +205,7 @@ class NativeAlarmScheduleRequest {
     }
     _validateReservationId(reservationId ?? occurrenceId);
     this.reservationId = reservationId ?? occurrenceId;
+    _validateReservationGeneration(reservationGeneration);
   }
 
   final String occurrenceId;
@@ -215,6 +217,7 @@ class NativeAlarmScheduleRequest {
   /// process restarts, and same-plan occurrence recreation. A reservation may
   /// be rebound to one newer occurrence, but never to another wake plan.
   late final String reservationId;
+  final int reservationGeneration;
   final String wakePlanId;
   final DateTime scheduledAt;
   final DateTime targetAt;
@@ -229,6 +232,7 @@ class NativeAlarmCancelRequest {
     required this.occurrenceId,
     required this.platformAlarmId,
     String? reservationId,
+    this.reservationGeneration = 0,
   }) {
     if (occurrenceId.isEmpty) {
       throw ArgumentError.value(
@@ -246,10 +250,12 @@ class NativeAlarmCancelRequest {
     }
     _validateReservationId(reservationId ?? occurrenceId);
     this.reservationId = reservationId ?? occurrenceId;
+    _validateReservationGeneration(reservationGeneration);
   }
 
   final String occurrenceId;
   late final String reservationId;
+  final int reservationGeneration;
   final String platformAlarmId;
 }
 
@@ -299,6 +305,8 @@ class ScheduleResult {
         wakePlanId: request.wakePlanId,
         reason: ScheduleFailureReason.nativeError,
         message: 'Missing native schedule result.',
+        reservationId: request.reservationId,
+        reservationGeneration: request.reservationGeneration,
       ),
       resultName: 'schedule result',
     );
@@ -312,6 +320,13 @@ class ScheduleResult {
           result.reservationId,
           'schedule result',
           'does not match the requested reservationId',
+        );
+      }
+      if (result.reservationGeneration != request.reservationGeneration) {
+        throw ArgumentError.value(
+          result.reservationGeneration,
+          'schedule result',
+          'does not match the requested reservationGeneration',
         );
       }
       if (result.reservationId == request.occurrenceId &&
@@ -403,6 +418,7 @@ class ScheduleOccurrenceResult {
     required this.occurrenceId,
     required this.wakePlanId,
     required this.reservationId,
+    required this.reservationGeneration,
     required this.status,
     this.platformAlarmId,
     this.failureReason,
@@ -414,10 +430,12 @@ class ScheduleOccurrenceResult {
     required String wakePlanId,
     required String platformAlarmId,
     String? reservationId,
+    int reservationGeneration = 0,
   }) {
     _validateOccurrenceIds(occurrenceId: occurrenceId, wakePlanId: wakePlanId);
     final resolvedReservationId = reservationId ?? occurrenceId;
     _validateReservationId(resolvedReservationId);
+    _validateReservationGeneration(reservationGeneration);
     if (platformAlarmId.isEmpty) {
       throw ArgumentError.value(
         platformAlarmId,
@@ -430,6 +448,7 @@ class ScheduleOccurrenceResult {
       occurrenceId: occurrenceId,
       wakePlanId: wakePlanId,
       reservationId: resolvedReservationId,
+      reservationGeneration: reservationGeneration,
       status: ScheduleOccurrenceStatus.success,
       platformAlarmId: platformAlarmId,
     );
@@ -442,10 +461,12 @@ class ScheduleOccurrenceResult {
     String? message,
     String? platformAlarmId,
     String? reservationId,
+    int reservationGeneration = 0,
   }) {
     _validateOccurrenceIds(occurrenceId: occurrenceId, wakePlanId: wakePlanId);
     final resolvedReservationId = reservationId ?? occurrenceId;
     _validateReservationId(resolvedReservationId);
+    _validateReservationGeneration(reservationGeneration);
     if (platformAlarmId != null && platformAlarmId.isEmpty) {
       throw ArgumentError.value(
         platformAlarmId,
@@ -458,6 +479,7 @@ class ScheduleOccurrenceResult {
       occurrenceId: occurrenceId,
       wakePlanId: wakePlanId,
       reservationId: resolvedReservationId,
+      reservationGeneration: reservationGeneration,
       status: ScheduleOccurrenceStatus.failure,
       platformAlarmId: platformAlarmId,
       failureReason: reason,
@@ -468,6 +490,7 @@ class ScheduleOccurrenceResult {
   final String occurrenceId;
   final String wakePlanId;
   final String reservationId;
+  final int reservationGeneration;
   final ScheduleOccurrenceStatus status;
   final String? platformAlarmId;
   final ScheduleFailureReason? failureReason;
@@ -475,13 +498,20 @@ class ScheduleOccurrenceResult {
 
   bool get isSuccess => status == ScheduleOccurrenceStatus.success;
 
-  ScheduleOccurrenceResult copyWith({String? reservationId}) {
+  ScheduleOccurrenceResult copyWith({
+    String? reservationId,
+    int? reservationGeneration,
+  }) {
     final resolvedReservationId = reservationId ?? this.reservationId;
+    final resolvedReservationGeneration =
+        reservationGeneration ?? this.reservationGeneration;
     _validateReservationId(resolvedReservationId);
+    _validateReservationGeneration(resolvedReservationGeneration);
     return ScheduleOccurrenceResult._(
       occurrenceId: occurrenceId,
       wakePlanId: wakePlanId,
       reservationId: resolvedReservationId,
+      reservationGeneration: resolvedReservationGeneration,
       status: status,
       platformAlarmId: platformAlarmId,
       failureReason: failureReason,
@@ -515,6 +545,8 @@ class CancelResult {
         platformAlarmId: request.platformAlarmId,
         reason: CancelFailureReason.nativeError,
         message: 'Missing native cancel result.',
+        reservationId: request.reservationId,
+        reservationGeneration: request.reservationGeneration,
       ),
       resultName: 'cancel result',
     );
@@ -528,6 +560,13 @@ class CancelResult {
           result.reservationId,
           'cancel result',
           'does not match the requested reservationId',
+        );
+      }
+      if (result.reservationGeneration != request.reservationGeneration) {
+        throw ArgumentError.value(
+          result.reservationGeneration,
+          'cancel result',
+          'does not match the requested reservationGeneration',
         );
       }
       if (result.reservationId == request.occurrenceId &&
@@ -598,6 +637,7 @@ class CancelAlarmResult {
     required this.occurrenceId,
     required this.platformAlarmId,
     required this.reservationId,
+    required this.reservationGeneration,
     required this.status,
     this.failureReason,
     this.failureMessage,
@@ -607,15 +647,18 @@ class CancelAlarmResult {
     required String occurrenceId,
     required String platformAlarmId,
     String? reservationId,
+    int reservationGeneration = 0,
   }) {
     _validateOccurrenceId(occurrenceId);
     final resolvedReservationId = reservationId ?? occurrenceId;
     _validateReservationId(resolvedReservationId);
+    _validateReservationGeneration(reservationGeneration);
     _validatePlatformAlarmId(platformAlarmId);
     return CancelAlarmResult._(
       occurrenceId: occurrenceId,
       platformAlarmId: platformAlarmId,
       reservationId: resolvedReservationId,
+      reservationGeneration: reservationGeneration,
       status: CancelAlarmStatus.success,
     );
   }
@@ -626,15 +669,18 @@ class CancelAlarmResult {
     required CancelFailureReason reason,
     String? message,
     String? reservationId,
+    int reservationGeneration = 0,
   }) {
     _validateOccurrenceId(occurrenceId);
     final resolvedReservationId = reservationId ?? occurrenceId;
     _validateReservationId(resolvedReservationId);
+    _validateReservationGeneration(reservationGeneration);
     _validatePlatformAlarmId(platformAlarmId);
     return CancelAlarmResult._(
       occurrenceId: occurrenceId,
       platformAlarmId: platformAlarmId,
       reservationId: resolvedReservationId,
+      reservationGeneration: reservationGeneration,
       status: CancelAlarmStatus.failure,
       failureReason: reason,
       failureMessage: message,
@@ -643,6 +689,7 @@ class CancelAlarmResult {
 
   final String occurrenceId;
   final String reservationId;
+  final int reservationGeneration;
   final String platformAlarmId;
   final CancelAlarmStatus status;
   final CancelFailureReason? failureReason;
@@ -650,13 +697,20 @@ class CancelAlarmResult {
 
   bool get isSuccess => status == CancelAlarmStatus.success;
 
-  CancelAlarmResult copyWith({String? reservationId}) {
+  CancelAlarmResult copyWith({
+    String? reservationId,
+    int? reservationGeneration,
+  }) {
     final resolvedReservationId = reservationId ?? this.reservationId;
+    final resolvedReservationGeneration =
+        reservationGeneration ?? this.reservationGeneration;
     _validateReservationId(resolvedReservationId);
+    _validateReservationGeneration(resolvedReservationGeneration);
     return CancelAlarmResult._(
       occurrenceId: occurrenceId,
       platformAlarmId: platformAlarmId,
       reservationId: resolvedReservationId,
+      reservationGeneration: resolvedReservationGeneration,
       status: status,
       failureReason: failureReason,
       failureMessage: failureMessage,
@@ -742,6 +796,7 @@ class NativeAlarmInventoryRow {
     required String wakePlanId,
     required String platformAlarmId,
     required NativeAlarmReservationStatus status,
+    int reservationGeneration = 0,
   }) {
     return NativeAlarmInventoryRow.create(
       reservationId: reservationId,
@@ -749,6 +804,7 @@ class NativeAlarmInventoryRow {
       wakePlanId: wakePlanId,
       platformAlarmId: platformAlarmId,
       status: status,
+      reservationGeneration: reservationGeneration,
     );
   }
 
@@ -758,6 +814,7 @@ class NativeAlarmInventoryRow {
     required this.wakePlanId,
     required this.platformAlarmId,
     required this.status,
+    required this.reservationGeneration,
   });
 
   factory NativeAlarmInventoryRow.create({
@@ -766,6 +823,7 @@ class NativeAlarmInventoryRow {
     required String wakePlanId,
     required String platformAlarmId,
     required NativeAlarmReservationStatus status,
+    int reservationGeneration = 0,
   }) {
     _validateReservationId(reservationId);
     _validateOccurrenceId(occurrenceId);
@@ -773,12 +831,14 @@ class NativeAlarmInventoryRow {
       throw ArgumentError.value(wakePlanId, 'wakePlanId', 'must not be empty');
     }
     _validatePlatformAlarmId(platformAlarmId);
+    _validateReservationGeneration(reservationGeneration);
     return NativeAlarmInventoryRow._(
       reservationId: reservationId,
       occurrenceId: occurrenceId,
       wakePlanId: wakePlanId,
       platformAlarmId: platformAlarmId,
       status: status,
+      reservationGeneration: reservationGeneration,
     );
   }
 
@@ -787,6 +847,7 @@ class NativeAlarmInventoryRow {
   final String wakePlanId;
   final String platformAlarmId;
   final NativeAlarmReservationStatus status;
+  final int reservationGeneration;
 }
 
 class NativeAlarmInventoryExpectedReservation {
@@ -794,11 +855,13 @@ class NativeAlarmInventoryExpectedReservation {
     required String reservationId,
     required String occurrenceId,
     required String wakePlanId,
+    int reservationGeneration = 0,
   }) {
     return NativeAlarmInventoryExpectedReservation.create(
       reservationId: reservationId,
       occurrenceId: occurrenceId,
       wakePlanId: wakePlanId,
+      reservationGeneration: reservationGeneration,
     );
   }
 
@@ -806,28 +869,33 @@ class NativeAlarmInventoryExpectedReservation {
     required this.reservationId,
     required this.occurrenceId,
     required this.wakePlanId,
+    required this.reservationGeneration,
   });
 
   factory NativeAlarmInventoryExpectedReservation.create({
     required String reservationId,
     required String occurrenceId,
     required String wakePlanId,
+    int reservationGeneration = 0,
   }) {
     _validateReservationId(reservationId);
     _validateOccurrenceId(occurrenceId);
     if (wakePlanId.isEmpty) {
       throw ArgumentError.value(wakePlanId, 'wakePlanId', 'must not be empty');
     }
+    _validateReservationGeneration(reservationGeneration);
     return NativeAlarmInventoryExpectedReservation._(
       reservationId: reservationId,
       occurrenceId: occurrenceId,
       wakePlanId: wakePlanId,
+      reservationGeneration: reservationGeneration,
     );
   }
 
   final String reservationId;
   final String occurrenceId;
   final String wakePlanId;
+  final int reservationGeneration;
 }
 
 class NativeAlarmInventoryIssue {
@@ -1029,7 +1097,8 @@ class NativeAlarmInventoryResult {
       }
       presentIds.add(row.reservationId);
       if (row.occurrenceId != expectedRow.occurrenceId ||
-          row.wakePlanId != expectedRow.wakePlanId) {
+          row.wakePlanId != expectedRow.wakePlanId ||
+          row.reservationGeneration != expectedRow.reservationGeneration) {
         issues.add(
           NativeAlarmInventoryIssue(
             type: NativeAlarmInventoryIssueType.corrupt,
@@ -1096,6 +1165,17 @@ void _validateReservationId(String reservationId) {
       reservationId,
       'reservationId',
       'must not be empty',
+    );
+  }
+}
+
+void _validateReservationGeneration(int reservationGeneration) {
+  if (reservationGeneration < 0) {
+    throw RangeError.range(
+      reservationGeneration,
+      0,
+      null,
+      'reservationGeneration',
     );
   }
 }

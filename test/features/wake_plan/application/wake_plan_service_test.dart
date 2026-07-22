@@ -57,6 +57,8 @@ void main() {
     DateTime? firedAt,
     DateTime? dismissedAt,
     String? failureReason,
+    String? reservationId,
+    int reservationGeneration = 0,
   }) {
     return AlarmOccurrence(
       id: id,
@@ -67,6 +69,8 @@ void main() {
       firedAt: firedAt,
       dismissedAt: dismissedAt,
       failureReason: failureReason,
+      reservationId: reservationId,
+      reservationGeneration: reservationGeneration,
       createdAt: now.subtract(const Duration(days: 1)),
       updatedAt: now.subtract(const Duration(days: 1)),
     );
@@ -77,11 +81,12 @@ void main() {
     required String platformAlarmId,
   }) {
     return NativeAlarmInventoryRow(
-      reservationId: occurrence.id,
+      reservationId: occurrence.reservationId,
       occurrenceId: occurrence.id,
       wakePlanId: occurrence.wakePlanId,
       platformAlarmId: platformAlarmId,
       status: NativeAlarmReservationStatus.scheduled,
+      reservationGeneration: occurrence.reservationGeneration,
     );
   }
 
@@ -1722,6 +1727,8 @@ void main() {
           id: occurrenceId,
           status: AlarmOccurrenceStatus.userEnablePending,
           platformAlarmId: null,
+          reservationId: 'stable-recreation-slot',
+          reservationGeneration: 3,
         );
         final store = _LoggingWakePlanServiceStore(currentPlan: plan)
           ..wakePlans = [plan]
@@ -1734,6 +1741,7 @@ void main() {
               wakePlanId: pending.wakePlanId,
               platformAlarmId: 'native-recreated',
               status: NativeAlarmReservationStatus.scheduled,
+              reservationGeneration: 3,
             ),
           );
 
@@ -1759,6 +1767,11 @@ void main() {
           store.storedOccurrences.single.platformAlarmId,
           'native-recreated',
         );
+        expect(
+          store.storedOccurrences.single.reservationId,
+          'stable-recreation-slot',
+        );
+        expect(store.storedOccurrences.single.reservationGeneration, 3);
         expect(gateway.scheduledRequests, isEmpty);
         final disabled = await reopenedService.setOccurrenceEnabled(
           wakePlanId: pending.wakePlanId,
@@ -1771,7 +1784,47 @@ void main() {
           'stable-recreation-slot',
         );
         expect(gateway.cancelledOccurrences.single.occurrenceId, pending.id);
+        expect(gateway.cancelledOccurrences.single.reservationGeneration, 3);
         expect(gateway.inventoryRows, isEmpty);
+      },
+    );
+
+    test(
+      'stale native reservation generation cannot roll back persisted identity',
+      () async {
+        final pending = buildOccurrence(
+          id: occurrenceId,
+          status: AlarmOccurrenceStatus.userEnablePending,
+          platformAlarmId: null,
+          reservationId: 'stable-recreation-slot',
+          reservationGeneration: 4,
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan]
+          ..storedOccurrences = [pending];
+        final gateway = _CountingInventoryGateway()
+          ..inventoryRows.add(
+            NativeAlarmInventoryRow(
+              reservationId: pending.reservationId,
+              reservationGeneration: 3,
+              occurrenceId: pending.id,
+              wakePlanId: pending.wakePlanId,
+              platformAlarmId: 'native-stale',
+              status: NativeAlarmReservationStatus.scheduled,
+            ),
+          );
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 1,
+        ).reconcileSchedules();
+
+        expect(result.single.status, WakePlanSchedulingStatus.recoveryRequired);
+        expect(store.storedOccurrences.single.reservationGeneration, 4);
+        expect(store.storedOccurrences.single.platformAlarmId, isNull);
+        expect(gateway.scheduledRequests, isEmpty);
+        expect(gateway.cancelledOccurrences, isEmpty);
       },
     );
 
@@ -3393,6 +3446,8 @@ void main() {
           final plan = buildPlan();
           final occurrence = buildOccurrence(
             id: 'plan-1:20640:420',
+            reservationId: 'stable-$failureMode-slot',
+            reservationGeneration: 4,
             platformAlarmId: 'native-$failureMode',
           );
           final gateway =
@@ -3404,11 +3459,12 @@ void main() {
                 );
           gateway.inventoryRows.add(
             NativeAlarmInventoryRow(
-              reservationId: occurrence.id,
+              reservationId: occurrence.reservationId,
               occurrenceId: occurrence.id,
               wakePlanId: plan.id,
               platformAlarmId: occurrence.platformAlarmId!,
               status: NativeAlarmReservationStatus.scheduled,
+              reservationGeneration: occurrence.reservationGeneration,
             ),
           );
           final store = _LoggingWakePlanServiceStore(currentPlan: plan)
@@ -5506,6 +5562,12 @@ void main() {
         expect(
           gateway.scheduledRequests.map((request) => request.reservationId),
           ['plan-1:20640:405', 'plan-1:20640:415', 'plan-1:20640:420'],
+        );
+        expect(
+          gateway.scheduledRequests.map(
+            (request) => request.reservationGeneration,
+          ),
+          everyElement(1),
         );
         expect(
           gateway.scheduledRequests.map((request) => request.indexInPlan),

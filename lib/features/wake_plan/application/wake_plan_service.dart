@@ -221,6 +221,10 @@ class WakePlanService {
         occurrence: occurrence,
         inventory: cancellationInventory,
       ),
+      reservationGeneration: _reservationGenerationForCancellation(
+        occurrence: occurrence,
+        inventory: cancellationInventory,
+      ),
       platformAlarmId: occurrence.platformAlarmId!,
     );
     CancelResult cancelResult;
@@ -275,9 +279,16 @@ class WakePlanService {
     required AlarmOccurrence occurrence,
     required DateTime now,
   }) async {
+    final rearming = occurrence.copyWith(
+      status: AlarmOccurrenceStatus.scheduled,
+      platformAlarmId: null,
+      failureReason: null,
+      reservationGeneration: occurrence.reservationGeneration + 1,
+      updatedAt: now,
+    );
     final requests = _buildRestorationRequests(
       plan: plan,
-      occurrences: [occurrence],
+      occurrences: [rearming],
       now: now,
     );
     if (requests == null || requests.length != 1) {
@@ -288,12 +299,7 @@ class WakePlanService {
       );
     }
 
-    final pending = occurrence.copyWith(
-      status: AlarmOccurrenceStatus.scheduled,
-      platformAlarmId: null,
-      failureReason: null,
-      updatedAt: now,
-    );
+    final pending = rearming;
     final pendingPersistenceError = await _trySaveAlarmOccurrences([pending]);
     if (pendingPersistenceError != null) {
       return AlarmOccurrenceToggleResult.failure(
@@ -332,7 +338,10 @@ class WakePlanService {
       updatedAt: now,
     ).single;
     if (!scheduleResult.isSuccess && completed.platformAlarmId == null) {
-      final retryableDisabled = occurrence.copyWith(updatedAt: now);
+      final retryableDisabled = occurrence.copyWith(
+        reservationGeneration: pending.reservationGeneration,
+        updatedAt: now,
+      );
       final rollbackPersistenceError = await _trySaveAlarmOccurrences([
         retryableDisabled,
       ]);
@@ -387,12 +396,17 @@ class WakePlanService {
 
     CancelResult compensationCancelResult;
     try {
+      final compensationInventory = await _loadNativeInventory();
       compensationCancelResult = await _nativeAlarmGateway.cancelOccurrences([
         NativeAlarmCancelRequest(
           occurrenceId: completed.id,
           reservationId: _reservationIdForCancellation(
             occurrence: completed,
-            inventory: await _loadNativeInventory(),
+            inventory: compensationInventory,
+          ),
+          reservationGeneration: _reservationGenerationForCancellation(
+            occurrence: completed,
+            inventory: compensationInventory,
           ),
           platformAlarmId: platformAlarmId,
         ),
@@ -419,7 +433,10 @@ class WakePlanService {
     }
     if (compensationCancelResult.isSuccess) {
       final rollbackPersistenceError = await _trySaveAlarmOccurrences([
-        occurrence.copyWith(updatedAt: now),
+        occurrence.copyWith(
+          reservationGeneration: pending.reservationGeneration,
+          updatedAt: now,
+        ),
       ]);
       return AlarmOccurrenceToggleResult.failure(
         status: AlarmOccurrenceToggleStatus.recoveryRequired,
@@ -486,6 +503,8 @@ class WakePlanService {
   _NativeReservationObservation _observeNativeReservationInInventory({
     required String occurrenceId,
     required String wakePlanId,
+    required String reservationId,
+    required int reservationGeneration,
     required _NativeInventorySnapshot? inventory,
   }) {
     if (inventory == null) {
@@ -496,12 +515,21 @@ class WakePlanService {
     var hasConflictingIdentity = false;
     for (final row in inventory.rows) {
       final isCurrentOccurrence = row.occurrenceId == occurrenceId;
-      final isPriorGeneration =
-          row.reservationId == occurrenceId && !isCurrentOccurrence;
-      if (!isCurrentOccurrence && !isPriorGeneration) {
+      final isCurrentReservation = row.reservationId == reservationId;
+      if (!isCurrentOccurrence && !isCurrentReservation) {
         continue;
       }
-      if (isPriorGeneration || row.wakePlanId != wakePlanId) {
+      final isLegacyReservationAdoption =
+          isCurrentOccurrence &&
+          reservationId == occurrenceId &&
+          reservationGeneration == 0 &&
+          row.reservationGeneration == 0;
+      final isExactTuple =
+          isCurrentOccurrence &&
+          isCurrentReservation &&
+          row.reservationGeneration == reservationGeneration;
+      if (row.wakePlanId != wakePlanId ||
+          (!isExactTuple && !isLegacyReservationAdoption)) {
         hasConflictingIdentity = true;
         continue;
       }
@@ -884,20 +912,30 @@ class WakePlanService {
     }
     for (final row in inventory.rows) {
       final touchesOccurrence =
-          row.reservationId == occurrence.id ||
+          row.reservationId == occurrence.reservationId ||
           row.occurrenceId == occurrence.id ||
           row.platformAlarmId == occurrence.platformAlarmId;
       if (touchesOccurrence &&
-          (row.occurrenceId != occurrence.id ||
+          (row.reservationId != occurrence.reservationId ||
+              row.reservationGeneration != occurrence.reservationGeneration ||
+              row.occurrenceId != occurrence.id ||
               row.wakePlanId != occurrence.wakePlanId ||
               row.platformAlarmId != occurrence.platformAlarmId)) {
         return false;
       }
       if (row.wakePlanId == occurrence.wakePlanId) {
-        final byReservation = occurrencesById[row.reservationId];
+        final byReservation = occurrencesById.values
+            .where(
+              (candidate) =>
+                  candidate.reservationId == row.reservationId &&
+                  candidate.reservationGeneration == row.reservationGeneration,
+            )
+            .toList(growable: false);
         final byOccurrence = occurrencesById[row.occurrenceId];
-        if ((byReservation != null &&
-                byReservation.wakePlanId != row.wakePlanId) ||
+        if ((byReservation.length > 1 ||
+                (byReservation.isNotEmpty &&
+                    (byReservation.single.wakePlanId != row.wakePlanId ||
+                        byReservation.single.id != row.occurrenceId))) ||
             (byOccurrence != null &&
                 byOccurrence.wakePlanId != row.wakePlanId)) {
           return false;
@@ -994,6 +1032,20 @@ class WakePlanService {
     final originalById = {
       for (final occurrence in occurrences) occurrence.id: occurrence,
     };
+    final originalByReservation = <String, AlarmOccurrence>{};
+    for (final occurrence in occurrences) {
+      final prior = originalByReservation[occurrence.reservationId];
+      if (prior == null ||
+          prior.reservationGeneration < occurrence.reservationGeneration) {
+        originalByReservation[occurrence.reservationId] = occurrence;
+      } else if (prior.reservationGeneration ==
+              occurrence.reservationGeneration &&
+          prior.id != occurrence.id) {
+        corruptOccurrenceWakePlanIds
+          ..add(prior.wakePlanId)
+          ..add(occurrence.wakePlanId);
+      }
+    }
     final plansById = {for (final plan in plans) plan.id: plan};
     final knownPlanIds = plans.map((plan) => plan.id).toSet();
     final activePlanIds = plans
@@ -1075,6 +1127,10 @@ class WakePlanService {
         }
         participants.addAll(desiredPlanIdsById[identity] ?? const {});
       }
+      final reservationOwner = originalByReservation[row.reservationId];
+      if (reservationOwner != null) {
+        participants.add(reservationOwner.wakePlanId);
+      }
       return participants;
     }
 
@@ -1086,12 +1142,22 @@ class WakePlanService {
     }
 
     bool hasTupleConflict(NativeAlarmInventoryRow row) {
-      final byReservation = originalById[row.reservationId];
+      final byReservation = originalByReservation[row.reservationId];
       final byOccurrence = originalById[row.occurrenceId];
       return participantPlanIds(row).length > 1 ||
           (byReservation != null &&
-              byReservation.wakePlanId != row.wakePlanId) ||
-          (byOccurrence != null && byOccurrence.wakePlanId != row.wakePlanId);
+              (byReservation.wakePlanId != row.wakePlanId ||
+                  byReservation.reservationGeneration !=
+                      row.reservationGeneration ||
+                  byReservation.id != row.occurrenceId)) ||
+          (byOccurrence != null &&
+              (byOccurrence.wakePlanId != row.wakePlanId ||
+                  (byOccurrence.reservationId != row.reservationId &&
+                      !(byOccurrence.reservationId == byOccurrence.id &&
+                          byOccurrence.reservationGeneration == 0 &&
+                          row.reservationGeneration == 0)) ||
+                  byOccurrence.reservationGeneration !=
+                      row.reservationGeneration));
     }
 
     void propagateBlockedParticipants() {
@@ -1290,6 +1356,8 @@ class WakePlanService {
           AlarmOccurrenceStatus.userEnablePending => occurrence.copyWith(
             status: AlarmOccurrenceStatus.scheduled,
             platformAlarmId: row.platformAlarmId,
+            reservationId: row.reservationId,
+            reservationGeneration: row.reservationGeneration,
             failureReason: null,
             updatedAt: now,
           ),
@@ -1297,11 +1365,15 @@ class WakePlanService {
           AlarmOccurrenceStatus.failed => occurrence.copyWith(
             status: AlarmOccurrenceStatus.scheduled,
             platformAlarmId: row.platformAlarmId,
+            reservationId: row.reservationId,
+            reservationGeneration: row.reservationGeneration,
             failureReason: null,
             updatedAt: now,
           ),
           _ => occurrence.copyWith(
             platformAlarmId: row.platformAlarmId,
+            reservationId: row.reservationId,
+            reservationGeneration: row.reservationGeneration,
             updatedAt: now,
           ),
         };
@@ -1333,7 +1405,10 @@ class WakePlanService {
         };
       }
       if (reconciled.status != occurrence.status ||
-          reconciled.platformAlarmId != occurrence.platformAlarmId) {
+          reconciled.platformAlarmId != occurrence.platformAlarmId ||
+          reconciled.reservationId != occurrence.reservationId ||
+          reconciled.reservationGeneration !=
+              occurrence.reservationGeneration) {
         reconciledById[occurrence.id] = reconciled;
         changed.add(reconciled);
         repairedPlanIds.add(occurrence.wakePlanId);
@@ -1348,6 +1423,8 @@ class WakePlanService {
       if (desired != null && desired.wakePlanId == row.wakePlanId) {
         final adopted = desired.copyWith(
           platformAlarmId: row.platformAlarmId,
+          reservationId: row.reservationId,
+          reservationGeneration: row.reservationGeneration,
           updatedAt: now,
         );
         reconciledById[adopted.id] = adopted;
@@ -1380,6 +1457,7 @@ class WakePlanService {
             NativeAlarmCancelRequest(
               occurrenceId: row.occurrenceId,
               reservationId: row.reservationId,
+              reservationGeneration: row.reservationGeneration,
               platformAlarmId: row.platformAlarmId,
             ),
         ]);
@@ -1611,6 +1689,7 @@ class WakePlanService {
       changeState: WakePlanChangeState.committed,
       cancelResult: cancelResult.cancelResult,
       existingOccurrences: await _store.fetchOccurrencesForPlan(pendingPlan.id),
+      retiredOccurrences: cancelResult.successfullyCancelledOccurrences,
     );
     if ((scheduleResult.status == WakePlanSchedulingStatus.scheduleFailed ||
             scheduleResult.status ==
@@ -1864,8 +1943,12 @@ class WakePlanService {
     required WakePlanChangeState changeState,
     CancelResult? cancelResult,
     List<AlarmOccurrence>? existingOccurrences,
+    List<AlarmOccurrence> retiredOccurrences = const [],
   }) async {
-    final occurrenceBundle = _buildOccurrenceBundle(plan: plan, now: now);
+    final occurrenceBundle = _rebindRetiredReservationSlots(
+      bundle: _buildOccurrenceBundle(plan: plan, now: now),
+      retiredOccurrences: retiredOccurrences,
+    );
     if (_requiresFutureOccurrence(plan) &&
         occurrenceBundle.occurrences.isEmpty) {
       return _emptyScheduleFailureResult(
@@ -2275,6 +2358,8 @@ class WakePlanService {
       final observation = _observeNativeReservationInInventory(
         occurrenceId: occurrence.id,
         wakePlanId: occurrence.wakePlanId,
+        reservationId: occurrence.reservationId,
+        reservationGeneration: occurrence.reservationGeneration,
         inventory: inventory,
       );
       if (!observation.isAuthoritative) {
@@ -2287,6 +2372,11 @@ class WakePlanService {
         occurrence.copyWith(
           status: AlarmOccurrenceStatus.scheduled,
           platformAlarmId: observation.activeRow?.platformAlarmId,
+          reservationId:
+              observation.activeRow?.reservationId ?? occurrence.reservationId,
+          reservationGeneration:
+              observation.activeRow?.reservationGeneration ??
+              occurrence.reservationGeneration,
           failureReason: null,
           updatedAt: now,
         ),
@@ -2301,6 +2391,9 @@ class WakePlanService {
           final original = originalById[occurrence.id]!;
           return original.status != occurrence.status ||
               original.platformAlarmId != occurrence.platformAlarmId ||
+              original.reservationId != occurrence.reservationId ||
+              original.reservationGeneration !=
+                  occurrence.reservationGeneration ||
               original.updatedAt != occurrence.updatedAt;
         })
         .toList(growable: false);
@@ -2331,6 +2424,8 @@ class WakePlanService {
       final observation = _observeNativeReservationInInventory(
         occurrenceId: occurrence.id,
         wakePlanId: occurrence.wakePlanId,
+        reservationId: occurrence.reservationId,
+        reservationGeneration: occurrence.reservationGeneration,
         inventory: inventory,
       );
       if (observation.hasAmbiguousActiveRows) {
@@ -2361,7 +2456,11 @@ class WakePlanService {
           NativeAlarmCancelRequest(
             occurrenceId: occurrence.id,
             reservationId:
-                observation.activeRow?.reservationId ?? occurrence.id,
+                observation.activeRow?.reservationId ??
+                occurrence.reservationId,
+            reservationGeneration:
+                observation.activeRow?.reservationGeneration ??
+                occurrence.reservationGeneration,
             platformAlarmId: platformAlarmId,
           ),
         ]);
@@ -2547,6 +2646,8 @@ class WakePlanService {
           totalInPlan: createdOccurrences.length,
           soundId: plan.soundId,
           vibrationEnabled: plan.vibrationEnabled,
+          reservationId: occurrence.reservationId,
+          reservationGeneration: occurrence.reservationGeneration,
         ),
       );
     }
@@ -2554,6 +2655,60 @@ class WakePlanService {
     return _OccurrenceBundle(
       occurrences: createdOccurrences,
       requests: requests,
+    );
+  }
+
+  _OccurrenceBundle _rebindRetiredReservationSlots({
+    required _OccurrenceBundle bundle,
+    required List<AlarmOccurrence> retiredOccurrences,
+  }) {
+    if (retiredOccurrences.isEmpty || bundle.occurrences.isEmpty) {
+      return bundle;
+    }
+    final retired =
+        retiredOccurrences
+            .where((occurrence) => occurrence.platformAlarmId == null)
+            .toList(growable: false)
+          ..sort((left, right) {
+            final time = left.scheduledAt.toDateTime().compareTo(
+              right.scheduledAt.toDateTime(),
+            );
+            return time != 0 ? time : left.id.compareTo(right.id);
+          });
+    final requestByOccurrenceId = {
+      for (final request in bundle.requests) request.occurrenceId: request,
+    };
+    final reboundOccurrences = <AlarmOccurrence>[];
+    final reboundRequests = <NativeAlarmScheduleRequest>[];
+    for (var index = 0; index < bundle.occurrences.length; index += 1) {
+      final desired = bundle.occurrences[index];
+      final prior = index < retired.length ? retired[index] : null;
+      final rebound = prior == null || prior.wakePlanId != desired.wakePlanId
+          ? desired
+          : desired.copyWith(
+              reservationId: prior.reservationId,
+              reservationGeneration: prior.reservationGeneration + 1,
+            );
+      final request = requestByOccurrenceId[desired.id]!;
+      reboundOccurrences.add(rebound);
+      reboundRequests.add(
+        NativeAlarmScheduleRequest(
+          occurrenceId: rebound.id,
+          reservationId: rebound.reservationId,
+          reservationGeneration: rebound.reservationGeneration,
+          wakePlanId: rebound.wakePlanId,
+          scheduledAt: request.scheduledAt,
+          targetAt: request.targetAt,
+          indexInPlan: request.indexInPlan,
+          totalInPlan: request.totalInPlan,
+          soundId: request.soundId,
+          vibrationEnabled: request.vibrationEnabled,
+        ),
+      );
+    }
+    return _OccurrenceBundle(
+      occurrences: reboundOccurrences,
+      requests: reboundRequests,
     );
   }
 
@@ -2624,6 +2779,8 @@ class WakePlanService {
       final observation = _observeNativeReservationInInventory(
         occurrenceId: occurrence.id,
         wakePlanId: occurrence.wakePlanId,
+        reservationId: occurrence.reservationId,
+        reservationGeneration: occurrence.reservationGeneration,
         inventory: inventory,
       );
       if (observation.hasAmbiguousActiveRows) {
@@ -2769,6 +2926,10 @@ class WakePlanService {
               occurrence: occurrence,
               inventory: cancellationInventory,
             ),
+            reservationGeneration: _reservationGenerationForCancellation(
+              occurrence: occurrence,
+              inventory: cancellationInventory,
+            ),
             platformAlarmId: occurrence.platformAlarmId!,
           ),
         )
@@ -2790,6 +2951,7 @@ class WakePlanService {
               occurrenceId: request.occurrenceId,
               platformAlarmId: request.platformAlarmId,
               reservationId: request.reservationId,
+              reservationGeneration: request.reservationGeneration,
               reason: CancelFailureReason.nativeError,
               message: 'Native cancellation response failed: $error',
             ),
@@ -2881,13 +3043,15 @@ class WakePlanService {
           cancellationResponseUncertain ||
           failedDiscoveredPlatformIds.isNotEmpty,
       persistenceError: persistenceError,
-      successfullyCancelledOccurrences: cancellableOccurrences
+      successfullyCancelledOccurrences: persistedOccurrences
           .where((occurrence) {
-            final key = _cancelRequestKey(
-              occurrenceId: occurrence.id,
-              platformAlarmId: occurrence.platformAlarmId!,
-            );
-            return successKeys.contains(key);
+            return cancellableOccurrences.any((original) {
+              final key = _cancelRequestKey(
+                occurrenceId: original.id,
+                platformAlarmId: original.platformAlarmId!,
+              );
+              return original.id == occurrence.id && successKeys.contains(key);
+            });
           })
           .toList(growable: false),
     );
@@ -2950,6 +3114,11 @@ class WakePlanService {
               occurrence.status != AlarmOccurrenceStatus.userDisablePending &&
               occurrence.status != AlarmOccurrenceStatus.userDisabled,
         )
+        .map(
+          (occurrence) => occurrence.copyWith(
+            reservationGeneration: occurrence.reservationGeneration + 1,
+          ),
+        )
         .toList(growable: false);
     if (restorableOccurrences.isEmpty) {
       final persistenceError = await _trySaveAlarmOccurrences(
@@ -2984,6 +3153,8 @@ class WakePlanService {
           ScheduleOccurrenceResult.failure(
             occurrenceId: occurrence.id,
             wakePlanId: occurrence.wakePlanId,
+            reservationId: occurrence.reservationId,
+            reservationGeneration: occurrence.reservationGeneration,
             reason: ScheduleFailureReason.nativeError,
             message: 'Could not map occurrence to its owning wake instance.',
           ),
@@ -3018,6 +3189,8 @@ class WakePlanService {
           ScheduleOccurrenceResult.failure(
             occurrenceId: occurrence.id,
             wakePlanId: occurrence.wakePlanId,
+            reservationId: occurrence.reservationId,
+            reservationGeneration: occurrence.reservationGeneration,
             reason: ScheduleFailureReason.nativeError,
             message: 'Native alarm restoration response was uncertain: $error',
           ),
@@ -3071,17 +3244,52 @@ class WakePlanService {
   }) {
     final platformAlarmId = occurrence.platformAlarmId;
     if (platformAlarmId == null || inventory?.isAuthoritative != true) {
-      return occurrence.id;
+      return occurrence.reservationId;
     }
     final matches = inventory!.rows
         .where(
           (row) =>
               row.occurrenceId == occurrence.id &&
               row.wakePlanId == occurrence.wakePlanId &&
-              row.platformAlarmId == platformAlarmId,
+              row.platformAlarmId == platformAlarmId &&
+              ((row.reservationId == occurrence.reservationId &&
+                      row.reservationGeneration ==
+                          occurrence.reservationGeneration) ||
+                  (occurrence.reservationId == occurrence.id &&
+                      occurrence.reservationGeneration == 0 &&
+                      row.reservationGeneration == 0)),
         )
         .toList(growable: false);
-    return matches.length == 1 ? matches.single.reservationId : occurrence.id;
+    return matches.length == 1
+        ? matches.single.reservationId
+        : occurrence.reservationId;
+  }
+
+  int _reservationGenerationForCancellation({
+    required AlarmOccurrence occurrence,
+    required _NativeInventorySnapshot? inventory,
+  }) {
+    final platformAlarmId = occurrence.platformAlarmId;
+    if (platformAlarmId == null || inventory?.isAuthoritative != true) {
+      return occurrence.reservationGeneration;
+    }
+    final matches = inventory!.rows
+        .where(
+          (row) =>
+              row.occurrenceId == occurrence.id &&
+              row.wakePlanId == occurrence.wakePlanId &&
+              row.platformAlarmId == platformAlarmId &&
+              ((row.reservationId == occurrence.reservationId &&
+                      row.reservationGeneration ==
+                          occurrence.reservationGeneration) ||
+                  (occurrence.reservationId == occurrence.id &&
+                      occurrence.reservationGeneration == 0 &&
+                      row.reservationGeneration == 0)),
+        )
+        .toList(growable: false);
+    return matches.length == 1
+        ? matches.single.reservationGeneration
+        : occurrence.reservationGeneration;
   }
 
   Future<String?> _trySaveWakePlan(WakePlan plan) async {
@@ -3135,6 +3343,8 @@ class WakePlanService {
           totalInPlan: canonical.totalInPlan,
           soundId: plan.soundId,
           vibrationEnabled: plan.vibrationEnabled,
+          reservationId: occurrence.reservationId,
+          reservationGeneration: occurrence.reservationGeneration,
         ),
       );
     }
