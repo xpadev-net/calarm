@@ -145,7 +145,7 @@ void main() {
           'reservations': [
             {
               'reservationId': 'reservation-1',
-              if (generation != null) 'reservationGeneration': generation,
+              'reservationGeneration': ?generation,
               'occurrenceId': 'occ-1',
               'wakePlanId': 'plan-1',
               'platformAlarmId': 'platform-occ-1',

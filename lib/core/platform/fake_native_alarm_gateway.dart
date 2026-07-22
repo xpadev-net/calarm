@@ -47,7 +47,7 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
       <NativeTestAlarmScheduleRequest>[];
   final List<NativeAlarmInventoryRow> inventoryRows =
       <NativeAlarmInventoryRow>[];
-  final Map<String, _FakeReservationRetirement> retiredReservations =
+  final Map<String, _FakeReservationRetirement> _retiredReservations =
       <String, _FakeReservationRetirement>{};
   final Map<String, NativeAlarmScheduleRequest> _activeRequests =
       <String, NativeAlarmScheduleRequest>{};
@@ -105,7 +105,7 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
                     : request.reservationGeneration >
                           row.reservationGeneration),
           );
-      final retirement = retiredReservations[request.reservationId];
+      final retirement = _retiredReservations[request.reservationId];
       final canAdvanceRetirement = retirement == null
           ? true
           : retirement.wakePlanId == request.wakePlanId &&
@@ -303,7 +303,7 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
             row.platformAlarmId == alarm.platformAlarmId &&
             row.reservationGeneration == alarm.reservationGeneration,
       );
-      final retired = retiredReservations[alarm.reservationId];
+      final retired = _retiredReservations[alarm.reservationId];
       final matchesRetirement =
           retired == null || retired.generation == alarm.reservationGeneration;
       if (relatedRows.isNotEmpty && (relatedRows.length != 1 || !hasExactRow)) {
@@ -335,7 +335,7 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
       );
       _activeRequests.remove(alarm.reservationId);
       if (relatedRows.isNotEmpty) {
-        retiredReservations[alarm.reservationId] = _FakeReservationRetirement(
+        _retiredReservations[alarm.reservationId] = _FakeReservationRetirement(
           wakePlanId: relatedRows.single.wakePlanId,
           generation: alarm.reservationGeneration,
         );
@@ -360,7 +360,7 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
         .firstOrNull;
     if (previous != null &&
         previous.reservationGeneration < request.reservationGeneration) {
-      retiredReservations[request.reservationId] = _FakeReservationRetirement(
+      _retiredReservations[request.reservationId] = _FakeReservationRetirement(
         wakePlanId: previous.wakePlanId,
         generation: previous.reservationGeneration,
       );
