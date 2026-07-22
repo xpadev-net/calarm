@@ -451,3 +451,21 @@ Purpose:
 - fix: Authenticate with GitHub OIDC through `google-github-actions/auth`, pass the generated external-account credential file to the Play uploader, grant `id-token: write`, and validate only the WIF secrets.
 - prevention: Before running a deployment workflow, compare the configured secret names, authentication mechanism, and uploader inputs end to end; reject mixed JSON-key/WIF assumptions during CI preflight.
 - promotion: Repo-local CI/security lesson only for now; no rule suite exists in this repository.
+
+### 2026-07-22 - Honor the User's Future Worker Model Default
+
+- tags: workflow/process, delegation, model-selection, orchestration
+- symptom: Worker creation relied on the configured default model even after the user requested that all subsequent tasks use `gpt-5.6-luna` instead of `gpt-5.6-sol`, and the initial effort assumption was too high.
+- root cause: The orchestration prompt and worker contract described the preferred model, but dispatch calls did not explicitly pass the newly requested model and existing active workers were not distinguished from future workers.
+- fix: Keep already-running workers unchanged; apply the explicit `gpt-5.6-luna` model with `medium` effort on every newly created worker or reviewer after the correction.
+- prevention: Treat a user-requested model/effort change as a persistent dispatch default, include it in the automation prompt and task ledger, and pass `model: gpt-5.6-luna` plus `thinking: medium` explicitly on every future `create_thread`/reviewer dispatch.
+- promotion: Repo-local orchestration guardrail; no bundled skill changes.
+
+### 2026-07-22 - Allow Ledger-Only Branch Lag at GitHub Merge
+
+- tags: workflow/process, git, merge, orchestration
+- symptom: A worker branch can be behind current master only because the ledger was updated separately, creating an unnecessary temptation to return an otherwise merge-ready product PR.
+- root cause: Product-head freshness and durable ledger synchronization were treated as one gate even though ledger-only commits do not alter the reviewed product diff.
+- fix: Permit merge when the only branch lag is ledger-update history, after verifying the PR head, product diff, checks, review, and clean merge state; perform the merge through GitHub rather than a local merge.
+- prevention: Distinguish product commits from ledger-only commits during preflight; never reject a merge-ready PR solely for ledger-only lag, and use `gh pr merge` as the canonical merge operation.
+- promotion: Repo-local orchestration/git guardrail; no bundled skill changes.

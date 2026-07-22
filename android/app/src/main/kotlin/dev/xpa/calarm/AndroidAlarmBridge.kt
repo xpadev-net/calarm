@@ -2328,6 +2328,7 @@ internal data class AlarmReplacementJournal(
     init {
         require(old.reservationId == new.reservationId)
         require(old.wakePlanId == new.wakePlanId)
+        require(old.occurrenceId != new.occurrenceId)
         require(old.platformAlarmId != new.platformAlarmId)
         require(old.hasCanonicalPlatformAlarmId())
         require(
@@ -2419,6 +2420,7 @@ internal object AndroidAlarmReplacementRecovery {
     fun reconcile(
         storageContext: Context,
         serviceContext: Context,
+        admittingPlatformAlarmId: String? = null,
     ): AlarmReplacementRecoveryResult = synchronized(lock) {
         val appContext = serviceContext.applicationContext
         val journalStore = AlarmReplacementJournalStore(storageContext)
@@ -2434,48 +2436,28 @@ internal object AndroidAlarmReplacementRecovery {
         val alarmManager = appContext.getSystemService(AlarmManager::class.java)
         val store = AlarmStore(storageContext)
         val authorityStore = ReservationAuthorityStore(storageContext)
-        val now = System.currentTimeMillis()
-        val winner = when {
-            journal.phase == AlarmReplacementPhase.OLD_RETIRED ->
-                journal.new.takeIf { it.scheduledAtMillis > now }
-            journal.old.scheduledAtMillis > now -> journal.old
-            journal.new.scheduledAtMillis > now -> journal.new
-            else -> null
-        }
-        if (winner == null) {
-            val expiredPlatformAlarmIds = setOf(
-                journal.old.platformAlarmId,
-                journal.new.platformAlarmId,
+        if (
+            admittingPlatformAlarmId != null &&
+            admittingPlatformAlarmId != journal.old.platformAlarmId &&
+            admittingPlatformAlarmId != journal.new.platformAlarmId
+        ) {
+            return@synchronized AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Alarm admission identity does not match the active replacement journal.",
             )
-            if (!authorityStore.recordRetired(listOf(journal.old, journal.new))) {
-                return@synchronized AlarmReplacementRecoveryResult(
-                    isSuccess = false,
-                    message = "Failed to persist expired native alarm generation retirement.",
-                )
-            }
-            if (!store.removeAll(expiredPlatformAlarmIds)) {
-                return@synchronized AlarmReplacementRecoveryResult(
-                    isSuccess = false,
-                    message = "Failed to retire expired native alarm replacement rows.",
-                )
-            }
-            try {
-                cancel(appContext, alarmManager, journal.old.platformAlarmId)
-                cancel(appContext, alarmManager, journal.new.platformAlarmId)
-            } catch (error: RuntimeException) {
-                return@synchronized AlarmReplacementRecoveryResult(
-                    isSuccess = false,
-                    message = error.message ?: "Failed to retire expired native alarms.",
-                )
-            }
-            if (!journalStore.clear()) {
-                return@synchronized AlarmReplacementRecoveryResult(
-                    isSuccess = false,
-                    message = "Failed to clear expired native alarm replacement journal.",
-                )
-            }
-            return@synchronized AlarmReplacementRecoveryResult(isSuccess = true)
         }
+        val winner = selectWinner(
+            journal,
+            System.currentTimeMillis(),
+            admittingPlatformAlarmId,
+        ) ?: return@synchronized retireExpired(
+            journal,
+            appContext,
+            alarmManager,
+            store,
+            journalStore,
+            authorityStore,
+        )
         val loser = if (winner == journal.new) journal.old else journal.new
 
         if (!authorityStore.recordActive(winner)) {
@@ -2496,7 +2478,9 @@ internal object AndroidAlarmReplacementRecovery {
             )
         }
         try {
-            arm(appContext, alarmManager, winner)
+            if (winner.platformAlarmId != admittingPlatformAlarmId) {
+                arm(appContext, alarmManager, winner)
+            }
             cancel(appContext, alarmManager, loser.platformAlarmId)
         } catch (error: RuntimeException) {
             return@synchronized AlarmReplacementRecoveryResult(
@@ -2511,6 +2495,67 @@ internal object AndroidAlarmReplacementRecovery {
             )
         }
         AlarmReplacementRecoveryResult(isSuccess = true)
+    }
+
+    private fun selectWinner(
+        journal: AlarmReplacementJournal,
+        nowMillis: Long,
+        admittingPlatformAlarmId: String?,
+    ): AlarmRequest? {
+        val isAdmittingOld = admittingPlatformAlarmId == journal.old.platformAlarmId
+        val isAdmittingNew = admittingPlatformAlarmId == journal.new.platformAlarmId
+        val oldMayWin = journal.phase != AlarmReplacementPhase.OLD_RETIRED
+        return when {
+            journal.phase == AlarmReplacementPhase.OLD_RETIRED &&
+                (journal.new.scheduledAtMillis > nowMillis || isAdmittingNew) -> journal.new
+            oldMayWin && isAdmittingOld -> journal.old
+            oldMayWin && isAdmittingNew -> journal.new
+            oldMayWin && journal.old.scheduledAtMillis > nowMillis -> journal.old
+            oldMayWin && journal.new.scheduledAtMillis > nowMillis -> journal.new
+            else -> null
+        }
+    }
+
+    private fun retireExpired(
+        journal: AlarmReplacementJournal,
+        appContext: Context,
+        alarmManager: AlarmManager,
+        store: AlarmStore,
+        journalStore: AlarmReplacementJournalStore,
+        authorityStore: ReservationAuthorityStore,
+    ): AlarmReplacementRecoveryResult {
+        val expiredPlatformAlarmIds = setOf(
+            journal.old.platformAlarmId,
+            journal.new.platformAlarmId,
+        )
+        if (!authorityStore.recordRetired(listOf(journal.old, journal.new))) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Failed to persist expired native alarm generation retirement.",
+            )
+        }
+        if (!store.removeAll(expiredPlatformAlarmIds)) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Failed to retire expired native alarm replacement rows.",
+            )
+        }
+        try {
+            cancel(appContext, alarmManager, journal.old.platformAlarmId)
+            cancel(appContext, alarmManager, journal.new.platformAlarmId)
+        } catch (error: RuntimeException) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = error.message ?: "Failed to retire expired native alarms.",
+            )
+        }
+        if (!journalStore.clear()) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Failed to clear expired native alarm replacement journal.",
+            )
+        }
+        return AlarmReplacementRecoveryResult(isSuccess = true)
     }
 
     private fun arm(

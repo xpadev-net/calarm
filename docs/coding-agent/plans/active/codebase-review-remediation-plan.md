@@ -716,7 +716,7 @@
   - `lib/features/wake_plan/data/src/wake_plan_repository.dart`
   - corresponding domain/repository/migration tests only for durable generation/tombstone persistence
   - `docs/platform/native-alarm-channel.md`
-- depends_on: [Task_22, Task_23, Task_25, Task_26]
+- depends_on: [Task_22, Task_23, Task_25, Task_27, Task_26]
 - acceptance:
   - One documented reservation/occurrence identity rule governs iOS, Android, fake, Dart validation, and Task_13 reconciliation for recreated occurrences.
   - Side-effect/reply-loss and process-restart seams converge without silently accepting cross-plan ownership, duplicate logical identities, or corrupt tuples.
@@ -749,17 +749,41 @@
   - kind: command; required: true; owner: worker; detail: workflow/YAML/static shell validation that does not compile locally, followed by exact-head GitHub Actions execution proving the full Android JVM suite passes.
   - kind: review; required: true; owner: reviewer; detail: trigger/path coverage, failure propagation, timeout/logging, exact-head provenance, and non-duplication review.
 
+### Task_27: Publish the Android replacement-recovery foundation
+
+- status: complete
+- worker: `019f8824-9855-7e80-bc41-c97f56a43815`
+- branch: `codex/task-27-android-recovery-foundation`
+- PR: [#69](https://github.com/xpadev-net/calarm/pull/69)
+- merged_commit: `a8650a64543d4c2d370f4a838a87a7b5ec2d0048` (head `0ff8c0b0002353cb8e3c1d6ccb8e742f15757a61`)
+- type: impl
+- owns:
+  - `android/app/src/main/kotlin/dev/xpa/calarm/AndroidAlarmBridge.kt` only for the callable serialized replacement-recovery API and its existing journal/mirror helpers
+  - `android/app/src/test/kotlin/dev/xpa/calarm/AndroidInventoryTest.kt` and focused bridge tests only for replacement-recovery crash seams
+- depends_on: [Task_25]
+- acceptance:
+  - A narrow callable recovery entry point restores or retires interrupted Android replacement state before any receiver admission consumer reads the mirror.
+  - The foundation matches the already-reviewed recovery behavior committed on Task_24 PR #67 head `76707340b7bc86cc08b6b321fdd11dee2c3309e5`, without importing Task_24 generation/schema/Dart/iOS/service work.
+  - Pre-arm, post-arm/pre-mirror, mirror-commit/pre-retirement, lost-reply, corrupt journal, and repeated recovery paths are serialized, idempotent, and fail closed without deleting recoverable evidence.
+  - The API remains stable for Task_26 to call and for Task_24 to extend with generation checks after both foundation and receiver tasks merge.
+- validation:
+  - kind: command; required: true; owner: worker; detail: exact-head GitHub Actions focused/full Android JVM tests, debug APK, Android native smoke, lightweight format/static checks, and diff-check; no local compile-heavy execution.
+  - kind: review; required: true; owner: reviewer; detail: exact-head journal/mirror state machine, serialization, crash-window, rollback, and scope-isolation review.
+
 ### Task_26: Recover Android recreation state before delivery admission
 
-- status: in progress
+- status: complete
 - worker: `019f881b-da51-7a40-8590-e43e4b3d1172`
 - branch: `codex/task-26-receiver-delivery-recovery`
+- PR: [#70](https://github.com/xpadev-net/calarm/pull/70)
+- merged_commit: `75e4a35ac92e67b3d7e07d458f29011fc20c424f` (head `dce8f023aa54375d1ec0b3707d94270b5f5183da`)
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmReceiver.kt`
   - `android/app/src/test/kotlin/dev/xpa/calarm/AlarmReceiverTest.kt`
   - `android/app/src/test/kotlin/dev/xpa/calarm/AndroidInventoryTest.kt` only for delivery/recovery integration coverage
-- depends_on: [Task_25]
+- depends_on: [Task_25, Task_27]
+- progress: Task_27 merged as PR #69; the preserved worker resumed from current origin/master and completed receiver-only delivery recovery.
 - acceptance:
   - Alarm delivery runs the existing serialized native recovery entry point before mirror lookup, so an OS-armed candidate cannot be dropped solely because its mirror commit was interrupted.
   - Recovery failure or corrupt/ambiguous journal state fails closed without delivering the wrong reservation, duplicating events, or deleting recoverable evidence.
@@ -802,14 +826,16 @@
 - Wave 8C (Task_13-aware event and ringing reconciliation): [Task_21]
 - Wave 9A (parallel final-review remediation): [Task_22, Task_23]
 - Wave 9B (hosted Android JVM gate): [Task_25]
-- Wave 9C (Android delivery admission after hosted JVM gate): [Task_26]
-- Wave 9D (cross-platform identity contract after Task_23, Task_25, and Task_26): [Task_24]
-- Wave 9E (orchestrator/reviewer): [Task_15]
+- Wave 9C (Android replacement-recovery foundation): [Task_27]
+- Wave 9D (Android delivery admission after the recovery foundation): [Task_26]
+- Wave 9E (cross-platform identity contract after Task_23, Task_25, Task_27, and Task_26): [Task_24]
+- Wave 9F (orchestrator/reviewer): [Task_15]
 - Wave 10 (user-owned): [Task_16]
 
 ## Worker Contract
 
-- Every worker uses `gpt-5.6-luna` with `xhigh` reasoning in a separate Codex worktree and `codex/reviewfix-*` branch.
+- Future workers and reviewers must be dispatched explicitly with model `gpt-5.6-luna` and `medium` reasoning; this does not retarget already-running threads.
+- Every worker uses `gpt-5.6-luna` with `medium` reasoning in a separate Codex worktree and `codex/reviewfix-*` branch.
 - Every worker loads repository instructions, `$task-pr-worker`, `$orchestration-harness`, `$engineering-quality-baselines`, `$git-workflow`, and `$deep-review` before editing.
 - Every shell command is prefixed with `rtk`; no force push, history rewrite, broad cleanup, or other worker's changes.
 - Workers perform bounded investigation before editing, use subagents when allowed, obtain independent review, create a PR, iterate `gh-review-hook` to exit 0, and never merge.
@@ -1102,6 +1128,24 @@
 - 2026-07-22 Task_24 ringing-cancellation call site narrowly attributed.
   - Static call-site audit found `AlarmRingingController` still constructed cancellation requests without the new persisted reservation ID/generation, which would make valid recreated alarms fail strict native admission.
   - Task_24 owns only copying those two exact fields into the request and direct regression coverage. Task_23 dismissal ordering, replay, schema-v2 intent, and controller state transitions remain frozen and out of scope.
+
+- 2026-07-22 Task_26 startup exposed a Task_24 dependency cycle; Task_27 split out.
+  - Current master has no callable Android replacement-recovery implementation, so a receiver-only Task_26 change would not compile. The API exists only in Task_24's open branch, while Task_24 was waiting for Task_26.
+  - Task_27 now publishes only the already-committed Android bridge recovery foundation first. Task_26 then calls that merged API, and Task_24 finally integrates both plus generation enforcement.
+  - No Task_24 generation/schema/Dart/iOS/service code moves into Task_27, and no receiver code moves out of Task_26.
+
+- 2026-07-22 Task_27 Android replacement-recovery foundation merged.
+  - PR [#69](https://github.com/xpadev-net/calarm/pull/69) merged exact approved head `0ff8c0b0002353cb8e3c1d6ccb8e742f15757a61` as `a8650a64543d4c2d370f4a838a87a7b5ec2d0048`.
+  - The two-file foundation adds callable serialized replacement recovery plus device-protected journal/mirror helpers and crash-seam coverage; it does not include receiver, generation, schema-v3, or other platform work.
+  - Exact-head Baseline CI, Android JVM/APK/emulator native smoke, iOS native smoke, Greptile, CodeRabbit, and both Socket checks succeeded; fresh exact-head review approved, all five review threads were resolved, and orchestrator `gh-review-hook 69` exited 0.
+  - Worker disclosed that before the final instruction it deleted only its own duplicate explanatory replies and one transient bot-trigger issue comment while diagnosing the hook; original bot findings and resolved-thread history remain visible. No review records were deleted after the instruction, and no merge-history cleanup was performed by the orchestrator.
+  - Task_27 worker `019f8824-9855-7e80-bc41-c97f56a43815` is archived. Preserved Task_26 worker is resumed from the merged base; Task_24 remains unpublished until Task_26 and fresh integration review/CI complete.
+
+- 2026-07-22 Task_26 Android delivery-entry recovery merged.
+  - PR [#70](https://github.com/xpadev-net/calarm/pull/70) merged exact approved head `dce8f023aa54375d1ec0b3707d94270b5f5183da` as `75e4a35ac92e67b3d7e07d458f29011fc20c424f`.
+  - AlarmReceiver now invokes serialized replacement recovery with the firing platform identity before mirror lookup; relevant failures fail closed while unrelated evidence remains retained and safe delivery continues. Already-ringing rows are idempotently ignored, preserving exact identity, Direct Boot, current-only stop, notification/full-screen/vibration, and durable event behavior.
+  - Exact-head Native Smoke passed Android JVM/APK/emulator and iOS simulator jobs; Baseline Format/analyze/test, Greptile, CodeRabbit, and Socket checks succeeded. Fresh exact-head review approved, and orchestrator `gh-review-hook 70` exited 0.
+  - Task_26 worker `019f881b-da51-7a40-8590-e43e4b3d1172` is archived. Task_24 may now integrate current master normally and must obtain fresh exact-head review/CI before merge.
 
 ## Decision Log
 
