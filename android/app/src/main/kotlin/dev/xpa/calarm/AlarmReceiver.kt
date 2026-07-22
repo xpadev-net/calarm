@@ -10,7 +10,6 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
-import org.json.JSONObject
 import java.text.DateFormat
 import java.util.Date
 
@@ -79,28 +78,13 @@ class AlarmReceiver : BroadcastReceiver() {
         recoveryContext: Context,
         platformAlarmId: String,
     ): Boolean {
-        val storageContext = if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.N &&
-                !recoveryContext.isDeviceProtectedStorage
-        ) {
-            recoveryContext.createDeviceProtectedStorageContext()
-        } else {
-            recoveryContext
-        }
-        val rawJournal = storageContext
-            .getSharedPreferences(REPLACEMENT_JOURNAL_PREFERENCES, Context.MODE_PRIVATE)
-            .getString(REPLACEMENT_JOURNAL_KEY, null)
-            ?: return true
-        val identities = try {
-            val journal = JSONObject(rawJournal)
-            val oldId = journal.getJSONObject("old").getString("platformAlarmId")
-            val newId = journal.getJSONObject("new").getString("platformAlarmId")
-            if (oldId.isBlank() || newId.isBlank() || oldId == newId) return true
-            setOf(oldId, newId)
+        val journal = try {
+            AlarmReplacementJournalStore(recoveryContext).load()
         } catch (_: Exception) {
             return true
-        }
-        return platformAlarmId in identities
+        } ?: return true
+        return platformAlarmId == journal.old.platformAlarmId ||
+            platformAlarmId == journal.new.platformAlarmId
     }
 
     internal fun deliverAlarm(
@@ -242,7 +226,5 @@ class AlarmReceiver : BroadcastReceiver() {
 
     private companion object {
         const val TAG = "CalarmAlarmReceiver"
-        const val REPLACEMENT_JOURNAL_PREFERENCES = "native_alarm_replacement_journal"
-        const val REPLACEMENT_JOURNAL_KEY = "active"
     }
 }
