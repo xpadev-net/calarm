@@ -751,7 +751,9 @@
 
 ### Task_27: Publish the Android replacement-recovery foundation
 
-- status: unstarted
+- status: in progress
+- worker: `client-new-thread:460c4657-00e8-49ba-8256-2078588368f7`
+- branch: `codex/task-27-android-recovery-foundation`
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AndroidAlarmBridge.kt` only for the callable serialized replacement-recovery API and its existing journal/mirror helpers
