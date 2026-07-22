@@ -636,7 +636,7 @@
 
 ### Task_15: Final harmonization and repository-wide merge gate
 
-- status: in progress
+- status: complete
 - reviewer: `019f8717-1e82-7dd2-80eb-9135c20cc291`
 - review_verdict: CHANGES_REQUESTED
 - type: review
@@ -731,6 +731,8 @@
 - status: in progress
 - worker: `019f8794-042d-72f3-b9df-0e8c8aa9899d`
 - branch: `codex/task-25-hosted-android-jvm-gate`
+- pr: [#68](https://github.com/xpadev-net/calarm/pull/68)
+- merged: `35d93d9454d8243d55cace9056ce4588a4f1c0cd`
 - type: ci
 - owns:
   - `.github/workflows/native-smoke.yml`
@@ -1086,6 +1088,12 @@
   - The original worker twice stopped with a transport error; its dedicated worktree and Git registration then disappeared. Read-only recovery found no Git object containing the reported uncommitted schema-v3 edits.
   - The committed Task_24 head `76707340b7bc86cc08b6b321fdd11dee2c3309e5` and the normal Task_23/master integration at local branch head `55f13057e03b36c9fc37c67dbf5c5eea9f06bb1f` remain intact.
   - Replacement worker `019f87ee-5bb5-7933-a622-b0d672d60e3a` (queued as `client-new-thread:da74e707-4f2e-4d24-bdd4-0bcb9bb5af1c`) must reconstruct only the lost schema-v3 delta in a fresh dedicated worktree; PR #67 remains not merge-ready and no validation gate is waived.
+
+- 2026-07-22 Task_25 hosted Android JVM gate completed.
+  - PR [#68](https://github.com/xpadev-net/calarm/pull/68) merged exact approved head `574c9251f154ba4ab995c0d3de95f941ba21316b` as `35d93d9454d8243d55cace9056ce4588a4f1c0cd`.
+  - Native Smoke now always verifies and records the exact checked-out head and runs the complete `:app:testDebugUnitTest` suite with bounded timeout, failure propagation, logs, and unconditional artifacts; manual `run_android` controls only APK/emulator work.
+  - Exact-head run `29890721615` passed Android JVM, APK, Android job, and iOS simulator job; unavailable hosted emulator execution remained honestly BLOCKED without granting physical-device approval.
+  - Fresh exact-head review approved. Worker and orchestrator `gh-review-hook 68` exited 0; all registered CI/AI/security checks passed with CLEAN, zero-behind state. No local heavy validation ran under the battery override.
 
 ## Decision Log
 
