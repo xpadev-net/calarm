@@ -24,6 +24,12 @@ import java.time.Instant
 import org.json.JSONException
 import org.json.JSONObject
 
+internal object AndroidAlarmMutationTransaction {
+    private val lock = Any()
+
+    fun <T> run(block: () -> T): T = synchronized(lock) { block() }
+}
+
 class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCallHandler {
     private val activity = context as? Activity
     private val appContext = context.applicationContext
@@ -41,6 +47,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
     private var launchSettingsActivity: (Intent) -> Unit = { intent ->
         appContext.startActivity(intent)
     }
+    private var beforeAlarmManagerMutation: () -> Unit = {}
 
     internal constructor(
         context: Context,
@@ -54,6 +61,10 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         launchSettingsActivity: (Intent) -> Unit,
     ) : this(context) {
         this.launchSettingsActivity = launchSettingsActivity
+    }
+
+    internal fun setBeforeAlarmManagerMutationForTest(hook: () -> Unit) {
+        beforeAlarmManagerMutation = hook
     }
 
     fun register(binaryMessenger: BinaryMessenger) {
@@ -282,7 +293,10 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         }
     }
 
-    private fun schedule(request: AlarmRequest): Map<String, Any?> {
+    private fun schedule(request: AlarmRequest): Map<String, Any?> =
+        AndroidAlarmMutationTransaction.run { scheduleLocked(request) }
+
+    private fun scheduleLocked(request: AlarmRequest): Map<String, Any?> {
         val replacementRecovery = AndroidAlarmReplacementRecovery.reconcile(
             storageContext = appContext,
             serviceContext = appContext,
@@ -642,6 +656,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         request: AlarmRequest,
         platformAlarmId: String,
         arm: () -> Unit = {
+            beforeAlarmManagerMutation()
             alarmManager.setAlarmClock(
                 AlarmManager.AlarmClockInfo(
                     request.scheduledAtMillis,
@@ -779,16 +794,18 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         },
         removePersisted: () -> Boolean = { store.removeRaw(platformAlarmId) },
     ): Map<String, Any?> {
-        return armAndPersist(
-            request,
-            platformAlarmId,
-            arm,
-            persist,
-            cancel,
-            recordActive,
-            recordRetired,
-            removePersisted,
-        )
+        return AndroidAlarmMutationTransaction.run {
+            armAndPersist(
+                request,
+                platformAlarmId,
+                arm,
+                persist,
+                cancel,
+                recordActive,
+                recordRetired,
+                removePersisted,
+            )
+        }
     }
 
     private fun activationFailureMessage(
@@ -891,6 +908,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             )
         }
         try {
+            beforeAlarmManagerMutation()
             alarmManager.setAlarmClock(
                 AlarmManager.AlarmClockInfo(
                     replacement.scheduledAtMillis,
@@ -956,7 +974,10 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         }
     }
 
-    private fun cancel(arguments: Map<*, *>): Map<String, Any?> {
+    private fun cancel(arguments: Map<*, *>): Map<String, Any?> =
+        AndroidAlarmMutationTransaction.run { cancelLocked(arguments) }
+
+    private fun cancelLocked(arguments: Map<*, *>): Map<String, Any?> {
         val rows = arguments["alarms"] as? List<*> ?: emptyList<Any?>()
         val results = rows.map { row ->
             val map = row as? Map<*, *>
@@ -2721,20 +2742,18 @@ internal data class AlarmReplacementRecoveryResult(
 )
 
 internal object AndroidAlarmReplacementRecovery {
-    private val lock = Any()
-
     fun reconcile(
         storageContext: Context,
         serviceContext: Context,
         admittingPlatformAlarmId: String? = null,
-    ): AlarmReplacementRecoveryResult = synchronized(lock) {
+    ): AlarmReplacementRecoveryResult = AndroidAlarmMutationTransaction.run transaction@ {
         val appContext = serviceContext.applicationContext
         val journalStore = AlarmReplacementJournalStore(storageContext)
         val activationCleanupStore = AlarmActivationCleanupStore(storageContext)
         val journal = try {
             journalStore.load()
         } catch (error: Exception) {
-            return@synchronized AlarmReplacementRecoveryResult(
+            return@transaction AlarmReplacementRecoveryResult(
                 isSuccess = false,
                 message = error.message ?: "Native alarm replacement journal is corrupt.",
             )
@@ -2742,13 +2761,13 @@ internal object AndroidAlarmReplacementRecovery {
         val activationCleanup = try {
             activationCleanupStore.load()
         } catch (error: Exception) {
-            return@synchronized AlarmReplacementRecoveryResult(
+            return@transaction AlarmReplacementRecoveryResult(
                 isSuccess = false,
                 message = error.message ?: "Native alarm activation cleanup journal is corrupt.",
             )
         }
         if (journal != null && activationCleanup != null) {
-            return@synchronized AlarmReplacementRecoveryResult(
+            return@transaction AlarmReplacementRecoveryResult(
                 isSuccess = false,
                 message = "Native alarm replacement and activation cleanup journals conflict.",
             )
@@ -2770,10 +2789,10 @@ internal object AndroidAlarmReplacementRecovery {
                 authorityStore,
                 activationCleanupStore,
             )
-            if (!cleanup.isSuccess) return@synchronized cleanup
+            if (!cleanup.isSuccess) return@transaction cleanup
         }
         if (journal == null) {
-            return@synchronized reconcileRetiredMirrors(
+            return@transaction reconcileRetiredMirrors(
                 appContext,
                 alarmManager,
                 store,
@@ -2786,7 +2805,7 @@ internal object AndroidAlarmReplacementRecovery {
             admittingPlatformAlarmId != journal.old.platformAlarmId &&
             admittingPlatformAlarmId != journal.new.platformAlarmId
         ) {
-            return@synchronized AlarmReplacementRecoveryResult(
+            return@transaction AlarmReplacementRecoveryResult(
                 isSuccess = false,
                 message = "Alarm admission identity does not match the active replacement journal.",
             )
@@ -2805,7 +2824,7 @@ internal object AndroidAlarmReplacementRecovery {
                 journalStore,
                 authorityStore,
             )
-            return@synchronized if (retired.isSuccess) {
+            return@transaction if (retired.isSuccess) {
                 reconcileRetiredMirrors(
                     appContext,
                     alarmManager,
@@ -2820,7 +2839,7 @@ internal object AndroidAlarmReplacementRecovery {
         val loser = if (winner == journal.new) journal.old else journal.new
 
         if (!authorityStore.recordActive(winner)) {
-            return@synchronized AlarmReplacementRecoveryResult(
+            return@transaction AlarmReplacementRecoveryResult(
                 isSuccess = false,
                 message = "Failed to persist native alarm replacement generation authority.",
             )
@@ -2831,7 +2850,7 @@ internal object AndroidAlarmReplacementRecovery {
                 winner,
             )
         ) {
-            return@synchronized AlarmReplacementRecoveryResult(
+            return@transaction AlarmReplacementRecoveryResult(
                 isSuccess = false,
                 message = "Failed to persist native alarm replacement winner.",
             )
@@ -2842,13 +2861,13 @@ internal object AndroidAlarmReplacementRecovery {
             }
             cancel(appContext, alarmManager, loser.platformAlarmId)
         } catch (error: RuntimeException) {
-            return@synchronized AlarmReplacementRecoveryResult(
+            return@transaction AlarmReplacementRecoveryResult(
                 isSuccess = false,
                 message = error.message ?: "Native alarm replacement recovery failed.",
             )
         }
         if (!journalStore.clear()) {
-            return@synchronized AlarmReplacementRecoveryResult(
+            return@transaction AlarmReplacementRecoveryResult(
                 isSuccess = false,
                 message = "Failed to clear native alarm replacement journal.",
             )
@@ -3161,8 +3180,6 @@ internal object AndroidAlarmReplacementRecovery {
 }
 
 object AlarmRestore {
-    private val restoreLock = Any()
-
     fun restore(context: Context) {
         restore(context, context.applicationContext)
     }
@@ -3194,7 +3211,7 @@ object AlarmRestore {
         appContext: Context,
         schedule: (AlarmRequest) -> Unit,
     ) {
-        synchronized(restoreLock) {
+        AndroidAlarmMutationTransaction.run {
             val alarmManager = appContext.getSystemService(AlarmManager::class.java)
             val store = AlarmStore(storageContext)
             val replacementRecovery = AndroidAlarmReplacementRecovery.reconcile(
