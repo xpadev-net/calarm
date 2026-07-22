@@ -83,6 +83,20 @@ jobs:
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
+      - name: Read Gradle version
+        id: gradle-version
+        shell: bash
+        run: |
+          set -euo pipefail
+          distribution_url="$(sed -n 's/^distributionUrl=//p' android/gradle/wrapper/gradle-wrapper.properties)"
+          version="${distribution_url##*gradle-}"
+          version="${version%%-*}"
+          if [[ ! "${version}" =~ ^[0-9]+[.][0-9]+([.][0-9]+)?$ ]]; then
+            echo "::error::android/gradle/wrapper/gradle-wrapper.properties must define an exact Gradle version"
+            exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
       - name: Set up Flutter
         shell: bash
         env:
@@ -102,6 +116,11 @@ jobs:
           echo "${flutter_root}/bin" >> "${GITHUB_PATH}"
           "${flutter_root}/bin/flutter" --version
 
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+        with:
+          gradle-version: ${{ steps.gradle-version.outputs.version }}
+
       - name: Resolve dependencies
         shell: bash
         run: |
@@ -112,15 +131,18 @@ jobs:
       - name: Run complete Android JVM test suite
         timeout-minutes: 20
         shell: bash
+        env:
+          GRADLE_VERSION: ${{ steps.gradle-version.outputs.version }}
         run: |
           set -euo pipefail
           flutter_sdk="$(dirname "$(dirname "$(command -v flutter)")")"
           printf 'flutter.sdk=%s\n' "${flutter_sdk}" > android/local.properties
           {
             echo "flutter-sdk=${flutter_sdk}"
+            echo "gradle-version=${GRADLE_VERSION}"
             echo "gradle-task=:app:testDebugUnitTest"
           } >> "${SMOKE_ARTIFACT_ROOT}/logs/android-tested-revision.log"
-          ./android/gradlew -p android :app:testDebugUnitTest --stacktrace --console=plain \
+          gradle -p android :app:testDebugUnitTest --stacktrace --console=plain \
             2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/android-jvm-tests.log"
 
       - name: Build Android debug APK
