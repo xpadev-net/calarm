@@ -1151,7 +1151,8 @@
 - status: in progress
 - worker: `/root/task29_android_delivery_dismissal_idempotency`
 - PR: [#72](https://github.com/xpadev-net/calarm/pull/72), current reported head `9b91c72`
-- reviewer: `/root/task29_exact_head_reviewer` (fresh exact-head review active)
+- current head: `fba42e46dc76da61a74a00a8120f62b442dd7bf1` (ledger-only master integration)
+- reviewer: `/root/task29_exact_head_reviewer_v2` (fresh exact-head review active; prior 9b91c72 review stale)
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmReceiver.kt`
@@ -1178,6 +1179,10 @@
 - 2026-07-22 Task_28/Task_29 Android work isolated after a shared-worktree collision.
   - Task_28's two-file commit was initially placed on the Task_29 branch; the worker moved it to Task_28 without rewriting history or touching Task_29's files. Task_29 continued on a clean replacement branch and opened PR #72.
   - Task_29 pre-edit investigation classified the receiver overlap concern as intentional under the manifest, non-exported synchronous main-thread BroadcastReceiver contract, but confirmed the missing-mirror dismissal event as in-scope. A fresh independent exact-head reviewer is active for PR #72.
+
+- 2026-07-22 Task_29 exact-head review refreshed after ledger-only PR advancement.
+  - PR #72 advanced from `9b91c72` to `fba42e46dc76da61a74a00a8120f62b442dd7bf1` by integrating current master; the prior review was correctly marked stale rather than reused.
+  - No product-tree difference was found beyond the expected ledger/plan merge. A replacement exact-head reviewer is active, and current iOS/native smoke plus `gh-review-hook 72` remain required before merge.
 
 - 2026-07-22 Task_25 hosted Android JVM gate completed.
   - PR [#68](https://github.com/xpadev-net/calarm/pull/68) merged exact approved head `574c9251f154ba4ab995c0d3de95f941ba21316b` as `35d93d9454d8243d55cace9056ce4588a4f1c0cd`.
