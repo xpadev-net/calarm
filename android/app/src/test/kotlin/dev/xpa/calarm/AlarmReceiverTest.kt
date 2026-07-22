@@ -313,7 +313,8 @@ class AlarmReceiverTest {
         val platformAlarmId = "android:reservation:corrupt-recovery"
         val request = alarmRequest(platformAlarmId, vibrationEnabled = true)
         assertTrue(AlarmStore(context).put(request))
-        assertTrue(replacementPreferences().edit().putString("active", "not-json").commit())
+        val corruptJournal = "{\"old\":{\"platformAlarmId\":\"$platformAlarmId\""
+        assertTrue(replacementPreferences().edit().putString("active", corruptJournal).commit())
 
         AlarmReceiver().onReceive(
             context,
@@ -321,7 +322,7 @@ class AlarmReceiverTest {
         )
 
         assertEquals(AlarmState.SCHEDULED, AlarmStore(context).get(platformAlarmId)?.state)
-        assertEquals("not-json", replacementPreferences().getString("active", null))
+        assertEquals(corruptJournal, replacementPreferences().getString("active", null))
         assertTrue(
             context.getSystemService(NotificationManager::class.java)
                 .activeNotifications
@@ -330,6 +331,25 @@ class AlarmReceiverTest {
         assertNull(Shadows.shadowOf(application).peekNextStartedActivity())
         assertNull(shadowVibrator().getVibrationAttributesFromLastVibration())
         assertTrue(AlarmEventStore(context).fetch().events.isEmpty())
+    }
+
+    @Test
+    fun `receiver delivers a safe alarm when corrupt evidence claims another identity`() {
+        val platformAlarmId = "android:plan:corrupt-unrelated-safe"
+        val request = alarmRequest(platformAlarmId, vibrationEnabled = false)
+        val corruptJournal =
+            "{\"old\":{\"platformAlarmId\":\"android:reservation:other\""
+        assertTrue(AlarmStore(context).put(request))
+        assertTrue(replacementPreferences().edit().putString("active", corruptJournal).commit())
+
+        AlarmReceiver().onReceive(
+            context,
+            Shadows.shadowOf(AlarmIntents.receiver(context, platformAlarmId)).savedIntent,
+        )
+
+        assertEquals(AlarmState.RINGING, AlarmStore(context).get(platformAlarmId)?.state)
+        assertNotNull(Shadows.shadowOf(application).peekNextStartedActivity())
+        assertEquals(corruptJournal, replacementPreferences().getString("active", null))
     }
 
     @Test

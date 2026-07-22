@@ -81,7 +81,7 @@ class AlarmReceiver : BroadcastReceiver() {
         val journal = try {
             AlarmReplacementJournalStore(recoveryContext).load()
         } catch (_: Exception) {
-            return true
+            return rawJournal.contains(platformAlarmId)
         } ?: return true
         return platformAlarmId == journal.old.platformAlarmId ||
             platformAlarmId == journal.new.platformAlarmId
