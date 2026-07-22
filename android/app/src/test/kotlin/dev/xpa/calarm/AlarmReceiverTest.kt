@@ -333,6 +333,40 @@ class AlarmReceiverTest {
     }
 
     @Test
+    fun `receiver delivers an unrelated safe alarm while retaining other recovery evidence`() {
+        val safe = alarmRequest(
+            platformAlarmId = "android:plan:unrelated-safe",
+            vibrationEnabled = false,
+        )
+        val otherReservation = "other-recovery"
+        val otherOld = alarmRequest(
+            platformAlarmId = "android:reservation:$otherReservation",
+            vibrationEnabled = false,
+            reservationId = otherReservation,
+            occurrenceId = "other-recovery-old",
+        )
+        val otherNewTemplate = otherOld.copy(occurrenceId = "other-recovery-new")
+        val otherNew = otherNewTemplate.copy(
+            platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(otherNewTemplate),
+        )
+        assertTrue(AlarmStore(context).put(safe))
+        assertTrue(
+            AlarmReplacementJournalStore(context).save(
+                AlarmReplacementJournal(old = otherOld, new = otherNew),
+            ),
+        )
+
+        AlarmReceiver().onReceive(
+            context,
+            Shadows.shadowOf(AlarmIntents.receiver(context, safe.platformAlarmId)).savedIntent,
+        )
+
+        assertEquals(AlarmState.RINGING, AlarmStore(context).get(safe.platformAlarmId)?.state)
+        assertNotNull(Shadows.shadowOf(application).peekNextStartedActivity())
+        assertNotNull(AlarmReplacementJournalStore(context).load())
+    }
+
+    @Test
     fun `stop activity removes persisted alarm state when stop is pressed`() {
         val platformAlarmId = "android:plan:stop"
         assertTrue(AlarmStore(context).put(alarmRequest(platformAlarmId, vibrationEnabled = true)))
