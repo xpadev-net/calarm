@@ -705,11 +705,18 @@
   - `lib/core/platform/method_channel_native_alarm_gateway.dart` only if the wire contract changes
   - corresponding Dart gateway tests
   - `lib/features/wake_plan/application/wake_plan_service.dart` and its tests only for final reconciliation alignment after Task_22 merges
+  - `lib/features/wake_plan/domain/src/wake_plan.dart` only for a monotonic reservation-generation field
+  - `lib/features/wake_plan/data/src/wake_plan_database.dart`
+  - `lib/features/wake_plan/data/src/wake_plan_database.g.dart`
+  - `lib/features/wake_plan/data/src/wake_plan_repository.dart`
+  - corresponding domain/repository/migration tests only for durable generation/tombstone persistence
   - `docs/platform/native-alarm-channel.md`
-- depends_on: [Task_22, Task_25]
+- depends_on: [Task_22, Task_23, Task_25, Task_26]
 - acceptance:
   - One documented reservation/occurrence identity rule governs iOS, Android, fake, Dart validation, and Task_13 reconciliation for recreated occurrences.
   - Side-effect/reply-loss and process-restart seams converge without silently accepting cross-plan ownership, duplicate logical identities, or corrupt tuples.
+  - Every same-reservation rebind carries monotonic durable generation/retirement evidence, so delayed replay of an older occurrence cannot roll the slot backward on iOS, Android, fake, or Dart reconciliation.
+  - The schema change layers additively on Task_23's dismissal-intent migration, remains rollback-aware, and preserves old rows with a deterministic initial generation.
   - Existing exact cancellation, inventory ownership, and backward-compatible additive channel behavior remain intact.
 - validation:
   - kind: command; required: true; owner: worker; detail: iOS RunnerTests, focused/full Android JVM tests, Dart gateway/service identity matrices, full Flutter tests, analyze, format, debug APK, Native Smoke CI, and diff-check.
@@ -718,7 +725,7 @@
 ### Task_25: Add the hosted Android JVM test gate
 
 - status: in progress
-- worker: `client-new-thread:b02a6dc6-65a9-4283-a82a-d52b3c4aedbb`
+- worker: `019f8794-042d-72f3-b9df-0e8c8aa9899d`
 - branch: `codex/task-25-hosted-android-jvm-gate`
 - type: ci
 - owns:
@@ -733,6 +740,24 @@
 - validation:
   - kind: command; required: true; owner: worker; detail: workflow/YAML/static shell validation that does not compile locally, followed by exact-head GitHub Actions execution proving the full Android JVM suite passes.
   - kind: review; required: true; owner: reviewer; detail: trigger/path coverage, failure propagation, timeout/logging, exact-head provenance, and non-duplication review.
+
+### Task_26: Recover Android recreation state before delivery admission
+
+- status: unstarted
+- type: impl
+- owns:
+  - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmReceiver.kt`
+  - `android/app/src/test/kotlin/dev/xpa/calarm/AlarmReceiverTest.kt`
+  - `android/app/src/test/kotlin/dev/xpa/calarm/AndroidInventoryTest.kt` only for delivery/recovery integration coverage
+- depends_on: [Task_25]
+- acceptance:
+  - Alarm delivery runs the existing serialized native recovery entry point before mirror lookup, so an OS-armed candidate cannot be dropped solely because its mirror commit was interrupted.
+  - Recovery failure or corrupt/ambiguous journal state fails closed without delivering the wrong reservation, duplicating events, or deleting recoverable evidence.
+  - Exact platform ID, Wake Plan ownership, delivered-event journaling, current-only stop, and fallback notification/screen/vibration behavior remain intact.
+  - Repeated receiver delivery and recovery are idempotent across every pre-arm/post-arm/mirror-commit crash boundary introduced by Task_24.
+- validation:
+  - kind: command; required: true; owner: worker; detail: exact-head GitHub Actions runs focused receiver/inventory recovery cases, full Android JVM tests, debug APK, and Android native smoke; no local build or JVM execution while the battery override is active.
+  - kind: review; required: true; owner: reviewer; detail: receiver admission ordering, journal corruption, duplicate delivery/event, Direct Boot, and exact-identity review.
 
 ### Task_16: Real-device release evidence
 
@@ -767,8 +792,9 @@
 - Wave 8C (Task_13-aware event and ringing reconciliation): [Task_21]
 - Wave 9A (parallel final-review remediation): [Task_22, Task_23]
 - Wave 9B (hosted Android JVM gate): [Task_25]
-- Wave 9C (cross-platform identity contract after Task_22 and Task_25): [Task_24]
-- Wave 9D (orchestrator/reviewer): [Task_15]
+- Wave 9C (Android delivery admission after hosted JVM gate): [Task_26]
+- Wave 9D (cross-platform identity contract after Task_23, Task_25, and Task_26): [Task_24]
+- Wave 9E (orchestrator/reviewer): [Task_15]
 - Wave 10 (user-owned): [Task_16]
 
 ## Worker Contract
@@ -1035,6 +1061,11 @@
   - The user disabled local build/compile-heavy validation because the local battery is failing; required evidence moved to exact-head GitHub Actions without waiving a gate.
   - Task_24 proved the official workflows cover Flutter/analyze, debug APK, iOS RunnerTests, and native smoke, but no workflow runs the complete Android `:app:testDebugUnitTest` suite.
   - Task_25 exclusively owns the narrow workflow update. Task_24 remains not merge-ready at PR [#67](https://github.com/xpadev-net/calarm/pull/67) head `4a40b9a` until Task_25 merges and exact-head CI supplies the missing Android JVM evidence.
+
+- 2026-07-22 Task_24 exact-head review required receiver and durable-generation decomposition.
+  - Android may fire an OS-armed recreation candidate before its mirror commit; current `AlarmReceiver` drops it because delivery admission reads the mirror before invoking recovery. Task_26 owns only the receiver/inventory admission fix and waits for Task_25's hosted JVM gate.
+  - A stable slot rebind currently lacks monotonic generation/retirement evidence, so delayed replay of an older occurrence can roll the slot backward. This remains part of Task_24's cross-platform contract, with narrowly expanded domain/Drift/repository/migration ownership after Task_23 merges.
+  - Task_24 may fix opaque reservation cancellation and expired Android journal handling within its original owns now, but PR #67 remains frozen and not merge-ready until Tasks 23, 25, and 26 merge, the generation migration is implemented, fresh exact-head review approves, and CI supplies every platform gate.
 
 ## Decision Log
 
