@@ -1828,6 +1828,45 @@ void main() {
       },
     );
 
+    test(
+      'forward native generation with an unknown payload fails closed',
+      () async {
+        final pending = buildOccurrence(
+          id: occurrenceId,
+          status: AlarmOccurrenceStatus.userEnablePending,
+          platformAlarmId: null,
+          reservationId: 'stable-recreation-slot',
+          reservationGeneration: 4,
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan]
+          ..storedOccurrences = [pending];
+        final gateway = _CountingInventoryGateway()
+          ..inventoryRows.add(
+            NativeAlarmInventoryRow(
+              reservationId: pending.reservationId,
+              reservationGeneration: 5,
+              occurrenceId: 'unknown-same-plan-payload',
+              wakePlanId: pending.wakePlanId,
+              platformAlarmId: 'native-unknown',
+              status: NativeAlarmReservationStatus.scheduled,
+            ),
+          );
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 1,
+        ).reconcileSchedules();
+
+        expect(result.single.status, WakePlanSchedulingStatus.recoveryRequired);
+        expect(store.storedOccurrences.single.reservationGeneration, 4);
+        expect(store.storedOccurrences.single.platformAlarmId, isNull);
+        expect(gateway.scheduledRequests, isEmpty);
+        expect(gateway.cancelledOccurrences, isEmpty);
+      },
+    );
+
     for (final failure in [
       NativeAlarmInventoryFailureReason.unavailable,
       NativeAlarmInventoryFailureReason.corrupt,
@@ -4472,6 +4511,7 @@ void main() {
                 wakePlanId: plan.id,
                 platformAlarmId: 'platform-${occurrence.id}',
                 status: NativeAlarmReservationStatus.scheduled,
+                reservationGeneration: 1,
               ),
             );
           }

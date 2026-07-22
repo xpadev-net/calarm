@@ -1144,20 +1144,28 @@ class WakePlanService {
     bool hasTupleConflict(NativeAlarmInventoryRow row) {
       final byReservation = originalByReservation[row.reservationId];
       final byOccurrence = originalById[row.occurrenceId];
+      final isKnownSamePlanOccurrence =
+          byOccurrence?.wakePlanId == row.wakePlanId ||
+          (desiredPlanIdsById[row.occurrenceId]?.contains(row.wakePlanId) ??
+              false);
       return participantPlanIds(row).length > 1 ||
           (byReservation != null &&
               (byReservation.wakePlanId != row.wakePlanId ||
-                  byReservation.reservationGeneration !=
-                      row.reservationGeneration ||
-                  byReservation.id != row.occurrenceId)) ||
+                  row.reservationGeneration <
+                      byReservation.reservationGeneration ||
+                  (row.reservationGeneration ==
+                          byReservation.reservationGeneration &&
+                      byReservation.id != row.occurrenceId) ||
+                  (byReservation.id != row.occurrenceId &&
+                      !isKnownSamePlanOccurrence))) ||
           (byOccurrence != null &&
               (byOccurrence.wakePlanId != row.wakePlanId ||
                   (byOccurrence.reservationId != row.reservationId &&
                       !(byOccurrence.reservationId == byOccurrence.id &&
                           byOccurrence.reservationGeneration == 0 &&
                           row.reservationGeneration == 0)) ||
-                  byOccurrence.reservationGeneration !=
-                      row.reservationGeneration));
+                  row.reservationGeneration <
+                      byOccurrence.reservationGeneration));
     }
 
     void propagateBlockedParticipants() {
@@ -1387,6 +1395,7 @@ class WakePlanService {
           AlarmOccurrenceStatus.userEnablePending => occurrence.copyWith(
             status: AlarmOccurrenceStatus.scheduled,
             platformAlarmId: null,
+            reservationGeneration: occurrence.reservationGeneration + 1,
             failureReason: null,
             updatedAt: now,
           ),
@@ -2388,15 +2397,15 @@ class WakePlanService {
         continue;
       }
 
+      final activeRow = observation.activeRow;
       reconciled.add(
         occurrence.copyWith(
           status: AlarmOccurrenceStatus.scheduled,
-          platformAlarmId: observation.activeRow?.platformAlarmId,
-          reservationId:
-              observation.activeRow?.reservationId ?? occurrence.reservationId,
+          platformAlarmId: activeRow?.platformAlarmId,
+          reservationId: activeRow?.reservationId ?? occurrence.reservationId,
           reservationGeneration:
-              observation.activeRow?.reservationGeneration ??
-              occurrence.reservationGeneration,
+              activeRow?.reservationGeneration ??
+              occurrence.reservationGeneration + 1,
           failureReason: null,
           updatedAt: now,
         ),
