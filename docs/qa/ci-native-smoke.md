@@ -59,8 +59,8 @@ Fallback: Android API 35 Google APIs x86_64 emulator image when API 36 is not li
 
 Smoke steps:
 
-- Resolve Flutter dependencies.
 - Verify the checkout matches the exact pull-request head (or dispatched/scheduled commit) and retain the tested SHA in the Android artifact.
+- Resolve Flutter dependencies.
 - Run the complete Android JVM/Robolectric suite with `:app:testDebugUnitTest`; failure or timeout fails the Android job, and the captured Gradle log is uploaded even on failure.
 - Build the debug APK.
 - Install and run `integration_test/native_alarm_smoke_test.dart` on the selected emulator.
