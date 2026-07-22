@@ -986,6 +986,51 @@ class AndroidInventoryTest {
     }
 
     @Test
+    fun `uncommitted candidate admission retains a viable incumbent`() {
+        val old = alarmRequest(
+            platformAlarmId = "android:reservation:viable-incumbent-slot",
+            reservationId = "viable-incumbent-slot",
+            occurrenceId = "viable-incumbent-old",
+            wakePlanId = "viable-incumbent-plan",
+            scheduledAtMillis = System.currentTimeMillis() + 60_000,
+        )
+        val newTemplate = old.copy(
+            occurrenceId = "viable-incumbent-new",
+            scheduledAtMillis = System.currentTimeMillis() - 1_000,
+            targetAtMillis = System.currentTimeMillis() - 1_000,
+        )
+        val candidate = newTemplate.copy(
+            platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(newTemplate),
+        )
+        assertTrue(AlarmStore(context).put(old))
+        armForRecoveryTest(old)
+        armForRecoveryTest(candidate)
+        assertTrue(
+            AlarmReplacementJournalStore(context).save(
+                AlarmReplacementJournal(
+                    old = old,
+                    new = candidate,
+                    phase = AlarmReplacementPhase.CANDIDATE_ARMED,
+                ),
+            ),
+        )
+        context.getSystemService(AlarmManager::class.java)
+            .cancel(AlarmIntents.receiver(context, candidate.platformAlarmId))
+
+        val recovery = AndroidAlarmReplacementRecovery.reconcile(
+            context,
+            context,
+            admittingPlatformAlarmId = candidate.platformAlarmId,
+        )
+
+        assertTrue(recovery.isSuccess)
+        assertNotNull(AlarmStore(context).get(old.platformAlarmId))
+        assertNull(AlarmStore(context).get(candidate.platformAlarmId))
+        assertEquals(listOf(old.platformAlarmId), scheduledAlarmIds())
+        assertNull(AlarmReplacementJournalStore(context).load())
+    }
+
+    @Test
     fun `unrelated admission identity fails closed and retains replacement evidence`() {
         val old = alarmRequest(
             platformAlarmId = "android:reservation:admission-owner-slot",
