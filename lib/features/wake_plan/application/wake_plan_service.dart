@@ -1725,6 +1725,7 @@ class WakePlanService {
       final restoration = await _restoreCancelledOccurrences(
         plan: previousPlan,
         occurrences: cancelResult.successfullyCancelledOccurrences,
+        generationFloors: replacementCancellation.persistedOccurrences,
         now: now,
       );
       final planPersistenceError = await _trySaveWakePlan(
@@ -1948,6 +1949,7 @@ class WakePlanService {
     final occurrenceBundle = _rebindRetiredReservationSlots(
       bundle: _buildOccurrenceBundle(plan: plan, now: now),
       retiredOccurrences: retiredOccurrences,
+      existingOccurrences: existingOccurrences ?? const [],
     );
     if (_requiresFutureOccurrence(plan) &&
         occurrenceBundle.occurrences.isEmpty) {
@@ -2145,8 +2147,26 @@ class WakePlanService {
         .toList(growable: false);
     final pendingIds = pendingOccurrences.map((occurrence) => occurrence.id);
     final pendingIdSet = pendingIds.toSet();
+    final pendingById = {
+      for (final occurrence in pendingOccurrences) occurrence.id: occurrence,
+    };
     final pendingRequests = desiredBundle.requests
         .where((request) => pendingIdSet.contains(request.occurrenceId))
+        .map((request) {
+          final occurrence = pendingById[request.occurrenceId]!;
+          return NativeAlarmScheduleRequest(
+            occurrenceId: request.occurrenceId,
+            reservationId: occurrence.reservationId,
+            reservationGeneration: occurrence.reservationGeneration,
+            wakePlanId: request.wakePlanId,
+            scheduledAt: request.scheduledAt,
+            targetAt: request.targetAt,
+            indexInPlan: request.indexInPlan,
+            totalInPlan: request.totalInPlan,
+            soundId: request.soundId,
+            vibrationEnabled: request.vibrationEnabled,
+          );
+        })
         .toList(growable: false);
 
     if (pendingOccurrences.isEmpty) {
@@ -2661,8 +2681,10 @@ class WakePlanService {
   _OccurrenceBundle _rebindRetiredReservationSlots({
     required _OccurrenceBundle bundle,
     required List<AlarmOccurrence> retiredOccurrences,
+    required List<AlarmOccurrence> existingOccurrences,
   }) {
-    if (retiredOccurrences.isEmpty || bundle.occurrences.isEmpty) {
+    if (bundle.occurrences.isEmpty ||
+        (retiredOccurrences.isEmpty && existingOccurrences.isEmpty)) {
       return bundle;
     }
     final retired =
@@ -2675,6 +2697,35 @@ class WakePlanService {
             );
             return time != 0 ? time : left.id.compareTo(right.id);
           });
+    final desiredIds = bundle.occurrences
+        .map((occurrence) => occurrence.id)
+        .toSet();
+    final retiredById = {
+      for (final occurrence in retired)
+        if (desiredIds.contains(occurrence.id)) occurrence.id: occurrence,
+    };
+    final existingById = {
+      for (final occurrence in existingOccurrences) occurrence.id: occurrence,
+    };
+    final exactRetiredReservationIds = retiredById.values
+        .map((occurrence) => occurrence.reservationId)
+        .toSet();
+    final retiredIds = retired.map((occurrence) => occurrence.id).toSet();
+    final retainedReservationIds = existingOccurrences
+        .where(
+          (occurrence) =>
+              desiredIds.contains(occurrence.id) &&
+              !retiredIds.contains(occurrence.id),
+        )
+        .map((occurrence) => occurrence.reservationId)
+        .toSet();
+    final fallbackRetired = retired
+        .where(
+          (occurrence) =>
+              !exactRetiredReservationIds.contains(occurrence.reservationId) &&
+              !retainedReservationIds.contains(occurrence.reservationId),
+        )
+        .iterator;
     final requestByOccurrenceId = {
       for (final request in bundle.requests) request.occurrenceId: request,
     };
@@ -2682,13 +2733,36 @@ class WakePlanService {
     final reboundRequests = <NativeAlarmScheduleRequest>[];
     for (var index = 0; index < bundle.occurrences.length; index += 1) {
       final desired = bundle.occurrences[index];
-      final prior = index < retired.length ? retired[index] : null;
-      final rebound = prior == null || prior.wakePlanId != desired.wakePlanId
-          ? desired
-          : desired.copyWith(
-              reservationId: prior.reservationId,
-              reservationGeneration: prior.reservationGeneration + 1,
-            );
+      final exactRetired = retiredById[desired.id];
+      final existing = existingById[desired.id];
+      AlarmOccurrence rebound;
+      if (exactRetired != null &&
+          exactRetired.wakePlanId == desired.wakePlanId) {
+        rebound = desired.copyWith(
+          reservationId: exactRetired.reservationId,
+          reservationGeneration: exactRetired.reservationGeneration + 1,
+        );
+      } else if (existing != null &&
+          existing.wakePlanId == desired.wakePlanId) {
+        rebound = desired.copyWith(
+          reservationId: existing.reservationId,
+          reservationGeneration: existing.reservationGeneration,
+        );
+      } else {
+        AlarmOccurrence? prior;
+        while (fallbackRetired.moveNext()) {
+          if (fallbackRetired.current.wakePlanId == desired.wakePlanId) {
+            prior = fallbackRetired.current;
+            break;
+          }
+        }
+        rebound = prior == null
+            ? desired
+            : desired.copyWith(
+                reservationId: prior.reservationId,
+                reservationGeneration: prior.reservationGeneration + 1,
+              );
+      }
       final request = requestByOccurrenceId[desired.id]!;
       reboundOccurrences.add(rebound);
       reboundRequests.add(
@@ -3084,6 +3158,7 @@ class WakePlanService {
     required WakePlan plan,
     required List<AlarmOccurrence> occurrences,
     required DateTime now,
+    List<AlarmOccurrence> generationFloors = const [],
   }) async {
     if (occurrences.isEmpty) {
       return const _RestorationResult(scheduleResult: null, occurrences: []);
@@ -3107,6 +3182,14 @@ class WakePlanService {
           ),
         )
         .toList(growable: false);
+    final generationFloorByReservation = <String, int>{};
+    for (final occurrence in generationFloors) {
+      final current = generationFloorByReservation[occurrence.reservationId];
+      if (current == null || current < occurrence.reservationGeneration) {
+        generationFloorByReservation[occurrence.reservationId] =
+            occurrence.reservationGeneration;
+      }
+    }
     final restorableOccurrences = occurrences
         .where(
           (occurrence) =>
@@ -3114,11 +3197,18 @@ class WakePlanService {
               occurrence.status != AlarmOccurrenceStatus.userDisablePending &&
               occurrence.status != AlarmOccurrenceStatus.userDisabled,
         )
-        .map(
-          (occurrence) => occurrence.copyWith(
-            reservationGeneration: occurrence.reservationGeneration + 1,
-          ),
-        )
+        .map((occurrence) {
+          final generationFloor =
+              generationFloorByReservation[occurrence.reservationId];
+          final currentGeneration =
+              generationFloor == null ||
+                  occurrence.reservationGeneration > generationFloor
+              ? occurrence.reservationGeneration
+              : generationFloor;
+          return occurrence.copyWith(
+            reservationGeneration: currentGeneration + 1,
+          );
+        })
         .toList(growable: false);
     if (restorableOccurrences.isEmpty) {
       final persistenceError = await _trySaveAlarmOccurrences(

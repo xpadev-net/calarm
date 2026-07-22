@@ -98,10 +98,13 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
                               row.reservationGeneration ||
                           (request.reservationGeneration ==
                                   row.reservationGeneration &&
-                              _sameSchedulePayload(
-                                _activeRequests[row.reservationId],
-                                request,
-                              ))
+                              (_sameSchedulePayload(
+                                    _activeRequests[row.reservationId],
+                                    request,
+                                  ) ||
+                                  (_activeRequests[row.reservationId] == null &&
+                                      request.reservationGeneration == 0 &&
+                                      row.reservationId == row.occurrenceId)))
                     : request.reservationGeneration >
                           row.reservationGeneration),
           );

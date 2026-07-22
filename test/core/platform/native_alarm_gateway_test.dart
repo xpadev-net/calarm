@@ -699,6 +699,27 @@ void main() {
       },
     );
 
+    test('adopts an exact generation-zero legacy inventory row', () async {
+      final gateway = FakeNativeAlarmGateway();
+      final request = _requests().first;
+      gateway.inventoryRows.add(
+        NativeAlarmInventoryRow(
+          reservationId: request.occurrenceId,
+          occurrenceId: request.occurrenceId,
+          wakePlanId: request.wakePlanId,
+          platformAlarmId: 'legacy-native-id',
+          status: NativeAlarmReservationStatus.scheduled,
+        ),
+      );
+
+      final result = await gateway.scheduleOccurrences([request]);
+
+      expect(result.isSuccess, isTrue);
+      expect(gateway.inventoryRows, hasLength(1));
+      expect(gateway.inventoryRows.single.occurrenceId, request.occurrenceId);
+      expect(gateway.inventoryRows.single.reservationGeneration, 0);
+    });
+
     test(
       'fake atomically rebinds one reservation to a recreated occurrence',
       () async {

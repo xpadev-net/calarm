@@ -5402,12 +5402,11 @@ void main() {
         expect(gateway.cancelledOccurrences.map((request) => request.idLabel), [
           'old-future-1/authoritative-native-id',
         ]);
-        expect(
-          gateway.inventoryRows.where(
-            (row) => row.reservationId == occurrence.id,
-          ),
-          isEmpty,
-        );
+        final rebound = gateway.inventoryRows
+            .where((row) => row.reservationId == occurrence.id)
+            .single;
+        expect(rebound.occurrenceId, isNot(occurrence.id));
+        expect(rebound.reservationGeneration, 1);
       },
     );
 
@@ -6147,7 +6146,7 @@ void main() {
         expect(gateway.scheduledRequests, hasLength(5));
         expect(gateway.cancelledOccurrences.map((request) => request.idLabel), [
           'old-future-1/old-native-1',
-          'plan-1:20640:435/platform-plan-1:20640:435',
+          'plan-1:20640:435/platform-old-future-1',
           'plan-1:20640:445/platform-plan-1:20640:445',
           'plan-1:20640:450/platform-plan-1:20640:450',
         ]);
@@ -6282,6 +6281,11 @@ void main() {
           gateway.scheduledRequests.last.scheduledAt,
           DateTime(2026, 7, 6, 23),
         );
+        expect(
+          gateway.scheduledRequests.last.reservationId,
+          'plan-1:20640:1380',
+        );
+        expect(gateway.scheduledRequests.last.reservationGeneration, 2);
         expect(gateway.scheduledRequests.last.targetAt, DateTime(2026, 7, 7));
       },
     );
@@ -6727,7 +6731,7 @@ void main() {
           ],
           cancelFailuresByCall: [
             {},
-            {'platform-plan-1:20640:435'},
+            {'platform-old-future-1'},
           ],
         );
 
@@ -6757,7 +6761,7 @@ void main() {
               .where((occurrence) => occurrence.id == 'plan-1:20640:435')
               .single
               .platformAlarmId,
-          'platform-plan-1:20640:435',
+          'platform-old-future-1',
         );
         expect(
           store.storedOccurrences
