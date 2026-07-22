@@ -4214,7 +4214,7 @@ void main() {
     );
 
     test(
-      'isolates a mixed one-time recovery batch with canonical metadata',
+      'fails closed for a mixed one-time batch with duplicate identity',
       () async {
         final plan = buildPlan();
         final pendingOff = buildOccurrence(
@@ -4277,45 +4277,29 @@ void main() {
 
         expect(reconciled, hasLength(1));
         expect(
-          gateway.cancelledOccurrences.map((request) => request.occurrenceId),
-          [pendingOff.id],
+          reconciled.single.status,
+          WakePlanSchedulingStatus.recoveryRequired,
         );
-        expect(
-          gateway.scheduledRequests.map((request) => request.occurrenceId),
-          [desiredOn.id],
-        );
-        expect(gateway.scheduledRequests.single.reservationId, desiredOn.id);
-        expect(gateway.scheduledRequests.single.indexInPlan, 2);
-        expect(gateway.scheduledRequests.single.totalInPlan, 4);
-        expect(
-          gateway.scheduledRequests.single.targetAt,
-          DateTime(2026, 7, 6, 7),
-        );
-        expect(
-          gateway.scheduledRequests.map((request) => request.occurrenceId),
-          isNot(contains('plan-1:20640:410')),
-        );
-        expect(
-          gateway.scheduledRequests.map((request) => request.occurrenceId),
-          isNot(contains('plan-1:20640:420')),
-        );
+        expect(gateway.cancelledOccurrences, isEmpty);
+        expect(gateway.scheduledRequests, isEmpty);
+        expect(store.savedOccurrences, isEmpty);
 
         final storedById = {
           for (final occurrence in store.storedOccurrences)
             occurrence.id: occurrence,
         };
+        expect(storedById[pendingOff.id]!.status, pendingOff.status);
         expect(
-          storedById[pendingOff.id]!.status,
-          AlarmOccurrenceStatus.userDisabled,
+          storedById[pendingOff.id]!.platformAlarmId,
+          pendingOff.platformAlarmId,
         );
-        expect(storedById[pendingOff.id]!.platformAlarmId, isNull);
         expect(
           storedById[desiredOn.id]!.status,
           AlarmOccurrenceStatus.scheduled,
         );
         expect(
           storedById[desiredOn.id]!.platformAlarmId,
-          'platform-${desiredOn.id}',
+          desiredOn.platformAlarmId,
         );
         expect(storedById[unrelated.id]!.status, unrelated.status);
         expect(storedById[unrelated.id]!.platformAlarmId, isNull);
@@ -4324,7 +4308,7 @@ void main() {
           gateway.inventoryRows.where(
             (row) => row.occurrenceId == pendingOff.id,
           ),
-          isEmpty,
+          hasLength(1),
         );
         expect(
           gateway.inventoryRows.where(
