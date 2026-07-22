@@ -216,7 +216,6 @@ class AlarmStopActivity : Activity() {
         val alarmId = platformAlarmId
         if (
             alarmId != null &&
-            AlarmStore(this).get(alarmId) != null &&
             !AlarmEventStore(this).appendDismissed(alarmId, System.currentTimeMillis())
         ) {
             Log.e(TAG, "Failed to persist a dismissed native alarm event.")
