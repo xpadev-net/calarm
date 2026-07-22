@@ -37,6 +37,55 @@ class AlarmOccurrencePlatformMatchSnapshot {
   final Set<String> corruptPlatformAlarmIds;
 }
 
+class AlarmOccurrenceDismissalIntent {
+  const AlarmOccurrenceDismissalIntent({
+    required this.occurrence,
+    required this.requestedAt,
+    required this.platformAlarmId,
+  });
+
+  final AlarmOccurrence occurrence;
+  final DateTime requestedAt;
+  final String? platformAlarmId;
+}
+
+enum AlarmOccurrenceDismissalPreparationStatus {
+  ready,
+  notFound,
+  alreadyDismissed,
+  noLongerEligible,
+}
+
+class AlarmOccurrenceDismissalPreparation {
+  const AlarmOccurrenceDismissalPreparation._({
+    required this.status,
+    this.intent,
+  });
+
+  const AlarmOccurrenceDismissalPreparation.ready(
+    AlarmOccurrenceDismissalIntent intent,
+  ) : this._(
+        status: AlarmOccurrenceDismissalPreparationStatus.ready,
+        intent: intent,
+      );
+
+  const AlarmOccurrenceDismissalPreparation.notFound()
+    : this._(status: AlarmOccurrenceDismissalPreparationStatus.notFound);
+
+  const AlarmOccurrenceDismissalPreparation.alreadyDismissed()
+    : this._(
+        status: AlarmOccurrenceDismissalPreparationStatus.alreadyDismissed,
+      );
+
+  const AlarmOccurrenceDismissalPreparation.noLongerEligible()
+    : this._(
+        status: AlarmOccurrenceDismissalPreparationStatus.noLongerEligible,
+      );
+
+  final AlarmOccurrenceDismissalPreparationStatus status;
+  final AlarmOccurrenceDismissalIntent? intent;
+}
+
 class WakePlanRepository {
   WakePlanRepository(this._database);
 
@@ -160,6 +209,151 @@ class WakePlanRepository {
     )..where((row) => row.id.equals(id))).getSingleOrNull();
 
     return row == null ? null : _tryAlarmOccurrenceFromRow(row);
+  }
+
+  Future<List<AlarmOccurrenceDismissalIntent>>
+  fetchPendingAlarmOccurrenceDismissals() async {
+    final rows =
+        await (_database.select(_database.alarmOccurrenceRows)
+              ..where((row) => row.dismissalRequestedAt.isNotNull())
+              ..orderBy([(row) => OrderingTerm.asc(row.id)]))
+            .get();
+
+    return rows
+        .map(_dismissalIntentFromRow)
+        .whereType<AlarmOccurrenceDismissalIntent>()
+        .toList(growable: false);
+  }
+
+  Future<AlarmOccurrenceDismissalIntent?> fetchPendingAlarmOccurrenceDismissal(
+    String occurrenceId,
+  ) async {
+    final row =
+        await (_database.select(_database.alarmOccurrenceRows)..where(
+              (row) =>
+                  row.id.equals(occurrenceId) &
+                  row.dismissalRequestedAt.isNotNull(),
+            ))
+            .getSingleOrNull();
+    return row == null ? null : _dismissalIntentFromRow(row);
+  }
+
+  Future<AlarmOccurrenceDismissalPreparation> prepareAlarmOccurrenceDismissal({
+    required String occurrenceId,
+    required String? expectedPlatformAlarmId,
+    required DateTime requestedAt,
+  }) {
+    return _database.transaction(() async {
+      final persistedRequestedAt = _sqliteDateTimePrecision(requestedAt);
+      final row = await (_database.select(
+        _database.alarmOccurrenceRows,
+      )..where((row) => row.id.equals(occurrenceId))).getSingleOrNull();
+      if (row == null) {
+        return const AlarmOccurrenceDismissalPreparation.notFound();
+      }
+
+      final existingIntent = _dismissalIntentFromRow(row);
+      if (existingIntent != null &&
+          existingIntent.platformAlarmId == expectedPlatformAlarmId &&
+          row.platformAlarmId == expectedPlatformAlarmId) {
+        return AlarmOccurrenceDismissalPreparation.ready(existingIntent);
+      }
+      if (row.status == AlarmOccurrenceStatus.dismissed.name) {
+        return const AlarmOccurrenceDismissalPreparation.alreadyDismissed();
+      }
+      final occurrence = _tryAlarmOccurrenceFromRow(row);
+      if (occurrence == null ||
+          (occurrence.status != AlarmOccurrenceStatus.scheduled &&
+              occurrence.status != AlarmOccurrenceStatus.ringing) ||
+          occurrence.platformAlarmId != expectedPlatformAlarmId) {
+        return const AlarmOccurrenceDismissalPreparation.noLongerEligible();
+      }
+
+      await (_database.update(
+        _database.alarmOccurrenceRows,
+      )..where((candidate) => candidate.id.equals(occurrenceId))).write(
+        AlarmOccurrenceRowsCompanion(
+          dismissalRequestedAt: Value(persistedRequestedAt),
+          dismissalPlatformAlarmId: Value(expectedPlatformAlarmId),
+          updatedAt: Value(
+            persistedRequestedAt.isAfter(row.updatedAt)
+                ? persistedRequestedAt
+                : row.updatedAt,
+          ),
+        ),
+      );
+      return AlarmOccurrenceDismissalPreparation.ready(
+        AlarmOccurrenceDismissalIntent(
+          occurrence: occurrence.copyWith(
+            updatedAt: persistedRequestedAt.isAfter(row.updatedAt)
+                ? persistedRequestedAt
+                : row.updatedAt,
+          ),
+          requestedAt: persistedRequestedAt,
+          platformAlarmId: expectedPlatformAlarmId,
+        ),
+      );
+    });
+  }
+
+  DateTime _sqliteDateTimePrecision(DateTime value) {
+    final wholeSeconds =
+        value.microsecondsSinceEpoch ~/ Duration.microsecondsPerSecond;
+    return DateTime.fromMicrosecondsSinceEpoch(
+      wholeSeconds * Duration.microsecondsPerSecond,
+      isUtc: value.isUtc,
+    );
+  }
+
+  Future<void> completeAlarmOccurrenceDismissal({
+    required AlarmOccurrenceDismissalIntent intent,
+    required DateTime dismissedAt,
+  }) {
+    return _database.transaction(() async {
+      final row = await (_database.select(
+        _database.alarmOccurrenceRows,
+      )..where((row) => row.id.equals(intent.occurrence.id))).getSingleOrNull();
+      if (row == null) {
+        throw StateError('AlarmOccurrence not found: ${intent.occurrence.id}');
+      }
+      if (row.dismissalRequestedAt == null) {
+        if (row.status == AlarmOccurrenceStatus.dismissed.name) {
+          return;
+        }
+        throw StateError(
+          'AlarmOccurrence dismissal is not pending: ${intent.occurrence.id}',
+        );
+      }
+      if (row.dismissalRequestedAt != intent.requestedAt ||
+          row.dismissalPlatformAlarmId != intent.platformAlarmId ||
+          (row.platformAlarmId != null &&
+              row.platformAlarmId != intent.platformAlarmId)) {
+        throw StateError(
+          'AlarmOccurrence dismissal identity changed: ${intent.occurrence.id}',
+        );
+      }
+
+      final firedAt = row.firedAt ?? intent.requestedAt;
+      final effectiveDismissedAt = dismissedAt.isBefore(firedAt)
+          ? firedAt
+          : dismissedAt;
+      final effectiveUpdatedAt = effectiveDismissedAt.isAfter(row.updatedAt)
+          ? effectiveDismissedAt
+          : row.updatedAt;
+      await (_database.update(
+        _database.alarmOccurrenceRows,
+      )..where((candidate) => candidate.id.equals(intent.occurrence.id))).write(
+        AlarmOccurrenceRowsCompanion(
+          status: Value(AlarmOccurrenceStatus.dismissed.name),
+          platformAlarmId: const Value(null),
+          firedAt: Value(firedAt),
+          dismissedAt: Value(effectiveDismissedAt),
+          dismissalRequestedAt: const Value(null),
+          dismissalPlatformAlarmId: const Value(null),
+          updatedAt: Value(effectiveUpdatedAt),
+        ),
+      );
+    });
   }
 
   Future<AlarmOccurrencePlatformMatchSnapshot>
@@ -536,6 +730,21 @@ class WakePlanRepository {
     } on ArgumentError {
       return null;
     }
+  }
+
+  AlarmOccurrenceDismissalIntent? _dismissalIntentFromRow(
+    AlarmOccurrenceRow row,
+  ) {
+    final requestedAt = row.dismissalRequestedAt;
+    final occurrence = _tryAlarmOccurrenceFromRow(row);
+    if (requestedAt == null || occurrence == null) {
+      return null;
+    }
+    return AlarmOccurrenceDismissalIntent(
+      occurrence: occurrence,
+      requestedAt: requestedAt,
+      platformAlarmId: row.dismissalPlatformAlarmId,
+    );
   }
 
   AlarmOccurrenceStatus _decodeAlarmOccurrenceStatus(String value) {

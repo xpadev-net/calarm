@@ -1000,6 +1000,28 @@ class $AlarmOccurrenceRowsTable extends AlarmOccurrenceRows
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _dismissalRequestedAtMeta =
+      const VerificationMeta('dismissalRequestedAt');
+  @override
+  late final GeneratedColumn<DateTime> dismissalRequestedAt =
+      GeneratedColumn<DateTime>(
+        'dismissal_requested_at',
+        aliasedName,
+        true,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _dismissalPlatformAlarmIdMeta =
+      const VerificationMeta('dismissalPlatformAlarmId');
+  @override
+  late final GeneratedColumn<String> dismissalPlatformAlarmId =
+      GeneratedColumn<String>(
+        'dismissal_platform_alarm_id',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -1033,6 +1055,8 @@ class $AlarmOccurrenceRowsTable extends AlarmOccurrenceRows
     firedAt,
     dismissedAt,
     failureReason,
+    dismissalRequestedAt,
+    dismissalPlatformAlarmId,
     createdAt,
     updatedAt,
   ];
@@ -1127,6 +1151,24 @@ class $AlarmOccurrenceRowsTable extends AlarmOccurrenceRows
         ),
       );
     }
+    if (data.containsKey('dismissal_requested_at')) {
+      context.handle(
+        _dismissalRequestedAtMeta,
+        dismissalRequestedAt.isAcceptableOrUnknown(
+          data['dismissal_requested_at']!,
+          _dismissalRequestedAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('dismissal_platform_alarm_id')) {
+      context.handle(
+        _dismissalPlatformAlarmIdMeta,
+        dismissalPlatformAlarmId.isAcceptableOrUnknown(
+          data['dismissal_platform_alarm_id']!,
+          _dismissalPlatformAlarmIdMeta,
+        ),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -1188,6 +1230,14 @@ class $AlarmOccurrenceRowsTable extends AlarmOccurrenceRows
         DriftSqlType.string,
         data['${effectivePrefix}failure_reason'],
       ),
+      dismissalRequestedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}dismissal_requested_at'],
+      ),
+      dismissalPlatformAlarmId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}dismissal_platform_alarm_id'],
+      ),
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -1216,6 +1266,8 @@ class AlarmOccurrenceRow extends DataClass
   final DateTime? firedAt;
   final DateTime? dismissedAt;
   final String? failureReason;
+  final DateTime? dismissalRequestedAt;
+  final String? dismissalPlatformAlarmId;
   final DateTime createdAt;
   final DateTime updatedAt;
   const AlarmOccurrenceRow({
@@ -1228,6 +1280,8 @@ class AlarmOccurrenceRow extends DataClass
     this.firedAt,
     this.dismissedAt,
     this.failureReason,
+    this.dismissalRequestedAt,
+    this.dismissalPlatformAlarmId,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -1250,6 +1304,14 @@ class AlarmOccurrenceRow extends DataClass
     }
     if (!nullToAbsent || failureReason != null) {
       map['failure_reason'] = Variable<String>(failureReason);
+    }
+    if (!nullToAbsent || dismissalRequestedAt != null) {
+      map['dismissal_requested_at'] = Variable<DateTime>(dismissalRequestedAt);
+    }
+    if (!nullToAbsent || dismissalPlatformAlarmId != null) {
+      map['dismissal_platform_alarm_id'] = Variable<String>(
+        dismissalPlatformAlarmId,
+      );
     }
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
@@ -1275,6 +1337,12 @@ class AlarmOccurrenceRow extends DataClass
       failureReason: failureReason == null && nullToAbsent
           ? const Value.absent()
           : Value(failureReason),
+      dismissalRequestedAt: dismissalRequestedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(dismissalRequestedAt),
+      dismissalPlatformAlarmId: dismissalPlatformAlarmId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(dismissalPlatformAlarmId),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
     );
@@ -1295,6 +1363,12 @@ class AlarmOccurrenceRow extends DataClass
       firedAt: serializer.fromJson<DateTime?>(json['firedAt']),
       dismissedAt: serializer.fromJson<DateTime?>(json['dismissedAt']),
       failureReason: serializer.fromJson<String?>(json['failureReason']),
+      dismissalRequestedAt: serializer.fromJson<DateTime?>(
+        json['dismissalRequestedAt'],
+      ),
+      dismissalPlatformAlarmId: serializer.fromJson<String?>(
+        json['dismissalPlatformAlarmId'],
+      ),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
@@ -1312,6 +1386,12 @@ class AlarmOccurrenceRow extends DataClass
       'firedAt': serializer.toJson<DateTime?>(firedAt),
       'dismissedAt': serializer.toJson<DateTime?>(dismissedAt),
       'failureReason': serializer.toJson<String?>(failureReason),
+      'dismissalRequestedAt': serializer.toJson<DateTime?>(
+        dismissalRequestedAt,
+      ),
+      'dismissalPlatformAlarmId': serializer.toJson<String?>(
+        dismissalPlatformAlarmId,
+      ),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
@@ -1327,6 +1407,8 @@ class AlarmOccurrenceRow extends DataClass
     Value<DateTime?> firedAt = const Value.absent(),
     Value<DateTime?> dismissedAt = const Value.absent(),
     Value<String?> failureReason = const Value.absent(),
+    Value<DateTime?> dismissalRequestedAt = const Value.absent(),
+    Value<String?> dismissalPlatformAlarmId = const Value.absent(),
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => AlarmOccurrenceRow(
@@ -1343,6 +1425,12 @@ class AlarmOccurrenceRow extends DataClass
     failureReason: failureReason.present
         ? failureReason.value
         : this.failureReason,
+    dismissalRequestedAt: dismissalRequestedAt.present
+        ? dismissalRequestedAt.value
+        : this.dismissalRequestedAt,
+    dismissalPlatformAlarmId: dismissalPlatformAlarmId.present
+        ? dismissalPlatformAlarmId.value
+        : this.dismissalPlatformAlarmId,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -1369,6 +1457,12 @@ class AlarmOccurrenceRow extends DataClass
       failureReason: data.failureReason.present
           ? data.failureReason.value
           : this.failureReason,
+      dismissalRequestedAt: data.dismissalRequestedAt.present
+          ? data.dismissalRequestedAt.value
+          : this.dismissalRequestedAt,
+      dismissalPlatformAlarmId: data.dismissalPlatformAlarmId.present
+          ? data.dismissalPlatformAlarmId.value
+          : this.dismissalPlatformAlarmId,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -1386,6 +1480,8 @@ class AlarmOccurrenceRow extends DataClass
           ..write('firedAt: $firedAt, ')
           ..write('dismissedAt: $dismissedAt, ')
           ..write('failureReason: $failureReason, ')
+          ..write('dismissalRequestedAt: $dismissalRequestedAt, ')
+          ..write('dismissalPlatformAlarmId: $dismissalPlatformAlarmId, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -1403,6 +1499,8 @@ class AlarmOccurrenceRow extends DataClass
     firedAt,
     dismissedAt,
     failureReason,
+    dismissalRequestedAt,
+    dismissalPlatformAlarmId,
     createdAt,
     updatedAt,
   );
@@ -1419,6 +1517,8 @@ class AlarmOccurrenceRow extends DataClass
           other.firedAt == this.firedAt &&
           other.dismissedAt == this.dismissedAt &&
           other.failureReason == this.failureReason &&
+          other.dismissalRequestedAt == this.dismissalRequestedAt &&
+          other.dismissalPlatformAlarmId == this.dismissalPlatformAlarmId &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
 }
@@ -1433,6 +1533,8 @@ class AlarmOccurrenceRowsCompanion extends UpdateCompanion<AlarmOccurrenceRow> {
   final Value<DateTime?> firedAt;
   final Value<DateTime?> dismissedAt;
   final Value<String?> failureReason;
+  final Value<DateTime?> dismissalRequestedAt;
+  final Value<String?> dismissalPlatformAlarmId;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<int> rowid;
@@ -1446,6 +1548,8 @@ class AlarmOccurrenceRowsCompanion extends UpdateCompanion<AlarmOccurrenceRow> {
     this.firedAt = const Value.absent(),
     this.dismissedAt = const Value.absent(),
     this.failureReason = const Value.absent(),
+    this.dismissalRequestedAt = const Value.absent(),
+    this.dismissalPlatformAlarmId = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -1460,6 +1564,8 @@ class AlarmOccurrenceRowsCompanion extends UpdateCompanion<AlarmOccurrenceRow> {
     this.firedAt = const Value.absent(),
     this.dismissedAt = const Value.absent(),
     this.failureReason = const Value.absent(),
+    this.dismissalRequestedAt = const Value.absent(),
+    this.dismissalPlatformAlarmId = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     this.rowid = const Value.absent(),
@@ -1480,6 +1586,8 @@ class AlarmOccurrenceRowsCompanion extends UpdateCompanion<AlarmOccurrenceRow> {
     Expression<DateTime>? firedAt,
     Expression<DateTime>? dismissedAt,
     Expression<String>? failureReason,
+    Expression<DateTime>? dismissalRequestedAt,
+    Expression<String>? dismissalPlatformAlarmId,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<int>? rowid,
@@ -1495,6 +1603,10 @@ class AlarmOccurrenceRowsCompanion extends UpdateCompanion<AlarmOccurrenceRow> {
       if (firedAt != null) 'fired_at': firedAt,
       if (dismissedAt != null) 'dismissed_at': dismissedAt,
       if (failureReason != null) 'failure_reason': failureReason,
+      if (dismissalRequestedAt != null)
+        'dismissal_requested_at': dismissalRequestedAt,
+      if (dismissalPlatformAlarmId != null)
+        'dismissal_platform_alarm_id': dismissalPlatformAlarmId,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (rowid != null) 'rowid': rowid,
@@ -1511,6 +1623,8 @@ class AlarmOccurrenceRowsCompanion extends UpdateCompanion<AlarmOccurrenceRow> {
     Value<DateTime?>? firedAt,
     Value<DateTime?>? dismissedAt,
     Value<String?>? failureReason,
+    Value<DateTime?>? dismissalRequestedAt,
+    Value<String?>? dismissalPlatformAlarmId,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<int>? rowid,
@@ -1525,6 +1639,9 @@ class AlarmOccurrenceRowsCompanion extends UpdateCompanion<AlarmOccurrenceRow> {
       firedAt: firedAt ?? this.firedAt,
       dismissedAt: dismissedAt ?? this.dismissedAt,
       failureReason: failureReason ?? this.failureReason,
+      dismissalRequestedAt: dismissalRequestedAt ?? this.dismissalRequestedAt,
+      dismissalPlatformAlarmId:
+          dismissalPlatformAlarmId ?? this.dismissalPlatformAlarmId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       rowid: rowid ?? this.rowid,
@@ -1561,6 +1678,16 @@ class AlarmOccurrenceRowsCompanion extends UpdateCompanion<AlarmOccurrenceRow> {
     if (failureReason.present) {
       map['failure_reason'] = Variable<String>(failureReason.value);
     }
+    if (dismissalRequestedAt.present) {
+      map['dismissal_requested_at'] = Variable<DateTime>(
+        dismissalRequestedAt.value,
+      );
+    }
+    if (dismissalPlatformAlarmId.present) {
+      map['dismissal_platform_alarm_id'] = Variable<String>(
+        dismissalPlatformAlarmId.value,
+      );
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -1585,6 +1712,8 @@ class AlarmOccurrenceRowsCompanion extends UpdateCompanion<AlarmOccurrenceRow> {
           ..write('firedAt: $firedAt, ')
           ..write('dismissedAt: $dismissedAt, ')
           ..write('failureReason: $failureReason, ')
+          ..write('dismissalRequestedAt: $dismissalRequestedAt, ')
+          ..write('dismissalPlatformAlarmId: $dismissalPlatformAlarmId, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
@@ -2674,6 +2803,8 @@ typedef $$AlarmOccurrenceRowsTableCreateCompanionBuilder =
       Value<DateTime?> firedAt,
       Value<DateTime?> dismissedAt,
       Value<String?> failureReason,
+      Value<DateTime?> dismissalRequestedAt,
+      Value<String?> dismissalPlatformAlarmId,
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<int> rowid,
@@ -2689,6 +2820,8 @@ typedef $$AlarmOccurrenceRowsTableUpdateCompanionBuilder =
       Value<DateTime?> firedAt,
       Value<DateTime?> dismissedAt,
       Value<String?> failureReason,
+      Value<DateTime?> dismissalRequestedAt,
+      Value<String?> dismissalPlatformAlarmId,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<int> rowid,
@@ -2779,6 +2912,16 @@ class $$AlarmOccurrenceRowsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<DateTime> get dismissalRequestedAt => $composableBuilder(
+    column: $table.dismissalRequestedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get dismissalPlatformAlarmId => $composableBuilder(
+    column: $table.dismissalPlatformAlarmId,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnFilters(column),
@@ -2862,6 +3005,16 @@ class $$AlarmOccurrenceRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<DateTime> get dismissalRequestedAt => $composableBuilder(
+    column: $table.dismissalRequestedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get dismissalPlatformAlarmId => $composableBuilder(
+    column: $table.dismissalPlatformAlarmId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -2936,6 +3089,16 @@ class $$AlarmOccurrenceRowsTableAnnotationComposer
 
   GeneratedColumn<String> get failureReason => $composableBuilder(
     column: $table.failureReason,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get dismissalRequestedAt => $composableBuilder(
+    column: $table.dismissalRequestedAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get dismissalPlatformAlarmId => $composableBuilder(
+    column: $table.dismissalPlatformAlarmId,
     builder: (column) => column,
   );
 
@@ -3014,6 +3177,8 @@ class $$AlarmOccurrenceRowsTableTableManager
                 Value<DateTime?> firedAt = const Value.absent(),
                 Value<DateTime?> dismissedAt = const Value.absent(),
                 Value<String?> failureReason = const Value.absent(),
+                Value<DateTime?> dismissalRequestedAt = const Value.absent(),
+                Value<String?> dismissalPlatformAlarmId = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -3027,6 +3192,8 @@ class $$AlarmOccurrenceRowsTableTableManager
                 firedAt: firedAt,
                 dismissedAt: dismissedAt,
                 failureReason: failureReason,
+                dismissalRequestedAt: dismissalRequestedAt,
+                dismissalPlatformAlarmId: dismissalPlatformAlarmId,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,
@@ -3042,6 +3209,8 @@ class $$AlarmOccurrenceRowsTableTableManager
                 Value<DateTime?> firedAt = const Value.absent(),
                 Value<DateTime?> dismissedAt = const Value.absent(),
                 Value<String?> failureReason = const Value.absent(),
+                Value<DateTime?> dismissalRequestedAt = const Value.absent(),
+                Value<String?> dismissalPlatformAlarmId = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<int> rowid = const Value.absent(),
@@ -3055,6 +3224,8 @@ class $$AlarmOccurrenceRowsTableTableManager
                 firedAt: firedAt,
                 dismissedAt: dismissedAt,
                 failureReason: failureReason,
+                dismissalRequestedAt: dismissalRequestedAt,
+                dismissalPlatformAlarmId: dismissalPlatformAlarmId,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,

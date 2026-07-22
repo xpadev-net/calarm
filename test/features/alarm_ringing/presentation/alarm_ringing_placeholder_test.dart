@@ -1,8 +1,10 @@
 import 'package:calarm/core/platform/fake_native_alarm_gateway.dart';
+import 'package:calarm/core/platform/native_alarm_gateway.dart';
 import 'package:calarm/core/time/time.dart';
 import 'package:calarm/features/alarm_ringing/application/alarm_ringing_controller.dart';
 import 'package:calarm/features/alarm_ringing/presentation/alarm_ringing_placeholder.dart';
 import 'package:calarm/features/wake_plan/application/wake_plan_service.dart';
+import 'package:calarm/features/wake_plan/data/wake_plan_data.dart';
 import 'package:calarm/features/wake_plan/domain/wake_plan_domain.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -85,7 +87,16 @@ void main() {
   ) async {
     final snapshot = _snapshot();
     final gateway = FakeNativeAlarmGateway()
-      ..cancelFailurePlatformAlarmIds.add('native-current');
+      ..cancelFailurePlatformAlarmIds.add('native-current')
+      ..inventoryRows.add(
+        NativeAlarmInventoryRow(
+          reservationId: snapshot.currentOccurrence.id,
+          occurrenceId: snapshot.currentOccurrence.id,
+          wakePlanId: snapshot.currentOccurrence.wakePlanId,
+          platformAlarmId: 'native-current',
+          status: NativeAlarmReservationStatus.ringing,
+        ),
+      );
     final store = _AlarmRingingStore([snapshot.currentOccurrence]);
 
     await tester.pumpWidget(
@@ -172,10 +183,66 @@ class _AlarmRingingStore implements AlarmRingingStore {
       };
 
   final Map<String, AlarmOccurrence> occurrences;
+  final Map<String, AlarmOccurrenceDismissalIntent> pendingDismissals = {};
 
   @override
   Future<AlarmOccurrence?> fetchAlarmOccurrence(String id) async {
     return occurrences[id];
+  }
+
+  @override
+  Future<List<AlarmOccurrenceDismissalIntent>>
+  fetchPendingAlarmOccurrenceDismissals() async {
+    return pendingDismissals.values.toList(growable: false);
+  }
+
+  @override
+  Future<AlarmOccurrenceDismissalIntent?> fetchPendingAlarmOccurrenceDismissal(
+    String occurrenceId,
+  ) async {
+    return pendingDismissals[occurrenceId];
+  }
+
+  @override
+  Future<AlarmOccurrenceDismissalPreparation> prepareAlarmOccurrenceDismissal({
+    required String occurrenceId,
+    required String? expectedPlatformAlarmId,
+    required DateTime requestedAt,
+  }) async {
+    final existing = pendingDismissals[occurrenceId];
+    if (existing != null) {
+      return AlarmOccurrenceDismissalPreparation.ready(existing);
+    }
+    final occurrence = occurrences[occurrenceId];
+    if (occurrence == null) {
+      return const AlarmOccurrenceDismissalPreparation.notFound();
+    }
+    if (occurrence.status == AlarmOccurrenceStatus.dismissed) {
+      return const AlarmOccurrenceDismissalPreparation.alreadyDismissed();
+    }
+    final intent = AlarmOccurrenceDismissalIntent(
+      occurrence: occurrence,
+      requestedAt: requestedAt,
+      platformAlarmId: expectedPlatformAlarmId,
+    );
+    pendingDismissals[occurrenceId] = intent;
+    return AlarmOccurrenceDismissalPreparation.ready(intent);
+  }
+
+  @override
+  Future<void> completeAlarmOccurrenceDismissal({
+    required AlarmOccurrenceDismissalIntent intent,
+    required DateTime dismissedAt,
+  }) async {
+    final occurrence = occurrences[intent.occurrence.id]!;
+    occurrences[occurrence.id] = occurrence.copyWith(
+      status: AlarmOccurrenceStatus.dismissed,
+      platformAlarmId: null,
+      firedAt: occurrence.firedAt ?? intent.requestedAt,
+      dismissedAt: dismissedAt,
+      updatedAt: dismissedAt,
+    );
+    pendingDismissals.remove(occurrence.id);
   }
 
   @override
@@ -190,14 +257,5 @@ class _AlarmRingingStore implements AlarmRingingStore {
   @override
   Future<List<WakePlan>> fetchWakePlans({required DateTime now}) async {
     return const [];
-  }
-
-  @override
-  Future<void> saveAlarmOccurrences(
-    Iterable<AlarmOccurrence> occurrences,
-  ) async {
-    for (final occurrence in occurrences) {
-      this.occurrences[occurrence.id] = occurrence;
-    }
   }
 }
