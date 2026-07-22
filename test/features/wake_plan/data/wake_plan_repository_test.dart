@@ -539,8 +539,9 @@ void main() {
     );
 
     test('prepares and completes an exact durable dismissal', () async {
-      final requestedAt = DateTime(2026, 7, 6, 8, 1);
-      final dismissedAt = DateTime(2026, 7, 6, 8, 2);
+      final requestedAt = DateTime(2026, 7, 6, 8, 1, 0, 123, 456);
+      final persistedRequestedAt = DateTime(2026, 7, 6, 8, 1);
+      final dismissedAt = DateTime(2026, 7, 6, 8, 2, 0, 789, 123);
       await repository.saveWakePlan(buildPlan());
       await repository.saveAlarmOccurrences([
         buildOccurrence(
@@ -566,8 +567,9 @@ void main() {
         (await repository.fetchPendingAlarmOccurrenceDismissals())
             .single
             .requestedAt,
-        requestedAt,
+        persistedRequestedAt,
       );
+      expect(preparation.intent!.requestedAt, persistedRequestedAt);
 
       await repository.completeAlarmOccurrenceDismissal(
         intent: preparation.intent!,
@@ -577,7 +579,7 @@ void main() {
 
       expect(completed!.status, AlarmOccurrenceStatus.dismissed);
       expect(completed.platformAlarmId, isNull);
-      expect(completed.dismissedAt, dismissedAt);
+      expect(completed.dismissedAt, DateTime(2026, 7, 6, 8, 2));
       expect(await repository.fetchPendingAlarmOccurrenceDismissals(), isEmpty);
 
       await repository.completeAlarmOccurrenceDismissal(

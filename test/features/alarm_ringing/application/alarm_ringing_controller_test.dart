@@ -496,6 +496,54 @@ void main() {
     expect(store.pendingDismissals, isEmpty);
   });
 
+  test('a stale pending dismissal does not block later replay', () async {
+    final stale = _occurrence(
+      id: 'plan-1:20640:405',
+      day: monday,
+      minute: 405,
+      status: AlarmOccurrenceStatus.ringing,
+      platformAlarmId: 'native-stale',
+      firedAt: DateTime(2026, 7, 6, 6, 45),
+    );
+    final later = _occurrence(
+      id: 'plan-1:20640:410',
+      day: monday,
+      minute: 410,
+      status: AlarmOccurrenceStatus.ringing,
+      platformAlarmId: 'native-later',
+      firedAt: DateTime(2026, 7, 6, 6, 50),
+    );
+    final gateway = FakeNativeAlarmGateway()
+      ..inventoryRows.addAll([_inventoryRow(stale), _inventoryRow(later)]);
+    final store = _AlarmRingingStore(
+      plans: [_plan(day: monday)],
+      occurrences: [stale, later],
+    )..failNextCompleteBeforeEffect = true;
+    for (final occurrence in [stale, later]) {
+      store.pendingDismissals[occurrence.id] = AlarmOccurrenceDismissalIntent(
+        occurrence: occurrence,
+        requestedAt: DateTime(2026, 7, 6, 6, 50),
+        platformAlarmId: occurrence.platformAlarmId,
+      );
+    }
+    final controller = AlarmRingingController(
+      store: store,
+      nativeAlarmGateway: gateway,
+      coordinator: WakePlanMutationCoordinator(),
+      clock: () => DateTime(2026, 7, 6, 6, 55),
+    );
+
+    final snapshot = await controller.loadCurrentRinging();
+
+    expect(snapshot!.currentOccurrence.id, stale.id);
+    expect(store.pendingDismissals.keys, [stale.id]);
+    expect(store.occurrences[stale.id]!.status, AlarmOccurrenceStatus.ringing);
+    expect(
+      store.occurrences[later.id]!.status,
+      AlarmOccurrenceStatus.dismissed,
+    );
+  });
+
   test(
     'reopen replays native success after Drift completion failure exactly once',
     () async {

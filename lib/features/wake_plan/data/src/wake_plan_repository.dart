@@ -244,6 +244,7 @@ class WakePlanRepository {
     required DateTime requestedAt,
   }) {
     return _database.transaction(() async {
+      final persistedRequestedAt = _sqliteDateTimePrecision(requestedAt);
       final row = await (_database.select(
         _database.alarmOccurrenceRows,
       )..where((row) => row.id.equals(occurrenceId))).getSingleOrNull();
@@ -270,25 +271,36 @@ class WakePlanRepository {
         _database.alarmOccurrenceRows,
       )..where((candidate) => candidate.id.equals(occurrenceId))).write(
         AlarmOccurrenceRowsCompanion(
-          dismissalRequestedAt: Value(requestedAt),
+          dismissalRequestedAt: Value(persistedRequestedAt),
           dismissalPlatformAlarmId: Value(expectedPlatformAlarmId),
           updatedAt: Value(
-            requestedAt.isAfter(row.updatedAt) ? requestedAt : row.updatedAt,
+            persistedRequestedAt.isAfter(row.updatedAt)
+                ? persistedRequestedAt
+                : row.updatedAt,
           ),
         ),
       );
       return AlarmOccurrenceDismissalPreparation.ready(
         AlarmOccurrenceDismissalIntent(
           occurrence: occurrence.copyWith(
-            updatedAt: requestedAt.isAfter(row.updatedAt)
-                ? requestedAt
+            updatedAt: persistedRequestedAt.isAfter(row.updatedAt)
+                ? persistedRequestedAt
                 : row.updatedAt,
           ),
-          requestedAt: requestedAt,
+          requestedAt: persistedRequestedAt,
           platformAlarmId: expectedPlatformAlarmId,
         ),
       );
     });
+  }
+
+  DateTime _sqliteDateTimePrecision(DateTime value) {
+    final wholeSeconds =
+        value.microsecondsSinceEpoch ~/ Duration.microsecondsPerSecond;
+    return DateTime.fromMicrosecondsSinceEpoch(
+      wholeSeconds * Duration.microsecondsPerSecond,
+      isUtc: value.isUtc,
+    );
   }
 
   Future<void> completeAlarmOccurrenceDismissal({

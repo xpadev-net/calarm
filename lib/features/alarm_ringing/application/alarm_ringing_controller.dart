@@ -100,7 +100,12 @@ class AlarmRingingController {
   Future<void> _replayPendingDismissals() async {
     final pending = await store.fetchPendingAlarmOccurrenceDismissals();
     for (final intent in pending) {
-      await _completePendingDismissal(intent);
+      try {
+        await _completePendingDismissal(intent);
+      } catch (_) {
+        // Keep a failed intent durable without preventing later exact intents
+        // from being replayed during the same load.
+      }
     }
   }
 
