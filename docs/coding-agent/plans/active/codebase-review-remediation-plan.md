@@ -709,7 +709,7 @@
   - `lib/core/platform/method_channel_native_alarm_gateway.dart` only if the wire contract changes
   - corresponding Dart gateway tests
   - `lib/features/wake_plan/application/wake_plan_service.dart` and its tests only for final reconciliation alignment after Task_22 merges
-  - `lib/features/wake_plan/domain/src/wake_plan.dart` only for a monotonic reservation-generation field
+  - `lib/features/wake_plan/domain/src/alarm_occurrence.dart` only for nullable/defaulted reservation identity and a nonnegative monotonic reservation-generation field
   - `lib/features/wake_plan/data/src/wake_plan_database.dart`
   - `lib/features/wake_plan/data/src/wake_plan_database.g.dart`
   - `lib/features/wake_plan/data/src/wake_plan_repository.dart`
@@ -1077,6 +1077,10 @@
   - The additive schema-v2 migration is rollback/re-upgrade aware, and Task_22-retired identities are refreshed without losing the durable user dismissal.
   - Fresh exact-head review approved. Worker and orchestrator `gh-review-hook 65` exited 0; PR-owned Baseline CI, Greptile, CodeRabbit, and Socket checks succeeded with CLEAN, zero-behind state. Exact-head Android APK/emulator native smoke run `29886103577` succeeded.
   - The failed run `29886217060` was explicitly excluded because it belongs to Task_25 PR #68, not Task_23. Heavy local validation remained disabled under the battery override.
+
+- 2026-07-22 Task_24 occurrence-model ownership corrected after Task_23 integration.
+  - The persisted occurrence model is `domain/src/alarm_occurrence.dart`, not `domain/src/wake_plan.dart`; Task_24 owns only its nullable/defaulted reservation identity and nonnegative generation fields plus matching domain tests.
+  - The approved schema-v3 design extends `AlarmOccurrence` and `alarm_occurrence_rows` additively on Task_23 schema v2. A parallel identity table is not introduced merely to preserve an incorrect path boundary.
 
 ## Decision Log
 
