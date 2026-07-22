@@ -1000,6 +1000,28 @@ class $AlarmOccurrenceRowsTable extends AlarmOccurrenceRows
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _reservationIdMeta = const VerificationMeta(
+    'reservationId',
+  );
+  @override
+  late final GeneratedColumn<String> reservationId = GeneratedColumn<String>(
+    'reservation_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _reservationGenerationMeta =
+      const VerificationMeta('reservationGeneration');
+  @override
+  late final GeneratedColumn<int> reservationGeneration = GeneratedColumn<int>(
+    'reservation_generation',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   static const VerificationMeta _dismissalRequestedAtMeta =
       const VerificationMeta('dismissalRequestedAt');
   @override
@@ -1055,6 +1077,8 @@ class $AlarmOccurrenceRowsTable extends AlarmOccurrenceRows
     firedAt,
     dismissedAt,
     failureReason,
+    reservationId,
+    reservationGeneration,
     dismissalRequestedAt,
     dismissalPlatformAlarmId,
     createdAt,
@@ -1151,6 +1175,24 @@ class $AlarmOccurrenceRowsTable extends AlarmOccurrenceRows
         ),
       );
     }
+    if (data.containsKey('reservation_id')) {
+      context.handle(
+        _reservationIdMeta,
+        reservationId.isAcceptableOrUnknown(
+          data['reservation_id']!,
+          _reservationIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('reservation_generation')) {
+      context.handle(
+        _reservationGenerationMeta,
+        reservationGeneration.isAcceptableOrUnknown(
+          data['reservation_generation']!,
+          _reservationGenerationMeta,
+        ),
+      );
+    }
     if (data.containsKey('dismissal_requested_at')) {
       context.handle(
         _dismissalRequestedAtMeta,
@@ -1230,6 +1272,14 @@ class $AlarmOccurrenceRowsTable extends AlarmOccurrenceRows
         DriftSqlType.string,
         data['${effectivePrefix}failure_reason'],
       ),
+      reservationId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}reservation_id'],
+      ),
+      reservationGeneration: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}reservation_generation'],
+      )!,
       dismissalRequestedAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}dismissal_requested_at'],
@@ -1266,6 +1316,8 @@ class AlarmOccurrenceRow extends DataClass
   final DateTime? firedAt;
   final DateTime? dismissedAt;
   final String? failureReason;
+  final String? reservationId;
+  final int reservationGeneration;
   final DateTime? dismissalRequestedAt;
   final String? dismissalPlatformAlarmId;
   final DateTime createdAt;
@@ -1280,6 +1332,8 @@ class AlarmOccurrenceRow extends DataClass
     this.firedAt,
     this.dismissedAt,
     this.failureReason,
+    this.reservationId,
+    required this.reservationGeneration,
     this.dismissalRequestedAt,
     this.dismissalPlatformAlarmId,
     required this.createdAt,
@@ -1305,6 +1359,10 @@ class AlarmOccurrenceRow extends DataClass
     if (!nullToAbsent || failureReason != null) {
       map['failure_reason'] = Variable<String>(failureReason);
     }
+    if (!nullToAbsent || reservationId != null) {
+      map['reservation_id'] = Variable<String>(reservationId);
+    }
+    map['reservation_generation'] = Variable<int>(reservationGeneration);
     if (!nullToAbsent || dismissalRequestedAt != null) {
       map['dismissal_requested_at'] = Variable<DateTime>(dismissalRequestedAt);
     }
@@ -1337,6 +1395,10 @@ class AlarmOccurrenceRow extends DataClass
       failureReason: failureReason == null && nullToAbsent
           ? const Value.absent()
           : Value(failureReason),
+      reservationId: reservationId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(reservationId),
+      reservationGeneration: Value(reservationGeneration),
       dismissalRequestedAt: dismissalRequestedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(dismissalRequestedAt),
@@ -1363,6 +1425,10 @@ class AlarmOccurrenceRow extends DataClass
       firedAt: serializer.fromJson<DateTime?>(json['firedAt']),
       dismissedAt: serializer.fromJson<DateTime?>(json['dismissedAt']),
       failureReason: serializer.fromJson<String?>(json['failureReason']),
+      reservationId: serializer.fromJson<String?>(json['reservationId']),
+      reservationGeneration: serializer.fromJson<int>(
+        json['reservationGeneration'],
+      ),
       dismissalRequestedAt: serializer.fromJson<DateTime?>(
         json['dismissalRequestedAt'],
       ),
@@ -1386,6 +1452,8 @@ class AlarmOccurrenceRow extends DataClass
       'firedAt': serializer.toJson<DateTime?>(firedAt),
       'dismissedAt': serializer.toJson<DateTime?>(dismissedAt),
       'failureReason': serializer.toJson<String?>(failureReason),
+      'reservationId': serializer.toJson<String?>(reservationId),
+      'reservationGeneration': serializer.toJson<int>(reservationGeneration),
       'dismissalRequestedAt': serializer.toJson<DateTime?>(
         dismissalRequestedAt,
       ),
@@ -1407,6 +1475,8 @@ class AlarmOccurrenceRow extends DataClass
     Value<DateTime?> firedAt = const Value.absent(),
     Value<DateTime?> dismissedAt = const Value.absent(),
     Value<String?> failureReason = const Value.absent(),
+    Value<String?> reservationId = const Value.absent(),
+    int? reservationGeneration,
     Value<DateTime?> dismissalRequestedAt = const Value.absent(),
     Value<String?> dismissalPlatformAlarmId = const Value.absent(),
     DateTime? createdAt,
@@ -1425,6 +1495,10 @@ class AlarmOccurrenceRow extends DataClass
     failureReason: failureReason.present
         ? failureReason.value
         : this.failureReason,
+    reservationId: reservationId.present
+        ? reservationId.value
+        : this.reservationId,
+    reservationGeneration: reservationGeneration ?? this.reservationGeneration,
     dismissalRequestedAt: dismissalRequestedAt.present
         ? dismissalRequestedAt.value
         : this.dismissalRequestedAt,
@@ -1457,6 +1531,12 @@ class AlarmOccurrenceRow extends DataClass
       failureReason: data.failureReason.present
           ? data.failureReason.value
           : this.failureReason,
+      reservationId: data.reservationId.present
+          ? data.reservationId.value
+          : this.reservationId,
+      reservationGeneration: data.reservationGeneration.present
+          ? data.reservationGeneration.value
+          : this.reservationGeneration,
       dismissalRequestedAt: data.dismissalRequestedAt.present
           ? data.dismissalRequestedAt.value
           : this.dismissalRequestedAt,
@@ -1480,6 +1560,8 @@ class AlarmOccurrenceRow extends DataClass
           ..write('firedAt: $firedAt, ')
           ..write('dismissedAt: $dismissedAt, ')
           ..write('failureReason: $failureReason, ')
+          ..write('reservationId: $reservationId, ')
+          ..write('reservationGeneration: $reservationGeneration, ')
           ..write('dismissalRequestedAt: $dismissalRequestedAt, ')
           ..write('dismissalPlatformAlarmId: $dismissalPlatformAlarmId, ')
           ..write('createdAt: $createdAt, ')
@@ -1499,6 +1581,8 @@ class AlarmOccurrenceRow extends DataClass
     firedAt,
     dismissedAt,
     failureReason,
+    reservationId,
+    reservationGeneration,
     dismissalRequestedAt,
     dismissalPlatformAlarmId,
     createdAt,
@@ -1517,6 +1601,8 @@ class AlarmOccurrenceRow extends DataClass
           other.firedAt == this.firedAt &&
           other.dismissedAt == this.dismissedAt &&
           other.failureReason == this.failureReason &&
+          other.reservationId == this.reservationId &&
+          other.reservationGeneration == this.reservationGeneration &&
           other.dismissalRequestedAt == this.dismissalRequestedAt &&
           other.dismissalPlatformAlarmId == this.dismissalPlatformAlarmId &&
           other.createdAt == this.createdAt &&
@@ -1533,6 +1619,8 @@ class AlarmOccurrenceRowsCompanion extends UpdateCompanion<AlarmOccurrenceRow> {
   final Value<DateTime?> firedAt;
   final Value<DateTime?> dismissedAt;
   final Value<String?> failureReason;
+  final Value<String?> reservationId;
+  final Value<int> reservationGeneration;
   final Value<DateTime?> dismissalRequestedAt;
   final Value<String?> dismissalPlatformAlarmId;
   final Value<DateTime> createdAt;
@@ -1548,6 +1636,8 @@ class AlarmOccurrenceRowsCompanion extends UpdateCompanion<AlarmOccurrenceRow> {
     this.firedAt = const Value.absent(),
     this.dismissedAt = const Value.absent(),
     this.failureReason = const Value.absent(),
+    this.reservationId = const Value.absent(),
+    this.reservationGeneration = const Value.absent(),
     this.dismissalRequestedAt = const Value.absent(),
     this.dismissalPlatformAlarmId = const Value.absent(),
     this.createdAt = const Value.absent(),
@@ -1564,6 +1654,8 @@ class AlarmOccurrenceRowsCompanion extends UpdateCompanion<AlarmOccurrenceRow> {
     this.firedAt = const Value.absent(),
     this.dismissedAt = const Value.absent(),
     this.failureReason = const Value.absent(),
+    this.reservationId = const Value.absent(),
+    this.reservationGeneration = const Value.absent(),
     this.dismissalRequestedAt = const Value.absent(),
     this.dismissalPlatformAlarmId = const Value.absent(),
     required DateTime createdAt,
@@ -1586,6 +1678,8 @@ class AlarmOccurrenceRowsCompanion extends UpdateCompanion<AlarmOccurrenceRow> {
     Expression<DateTime>? firedAt,
     Expression<DateTime>? dismissedAt,
     Expression<String>? failureReason,
+    Expression<String>? reservationId,
+    Expression<int>? reservationGeneration,
     Expression<DateTime>? dismissalRequestedAt,
     Expression<String>? dismissalPlatformAlarmId,
     Expression<DateTime>? createdAt,
@@ -1603,6 +1697,9 @@ class AlarmOccurrenceRowsCompanion extends UpdateCompanion<AlarmOccurrenceRow> {
       if (firedAt != null) 'fired_at': firedAt,
       if (dismissedAt != null) 'dismissed_at': dismissedAt,
       if (failureReason != null) 'failure_reason': failureReason,
+      if (reservationId != null) 'reservation_id': reservationId,
+      if (reservationGeneration != null)
+        'reservation_generation': reservationGeneration,
       if (dismissalRequestedAt != null)
         'dismissal_requested_at': dismissalRequestedAt,
       if (dismissalPlatformAlarmId != null)
@@ -1623,6 +1720,8 @@ class AlarmOccurrenceRowsCompanion extends UpdateCompanion<AlarmOccurrenceRow> {
     Value<DateTime?>? firedAt,
     Value<DateTime?>? dismissedAt,
     Value<String?>? failureReason,
+    Value<String?>? reservationId,
+    Value<int>? reservationGeneration,
     Value<DateTime?>? dismissalRequestedAt,
     Value<String?>? dismissalPlatformAlarmId,
     Value<DateTime>? createdAt,
@@ -1639,6 +1738,9 @@ class AlarmOccurrenceRowsCompanion extends UpdateCompanion<AlarmOccurrenceRow> {
       firedAt: firedAt ?? this.firedAt,
       dismissedAt: dismissedAt ?? this.dismissedAt,
       failureReason: failureReason ?? this.failureReason,
+      reservationId: reservationId ?? this.reservationId,
+      reservationGeneration:
+          reservationGeneration ?? this.reservationGeneration,
       dismissalRequestedAt: dismissalRequestedAt ?? this.dismissalRequestedAt,
       dismissalPlatformAlarmId:
           dismissalPlatformAlarmId ?? this.dismissalPlatformAlarmId,
@@ -1678,6 +1780,14 @@ class AlarmOccurrenceRowsCompanion extends UpdateCompanion<AlarmOccurrenceRow> {
     if (failureReason.present) {
       map['failure_reason'] = Variable<String>(failureReason.value);
     }
+    if (reservationId.present) {
+      map['reservation_id'] = Variable<String>(reservationId.value);
+    }
+    if (reservationGeneration.present) {
+      map['reservation_generation'] = Variable<int>(
+        reservationGeneration.value,
+      );
+    }
     if (dismissalRequestedAt.present) {
       map['dismissal_requested_at'] = Variable<DateTime>(
         dismissalRequestedAt.value,
@@ -1712,6 +1822,8 @@ class AlarmOccurrenceRowsCompanion extends UpdateCompanion<AlarmOccurrenceRow> {
           ..write('firedAt: $firedAt, ')
           ..write('dismissedAt: $dismissedAt, ')
           ..write('failureReason: $failureReason, ')
+          ..write('reservationId: $reservationId, ')
+          ..write('reservationGeneration: $reservationGeneration, ')
           ..write('dismissalRequestedAt: $dismissalRequestedAt, ')
           ..write('dismissalPlatformAlarmId: $dismissalPlatformAlarmId, ')
           ..write('createdAt: $createdAt, ')
@@ -2803,6 +2915,8 @@ typedef $$AlarmOccurrenceRowsTableCreateCompanionBuilder =
       Value<DateTime?> firedAt,
       Value<DateTime?> dismissedAt,
       Value<String?> failureReason,
+      Value<String?> reservationId,
+      Value<int> reservationGeneration,
       Value<DateTime?> dismissalRequestedAt,
       Value<String?> dismissalPlatformAlarmId,
       required DateTime createdAt,
@@ -2820,6 +2934,8 @@ typedef $$AlarmOccurrenceRowsTableUpdateCompanionBuilder =
       Value<DateTime?> firedAt,
       Value<DateTime?> dismissedAt,
       Value<String?> failureReason,
+      Value<String?> reservationId,
+      Value<int> reservationGeneration,
       Value<DateTime?> dismissalRequestedAt,
       Value<String?> dismissalPlatformAlarmId,
       Value<DateTime> createdAt,
@@ -2909,6 +3025,15 @@ class $$AlarmOccurrenceRowsTableFilterComposer
 
   ColumnFilters<String> get failureReason => $composableBuilder(
     column: $table.failureReason,
+    builder: (column) => ColumnFilters(column),
+  );
+  ColumnFilters<String> get reservationId => $composableBuilder(
+    column: $table.reservationId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get reservationGeneration => $composableBuilder(
+    column: $table.reservationGeneration,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -3004,6 +3129,15 @@ class $$AlarmOccurrenceRowsTableOrderingComposer
     column: $table.failureReason,
     builder: (column) => ColumnOrderings(column),
   );
+  ColumnOrderings<String> get reservationId => $composableBuilder(
+    column: $table.reservationId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get reservationGeneration => $composableBuilder(
+    column: $table.reservationGeneration,
+    builder: (column) => ColumnOrderings(column),
+  );
 
   ColumnOrderings<DateTime> get dismissalRequestedAt => $composableBuilder(
     column: $table.dismissalRequestedAt,
@@ -3089,6 +3223,15 @@ class $$AlarmOccurrenceRowsTableAnnotationComposer
 
   GeneratedColumn<String> get failureReason => $composableBuilder(
     column: $table.failureReason,
+    builder: (column) => column,
+  );
+  GeneratedColumn<String> get reservationId => $composableBuilder(
+    column: $table.reservationId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get reservationGeneration => $composableBuilder(
+    column: $table.reservationGeneration,
     builder: (column) => column,
   );
 
@@ -3177,6 +3320,8 @@ class $$AlarmOccurrenceRowsTableTableManager
                 Value<DateTime?> firedAt = const Value.absent(),
                 Value<DateTime?> dismissedAt = const Value.absent(),
                 Value<String?> failureReason = const Value.absent(),
+                Value<String?> reservationId = const Value.absent(),
+                Value<int> reservationGeneration = const Value.absent(),
                 Value<DateTime?> dismissalRequestedAt = const Value.absent(),
                 Value<String?> dismissalPlatformAlarmId = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
@@ -3192,6 +3337,8 @@ class $$AlarmOccurrenceRowsTableTableManager
                 firedAt: firedAt,
                 dismissedAt: dismissedAt,
                 failureReason: failureReason,
+                reservationId: reservationId,
+                reservationGeneration: reservationGeneration,
                 dismissalRequestedAt: dismissalRequestedAt,
                 dismissalPlatformAlarmId: dismissalPlatformAlarmId,
                 createdAt: createdAt,
@@ -3209,6 +3356,8 @@ class $$AlarmOccurrenceRowsTableTableManager
                 Value<DateTime?> firedAt = const Value.absent(),
                 Value<DateTime?> dismissedAt = const Value.absent(),
                 Value<String?> failureReason = const Value.absent(),
+                Value<String?> reservationId = const Value.absent(),
+                Value<int> reservationGeneration = const Value.absent(),
                 Value<DateTime?> dismissalRequestedAt = const Value.absent(),
                 Value<String?> dismissalPlatformAlarmId = const Value.absent(),
                 required DateTime createdAt,
@@ -3224,6 +3373,8 @@ class $$AlarmOccurrenceRowsTableTableManager
                 firedAt: firedAt,
                 dismissedAt: dismissedAt,
                 failureReason: failureReason,
+                reservationId: reservationId,
+                reservationGeneration: reservationGeneration,
                 dismissalRequestedAt: dismissalRequestedAt,
                 dismissalPlatformAlarmId: dismissalPlatformAlarmId,
                 createdAt: createdAt,

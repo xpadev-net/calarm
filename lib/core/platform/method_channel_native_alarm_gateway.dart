@@ -155,6 +155,7 @@ class MethodChannelNativeAlarmGateway implements NativeAlarmGateway {
                 reason: _scheduleFailureReason(error.code),
                 message: error.message,
                 reservationId: request.reservationId,
+                reservationGeneration: request.reservationGeneration,
               ),
             )
             .toList(),
@@ -319,6 +320,7 @@ class MethodChannelNativeAlarmGateway implements NativeAlarmGateway {
                 reason: _cancelFailureReason(error.code),
                 message: error.message,
                 reservationId: alarm.reservationId,
+                reservationGeneration: alarm.reservationGeneration,
               ),
             )
             .toList(),
@@ -427,6 +429,7 @@ ScheduleResult _scheduleFailureForRequests(
             occurrenceId: request.occurrenceId,
             wakePlanId: request.wakePlanId,
             reservationId: request.reservationId,
+            reservationGeneration: request.reservationGeneration,
             reason: reason,
             message: message,
           ),
@@ -448,6 +451,7 @@ CancelResult _cancelFailureForRequests(
             occurrenceId: request.occurrenceId,
             platformAlarmId: request.platformAlarmId,
             reservationId: request.reservationId,
+            reservationGeneration: request.reservationGeneration,
             reason: reason,
             message: message,
           ),
@@ -466,6 +470,7 @@ Map<String, Object?> _scheduleRequestPayload(
   return <String, Object?>{
     'occurrenceId': request.occurrenceId,
     'reservationId': request.reservationId,
+    'reservationGeneration': request.reservationGeneration,
     'wakePlanId': request.wakePlanId,
     'scheduledAt': request.scheduledAt.toUtc().toIso8601String(),
     'targetAt': request.targetAt.toUtc().toIso8601String(),
@@ -480,6 +485,7 @@ Map<String, Object?> _cancelRequestPayload(NativeAlarmCancelRequest request) {
   return <String, Object?>{
     'occurrenceId': request.occurrenceId,
     'reservationId': request.reservationId,
+    'reservationGeneration': request.reservationGeneration,
     'platformAlarmId': request.platformAlarmId,
   };
 }
@@ -493,6 +499,7 @@ ScheduleOccurrenceResult _scheduleOccurrenceResult(Object? value) {
       wakePlanId: _requiredString(map, 'wakePlanId'),
       platformAlarmId: _requiredString(map, 'platformAlarmId'),
       reservationId: _optionalString(map, 'reservationId'),
+      reservationGeneration: _optionalInt(map, 'reservationGeneration') ?? 0,
     );
   }
   return ScheduleOccurrenceResult.failure(
@@ -502,6 +509,7 @@ ScheduleOccurrenceResult _scheduleOccurrenceResult(Object? value) {
     message: _optionalString(map, 'failureMessage'),
     platformAlarmId: _optionalString(map, 'platformAlarmId'),
     reservationId: _optionalString(map, 'reservationId'),
+    reservationGeneration: _optionalInt(map, 'reservationGeneration') ?? 0,
   );
 }
 
@@ -513,6 +521,7 @@ CancelAlarmResult _cancelAlarmResult(Object? value) {
       occurrenceId: _requiredString(map, 'occurrenceId'),
       platformAlarmId: _requiredString(map, 'platformAlarmId'),
       reservationId: _optionalString(map, 'reservationId'),
+      reservationGeneration: _optionalInt(map, 'reservationGeneration') ?? 0,
     );
   }
   return CancelAlarmResult.failure(
@@ -521,6 +530,7 @@ CancelAlarmResult _cancelAlarmResult(Object? value) {
     reason: _cancelFailureReason(_requiredString(map, 'failureReason')),
     message: _optionalString(map, 'failureMessage'),
     reservationId: _optionalString(map, 'reservationId'),
+    reservationGeneration: _optionalInt(map, 'reservationGeneration') ?? 0,
   );
 }
 
@@ -532,6 +542,7 @@ NativeAlarmInventoryRow _inventoryRow(Object? value) {
     wakePlanId: _requiredString(map, 'wakePlanId'),
     platformAlarmId: _requiredString(map, 'platformAlarmId'),
     status: _inventoryReservationStatus(_requiredString(map, 'status')),
+    reservationGeneration: _optionalInt(map, 'reservationGeneration') ?? 0,
   );
 }
 

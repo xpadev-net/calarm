@@ -36,6 +36,9 @@ class AlarmOccurrenceRows extends Table {
   DateTimeColumn get firedAt => dateTime().nullable()();
   DateTimeColumn get dismissedAt => dateTime().nullable()();
   TextColumn get failureReason => text().nullable()();
+  TextColumn get reservationId => text().nullable()();
+  IntColumn get reservationGeneration =>
+      integer().withDefault(const Constant(0))();
   DateTimeColumn get dismissalRequestedAt => dateTime().nullable()();
   TextColumn get dismissalPlatformAlarmId => text().nullable()();
   DateTimeColumn get createdAt => dateTime()();
@@ -64,7 +67,7 @@ class WakePlanDatabase extends _$WakePlanDatabase {
   WakePlanDatabase(super.executor);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration {
@@ -92,6 +95,26 @@ class WakePlanDatabase extends _$WakePlanDatabase {
             await migrator.addColumn(
               alarmOccurrenceRows,
               alarmOccurrenceRows.dismissalPlatformAlarmId,
+            );
+          }
+        }
+        if (from < 3) {
+          final existingColumns = await customSelect(
+            'PRAGMA table_info(alarm_occurrence_rows)',
+          ).get();
+          final existingColumnNames = existingColumns
+              .map((row) => row.read<String>('name'))
+              .toSet();
+          if (!existingColumnNames.contains('reservation_id')) {
+            await migrator.addColumn(
+              alarmOccurrenceRows,
+              alarmOccurrenceRows.reservationId,
+            );
+          }
+          if (!existingColumnNames.contains('reservation_generation')) {
+            await migrator.addColumn(
+              alarmOccurrenceRows,
+              alarmOccurrenceRows.reservationGeneration,
             );
           }
         }

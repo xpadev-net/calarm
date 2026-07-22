@@ -10,6 +10,14 @@ This document fixes the Dart/native contract for the wake alarm gateway.
   ignore it while newer implementations use it as their durable idempotency
   key. Native responses may omit it during rollout; Dart then correlates the
   legacy row by `occurrenceId` and restores the requested `reservationId`.
+- `reservationId` names one durable reservation slot, `wakePlanId` is the
+  immutable owner of that slot, and `occurrenceId` names its current logical
+  payload. `reservationGeneration` is the slot's non-negative monotonic
+  high-water mark and defaults to `0` only for legacy rows. An exact tuple
+  retry is idempotent; any higher generation may rebind the same-plan slot
+  because intermediate plan revisions need not create a native alarm. A lower
+  generation, an equal generation with changed payload, cross-plan ownership,
+  or duplicate identity fails before mutation.
 - `getInventory` is an additive read method. Older native implementations may
   report `unavailable`; callers must not infer that the native inventory is
   empty from an unavailable or failed read.
@@ -145,6 +153,7 @@ Request:
     {
       "occurrenceId": "occ-1",
       "reservationId": "reservation-occ-1",
+      "reservationGeneration": 4,
       "wakePlanId": "plan-1",
       "scheduledAt": "2026-07-06T21:00:00.000Z",
       "targetAt": "2026-07-06T22:00:00.000Z",
@@ -168,6 +177,7 @@ Response:
     {
       "occurrenceId": "occ-1",
       "reservationId": "reservation-occ-1",
+      "reservationGeneration": 4,
       "wakePlanId": "plan-1",
       "status": "success",
       "platformAlarmId": "platform-occ-1"
@@ -175,6 +185,7 @@ Response:
     {
       "occurrenceId": "occ-2",
       "reservationId": "reservation-occ-2",
+      "reservationGeneration": 0,
       "wakePlanId": "plan-1",
       "status": "failure",
       "failureReason": "osConstraint",
@@ -196,6 +207,38 @@ reads. A successful response should echo it. Omitting it is accepted only for
 rolling compatibility with the original schema, and Dart treats the row as a
 legacy response for the requested occurrence.
 
+When a higher `reservationGeneration` arrives for the same `reservationId` and
+`wakePlanId`, the request is a recreation even when `occurrenceId` is unchanged
+for a configuration-only edit. Native code persists the new high-water mark
+and old/new transition before changing OS state. A lost reply or process
+restart reconciles to exactly one authoritative generation. iOS may briefly
+own two journaled AlarmKit UUIDs while preserving delivery; Android uses a
+generation-specific candidate PendingIntent identity and a durable replacement
+journal. Neither transient state is exposed as successful steady-state
+inventory. A currently ringing reservation may only accept the exact current
+tuple.
+
+Android also stages device-protected activation-cleanup evidence before arming
+a previously absent reservation. It clears that evidence only after the alarm
+mirror and active authority are durable. An interrupted or failed activation
+is first recorded as retired, then its exact OS identity is cancelled and its
+mirror is removed. Recovery completes that sequence before schedule, cancel,
+inventory, or receiver admission; a retired reservation with a surviving
+mirror is cleanup-pending and is never exposed as active inventory.
+Every native bridge entry, including each row of a schedule batch, reconciles
+pending evidence before staging another transition. Replacement and
+activation-cleanup journals therefore cannot overlap in a valid execution. If
+both are present through corrupted or externally modified storage, recovery
+retains both and fails closed rather than discarding an unknown exact OS
+identity.
+
+Cancellation and one-shot disappearance persist a retired authority record
+before removing OS or mirror state. Retirement is not inventory, but it blocks
+all delayed requests at or below its generation. Only a higher same-plan
+generation can reuse the slot. Native rollback readers may ignore this
+additive evidence; current readers must retain it and fail closed if an older
+generation-less mirror conflicts with it.
+
 On method-level `PlatformException`, Dart converts the error to one failed `ScheduleOccurrenceResult` for each requested occurrence.
 
 ## `cancelOccurrences`
@@ -209,6 +252,7 @@ Request:
     {
       "occurrenceId": "occ-1",
       "reservationId": "reservation-occ-1",
+      "reservationGeneration": 4,
       "platformAlarmId": "platform-occ-1"
     }
   ]
@@ -224,6 +268,7 @@ Response:
     {
       "occurrenceId": "occ-1",
       "reservationId": "reservation-occ-1",
+      "reservationGeneration": 4,
       "platformAlarmId": "platform-occ-1",
       "status": "success"
     }
@@ -232,6 +277,11 @@ Response:
 ```
 
 Dart correlates cancel rows by `(occurrenceId, platformAlarmId)`. The `platformAlarmId` is required and must be the stored identity returned by a previous successful or recoverable schedule result.
+
+The caller must send the durable tuple attached to its persisted dismissal
+intent. Inventory may prove authoritative absence after a lost cancellation
+reply, but it must not upgrade or rewrite a stale dismissal tuple to a newer
+reservation generation. A persisted/native mismatch remains fail-closed.
 
 On method-level `PlatformException`, Dart converts the error to one failed `CancelAlarmResult` for each requested alarm.
 
@@ -246,11 +296,13 @@ Request:
     {
       "occurrenceId": "occ-1",
       "reservationId": "reservation-occ-1",
+      "reservationGeneration": 4,
       "platformAlarmId": "platform-occ-1"
     },
     {
       "occurrenceId": "occ-2",
       "reservationId": "reservation-occ-2",
+      "reservationGeneration": 0,
       "platformAlarmId": "platform-occ-2"
     }
   ]
@@ -266,6 +318,7 @@ Response:
     {
       "occurrenceId": "occ-1",
       "reservationId": "reservation-occ-1",
+      "reservationGeneration": 4,
       "platformAlarmId": "platform-occ-1",
       "status": "success"
     },
@@ -322,8 +375,8 @@ Reconciliation is deliberately conservative:
 - `duplicate`: the same stable identity appears more than once in native rows
   or in the expected set, or distinct rows reuse a platform alarm or logical
   occurrence identity.
-- `unknown`: a native row has a new stable identity for an occurrence Dart
-  already knows, so it must not be adopted automatically.
+- `unknown`: a native row's ownership cannot be proven; a differing stable ID
+  alone is not unknown when the current occurrence and plan are authoritative.
 - `extra`: a well-formed native row is unrelated to the expected set and must
   not be treated as a Flutter reservation.
 - `corrupt`: a row is malformed or its occurrence/plan metadata conflicts with
@@ -345,18 +398,20 @@ still desired.
 
 For an authoritative snapshot:
 
-- An active native row whose `(reservationId, occurrenceId, wakePlanId)` tuple
-  exactly matches a canonical Drift occurrence is adopted, including replacing
-  a stale `platformAlarmId`. This also closes schedule-success/lost-reply and
-  post-result Drift-write windows after restart.
+- An active native row is adopted when its `occurrenceId` names the canonical
+  Drift occurrence, its `wakePlanId` matches that occurrence's plan, and its
+  stable reservation is either opaque or resolves only inside that same plan.
+  `reservationId` need not equal `occurrenceId`. Authoritative inventory also
+  replaces a stale `platformAlarmId`; this closes recreation side-effect/lost-
+  reply and post-result Drift-write windows after restart.
 - Authoritative absence clears stale native identity. A future desired
   occurrence is rescheduled through its stable `reservationId`; a pending user
   disable becomes disabled; ambiguous forward-compatible state remains marked
   for recovery.
-- An active native row with no occurrence row may be adopted only when its
-  stable identity exactly names a canonical desired occurrence for a known
-  plan. Other active rows for known plans are owned orphans and are cancelled
-  with their complete exact identity.
+- An active native row with no persisted occurrence row may be adopted only
+  when its current `occurrenceId` exactly names a canonical desired occurrence
+  for the row's known plan. Other active rows for known plans are owned orphans
+  and are cancelled with their complete exact identity.
 - Rows for unknown plans and inactive native statuses are retained. An inactive
   row matching a known Drift identity blocks clearing or rescheduling that
   plan; it is not authoritative absence. Native stop and ringing selection
@@ -372,6 +427,10 @@ authority evidence rather than filtered into apparent absence; matching native
 rows must not be adopted or cancelled until the Drift corruption is resolved.
 Identity conflicts block every decoded, raw, and native plan participant before
 any affected scheduling or repair can run.
+Cancellation always requires the current authoritative
+`(reservationId, reservationGeneration, occurrenceId, platformAlarmId)` tuple.
+A stale pre-recreation generation, platform ID, or occurrence cannot cancel the
+current reservation.
 Repeated startup and resume passes must be serialized and idempotent; a failed
 plan repair must not prevent later plans in the same pass from making safe
 progress.
