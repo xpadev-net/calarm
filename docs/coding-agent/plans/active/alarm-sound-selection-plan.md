@@ -106,7 +106,9 @@
   - `android/app/src/main/res/raw/**` if bundled sounds are selected by Task_1
   - corresponding Android JVM/Robolectric tests
   - `docs/qa/android-alarm-checklist.md` only for the new sound matrix
-- depends_on: [Task_1]
+- depends_on:
+  - Task_1
+  - `alarm-ringing-notification-ux-plan.md` Task_3
 - acceptance:
   - The exact persisted request sound ID resolves to the intended alarm audio and loops/stops with the existing ringing lifecycle.
   - Unknown/missing resources fall back to the OS alarm sound; delivery never fails solely because sound resolution fails.
