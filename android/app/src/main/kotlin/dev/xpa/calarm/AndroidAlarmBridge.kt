@@ -1302,12 +1302,13 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
     }
 
     private fun inventoryResponse(): InventoryResponse {
+        return AndroidAlarmMutationTransaction.run inventory@ {
         val replacementRecovery = AndroidAlarmReplacementRecovery.reconcile(
             storageContext = appContext,
             serviceContext = appContext,
         )
         if (!replacementRecovery.isSuccess) {
-            return InventoryResponse(
+            return@inventory InventoryResponse(
                 response = null,
                 failureCode = "NATIVE_ERROR",
                 failureMessage = replacementRecovery.message,
@@ -1315,14 +1316,14 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         }
         val snapshot = store.inventory(appContext, System.currentTimeMillis())
         if (snapshot.corruptKeys.isNotEmpty()) {
-            return InventoryResponse(
+            return@inventory InventoryResponse(
                 response = null,
                 failureCode = "CORRUPT",
                 failureMessage = "Removed corrupt native alarm mirror rows: ${snapshot.corruptKeys.joinToString()}.",
             )
         }
         if (snapshot.duplicateIdentity != null) {
-            return InventoryResponse(
+            return@inventory InventoryResponse(
                 response = null,
                 failureCode = "CORRUPT",
                 failureMessage = snapshot.duplicateIdentity,
@@ -1330,13 +1331,13 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         }
         val authorityFailure = authorityStore.validateAndSeedActive(snapshot.requests)
         if (authorityFailure != null) {
-            return InventoryResponse(
+            return@inventory InventoryResponse(
                 response = null,
                 failureCode = "CORRUPT",
                 failureMessage = authorityFailure,
             )
         }
-        return InventoryResponse(
+        InventoryResponse(
             response = mutableResponse(
                 "reservations" to snapshot.requests.map { request ->
                     mutableMapOf(
@@ -1350,6 +1351,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 },
             ),
         )
+        }
     }
 
     private data class InventoryResponse(

@@ -1054,6 +1054,7 @@ class AndroidInventoryTest {
     fun `concurrent generation advance waits for prior admission transaction`() {
         val reachedArm = CountDownLatch(1)
         val releaseArm = CountDownLatch(1)
+        val contenderStarted = CountDownLatch(1)
         val firstBridge = AndroidAlarmBridge(context).also { bridge ->
             bridge.setBeforeAlarmManagerMutationForTest {
                 reachedArm.countDown()
@@ -1081,6 +1082,7 @@ class AndroidInventoryTest {
             }
             assertTrue(reachedArm.await(5, TimeUnit.SECONDS))
             val second = executor.submit<CapturingResult> {
+                contenderStarted.countDown()
                 CapturingResult().also { result ->
                     secondBridge.onMethodCall(
                         MethodCall(
@@ -1097,6 +1099,7 @@ class AndroidInventoryTest {
                 }
             }
 
+            assertTrue(contenderStarted.await(5, TimeUnit.SECONDS))
             assertThrows(TimeoutException::class.java) {
                 second.get(200, TimeUnit.MILLISECONDS)
             }
@@ -1129,6 +1132,7 @@ class AndroidInventoryTest {
     fun `recovery cannot mutate a partially admitted schedule transaction`() {
         val reachedArm = CountDownLatch(1)
         val releaseArm = CountDownLatch(1)
+        val contenderStarted = CountDownLatch(1)
         val bridge = AndroidAlarmBridge(context).also { configured ->
             configured.setBeforeAlarmManagerMutationForTest {
                 reachedArm.countDown()
@@ -1155,9 +1159,11 @@ class AndroidInventoryTest {
             }
             assertTrue(reachedArm.await(5, TimeUnit.SECONDS))
             val recovery = executor.submit<AlarmReplacementRecoveryResult> {
+                contenderStarted.countDown()
                 AndroidAlarmReplacementRecovery.reconcile(context, context)
             }
 
+            assertTrue(contenderStarted.await(5, TimeUnit.SECONDS))
             assertThrows(TimeoutException::class.java) {
                 recovery.get(200, TimeUnit.MILLISECONDS)
             }
