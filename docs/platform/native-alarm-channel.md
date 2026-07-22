@@ -225,6 +225,11 @@ is first recorded as retired, then its exact OS identity is cancelled and its
 mirror is removed. Recovery completes that sequence before schedule, cancel,
 inventory, or receiver admission; a retired reservation with a surviving
 mirror is cleanup-pending and is never exposed as active inventory.
+Every native bridge entry reconciles pending evidence before staging another
+transition, so replacement and activation-cleanup journals cannot overlap in a
+valid execution. If both are present through corrupted or externally modified
+storage, recovery retains both and fails closed rather than discarding an
+unknown exact OS identity.
 
 Cancellation and one-shot disappearance persist a retired authority record
 before removing OS or mirror state. Retirement is not inventory, but it blocks
