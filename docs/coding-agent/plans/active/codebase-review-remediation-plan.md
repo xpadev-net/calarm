@@ -653,7 +653,11 @@
 
 ### Task_22: Block edit recovery when native inventory is unavailable
 
-- status: unstarted
+- status: complete
+- worker: `019f8724-ed66-7d90-8c12-a02c9c7e1ce0`
+- branch: `codex/task-22-edit-recovery-authority`
+- pr: [#66](https://github.com/xpadev-net/calarm/pull/66)
+- merged: `7f5c3453cef397222005797cb2b830095ccee98c`
 - type: impl
 - owns:
   - `lib/features/wake_plan/application/wake_plan_service.dart`
@@ -687,7 +691,9 @@
 
 ### Task_24: Unify stable reservation recreation identity across platforms
 
-- status: unstarted
+- status: in progress
+- worker: `client-new-thread:1d6b1aaf-b899-48b5-86fb-0003b0bcdb7a`
+- branch: `codex/task-24-stable-recreation-identity`
 - type: impl
 - owns:
   - `ios/Runner/AlarmKitBridge.swift`
@@ -997,6 +1003,13 @@
   - High: native dismissal success followed by Drift failure can lose the exact dismissed transition. Task_23 owns durable dismissal ordering and replay.
   - High: stable reservation recreation semantics differ across iOS, Android, fake, and Dart reconciliation. Task_24 owns the cross-platform contract after Task_22 settles shared service ownership.
   - Task_22 and Task_23 may proceed in parallel. Task_24 waits for Task_22; Task_15 re-runs only after all three merge. Task_16 remains blocked on physical-device evidence.
+
+- 2026-07-22 Task_22 edit-recovery authority fix completed and Task_24 started.
+  - PR [#66](https://github.com/xpadev-net/calarm/pull/66) merged exact approved head `8f323a32fa9a4893728c9e6cea06bf4dc4b3ed4b` as `7f5c3453cef397222005797cb2b830095ccee98c`.
+  - Non-authoritative inventory now blocks only affected edited plans whose noncanonical persisted rows may retain native ownership; later authoritative reconciliation retires the old identity before canonical scheduling. Terminal event identity is retained until journal acknowledgement succeeds.
+  - Fresh exact-head review approved with no findings. Worker and orchestrator `gh-review-hook 66` exited 0; Baseline CI, Greptile, CodeRabbit, and Socket checks passed with CLEAN, base-current merge state.
+  - Orchestrator validation passed focused service 143/143, full Flutter 507/507, `flutter analyze`, debug APK, format 2 files/0 changed, and `git diff --check` from a clean detached PR-head worktree.
+  - Task_22 worker is archived. Task_24 is dispatched from the merged base for the cross-platform stable recreation identity contract; Task_23 continues independently.
 
 ## Decision Log
 
