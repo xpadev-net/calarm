@@ -1130,7 +1130,7 @@
 
 ### Task_28: Serialize Android schedule mutation admission end to end
 
-- status: blocked
+- status: in progress
 - worker: `/root/task28_android_schedule_serialization`
 - PR: [#71](https://github.com/xpadev-net/calarm/pull/71), current head `e21ad9d141ae65ca4addd34e370130687657daac`
 - reviewer: pending fresh exact-head review after remediation
@@ -1146,7 +1146,7 @@
 - validation:
   - kind: command; required: true; owner: worker; detail: exact-head hosted Android JVM/APK/native smoke and lightweight format/diff checks; no local heavy validation.
   - kind: review; required: true; owner: reviewer; detail: bridge-wide lock scope, authority/mirror/OS ordering, deadlock/reentrancy, and generation race review.
-- blocker: hosted Android emulator artifact reports BLOCKED because the emulator binary is unavailable; exact-head iOS smoke was still in progress at handoff, and no formal waiver exists. Branch is also one commit behind origin/master; do not merge until current-head gates and review are refreshed.
+- blocker: user explicitly waived physical/emulator runtime evidence for this task because no real environment is available. The hosted artifact remains honestly BLOCKED (not relabeled as success); worker must still integrate current master normally, rerun all other exact-head hosted gates/hook, and obtain fresh review before merge.
 
 ### Task_29: Preserve Android delivery and dismissal idempotency
 
@@ -1209,6 +1209,10 @@
 - 2026-07-22 Task_29 completed.
   - Final exact head `dd519195e3de0edcbd2789ed78e7799bb676814d` passed Baseline, Android JVM/APK, native-smoke jobs, AI/security checks, and `gh-review-hook 72` exit 0; fresh independent review approved with no findings.
   - PR #72 merged via GitHub as `b71597b231e0a8a48bc3edb3641476423328a60a`. Native smoke artifacts honestly retain the environment limitation (Android emulator binary absent; iOS AlarmKit permission unavailable), with no physical-device approval claimed.
+
+- 2026-07-22 Task_28 physical/emulator evidence waiver.
+  - User explicitly requested skipping unavailable local/physical environment evidence and proceeding via hosted checks. The Android emulator artifact remains recorded as BLOCKED; this waiver does not waive JVM/APK, iOS, review, CI, CLEAN, zero-behind, or hook requirements.
+  - Task_28 worker resumed to integrate current origin/master normally because PR #71 head `e21ad9d` is diverged/behind current master, then rerun exact-head hosted gates and obtain a fresh independent review.
 
 - 2026-07-22 Task_25 hosted Android JVM gate completed.
   - PR [#68](https://github.com/xpadev-net/calarm/pull/68) merged exact approved head `574c9251f154ba4ab995c0d3de95f941ba21316b` as `35d93d9454d8243d55cace9056ce4588a4f1c0cd`.
