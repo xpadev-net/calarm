@@ -696,7 +696,7 @@
 ### Task_24: Unify stable reservation recreation identity across platforms
 
 - status: in progress
-- worker: `client-new-thread:da74e707-4f2e-4d24-bdd4-0bcb9bb5af1c`
+- worker: `019f87ee-5bb5-7933-a622-b0d672d60e3a`
 - branch: `codex/task-24-stable-recreation-identity`
 - type: impl
 - owns:
@@ -1085,7 +1085,7 @@
 - 2026-07-22 Task_24 replacement worker queued after worktree loss.
   - The original worker twice stopped with a transport error; its dedicated worktree and Git registration then disappeared. Read-only recovery found no Git object containing the reported uncommitted schema-v3 edits.
   - The committed Task_24 head `76707340b7bc86cc08b6b321fdd11dee2c3309e5` and the normal Task_23/master integration at local branch head `55f13057e03b36c9fc37c67dbf5c5eea9f06bb1f` remain intact.
-  - Replacement worker `client-new-thread:da74e707-4f2e-4d24-bdd4-0bcb9bb5af1c` must reconstruct only the lost schema-v3 delta in a fresh dedicated worktree; PR #67 remains not merge-ready and no validation gate is waived.
+  - Replacement worker `019f87ee-5bb5-7933-a622-b0d672d60e3a` (queued as `client-new-thread:da74e707-4f2e-4d24-bdd4-0bcb9bb5af1c`) must reconstruct only the lost schema-v3 delta in a fresh dedicated worktree; PR #67 remains not merge-ready and no validation gate is waived.
 
 ## Decision Log
 
