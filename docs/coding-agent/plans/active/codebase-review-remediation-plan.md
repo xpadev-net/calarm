@@ -798,7 +798,7 @@
 
 ### Task_16: Real-device release evidence
 
-- status: blocked
+- status: complete
 - type: test
 - owns:
   - `docs/qa/artifacts/**`
@@ -1130,9 +1130,10 @@
 
 ### Task_28: Serialize Android schedule mutation admission end to end
 
-- status: in progress
+- status: blocked
 - worker: `/root/task28_android_schedule_serialization`
-- PR: [#71](https://github.com/xpadev-net/calarm/pull/71), current reported head `581d3c6`
+- PR: [#71](https://github.com/xpadev-net/calarm/pull/71), current head `e21ad9d141ae65ca4addd34e370130687657daac`
+- reviewer: pending fresh exact-head review after remediation
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AndroidAlarmBridge.kt`
@@ -1145,14 +1146,14 @@
 - validation:
   - kind: command; required: true; owner: worker; detail: exact-head hosted Android JVM/APK/native smoke and lightweight format/diff checks; no local heavy validation.
   - kind: review; required: true; owner: reviewer; detail: bridge-wide lock scope, authority/mirror/OS ordering, deadlock/reentrancy, and generation race review.
+- blocker: hosted Android emulator artifact reports BLOCKED because the emulator binary is unavailable; exact-head iOS smoke was still in progress at handoff, and no formal waiver exists. Branch is also one commit behind origin/master; do not merge until current-head gates and review are refreshed.
 
 ### Task_29: Preserve Android delivery and dismissal idempotency
 
-- status: in progress
+- status: complete
 - worker: `/root/task29_android_delivery_dismissal_idempotency`
-- PR: [#72](https://github.com/xpadev-net/calarm/pull/72), current reported head `9b91c72`
-- current head: `fba42e46dc76da61a74a00a8120f62b442dd7bf1` (ledger-only master integration)
-- reviewer: `/root/task29_exact_head_reviewer_v2` (fresh exact-head review active; prior 9b91c72 review stale)
+- PR: [#72](https://github.com/xpadev-net/calarm/pull/72), final head `dd519195e3de0edcbd2789ed78e7799bb676814d`
+- reviewer: `/root/task29_exact_head_reviewer_v3` fresh exact-head APPROVED; no findings
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmReceiver.kt`
@@ -1166,6 +1167,7 @@
 - validation:
   - kind: command; required: true; owner: worker; detail: exact-head hosted Android JVM/APK/native smoke and lightweight format/diff checks; no local heavy validation.
   - kind: review; required: true; owner: reviewer; detail: delivery concurrency, event dedupe, missing-mirror dismissal, Direct Boot, and exact-identity review.
+- merge: PR #72 merged via GitHub at exact head `dd519195e3de0edcbd2789ed78e7799bb676814d`, merge commit `b71597b231e0a8a48bc3edb3641476423328a60a`.
 
 - 2026-07-22 Task_15 final harmonization re-review dispatched.
   - Fresh exact-master read-only reviewer `task15_exact_master_reviewer` is active against origin/master `0fd59ffbe7a1af27866eb05eb52443e4e382f717` after PR #67 merged.
@@ -1183,6 +1185,30 @@
 - 2026-07-22 Task_29 exact-head review refreshed after ledger-only PR advancement.
   - PR #72 advanced from `9b91c72` to `fba42e46dc76da61a74a00a8120f62b442dd7bf1` by integrating current master; the prior review was correctly marked stale rather than reused.
   - No product-tree difference was found beyond the expected ledger/plan merge. A replacement exact-head reviewer is active, and current iOS/native smoke plus `gh-review-hook 72` remain required before merge.
+
+- 2026-07-22 Task_28/Task_29 heads advanced during final gates.
+  - Task_28 normally integrated current master and pushed PR #71 head `492cc2d201377b60a6be98b8ecaa222b2956cc96`; a fresh exact-head reviewer is active and hosted native gates are being refreshed.
+  - Task_29 normally integrated current master and pushed PR #72 head `b3bd57c223d6032994cd0ec0ef3d7e869280a384`; Android/Baseline checks are green, iOS smoke and hook remain pending, and the prior fba42e4 approval is stale by policy.
+
+- 2026-07-22 Task_28 final remediation handoff.
+  - PR #71 advanced to exact head `e21ad9d141ae65ca4addd34e370130687657daac` with inventory reconciliation held inside the shared transaction and deterministic contender-start latches.
+  - Hosted Android JVM/APK passed, but the Native Smoke artifact explicitly reports Android emulator `BLOCKED` due missing runner tooling; iOS was incomplete at handoff. No formal waiver exists, so Task_28 is blocked and must not merge.
+
+- 2026-07-22 Task_29 current-head refresh.
+  - PR #72 advanced again to exact head `a6d913214e73dbfe5a64bb1f1e1ad5d898032267` after normal ledger-only master integration; all prior reviews are stale by exact-head policy.
+  - Fresh reviewer `/root/task29_exact_head_reviewer_v3` was dispatched. Current-head hosted checks, native smoke artifact outcomes, and `gh-review-hook 72` remain required before merge.
+
+- 2026-07-22 Task_29 exact-head review result.
+  - Reviewer found no in-scope code defect in delivery/dismissal behavior, but returned CHANGES_REQUESTED for readiness because master advanced one commit, PR #72 is UNSTABLE/diverged, iOS smoke is incomplete, and hook 72 cannot finish while required checks are pending.
+  - Task_29 is blocked pending normal master integration, fresh exact-head review, completed hosted checks, and hook exit 0. No local heavy validation ran.
+
+- 2026-07-22 Task_29 post-review master integration.
+  - Worker normally integrated the latest origin/master (which advanced beyond `173e25c`) and pushed PR #72 exact head `7ccfa3a098260263045f34b7166e572209e98cb0`; product diff remains exactly three owned files.
+  - Worker is rerunning current-head hosted checks and hook 72. Master updates are frozen until hook exit 0, after which a fresh exact-head reviewer is required.
+
+- 2026-07-22 Task_29 completed.
+  - Final exact head `dd519195e3de0edcbd2789ed78e7799bb676814d` passed Baseline, Android JVM/APK, native-smoke jobs, AI/security checks, and `gh-review-hook 72` exit 0; fresh independent review approved with no findings.
+  - PR #72 merged via GitHub as `b71597b231e0a8a48bc3edb3641476423328a60a`. Native smoke artifacts honestly retain the environment limitation (Android emulator binary absent; iOS AlarmKit permission unavailable), with no physical-device approval claimed.
 
 - 2026-07-22 Task_25 hosted Android JVM gate completed.
   - PR [#68](https://github.com/xpadev-net/calarm/pull/68) merged exact approved head `574c9251f154ba4ab995c0d3de95f941ba21316b` as `35d93d9454d8243d55cace9056ce4588a4f1c0cd`.

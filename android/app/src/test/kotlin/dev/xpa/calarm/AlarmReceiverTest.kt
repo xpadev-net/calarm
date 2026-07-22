@@ -217,6 +217,29 @@ class AlarmReceiverTest {
     }
 
     @Test
+    fun `serialized receiver redelivery admits the current alarm only once`() {
+        val platformAlarmId = "android:plan:serialized-redelivery"
+        assertTrue(AlarmStore(context).put(alarmRequest(platformAlarmId, vibrationEnabled = false)))
+        val receiverIntent = Shadows.shadowOf(
+            AlarmIntents.receiver(context, platformAlarmId),
+        ).savedIntent
+
+        AlarmReceiver().onReceive(context, receiverIntent)
+
+        assertEquals(AlarmState.RINGING, AlarmStore(context).get(platformAlarmId)?.state)
+        assertNotNull(Shadows.shadowOf(application).peekNextStartedActivity())
+        Shadows.shadowOf(application).clearNextStartedActivities()
+
+        AlarmReceiver().onReceive(context, receiverIntent)
+
+        assertNull(Shadows.shadowOf(application).peekNextStartedActivity())
+        assertEquals(
+            listOf(AlarmEvent.idFor(platformAlarmId, AlarmEventType.DELIVERED)),
+            AlarmEventStore(context).fetch().events.map(AlarmEvent::eventId),
+        )
+    }
+
+    @Test
     fun `receiver ignores a firing request without persisted state`() {
         val platformAlarmId = "android:plan:missing"
 
