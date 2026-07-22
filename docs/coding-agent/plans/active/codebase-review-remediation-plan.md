@@ -749,7 +749,9 @@
 
 ### Task_26: Recover Android recreation state before delivery admission
 
-- status: unstarted
+- status: in progress
+- worker: `client-new-thread:872bd327-b530-4932-847d-debe013f671e`
+- branch: `codex/task-26-receiver-delivery-recovery`
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmReceiver.kt`
