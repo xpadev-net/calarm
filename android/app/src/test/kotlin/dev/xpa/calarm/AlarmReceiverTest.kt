@@ -257,6 +257,7 @@ class AlarmReceiverTest {
         val reservationId = "receiver-recovery"
         val old = alarmRequest(
             platformAlarmId = "android:reservation:$reservationId",
+            vibrationEnabled = false,
             reservationId = reservationId,
             occurrenceId = "receiver-recovery-old",
             wakePlanId = "receiver-recovery-plan",
