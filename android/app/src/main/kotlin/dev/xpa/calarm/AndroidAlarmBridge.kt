@@ -2965,11 +2965,31 @@ internal object AndroidAlarmReplacementRecovery {
             )
         }
         val snapshot = store.inspectIdentities(appContext, System.currentTimeMillis())
-        if (snapshot.duplicateIdentity != null) {
+        if (snapshot.duplicateIdentity != null || snapshot.corruptKeys.isNotEmpty()) {
             return AlarmReplacementRecoveryResult(
                 isSuccess = false,
-                message = snapshot.duplicateIdentity,
+                message = snapshot.duplicateIdentity
+                    ?: "Native alarm mirror state is corrupt during reservation recovery.",
             )
+        }
+        val relevantRequests = snapshot.requests.filter { request ->
+            admittingPlatformAlarmId == null ||
+                request.platformAlarmId == admittingPlatformAlarmId
+        }
+        for (request in relevantRequests) {
+            val persisted = authority.reservations[request.reservationId] ?: continue
+            val samePlan = persisted.wakePlanId == request.wakePlanId
+            val exactTuple = samePlan &&
+                persisted.reservationGeneration == request.reservationGeneration &&
+                persisted.occurrenceId == request.occurrenceId
+            val recoverableAdvance = samePlan &&
+                request.reservationGeneration > persisted.reservationGeneration
+            if (!exactTuple && !recoverableAdvance) {
+                return AlarmReplacementRecoveryResult(
+                    isSuccess = false,
+                    message = "Native alarm mirror conflicts with reservation generation authority.",
+                )
+            }
         }
         val pendingActivations = snapshot.requests.filter { request ->
             val persisted = authority.reservations[request.reservationId]

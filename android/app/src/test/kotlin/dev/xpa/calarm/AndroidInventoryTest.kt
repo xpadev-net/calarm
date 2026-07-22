@@ -1384,6 +1384,60 @@ class AndroidInventoryTest {
     }
 
     @Test
+    fun `receiver admission rejects stale cross-plan and mismatched authority tuples`() {
+        val staleAuthority = alarmRequest(
+            platformAlarmId = "android:reservation:stale-admission-slot",
+            reservationId = "stale-admission-slot",
+            occurrenceId = "stale-admission-current",
+            wakePlanId = "admission-plan",
+            reservationGeneration = 2L,
+        )
+        val crossPlanAuthority = alarmRequest(
+            platformAlarmId = "android:reservation:cross-plan-admission-slot",
+            reservationId = "cross-plan-admission-slot",
+            occurrenceId = "cross-plan-admission-current",
+            wakePlanId = "admission-plan",
+            reservationGeneration = 2L,
+        )
+        val mismatchAuthority = alarmRequest(
+            platformAlarmId = "android:reservation:mismatch-admission-slot",
+            reservationId = "mismatch-admission-slot",
+            occurrenceId = "mismatch-admission-current",
+            wakePlanId = "admission-plan",
+            reservationGeneration = 2L,
+        )
+        val conflicts = listOf(
+            staleAuthority to staleAuthority.copy(
+                occurrenceId = "stale-admission-old",
+                reservationGeneration = 1L,
+            ),
+            crossPlanAuthority to crossPlanAuthority.copy(wakePlanId = "foreign-plan"),
+            mismatchAuthority to mismatchAuthority.copy(
+                occurrenceId = "mismatch-admission-other",
+            ),
+        )
+        val authorityStore = ReservationAuthorityStore(context)
+        for ((authority, mirror) in conflicts) {
+            assertTrue(authorityStore.recordActive(authority))
+            assertTrue(AlarmStore(context).put(mirror))
+            armForRecoveryTest(mirror)
+        }
+
+        for ((_, mirror) in conflicts) {
+            val recovery = AndroidAlarmReplacementRecovery.reconcile(
+                context,
+                context,
+                admittingPlatformAlarmId = mirror.platformAlarmId,
+            )
+
+            assertFalse(recovery.isSuccess)
+            assertTrue(recovery.message?.contains("conflicts") == true)
+            assertNotNull(AlarmStore(context).get(mirror.platformAlarmId))
+            assertTrue(scheduledAlarmIds().contains(mirror.platformAlarmId))
+        }
+    }
+
+    @Test
     fun `corrupt and ambiguous replacement journals fail closed and retain evidence`() {
         val retained = alarmRequest(
             platformAlarmId = "android:reservation:retained-recovery-slot",
@@ -1637,8 +1691,15 @@ class AndroidInventoryTest {
         )
         val staleRow = ((staleCancel.value as Map<*, *>)["alarms"] as List<*>)
             .single() as Map<*, *>
-        assertEquals("success", staleRow["status"])
-        assertEquals(1, AlarmStore(context).inventory(context, System.currentTimeMillis()).requests.size)
+        assertEquals("failure", staleRow["status"])
+        assertEquals("invalidRequest", staleRow["failureReason"])
+        val remaining = AlarmStore(context)
+            .inventory(context, System.currentTimeMillis())
+            .requests
+            .single()
+        assertEquals(recreatedRow["platformAlarmId"], remaining.platformAlarmId)
+        assertEquals(1L, remaining.reservationGeneration)
+        assertEquals(listOf(recreatedRow["platformAlarmId"]), scheduledAlarmIds())
     }
 
     @Test
