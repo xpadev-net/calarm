@@ -636,10 +636,10 @@
 
 ### Task_15: Final harmonization and repository-wide merge gate
 
-- status: split in progress
+- status: complete
 - reviewer: `019f8717-1e82-7dd2-80eb-9135c20cc291` (prior remediation review); `task15_exact_master_reviewer` (fresh exact-master review)
-- review_verdict: NEEDS_REVISION
-- findings_routed_to: Task_28 (Android schedule transaction serialization), Task_29 (receiver/dismissal idempotency and durable dismissal semantics)
+- review_verdict: APPROVED
+- findings_routed_to: none; Task_28 and Task_29 remediation merged
 - type: review
 - owns: []
 - depends_on: [Task_5, Task_11, Task_12, Task_21, Task_22, Task_23, Task_24]
@@ -1209,6 +1209,10 @@
 - 2026-07-22 Task_29 completed.
   - Final exact head `dd519195e3de0edcbd2789ed78e7799bb676814d` passed Baseline, Android JVM/APK, native-smoke jobs, AI/security checks, and `gh-review-hook 72` exit 0; fresh independent review approved with no findings.
   - PR #72 merged via GitHub as `b71597b231e0a8a48bc3edb3641476423328a60a`. Native smoke artifacts honestly retain the environment limitation (Android emulator binary absent; iOS AlarmKit permission unavailable), with no physical-device approval claimed.
+
+- 2026-07-22 Task_15 final harmonization approved.
+  - Fresh exact-master reviewer approved origin/master `d3a720f879cc525cba5c9c935f3721a3cef1ae03` with no Blocker/High findings after PRs #71 and #72 merged.
+  - Cross-PR Dart/Android/iOS identity-generation, journal ordering, authority fail-closed behavior, receiver recovery, bridge serialization, dismissal idempotency, provider wiring, and migration compatibility were independently verified. Hosted checks and native-smoke evidence were verified through GitHub; the Task_28 emulator limitation remains explicitly waived and is not physical-device release approval.
 
 - 2026-07-22 Task_28 physical/emulator evidence waiver.
   - User explicitly requested skipping unavailable local/physical environment evidence and proceeding via hosted checks. The Android emulator artifact remains recorded as BLOCKED; this waiver does not waive JVM/APK, iOS, review, CI, CLEAN, zero-behind, or hook requirements.
