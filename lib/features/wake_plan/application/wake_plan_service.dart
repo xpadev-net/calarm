@@ -586,7 +586,9 @@ class WakePlanService {
     final plans = persistedSnapshot.plans;
     final inventoryPreparation = await _prepareWholeInventory(
       plans: plans,
-      occurrences: eventReconciliation,
+      occurrences: eventReconciliation.occurrences,
+      unacknowledgedEventPlatformAlarmIds:
+          eventReconciliation.unacknowledgedPlatformAlarmIds,
       corruptPlanIds: persistedSnapshot.corruptPlanIds,
       corruptOccurrenceIds: persistedSnapshot.corruptOccurrenceIds,
       corruptOccurrenceWakePlanIds:
@@ -700,7 +702,13 @@ class WakePlanService {
     return results;
   }
 
-  Future<List<AlarmOccurrence>> _reconcileNativeAlarmEvents({
+  Future<
+    ({
+      List<AlarmOccurrence> occurrences,
+      Set<String> unacknowledgedPlatformAlarmIds,
+    })
+  >
+  _reconcileNativeAlarmEvents({
     required WakePlanReconciliationSnapshot snapshot,
     required _NativeInventorySnapshot? inventory,
     required DateTime now,
@@ -832,17 +840,27 @@ class WakePlanService {
         changedOccurrenceIds.map((id) => occurrencesById[id]!),
       );
     }
+    final unacknowledgedPlatformAlarmIds = <String>{};
     if (acknowledgedEventIds.isNotEmpty) {
       try {
         await _nativeAlarmGateway.acknowledgeAlarmEvents(acknowledgedEventIds);
       } catch (_) {
         // The journal remains durable. Replaying the already-persisted state
         // is idempotent because terminal rows retain their platform identity.
+        final acknowledgedIds = acknowledgedEventIds.toSet();
+        unacknowledgedPlatformAlarmIds.addAll(
+          events
+              .where((event) => acknowledgedIds.contains(event.eventId))
+              .map((event) => event.platformAlarmId),
+        );
       }
     }
-    return snapshotOccurrenceIds
-        .map((id) => occurrencesById[id]!)
-        .toList(growable: false);
+    return (
+      occurrences: snapshotOccurrenceIds
+          .map((id) => occurrencesById[id]!)
+          .toList(growable: false),
+      unacknowledgedPlatformAlarmIds: unacknowledgedPlatformAlarmIds,
+    );
   }
 
   bool _inventoryAllowsNativeEvent({
@@ -959,6 +977,7 @@ class WakePlanService {
   Future<_WholeInventoryPreparation> _prepareWholeInventory({
     required List<WakePlan> plans,
     required List<AlarmOccurrence> occurrences,
+    required Set<String> unacknowledgedEventPlatformAlarmIds,
     required Set<String> corruptPlanIds,
     required Set<String> corruptOccurrenceIds,
     required Set<String> corruptOccurrenceWakePlanIds,
@@ -968,6 +987,7 @@ class WakePlanService {
     final originalById = {
       for (final occurrence in occurrences) occurrence.id: occurrence,
     };
+    final plansById = {for (final plan in plans) plan.id: plan};
     final knownPlanIds = plans.map((plan) => plan.id).toSet();
     final activePlanIds = plans
         .where(
@@ -999,6 +1019,35 @@ class WakePlanService {
     for (final planIds in desiredPlanIdsById.values) {
       if (planIds.length > 1) {
         corruptInventoryPlanIds.addAll(planIds);
+      }
+    }
+    final plansWithDesiredOccurrences = desiredById.values
+        .map((occurrence) => occurrence.wakePlanId)
+        .toSet();
+    final plansAwaitingAuthoritativeRetirement = <String>{};
+    for (final occurrence in occurrences) {
+      final mayRetainNativeReservation =
+          occurrence.hasNativeReservation ||
+          switch (occurrence.status) {
+            AlarmOccurrenceStatus.ringing ||
+            AlarmOccurrenceStatus.userDisablePending ||
+            AlarmOccurrenceStatus.userEnablePending ||
+            AlarmOccurrenceStatus.unknownPersisted => true,
+            _ => false,
+          };
+      final isFuture = occurrence.scheduledAt.toDateTime().isAfter(now);
+      final owningPlan = plansById[occurrence.wakePlanId];
+      final hasPastEditRetirementSignature =
+          owningPlan != null &&
+          _hasPastEditRetirementSignature(
+            occurrence: occurrence,
+            plan: owningPlan,
+          );
+      if (activePlanIds.contains(occurrence.wakePlanId) &&
+          (isFuture || hasPastEditRetirementSignature) &&
+          desiredById[occurrence.id]?.wakePlanId != occurrence.wakePlanId &&
+          mayRetainNativeReservation) {
+        plansAwaitingAuthoritativeRetirement.add(occurrence.wakePlanId);
       }
     }
     for (final corruptOccurrenceId in corruptOccurrenceIds) {
@@ -1076,7 +1125,10 @@ class WakePlanService {
         inventory: inventory,
         occurrences: occurrences,
         recoveryPlanIds: {...activePlanIds, ...corruptInventoryPlanIds},
-        blockedPlanIds: corruptInventoryPlanIds,
+        blockedPlanIds: {
+          ...corruptInventoryPlanIds,
+          ...plansAwaitingAuthoritativeRetirement,
+        },
       );
     }
 
@@ -1099,7 +1151,10 @@ class WakePlanService {
         ),
         occurrences: occurrences,
         recoveryPlanIds: {...activePlanIds, ...corruptInventoryPlanIds},
-        blockedPlanIds: corruptInventoryPlanIds,
+        blockedPlanIds: {
+          ...corruptInventoryPlanIds,
+          ...plansAwaitingAuthoritativeRetirement,
+        },
       );
     }
 
@@ -1110,15 +1165,6 @@ class WakePlanService {
           row.status == NativeAlarmReservationStatus.scheduled ||
           row.status == NativeAlarmReservationStatus.ringing;
       if (!isActive && hasOwnedParticipant(participants)) {
-        corruptInventoryPlanIds.addAll(participants);
-        continue;
-      }
-      final decoded = originalById[row.occurrenceId];
-      final isNoncanonicalRinging =
-          row.status == NativeAlarmReservationStatus.ringing &&
-          decoded != null &&
-          desiredById[decoded.id]?.wakePlanId != decoded.wakePlanId;
-      if (isNoncanonicalRinging) {
         corruptInventoryPlanIds.addAll(participants);
         continue;
       }
@@ -1152,7 +1198,16 @@ class WakePlanService {
       final isCanonicalDesired =
           desiredById[occurrence.id]?.wakePlanId == occurrence.wakePlanId;
       AlarmOccurrence reconciled = occurrence;
-      if (!isFuture) {
+      final owningPlan = plansById[occurrence.wakePlanId];
+      final hasPastEditRetirementSignature =
+          !isFuture &&
+          !isCanonicalDesired &&
+          owningPlan != null &&
+          _hasPastEditRetirementSignature(
+            occurrence: occurrence,
+            plan: owningPlan,
+          );
+      if (!isFuture && !hasPastEditRetirementSignature) {
         continue;
       }
       if (!isActivePlan) {
@@ -1174,18 +1229,36 @@ class WakePlanService {
           AlarmOccurrenceStatus.userDisablePending ||
           AlarmOccurrenceStatus.userEnablePending ||
           AlarmOccurrenceStatus.unknownPersisted => true,
+          AlarmOccurrenceStatus.dismissed || AlarmOccurrenceStatus.missed =>
+            plansWithDesiredOccurrences.contains(occurrence.wakePlanId),
           _ => false,
         };
         if (!needsCanonicalRecovery) {
           continue;
         }
         scheduleCanonicalPlanIds.add(occurrence.wakePlanId);
-        reconciled = occurrence.copyWith(
-          status: AlarmOccurrenceStatus.cancelled,
-          platformAlarmId: null,
-          failureReason: null,
-          updatedAt: now,
-        );
+        if (occurrence.platformAlarmId case final platformAlarmId?
+            when unacknowledgedEventPlatformAlarmIds.contains(
+              platformAlarmId,
+            )) {
+          continue;
+        }
+        reconciled = switch (occurrence.status) {
+          AlarmOccurrenceStatus.dismissed ||
+          AlarmOccurrenceStatus.missed => occurrence.copyWith(
+            platformAlarmId: null,
+            failureReason: null,
+            updatedAt: now,
+          ),
+          _ => occurrence.copyWith(
+            status: AlarmOccurrenceStatus.cancelled,
+            platformAlarmId: null,
+            firedAt: null,
+            dismissedAt: null,
+            failureReason: null,
+            updatedAt: now,
+          ),
+        };
         reconciledById[occurrence.id] = reconciled;
         changed.add(reconciled);
         repairedPlanIds.add(occurrence.wakePlanId);
@@ -1332,12 +1405,28 @@ class WakePlanService {
             decodedOrphanIds.contains(row.occurrenceId)) {
           final occurrence = reconciledById[row.occurrenceId];
           if (occurrence != null) {
-            final cancelled = occurrence.copyWith(
-              status: AlarmOccurrenceStatus.cancelled,
-              platformAlarmId: null,
-              failureReason: null,
-              updatedAt: now,
-            );
+            if (unacknowledgedEventPlatformAlarmIds.contains(
+              occurrence.platformAlarmId,
+            )) {
+              repairedPlanIds.add(occurrence.wakePlanId);
+              continue;
+            }
+            final cancelled = switch (occurrence.status) {
+              AlarmOccurrenceStatus.dismissed ||
+              AlarmOccurrenceStatus.missed => occurrence.copyWith(
+                platformAlarmId: null,
+                failureReason: null,
+                updatedAt: now,
+              ),
+              _ => occurrence.copyWith(
+                status: AlarmOccurrenceStatus.cancelled,
+                platformAlarmId: null,
+                firedAt: null,
+                dismissedAt: null,
+                failureReason: null,
+                updatedAt: now,
+              ),
+            };
             reconciledById[cancelled.id] = cancelled;
             cancelledDecodedOrphans.add(cancelled);
             repairedPlanIds.add(cancelled.wakePlanId);
@@ -2076,6 +2165,48 @@ class WakePlanService {
         .where((occurrence) => occurrence.scheduledAt.toDateTime().isAfter(now))
         .map((occurrence) => occurrence.id)
         .toSet();
+  }
+
+  bool _isCanonicalOccurrenceForPlan({
+    required AlarmOccurrence occurrence,
+    required WakePlan plan,
+  }) {
+    final scheduledAt = occurrence.scheduledAt.toDateTime();
+    for (final targetDay in [
+      occurrence.scheduledAt.day,
+      occurrence.scheduledAt.day.addDays(1),
+    ]) {
+      if (!plan.occursOn(targetDay)) {
+        continue;
+      }
+      final startAt = plan.startAt(targetDay);
+      final targetAt = plan.targetAt(targetDay);
+      if (scheduledAt.isBefore(startAt) || scheduledAt.isAfter(targetAt)) {
+        continue;
+      }
+      if (scheduledAt == targetAt) {
+        return true;
+      }
+      return scheduledAt.difference(startAt).inMinutes %
+              plan.interval.inMinutes ==
+          0;
+    }
+    return false;
+  }
+
+  bool _hasPastEditRetirementSignature({
+    required AlarmOccurrence occurrence,
+    required WakePlan plan,
+  }) {
+    final retainsRetirableIdentity = switch (occurrence.status) {
+      AlarmOccurrenceStatus.scheduled ||
+      AlarmOccurrenceStatus.ringing ||
+      AlarmOccurrenceStatus.dismissed ||
+      AlarmOccurrenceStatus.missed => occurrence.hasNativeReservation,
+      _ => false,
+    };
+    return retainsRetirableIdentity &&
+        !_isCanonicalOccurrenceForPlan(occurrence: occurrence, plan: plan);
   }
 
   bool _hasValidNativeReservation(
