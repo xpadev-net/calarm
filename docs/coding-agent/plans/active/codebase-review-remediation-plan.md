@@ -695,9 +695,11 @@
 
 ### Task_24: Unify stable reservation recreation identity across platforms
 
-- status: in progress
+- status: complete
 - worker: `019f87ee-5bb5-7933-a622-b0d672d60e3a`
 - branch: `codex/task-24-stable-recreation-identity`
+- PR: [#67](https://github.com/xpadev-net/calarm/pull/67)
+- merged_commit: `eba7593b0d19045fcab455e12f0fe0ca8052d6be` (head `511b335d3f943be6c3fddc065ca0e13b93d737fd`)
 - type: impl
 - owns:
   - `ios/Runner/AlarmKitBridge.swift`
@@ -730,7 +732,7 @@
 
 ### Task_25: Add the hosted Android JVM test gate
 
-- status: in progress
+- status: complete
 - worker: `019f8794-042d-72f3-b9df-0e8c8aa9899d`
 - branch: `codex/task-25-hosted-android-jvm-gate`
 - pr: [#68](https://github.com/xpadev-net/calarm/pull/68)
@@ -1118,6 +1120,12 @@
   - The original worker twice stopped with a transport error; its dedicated worktree and Git registration then disappeared. Read-only recovery found no Git object containing the reported uncommitted schema-v3 edits.
   - The committed Task_24 head `76707340b7bc86cc08b6b321fdd11dee2c3309e5` and the normal Task_23/master integration at local branch head `55f13057e03b36c9fc37c67dbf5c5eea9f06bb1f` remain intact.
   - Replacement worker `019f87ee-5bb5-7933-a622-b0d672d60e3a` (queued as `client-new-thread:da74e707-4f2e-4d24-bdd4-0bcb9bb5af1c`) must reconstruct only the lost schema-v3 delta in a fresh dedicated worktree; PR #67 remains not merge-ready and no validation gate is waived.
+
+- 2026-07-22 Task_24 stable recreation identity completed.
+  - PR [#67](https://github.com/xpadev-net/calarm/pull/67) merged exact approved head `511b335d3f943be6c3fddc065ca0e13b93d737fd` as `eba7593b0d19045fcab455e12f0fe0ca8052d6be`.
+  - The additive schema-v3 reservation ID/generation contract now aligns Drift, Dart/fake gateways, Android, iOS, reconciliation, and ringing cancellation; generation/retirement validation is durable and same-plan only, with cross-plan/duplicate/corrupt state fail-closed.
+  - Historical CodeRabbit change requests were preserved and formally dismissed; current review decision is clear. Fresh exact-head independent review approved, all seven GitHub checks and Native Smoke jobs succeeded, and orchestrator `gh-review-hook 67` exited 0.
+  - Task_24 worker `019f87ee-5bb5-7933-a622-b0d672d60e3a` is archived. Task_15 final harmonization re-review is now the next gate; queued alarm-sound and ringing-notification plans remain blocked on that harmonization and existing device evidence policy.
 
 - 2026-07-22 Task_25 hosted Android JVM gate completed.
   - PR [#68](https://github.com/xpadev-net/calarm/pull/68) merged exact approved head `574c9251f154ba4ab995c0d3de95f941ba21316b` as `35d93d9454d8243d55cace9056ce4588a4f1c0cd`.
