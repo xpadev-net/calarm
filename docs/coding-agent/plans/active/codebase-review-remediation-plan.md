@@ -709,6 +709,7 @@
   - `lib/core/platform/method_channel_native_alarm_gateway.dart` only if the wire contract changes
   - corresponding Dart gateway tests
   - `lib/features/wake_plan/application/wake_plan_service.dart` and its tests only for final reconciliation alignment after Task_22 merges
+  - `lib/features/alarm_ringing/application/alarm_ringing_controller.dart` and its tests only to copy the persisted reservation ID/generation into the exact native cancellation request; no dismissal state-machine or persistence changes
   - `lib/features/wake_plan/domain/src/alarm_occurrence.dart` only for nullable/defaulted reservation identity and a nonnegative monotonic reservation-generation field
   - `lib/features/wake_plan/data/src/wake_plan_database.dart`
   - `lib/features/wake_plan/data/src/wake_plan_database.g.dart`
@@ -722,6 +723,7 @@
   - Every same-reservation rebind carries monotonic durable generation/retirement evidence, so delayed replay of an older occurrence cannot roll the slot backward on iOS, Android, fake, or Dart reconciliation.
   - The schema change layers additively on Task_23's dismissal-intent migration, remains rollback-aware, and preserves old rows with a deterministic initial generation.
   - Existing exact cancellation, inventory ownership, and backward-compatible additive channel behavior remain intact.
+  - Ringing dismissal of a recreated generation uses the occurrence's exact reservation ID and generation, so strict native admission neither rejects the current alarm nor permits a stale generation to cancel it.
 - validation:
   - kind: command; required: true; owner: worker; detail: iOS RunnerTests, focused/full Android JVM tests, Dart gateway/service identity matrices, full Flutter tests, analyze, format, debug APK, Native Smoke CI, and diff-check.
   - kind: review; required: true; owner: reviewer; detail: cross-platform schema/identity parity, crash recovery, ownership/security, and compatibility review.
@@ -1096,6 +1098,10 @@
   - Native Smoke now always verifies and records the exact checked-out head and runs the complete `:app:testDebugUnitTest` suite with bounded timeout, failure propagation, logs, and unconditional artifacts; manual `run_android` controls only APK/emulator work.
   - Exact-head run `29890721615` passed Android JVM, APK, Android job, and iOS simulator job; unavailable hosted emulator execution remained honestly BLOCKED without granting physical-device approval.
   - Fresh exact-head review approved. Worker and orchestrator `gh-review-hook 68` exited 0; all registered CI/AI/security checks passed with CLEAN, zero-behind state. No local heavy validation ran under the battery override.
+
+- 2026-07-22 Task_24 ringing-cancellation call site narrowly attributed.
+  - Static call-site audit found `AlarmRingingController` still constructed cancellation requests without the new persisted reservation ID/generation, which would make valid recreated alarms fail strict native admission.
+  - Task_24 owns only copying those two exact fields into the request and direct regression coverage. Task_23 dismissal ordering, replay, schema-v2 intent, and controller state transitions remain frozen and out of scope.
 
 ## Decision Log
 
