@@ -339,6 +339,31 @@ class AlarmEventStoreTest {
         )
     }
 
+    @Test
+    fun `explicit stop remains durable when the current native mirror row is already missing`() {
+        val alarmId = "android:plan:missing-before-stop"
+        assertTrue(AlarmStore(context).put(alarmRequest(alarmId)))
+        val activity = Robolectric.buildActivity(
+            AlarmStopActivity::class.java,
+            stopIntent(alarmId),
+        ).setup().get()
+        assertTrue(AlarmStore(context).removeRaw(alarmId))
+        val layout = activity.findViewById<ViewGroup>(android.R.id.content)
+        val matchingViews = arrayListOf<View>()
+        layout.findViewsWithText(
+            matchingViews,
+            "Stop current alarm",
+            View.FIND_VIEWS_WITH_TEXT,
+        )
+
+        (matchingViews.single { it is Button } as Button).performClick()
+
+        val event = AlarmEventStore(context).fetch().events.single()
+        assertEquals(AlarmEvent.idFor(alarmId, AlarmEventType.DISMISSED), event.eventId)
+        assertEquals(alarmId, event.platformAlarmId)
+        assertEquals(AlarmEventType.DISMISSED, event.type)
+    }
+
     private fun stopIntent(platformAlarmId: String): Intent {
         return Intent(context, AlarmStopActivity::class.java)
             .setAction(AlarmIntents.ACTION_ALARM_STOP)
