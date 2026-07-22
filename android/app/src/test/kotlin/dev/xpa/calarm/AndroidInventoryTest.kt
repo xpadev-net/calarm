@@ -986,7 +986,7 @@ class AndroidInventoryTest {
     }
 
     @Test
-    fun `uncommitted candidate admission retains a viable incumbent`() {
+    fun `uncommitted candidate admission preserves the exact firing candidate`() {
         val old = alarmRequest(
             platformAlarmId = "android:reservation:viable-incumbent-slot",
             reservationId = "viable-incumbent-slot",
@@ -1024,9 +1024,9 @@ class AndroidInventoryTest {
         )
 
         assertTrue(recovery.isSuccess)
-        assertNotNull(AlarmStore(context).get(old.platformAlarmId))
-        assertNull(AlarmStore(context).get(candidate.platformAlarmId))
-        assertEquals(listOf(old.platformAlarmId), scheduledAlarmIds())
+        assertNull(AlarmStore(context).get(old.platformAlarmId))
+        assertNotNull(AlarmStore(context).get(candidate.platformAlarmId))
+        assertTrue(scheduledAlarmIds().isEmpty())
         assertNull(AlarmReplacementJournalStore(context).load())
     }
 

@@ -1755,8 +1755,8 @@ internal object AndroidAlarmReplacementRecovery {
             journal.phase == AlarmReplacementPhase.OLD_RETIRED &&
                 (journal.new.scheduledAtMillis > nowMillis || isAdmittingNew) -> journal.new
             oldMayWin && isAdmittingOld -> journal.old
-            oldMayWin && journal.old.scheduledAtMillis > nowMillis -> journal.old
             oldMayWin && isAdmittingNew -> journal.new
+            oldMayWin && journal.old.scheduledAtMillis > nowMillis -> journal.old
             oldMayWin && journal.new.scheduledAtMillis > nowMillis -> journal.new
             else -> null
         }
