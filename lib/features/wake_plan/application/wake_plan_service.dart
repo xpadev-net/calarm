@@ -2094,14 +2094,6 @@ class WakePlanService {
     final existingById = {
       for (final occurrence in existingOccurrences) occurrence.id: occurrence,
     };
-    final highestGenerationByReservation = <String, int>{};
-    for (final occurrence in [...existingOccurrences, ...retired]) {
-      final current = highestGenerationByReservation[occurrence.reservationId];
-      if (current == null || current < occurrence.reservationGeneration) {
-        highestGenerationByReservation[occurrence.reservationId] =
-            occurrence.reservationGeneration;
-      }
-    }
     final desiredBundle = _buildOccurrenceBundle(plan: plan, now: now);
     if (desiredBundle.occurrences.isEmpty) {
       if (pendingEnableReconciliation.hasUnresolved ||
@@ -2715,6 +2707,14 @@ class WakePlanService {
     final existingById = {
       for (final occurrence in existingOccurrences) occurrence.id: occurrence,
     };
+    final highestGenerationByReservation = <String, int>{};
+    for (final occurrence in [...existingOccurrences, ...retired]) {
+      final current = highestGenerationByReservation[occurrence.reservationId];
+      if (current == null || current < occurrence.reservationGeneration) {
+        highestGenerationByReservation[occurrence.reservationId] =
+            occurrence.reservationGeneration;
+      }
+    }
     final exactRetiredReservationIds = retiredById.values
         .map((occurrence) => occurrence.reservationId)
         .toSet();
