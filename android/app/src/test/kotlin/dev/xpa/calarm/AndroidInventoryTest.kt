@@ -9,6 +9,10 @@ import android.os.Vibrator
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.time.Instant
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import org.json.JSONException
 import org.json.JSONObject
 import org.junit.After
@@ -1044,6 +1048,147 @@ class AndroidInventoryTest {
         bridge.onMethodCall(MethodCall("cancelOccurrences", cancelArguments), duplicateCancel)
         assertNull(duplicateCancel.errorCode)
         assertEquals("success", ((duplicateCancel.value as Map<*, *>)["alarms"] as List<*>).single().let { it as Map<*, *> }["status"])
+    }
+
+    @Test
+    fun `concurrent generation advance waits for prior admission transaction`() {
+        val reachedArm = CountDownLatch(1)
+        val releaseArm = CountDownLatch(1)
+        val contenderStarted = CountDownLatch(1)
+        val firstBridge = AndroidAlarmBridge(context).also { bridge ->
+            bridge.setBeforeAlarmManagerMutationForTest {
+                reachedArm.countDown()
+                check(releaseArm.await(5, TimeUnit.SECONDS))
+            }
+        }
+        val secondBridge = AndroidAlarmBridge(context)
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val first = executor.submit<CapturingResult> {
+                CapturingResult().also { result ->
+                    firstBridge.onMethodCall(
+                        MethodCall(
+                            "scheduleOccurrences",
+                            scheduleArguments(
+                                "serialized-old",
+                                "serialized-slot",
+                                "serialized-plan",
+                                reservationGeneration = 1L,
+                            ),
+                        ),
+                        result,
+                    )
+                }
+            }
+            assertTrue(reachedArm.await(5, TimeUnit.SECONDS))
+            val second = executor.submit<CapturingResult> {
+                contenderStarted.countDown()
+                CapturingResult().also { result ->
+                    secondBridge.onMethodCall(
+                        MethodCall(
+                            "scheduleOccurrences",
+                            scheduleArguments(
+                                "serialized-new",
+                                "serialized-slot",
+                                "serialized-plan",
+                                reservationGeneration = 2L,
+                            ),
+                        ),
+                        result,
+                    )
+                }
+            }
+
+            assertTrue(contenderStarted.await(5, TimeUnit.SECONDS))
+            assertThrows(TimeoutException::class.java) {
+                second.get(200, TimeUnit.MILLISECONDS)
+            }
+            releaseArm.countDown()
+            val firstRow = ((first.get(5, TimeUnit.SECONDS).value as Map<*, *>)["occurrences"] as List<*>)
+                .single() as Map<*, *>
+            val secondRow = ((second.get(5, TimeUnit.SECONDS).value as Map<*, *>)["occurrences"] as List<*>)
+                .single() as Map<*, *>
+            val persisted = AlarmStore(context)
+                .inventory(context, System.currentTimeMillis())
+                .requests.single()
+
+            assertEquals("success", firstRow["status"])
+            assertEquals("success", secondRow["status"])
+            assertEquals(2L, persisted.reservationGeneration)
+            assertEquals("serialized-new", persisted.occurrenceId)
+            assertEquals(listOf(persisted.platformAlarmId), scheduledAlarmIds())
+            assertEquals(
+                ReservationAuthorityState.ACTIVE,
+                ReservationAuthorityStore(context).load()
+                    .reservations[persisted.reservationId]?.state,
+            )
+        } finally {
+            releaseArm.countDown()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `recovery cannot mutate a partially admitted schedule transaction`() {
+        val reachedArm = CountDownLatch(1)
+        val releaseArm = CountDownLatch(1)
+        val contenderStarted = CountDownLatch(1)
+        val bridge = AndroidAlarmBridge(context).also { configured ->
+            configured.setBeforeAlarmManagerMutationForTest {
+                reachedArm.countDown()
+                check(releaseArm.await(5, TimeUnit.SECONDS))
+            }
+        }
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val schedule = executor.submit<CapturingResult> {
+                CapturingResult().also { result ->
+                    bridge.onMethodCall(
+                        MethodCall(
+                            "scheduleOccurrences",
+                            scheduleArguments(
+                                "recovery-serialized-occurrence",
+                                "recovery-serialized-slot",
+                                "recovery-serialized-plan",
+                                reservationGeneration = 3L,
+                            ),
+                        ),
+                        result,
+                    )
+                }
+            }
+            assertTrue(reachedArm.await(5, TimeUnit.SECONDS))
+            val recovery = executor.submit<AlarmReplacementRecoveryResult> {
+                contenderStarted.countDown()
+                AndroidAlarmReplacementRecovery.reconcile(context, context)
+            }
+
+            assertTrue(contenderStarted.await(5, TimeUnit.SECONDS))
+            assertThrows(TimeoutException::class.java) {
+                recovery.get(200, TimeUnit.MILLISECONDS)
+            }
+            releaseArm.countDown()
+            val row = ((schedule.get(5, TimeUnit.SECONDS).value as Map<*, *>)["occurrences"] as List<*>)
+                .single() as Map<*, *>
+            val recoveryResult = recovery.get(5, TimeUnit.SECONDS)
+            val persisted = AlarmStore(context)
+                .inventory(context, System.currentTimeMillis())
+                .requests.single()
+
+            assertEquals("success", row["status"])
+            assertTrue(recoveryResult.isSuccess)
+            assertEquals(3L, persisted.reservationGeneration)
+            assertEquals(listOf(persisted.platformAlarmId), scheduledAlarmIds())
+            assertEquals(
+                ReservationAuthorityState.ACTIVE,
+                ReservationAuthorityStore(context).load()
+                    .reservations[persisted.reservationId]?.state,
+            )
+            assertFalse(activationCleanupPreferences().contains("active"))
+        } finally {
+            releaseArm.countDown()
+            executor.shutdownNow()
+        }
     }
 
     @Test
