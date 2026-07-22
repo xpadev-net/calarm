@@ -673,7 +673,11 @@
 
 ### Task_23: Make ringing dismissal durable across native-success persistence failure
 
-- status: unstarted
+- status: complete
+- worker: `019f8724-ed66-7d90-8c12-a007d59b274e`
+- branch: `codex/task-23-durable-ringing-dismissal`
+- pr: [#65](https://github.com/xpadev-net/calarm/pull/65)
+- merged: `a5fa83cb7f5b0bc2fd8226049a24ff0bd0db300c`
 - type: impl
 - owns:
   - `lib/features/alarm_ringing/application/alarm_ringing_controller.dart`
@@ -1066,6 +1070,13 @@
   - Android may fire an OS-armed recreation candidate before its mirror commit; current `AlarmReceiver` drops it because delivery admission reads the mirror before invoking recovery. Task_26 owns only the receiver/inventory admission fix and waits for Task_25's hosted JVM gate.
   - A stable slot rebind currently lacks monotonic generation/retirement evidence, so delayed replay of an older occurrence can roll the slot backward. This remains part of Task_24's cross-platform contract, with narrowly expanded domain/Drift/repository/migration ownership after Task_23 merges.
   - Task_24 may fix opaque reservation cancellation and expired Android journal handling within its original owns now, but PR #67 remains frozen and not merge-ready until Tasks 23, 25, and 26 merge, the generation migration is implemented, fresh exact-head review approves, and CI supplies every platform gate.
+
+- 2026-07-22 Task_23 durable ringing dismissal completed.
+  - PR [#65](https://github.com/xpadev-net/calarm/pull/65) merged exact approved head `47bb9d07937725883a4395816534472316103a6b` as `a5fa83cb7f5b0bc2fd8226049a24ff0bd0db300c`.
+  - A persisted dismissal intent now precedes native cancellation; native success followed by Drift failure converges through exact retry/reopen replay, while failed or ambiguous cancellation remains retryable and cannot dismiss another occurrence.
+  - The additive schema-v2 migration is rollback/re-upgrade aware, and Task_22-retired identities are refreshed without losing the durable user dismissal.
+  - Fresh exact-head review approved. Worker and orchestrator `gh-review-hook 65` exited 0; PR-owned Baseline CI, Greptile, CodeRabbit, and Socket checks succeeded with CLEAN, zero-behind state. Exact-head Android APK/emulator native smoke run `29886103577` succeeded.
+  - The failed run `29886217060` was explicitly excluded because it belongs to Task_25 PR #68, not Task_23. Heavy local validation remained disabled under the battery override.
 
 ## Decision Log
 
