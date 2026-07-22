@@ -272,6 +272,11 @@ Response:
 
 Dart correlates cancel rows by `(occurrenceId, platformAlarmId)`. The `platformAlarmId` is required and must be the stored identity returned by a previous successful or recoverable schedule result.
 
+The caller must send the durable tuple attached to its persisted dismissal
+intent. Inventory may prove authoritative absence after a lost cancellation
+reply, but it must not upgrade or rewrite a stale dismissal tuple to a newer
+reservation generation. A persisted/native mismatch remains fail-closed.
+
 On method-level `PlatformException`, Dart converts the error to one failed `CancelAlarmResult` for each requested alarm.
 
 ## `cancelPlan`
