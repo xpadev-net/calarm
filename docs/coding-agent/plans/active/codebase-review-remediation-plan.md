@@ -696,7 +696,7 @@
 ### Task_24: Unify stable reservation recreation identity across platforms
 
 - status: in progress
-- worker: `019f875e-00fb-7440-b136-51c70bad8c78`
+- worker: `client-new-thread:da74e707-4f2e-4d24-bdd4-0bcb9bb5af1c`
 - branch: `codex/task-24-stable-recreation-identity`
 - type: impl
 - owns:
@@ -1081,6 +1081,11 @@
 - 2026-07-22 Task_24 occurrence-model ownership corrected after Task_23 integration.
   - The persisted occurrence model is `domain/src/alarm_occurrence.dart`, not `domain/src/wake_plan.dart`; Task_24 owns only its nullable/defaulted reservation identity and nonnegative generation fields plus matching domain tests.
   - The approved schema-v3 design extends `AlarmOccurrence` and `alarm_occurrence_rows` additively on Task_23 schema v2. A parallel identity table is not introduced merely to preserve an incorrect path boundary.
+
+- 2026-07-22 Task_24 replacement worker queued after worktree loss.
+  - The original worker twice stopped with a transport error; its dedicated worktree and Git registration then disappeared. Read-only recovery found no Git object containing the reported uncommitted schema-v3 edits.
+  - The committed Task_24 head `76707340b7bc86cc08b6b321fdd11dee2c3309e5` and the normal Task_23/master integration at local branch head `55f13057e03b36c9fc37c67dbf5c5eea9f06bb1f` remain intact.
+  - Replacement worker `client-new-thread:da74e707-4f2e-4d24-bdd4-0bcb9bb5af1c` must reconstruct only the lost schema-v3 delta in a fresh dedicated worktree; PR #67 remains not merge-ready and no validation gate is waived.
 
 ## Decision Log
 
