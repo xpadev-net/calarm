@@ -44,6 +44,8 @@ class AlarmReceiverTest {
             .edit()
             .clear()
             .commit()
+        deviceProtectedPreferences("native_alarm_events").edit().clear().commit()
+        replacementPreferences().edit().clear().commit()
         deviceProtectedPreferences().edit().clear().commit()
         Shadows.shadowOf(application).clearNextStartedActivities()
         ShadowVibrator.reset()
@@ -55,6 +57,8 @@ class AlarmReceiverTest {
             .edit()
             .clear()
             .commit()
+        deviceProtectedPreferences("native_alarm_events").edit().clear().commit()
+        replacementPreferences().edit().clear().commit()
         deviceProtectedPreferences().edit().clear().commit()
         Shadows.shadowOf(application).clearNextStartedActivities()
         ShadowVibrator.reset()
@@ -246,6 +250,140 @@ class AlarmReceiverTest {
                 .isEmpty(),
         )
         assertNull(shadowVibrator().getVibrationAttributesFromLastVibration())
+    }
+
+    @Test
+    fun `receiver recovers an armed candidate before mirror lookup and admits it once`() {
+        val reservationId = "receiver-recovery"
+        val old = alarmRequest(
+            platformAlarmId = "android:reservation:$reservationId",
+            vibrationEnabled = false,
+            reservationId = reservationId,
+            occurrenceId = "receiver-recovery-old",
+            wakePlanId = "receiver-recovery-plan",
+        )
+        val candidateTemplate = old.copy(occurrenceId = "receiver-recovery-new")
+        val candidate = candidateTemplate.copy(
+            platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(candidateTemplate),
+        )
+        assertTrue(AlarmStore(context).put(old))
+        assertTrue(
+            replacementPreferences().edit()
+                .putString(
+                    "active",
+                    AlarmReplacementJournal(
+                        old = old,
+                        new = candidate,
+                        phase = AlarmReplacementPhase.CANDIDATE_ARMED,
+                    ).toJson().toString(),
+                )
+                .commit(),
+        )
+
+        val receiverIntent = Shadows.shadowOf(
+            AlarmIntents.receiver(context, candidate.platformAlarmId),
+        ).savedIntent
+        AlarmReceiver().onReceive(context, receiverIntent)
+
+        assertEquals(AlarmState.RINGING, AlarmStore(context).get(candidate.platformAlarmId)?.state)
+        assertNull(AlarmStore(context).get(old.platformAlarmId))
+        assertNull(AlarmReplacementJournalStore(context).load())
+        assertNotNull(Shadows.shadowOf(application).peekNextStartedActivity())
+        assertEquals(
+            1,
+            AlarmEventStore(context).fetch().events.count {
+                it.eventId == AlarmEvent.idFor(candidate.platformAlarmId, AlarmEventType.DELIVERED)
+            },
+        )
+
+        Shadows.shadowOf(application).clearNextStartedActivities()
+        AlarmReceiver().onReceive(context, receiverIntent)
+
+        assertNull(Shadows.shadowOf(application).peekNextStartedActivity())
+        assertEquals(
+            1,
+            AlarmEventStore(context).fetch().events.count {
+                it.eventId == AlarmEvent.idFor(candidate.platformAlarmId, AlarmEventType.DELIVERED)
+            },
+        )
+    }
+
+    @Test
+    fun `receiver fails closed on corrupt replacement journal and retains evidence`() {
+        val platformAlarmId = "android:reservation:corrupt-recovery"
+        val request = alarmRequest(platformAlarmId, vibrationEnabled = true)
+        assertTrue(AlarmStore(context).put(request))
+        val corruptJournal = "{\"old\":{\"platformAlarmId\":\"$platformAlarmId\""
+        assertTrue(replacementPreferences().edit().putString("active", corruptJournal).commit())
+
+        AlarmReceiver().onReceive(
+            context,
+            Shadows.shadowOf(AlarmIntents.receiver(context, platformAlarmId)).savedIntent,
+        )
+
+        assertEquals(AlarmState.SCHEDULED, AlarmStore(context).get(platformAlarmId)?.state)
+        assertEquals(corruptJournal, replacementPreferences().getString("active", null))
+        assertTrue(
+            context.getSystemService(NotificationManager::class.java)
+                .activeNotifications
+                .isEmpty(),
+        )
+        assertNull(Shadows.shadowOf(application).peekNextStartedActivity())
+        assertNull(shadowVibrator().getVibrationAttributesFromLastVibration())
+        assertTrue(AlarmEventStore(context).fetch().events.isEmpty())
+    }
+
+    @Test
+    fun `receiver delivers a safe alarm when corrupt evidence claims another identity`() {
+        val platformAlarmId = "android:plan:corrupt-unrelated-safe"
+        val request = alarmRequest(platformAlarmId, vibrationEnabled = false)
+        val corruptJournal =
+            "{\"old\":{\"platformAlarmId\":\"android:reservation:other\""
+        assertTrue(AlarmStore(context).put(request))
+        assertTrue(replacementPreferences().edit().putString("active", corruptJournal).commit())
+
+        AlarmReceiver().onReceive(
+            context,
+            Shadows.shadowOf(AlarmIntents.receiver(context, platformAlarmId)).savedIntent,
+        )
+
+        assertEquals(AlarmState.RINGING, AlarmStore(context).get(platformAlarmId)?.state)
+        assertNotNull(Shadows.shadowOf(application).peekNextStartedActivity())
+        assertEquals(corruptJournal, replacementPreferences().getString("active", null))
+    }
+
+    @Test
+    fun `receiver delivers an unrelated safe alarm while retaining other recovery evidence`() {
+        val safe = alarmRequest(
+            platformAlarmId = "android:plan:unrelated-safe",
+            vibrationEnabled = false,
+        )
+        val otherReservation = "other-recovery"
+        val otherOld = alarmRequest(
+            platformAlarmId = "android:reservation:$otherReservation",
+            vibrationEnabled = false,
+            reservationId = otherReservation,
+            occurrenceId = "other-recovery-old",
+        )
+        val otherNewTemplate = otherOld.copy(occurrenceId = "other-recovery-new")
+        val otherNew = otherNewTemplate.copy(
+            platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(otherNewTemplate),
+        )
+        assertTrue(AlarmStore(context).put(safe))
+        assertTrue(
+            AlarmReplacementJournalStore(context).save(
+                AlarmReplacementJournal(old = otherOld, new = otherNew),
+            ),
+        )
+
+        AlarmReceiver().onReceive(
+            context,
+            Shadows.shadowOf(AlarmIntents.receiver(context, safe.platformAlarmId)).savedIntent,
+        )
+
+        assertEquals(AlarmState.RINGING, AlarmStore(context).get(safe.platformAlarmId)?.state)
+        assertNotNull(Shadows.shadowOf(application).peekNextStartedActivity())
+        assertNotNull(AlarmReplacementJournalStore(context).load())
     }
 
     @Test
@@ -616,12 +754,15 @@ class AlarmReceiverTest {
         return Shadows.shadowOf(context.getSystemService(Vibrator::class.java))
     }
 
-    private fun deviceProtectedPreferences() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-        context.createDeviceProtectedStorageContext()
-            .getSharedPreferences("native_alarm_store", Context.MODE_PRIVATE)
-    } else {
-        context.getSharedPreferences("native_alarm_store", Context.MODE_PRIVATE)
-    }
+    private fun deviceProtectedPreferences(name: String = "native_alarm_store") =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            context.createDeviceProtectedStorageContext()
+                .getSharedPreferences(name, Context.MODE_PRIVATE)
+        } else {
+            context.getSharedPreferences(name, Context.MODE_PRIVATE)
+        }
+
+    private fun replacementPreferences() = deviceProtectedPreferences("native_alarm_replacement_journal")
 
     private fun alarmRequest(
         platformAlarmId: String,
@@ -629,13 +770,16 @@ class AlarmReceiverTest {
         wakePlanId: String = "plan",
         scheduledAtMillis: Long = System.currentTimeMillis() + 60_000,
         targetAtMillis: Long = scheduledAtMillis,
+        reservationId: String? = null,
+        occurrenceId: String? = null,
         indexInPlan: Int? = null,
         totalInPlan: Int? = null,
         isTest: Boolean = false,
     ): AlarmRequest {
-        val occurrenceId = platformAlarmId.substringAfterLast(':')
+        val resolvedOccurrenceId = occurrenceId ?: platformAlarmId.substringAfterLast(':')
         return AlarmRequest(
-            occurrenceId = occurrenceId,
+            occurrenceId = resolvedOccurrenceId,
+            reservationId = reservationId ?: resolvedOccurrenceId,
             wakePlanId = wakePlanId,
             scheduledAtMillis = scheduledAtMillis,
             targetAtMillis = targetAtMillis,
