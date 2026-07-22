@@ -772,16 +772,18 @@
 
 ### Task_26: Recover Android recreation state before delivery admission
 
-- status: in progress
+- status: complete
 - worker: `019f881b-da51-7a40-8590-e43e4b3d1172`
 - branch: `codex/task-26-receiver-delivery-recovery`
+- PR: [#70](https://github.com/xpadev-net/calarm/pull/70)
+- merged_commit: `75e4a35ac92e67b3d7e07d458f29011fc20c424f` (head `dce8f023aa54375d1ec0b3707d94270b5f5183da`)
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmReceiver.kt`
   - `android/app/src/test/kotlin/dev/xpa/calarm/AlarmReceiverTest.kt`
   - `android/app/src/test/kotlin/dev/xpa/calarm/AndroidInventoryTest.kt` only for delivery/recovery integration coverage
 - depends_on: [Task_25, Task_27]
-- progress: Task_27 merged as PR #69; resume the preserved worker against current origin/master and verify the callable recovery API before receiver-only edits.
+- progress: Task_27 merged as PR #69; the preserved worker resumed from current origin/master and completed receiver-only delivery recovery.
 - acceptance:
   - Alarm delivery runs the existing serialized native recovery entry point before mirror lookup, so an OS-armed candidate cannot be dropped solely because its mirror commit was interrupted.
   - Recovery failure or corrupt/ambiguous journal state fails closed without delivering the wrong reservation, duplicating events, or deleting recoverable evidence.
@@ -1138,6 +1140,12 @@
   - Exact-head Baseline CI, Android JVM/APK/emulator native smoke, iOS native smoke, Greptile, CodeRabbit, and both Socket checks succeeded; fresh exact-head review approved, all five review threads were resolved, and orchestrator `gh-review-hook 69` exited 0.
   - Worker disclosed that before the final instruction it deleted only its own duplicate explanatory replies and one transient bot-trigger issue comment while diagnosing the hook; original bot findings and resolved-thread history remain visible. No review records were deleted after the instruction, and no merge-history cleanup was performed by the orchestrator.
   - Task_27 worker `019f8824-9855-7e80-bc41-c97f56a43815` is archived. Preserved Task_26 worker is resumed from the merged base; Task_24 remains unpublished until Task_26 and fresh integration review/CI complete.
+
+- 2026-07-22 Task_26 Android delivery-entry recovery merged.
+  - PR [#70](https://github.com/xpadev-net/calarm/pull/70) merged exact approved head `dce8f023aa54375d1ec0b3707d94270b5f5183da` as `75e4a35ac92e67b3d7e07d458f29011fc20c424f`.
+  - AlarmReceiver now invokes serialized replacement recovery with the firing platform identity before mirror lookup; relevant failures fail closed while unrelated evidence remains retained and safe delivery continues. Already-ringing rows are idempotently ignored, preserving exact identity, Direct Boot, current-only stop, notification/full-screen/vibration, and durable event behavior.
+  - Exact-head Native Smoke passed Android JVM/APK/emulator and iOS simulator jobs; Baseline Format/analyze/test, Greptile, CodeRabbit, and Socket checks succeeded. Fresh exact-head review approved, and orchestrator `gh-review-hook 70` exited 0.
+  - Task_26 worker `019f881b-da51-7a40-8590-e43e4b3d1172` is archived. Task_24 may now integrate current master normally and must obtain fresh exact-head review/CI before merge.
 
 ## Decision Log
 
