@@ -725,7 +725,7 @@
 ### Task_25: Add the hosted Android JVM test gate
 
 - status: in progress
-- worker: `client-new-thread:b02a6dc6-65a9-4283-a82a-d52b3c4aedbb`
+- worker: `019f8794-042d-72f3-b9df-0e8c8aa9899d`
 - branch: `codex/task-25-hosted-android-jvm-gate`
 - type: ci
 - owns:
