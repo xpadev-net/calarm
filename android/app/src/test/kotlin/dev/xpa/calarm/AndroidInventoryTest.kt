@@ -38,6 +38,8 @@ class AndroidInventoryTest {
         context = RuntimeEnvironment.getApplication()
         mirrorPreferences().edit().clear().commit()
         credentialPreferences().edit().clear().commit()
+        replacementPreferences().edit().clear().commit()
+        replacementCredentialPreferences().edit().clear().commit()
         ShadowAlarmManager.reset()
         ShadowAlarmManager.setCanScheduleExactAlarms(true)
         Shadows.shadowOf(context.applicationContext as Application).clearNextStartedActivities()
@@ -50,6 +52,8 @@ class AndroidInventoryTest {
     fun tearDown() {
         mirrorPreferences().edit().clear().commit()
         credentialPreferences().edit().clear().commit()
+        replacementPreferences().edit().clear().commit()
+        replacementCredentialPreferences().edit().clear().commit()
         ShadowAlarmManager.reset()
         ShadowAlarmManager.setCanScheduleExactAlarms(true)
         Shadows.shadowOf(context.applicationContext as Application).clearNextStartedActivities()
@@ -805,6 +809,304 @@ class AndroidInventoryTest {
         assertEquals("success", ((duplicateCancel.value as Map<*, *>)["alarms"] as List<*>).single().let { it as Map<*, *> }["status"])
     }
 
+    @Test
+    fun `replacement recovery converges every crash seam and lost reply`() {
+        data class CrashSeam(
+            val name: String,
+            val phase: AlarmReplacementPhase,
+            val armCandidate: Boolean,
+            val mirrorCommitted: Boolean,
+            val expectedNewWinner: Boolean,
+        )
+
+        val seams = listOf(
+            CrashSeam(
+                name = "pre-arm",
+                phase = AlarmReplacementPhase.STAGING,
+                armCandidate = false,
+                mirrorCommitted = false,
+                expectedNewWinner = false,
+            ),
+            CrashSeam(
+                name = "post-arm-pre-phase",
+                phase = AlarmReplacementPhase.STAGING,
+                armCandidate = true,
+                mirrorCommitted = false,
+                expectedNewWinner = false,
+            ),
+            CrashSeam(
+                name = "post-arm-pre-mirror",
+                phase = AlarmReplacementPhase.CANDIDATE_ARMED,
+                armCandidate = true,
+                mirrorCommitted = false,
+                expectedNewWinner = false,
+            ),
+            CrashSeam(
+                name = "mirror-commit-pre-retirement",
+                phase = AlarmReplacementPhase.OLD_RETIRED,
+                armCandidate = true,
+                mirrorCommitted = true,
+                expectedNewWinner = true,
+            ),
+        )
+
+        for (seam in seams) {
+            setUp()
+            val reservationId = "recovery-${seam.name}"
+            val old = alarmRequest(
+                platformAlarmId = "android:reservation:$reservationId",
+                reservationId = reservationId,
+                occurrenceId = "$reservationId-old",
+                wakePlanId = "recovery-plan",
+            )
+            val newTemplate = old.copy(occurrenceId = "$reservationId-new")
+            val candidate = newTemplate.copy(
+                platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(newTemplate),
+            )
+            val store = AlarmStore(context)
+            assertTrue(store.put(old))
+            armForRecoveryTest(old)
+            if (seam.armCandidate) armForRecoveryTest(candidate)
+            if (seam.mirrorCommitted) {
+                assertTrue(store.replace(old.platformAlarmId, candidate.platformAlarmId, candidate))
+            }
+            assertTrue(
+                AlarmReplacementJournalStore(context).save(
+                    AlarmReplacementJournal(old = old, new = candidate, phase = seam.phase),
+                ),
+            )
+            assertNotNull(replacementPreferences().getString("active", null))
+            assertFalse(replacementCredentialPreferences().contains("active"))
+
+            val first = AndroidAlarmReplacementRecovery.reconcile(context, context)
+            val firstWinner = AlarmStore(context).inventory(context, System.currentTimeMillis())
+                .requests.single()
+            val second = AndroidAlarmReplacementRecovery.reconcile(context, context)
+            val secondWinner = AlarmStore(context).inventory(context, System.currentTimeMillis())
+                .requests.single()
+
+            assertTrue(seam.name, first.isSuccess)
+            assertTrue("${seam.name} lost reply", second.isSuccess)
+            assertEquals(
+                if (seam.expectedNewWinner) candidate.occurrenceId else old.occurrenceId,
+                firstWinner.occurrenceId,
+            )
+            assertEquals(firstWinner, secondWinner)
+            assertEquals(1, scheduledAlarms().size)
+            assertEquals(listOf(firstWinner.platformAlarmId), scheduledAlarmIds())
+            assertNull(AlarmReplacementJournalStore(context).load())
+        }
+    }
+
+    @Test
+    fun `replacement recovery preserves the exact due alarm being admitted`() {
+        for (phase in listOf(
+            AlarmReplacementPhase.STAGING,
+            AlarmReplacementPhase.CANDIDATE_ARMED,
+        )) {
+            setUp()
+            val reservationId = "due-admission-${phase.name.lowercase()}"
+            val old = alarmRequest(
+                platformAlarmId = "android:reservation:$reservationId",
+                reservationId = reservationId,
+                occurrenceId = "$reservationId-old",
+                wakePlanId = "due-admission-plan",
+                scheduledAtMillis = System.currentTimeMillis() - 1_000,
+            )
+            val newTemplate = old.copy(
+                occurrenceId = "$reservationId-new",
+                scheduledAtMillis = System.currentTimeMillis() + 60_000,
+                targetAtMillis = System.currentTimeMillis() + 60_000,
+            )
+            val candidate = newTemplate.copy(
+                platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(newTemplate),
+            )
+            assertTrue(AlarmStore(context).put(old))
+            armForRecoveryTest(old)
+            if (phase == AlarmReplacementPhase.CANDIDATE_ARMED) armForRecoveryTest(candidate)
+            assertTrue(
+                AlarmReplacementJournalStore(context).save(
+                    AlarmReplacementJournal(old = old, new = candidate, phase = phase),
+                ),
+            )
+            context.getSystemService(AlarmManager::class.java)
+                .cancel(AlarmIntents.receiver(context, old.platformAlarmId))
+
+            val recovery = AndroidAlarmReplacementRecovery.reconcile(
+                context,
+                context,
+                admittingPlatformAlarmId = old.platformAlarmId,
+            )
+
+            assertTrue(recovery.isSuccess)
+            assertNotNull(AlarmStore(context).get(old.platformAlarmId))
+            assertNull(AlarmStore(context).get(candidate.platformAlarmId))
+            assertTrue(scheduledAlarmIds().isEmpty())
+            assertNull(AlarmReplacementJournalStore(context).load())
+        }
+    }
+
+    @Test
+    fun `committed due candidate remains authoritative during its admission`() {
+        val dueAt = System.currentTimeMillis() - 1_000
+        val old = alarmRequest(
+            platformAlarmId = "android:reservation:committed-due-slot",
+            reservationId = "committed-due-slot",
+            occurrenceId = "committed-due-old",
+            wakePlanId = "committed-due-plan",
+            scheduledAtMillis = dueAt,
+        )
+        val newTemplate = old.copy(occurrenceId = "committed-due-new")
+        val candidate = newTemplate.copy(
+            platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(newTemplate),
+        )
+        assertTrue(AlarmStore(context).put(candidate))
+        armForRecoveryTest(candidate)
+        assertTrue(
+            AlarmReplacementJournalStore(context).save(
+                AlarmReplacementJournal(
+                    old = old,
+                    new = candidate,
+                    phase = AlarmReplacementPhase.OLD_RETIRED,
+                ),
+            ),
+        )
+        context.getSystemService(AlarmManager::class.java)
+            .cancel(AlarmIntents.receiver(context, candidate.platformAlarmId))
+
+        val recovery = AndroidAlarmReplacementRecovery.reconcile(
+            context,
+            context,
+            admittingPlatformAlarmId = candidate.platformAlarmId,
+        )
+
+        assertTrue(recovery.isSuccess)
+        assertNotNull(AlarmStore(context).get(candidate.platformAlarmId))
+        assertTrue(scheduledAlarmIds().isEmpty())
+        assertNull(AlarmReplacementJournalStore(context).load())
+    }
+
+    @Test
+    fun `unrelated admission identity fails closed and retains replacement evidence`() {
+        val old = alarmRequest(
+            platformAlarmId = "android:reservation:admission-owner-slot",
+            reservationId = "admission-owner-slot",
+            occurrenceId = "admission-owner-old",
+            wakePlanId = "admission-owner-plan",
+        )
+        val newTemplate = old.copy(occurrenceId = "admission-owner-new")
+        val candidate = newTemplate.copy(
+            platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(newTemplate),
+        )
+        assertTrue(AlarmStore(context).put(old))
+        armForRecoveryTest(old)
+        assertTrue(
+            AlarmReplacementJournalStore(context).save(
+                AlarmReplacementJournal(old = old, new = candidate),
+            ),
+        )
+        val evidence = replacementPreferences().getString("active", null)
+
+        val recovery = AndroidAlarmReplacementRecovery.reconcile(
+            context,
+            context,
+            admittingPlatformAlarmId = "android:reservation:unrelated-slot",
+        )
+
+        assertFalse(recovery.isSuccess)
+        assertNotNull(AlarmStore(context).get(old.platformAlarmId))
+        assertEquals(evidence, replacementPreferences().getString("active", null))
+        assertEquals(listOf(old.platformAlarmId), scheduledAlarmIds())
+    }
+
+    @Test
+    fun `corrupt and ambiguous replacement journals fail closed and retain evidence`() {
+        val retained = alarmRequest(
+            platformAlarmId = "android:reservation:retained-recovery-slot",
+            reservationId = "retained-recovery-slot",
+            occurrenceId = "retained-recovery-occurrence",
+            wakePlanId = "retained-recovery-plan",
+        )
+        assertTrue(AlarmStore(context).put(retained))
+        val invalidJournals = listOf(
+            "not-json",
+            JSONObject()
+                .put("schemaVersion", 1)
+                .put("old", retained.toJson())
+                .put(
+                    "new",
+                    retained.copy(
+                        occurrenceId = "ambiguous-occurrence",
+                        reservationId = "different-reservation",
+                    ).toJson(),
+                )
+                .put("phase", AlarmReplacementPhase.CANDIDATE_ARMED.name)
+                .toString(),
+        )
+
+        for (journal in invalidJournals) {
+            assertTrue(replacementPreferences().edit().putString("active", journal).commit())
+
+            val first = AndroidAlarmReplacementRecovery.reconcile(context, context)
+            val second = AndroidAlarmReplacementRecovery.reconcile(context, context)
+
+            assertFalse(first.isSuccess)
+            assertFalse(second.isSuccess)
+            assertNotNull(AlarmStore(context).get(retained.platformAlarmId))
+            assertEquals(journal, replacementPreferences().getString("active", null))
+            assertEquals(0, scheduledAlarms().size)
+        }
+    }
+
+    @Test
+    fun `expired replacement recovery retires both generations in every phase`() {
+        for (phase in AlarmReplacementPhase.values()) {
+            setUp()
+            val expiredAt = System.currentTimeMillis() - 1_000
+            val reservationId = "expired-recovery-${phase.name.lowercase()}"
+            val old = alarmRequest(
+                platformAlarmId = "android:reservation:$reservationId",
+                reservationId = reservationId,
+                occurrenceId = "$reservationId-old",
+                wakePlanId = "expired-recovery-plan",
+                scheduledAtMillis = expiredAt,
+            )
+            val newTemplate = old.copy(occurrenceId = "$reservationId-new")
+            val candidate = newTemplate.copy(
+                platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(newTemplate),
+            )
+            assertTrue(AlarmStore(context).put(old))
+            assertTrue(AlarmStore(context).put(candidate))
+            armForRecoveryTest(old)
+            armForRecoveryTest(candidate)
+            assertTrue(
+                AlarmReplacementJournalStore(context).save(
+                    AlarmReplacementJournal(old = old, new = candidate, phase = phase),
+                ),
+            )
+
+            val first = AndroidAlarmReplacementRecovery.reconcile(context, context)
+            val second = AndroidAlarmReplacementRecovery.reconcile(context, context)
+
+            assertTrue(first.isSuccess)
+            assertTrue(second.isSuccess)
+            assertNull(AlarmStore(context).get(old.platformAlarmId))
+            assertNull(AlarmStore(context).get(candidate.platformAlarmId))
+            assertEquals(0, scheduledAlarms().size)
+            assertNull(AlarmReplacementJournalStore(context).load())
+        }
+    }
+
+    private fun armForRecoveryTest(request: AlarmRequest) {
+        context.getSystemService(AlarmManager::class.java).setAlarmClock(
+            AlarmManager.AlarmClockInfo(
+                request.scheduledAtMillis,
+                AlarmIntents.showIntent(context, request.platformAlarmId),
+            ),
+            AlarmIntents.receiver(context, request.platformAlarmId),
+        )
+    }
+
     private fun scheduleArguments(
         occurrenceId: String,
         reservationId: String,
@@ -836,6 +1138,12 @@ class AndroidInventoryTest {
     private fun credentialPreferences() = context
         .getSharedPreferences("native_alarm_store", Context.MODE_PRIVATE)
 
+    private fun replacementPreferences() = deviceProtectedContext()
+        .getSharedPreferences("native_alarm_replacement_journal", Context.MODE_PRIVATE)
+
+    private fun replacementCredentialPreferences() = context
+        .getSharedPreferences("native_alarm_replacement_journal", Context.MODE_PRIVATE)
+
     private fun deviceProtectedContext(): Context {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             context.createDeviceProtectedStorageContext()
@@ -846,6 +1154,13 @@ class AndroidInventoryTest {
 
     private fun scheduledAlarms(): List<ShadowAlarmManager.ScheduledAlarm> {
         return Shadows.shadowOf(context.getSystemService(AlarmManager::class.java)).scheduledAlarms
+    }
+
+    private fun scheduledAlarmIds(): List<String> {
+        return scheduledAlarms().mapNotNull { alarm ->
+            Shadows.shadowOf(alarm.operation).savedIntent
+                .getStringExtra(AlarmIntents.EXTRA_PLATFORM_ALARM_ID)
+        }
     }
 
     private fun shadowVibrator(): ShadowVibrator {

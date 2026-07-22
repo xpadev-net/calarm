@@ -19,6 +19,7 @@ import android.provider.Settings
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.security.MessageDigest
 import java.time.Instant
 import org.json.JSONException
 import org.json.JSONObject
@@ -897,6 +898,7 @@ data class AlarmRequest(
             wakePlanId.isNotBlank() &&
             (platformAlarmId == stablePlatformAlarmId(this) ||
                 platformAlarmId == legacyPlatformAlarmId(this) ||
+                platformAlarmId == replacementPlatformAlarmId(this) ||
                 (isTest && platformAlarmId == "android:test:$occurrenceId"))
     }
 
@@ -925,6 +927,13 @@ data class AlarmRequest(
 
         fun stablePlatformAlarmId(request: AlarmRequest): String {
             return "android:reservation:${request.reservationId}"
+        }
+
+        fun replacementPlatformAlarmId(request: AlarmRequest): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+                .digest("${request.reservationId}\u0000${request.occurrenceId}".toByteArray())
+                .joinToString("") { byte -> "%02x".format(byte) }
+            return "android:replacement:$digest"
         }
 
         fun fromScheduleMap(map: Map<*, *>?): AlarmRequest? {
@@ -1299,6 +1308,28 @@ class AlarmStore(context: Context) {
         return preferences.edit().remove(platformAlarmId).commit()
     }
 
+    fun replace(
+        oldPlatformAlarmId: String,
+        newPlatformAlarmId: String,
+        winner: AlarmRequest,
+    ): Boolean {
+        val persistedWinner = winner.copy(updatedAtMillis = System.currentTimeMillis())
+        return preferences.edit()
+            .remove(oldPlatformAlarmId)
+            .remove(newPlatformAlarmId)
+            .putString(
+                persistedWinner.platformAlarmId,
+                persistedWinner.toJson().toString(),
+            )
+            .commit()
+    }
+
+    fun removeAll(platformAlarmIds: Set<String>): Boolean {
+        val editor = preferences.edit()
+        platformAlarmIds.forEach { platformAlarmId -> editor.remove(platformAlarmId) }
+        return editor.commit()
+    }
+
     fun get(platformAlarmId: String): AlarmRequest? {
         return try {
             val value = preferences.getString(platformAlarmId, null) ?: return null
@@ -1560,6 +1591,210 @@ data class AlarmInventorySnapshot(
         } else {
             AlarmState.SCHEDULED.value
         }
+    }
+}
+
+internal enum class AlarmReplacementPhase {
+    STAGING,
+    CANDIDATE_ARMED,
+    OLD_RETIRED,
+}
+
+internal data class AlarmReplacementJournal(
+    val old: AlarmRequest,
+    val new: AlarmRequest,
+    val phase: AlarmReplacementPhase = AlarmReplacementPhase.STAGING,
+) {
+    init {
+        require(old.reservationId == new.reservationId)
+        require(old.wakePlanId == new.wakePlanId)
+        require(old.occurrenceId != new.occurrenceId)
+        require(old.platformAlarmId != new.platformAlarmId)
+        require(old.hasCanonicalPlatformAlarmId())
+        require(new.platformAlarmId == AlarmRequest.replacementPlatformAlarmId(new))
+    }
+
+    fun toJson(): JSONObject {
+        return JSONObject()
+            .put("schemaVersion", 1)
+            .put("old", old.toJson())
+            .put("new", new.toJson())
+            .put("phase", phase.name)
+    }
+
+    companion object {
+        fun fromJson(json: JSONObject): AlarmReplacementJournal {
+            require(json.getInt("schemaVersion") == 1)
+            return AlarmReplacementJournal(
+                old = AlarmRequest.fromJson(json.getJSONObject("old")),
+                new = AlarmRequest.fromJson(json.getJSONObject("new")),
+                phase = AlarmReplacementPhase.valueOf(json.getString("phase")),
+            )
+        }
+    }
+}
+
+internal class AlarmReplacementJournalStore(context: Context) {
+    private val preferences = (if (
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !context.isDeviceProtectedStorage
+    ) {
+        context.createDeviceProtectedStorageContext()
+    } else {
+        context
+    })
+        .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+
+    fun load(): AlarmReplacementJournal? {
+        val value = preferences.getString(JOURNAL_KEY, null) ?: return null
+        return AlarmReplacementJournal.fromJson(JSONObject(value))
+    }
+
+    fun save(journal: AlarmReplacementJournal): Boolean {
+        return preferences.edit()
+            .putString(JOURNAL_KEY, journal.toJson().toString())
+            .commit()
+    }
+
+    fun clear(): Boolean = preferences.edit().remove(JOURNAL_KEY).commit()
+
+    private companion object {
+        const val PREFERENCES_NAME = "native_alarm_replacement_journal"
+        const val JOURNAL_KEY = "active"
+    }
+}
+
+internal data class AlarmReplacementRecoveryResult(
+    val isSuccess: Boolean,
+    val message: String? = null,
+)
+
+internal object AndroidAlarmReplacementRecovery {
+    private val lock = Any()
+
+    fun reconcile(
+        storageContext: Context,
+        serviceContext: Context,
+        admittingPlatformAlarmId: String? = null,
+    ): AlarmReplacementRecoveryResult = synchronized(lock) {
+        val appContext = serviceContext.applicationContext
+        val journalStore = AlarmReplacementJournalStore(storageContext)
+        val journal = try {
+            journalStore.load()
+        } catch (error: Exception) {
+            return@synchronized AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = error.message ?: "Native alarm replacement journal is corrupt.",
+            )
+        } ?: return@synchronized AlarmReplacementRecoveryResult(isSuccess = true)
+
+        val alarmManager = appContext.getSystemService(AlarmManager::class.java)
+        val store = AlarmStore(storageContext)
+        val now = System.currentTimeMillis()
+        if (
+            admittingPlatformAlarmId != null &&
+            admittingPlatformAlarmId != journal.old.platformAlarmId &&
+            admittingPlatformAlarmId != journal.new.platformAlarmId
+        ) {
+            return@synchronized AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Alarm admission identity does not match the active replacement journal.",
+            )
+        }
+        val isAdmittingOld = admittingPlatformAlarmId == journal.old.platformAlarmId
+        val isAdmittingNew = admittingPlatformAlarmId == journal.new.platformAlarmId
+        val oldMayWin = journal.phase != AlarmReplacementPhase.OLD_RETIRED
+        val winner = when {
+            journal.phase == AlarmReplacementPhase.OLD_RETIRED &&
+                (journal.new.scheduledAtMillis > now || isAdmittingNew) -> journal.new
+            oldMayWin && isAdmittingOld -> journal.old
+            oldMayWin && journal.old.scheduledAtMillis > now -> journal.old
+            oldMayWin && isAdmittingNew -> journal.new
+            oldMayWin && journal.new.scheduledAtMillis > now -> journal.new
+            else -> null
+        }
+        if (winner == null) {
+            val expiredPlatformAlarmIds = setOf(
+                journal.old.platformAlarmId,
+                journal.new.platformAlarmId,
+            )
+            if (!store.removeAll(expiredPlatformAlarmIds)) {
+                return@synchronized AlarmReplacementRecoveryResult(
+                    isSuccess = false,
+                    message = "Failed to retire expired native alarm replacement rows.",
+                )
+            }
+            try {
+                cancel(appContext, alarmManager, journal.old.platformAlarmId)
+                cancel(appContext, alarmManager, journal.new.platformAlarmId)
+            } catch (error: RuntimeException) {
+                return@synchronized AlarmReplacementRecoveryResult(
+                    isSuccess = false,
+                    message = error.message ?: "Failed to retire expired native alarms.",
+                )
+            }
+            if (!journalStore.clear()) {
+                return@synchronized AlarmReplacementRecoveryResult(
+                    isSuccess = false,
+                    message = "Failed to clear expired native alarm replacement journal.",
+                )
+            }
+            return@synchronized AlarmReplacementRecoveryResult(isSuccess = true)
+        }
+        val loser = if (winner == journal.new) journal.old else journal.new
+
+        if (!store.replace(
+                journal.old.platformAlarmId,
+                journal.new.platformAlarmId,
+                winner,
+            )
+        ) {
+            return@synchronized AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Failed to persist native alarm replacement winner.",
+            )
+        }
+        try {
+            if (winner.platformAlarmId != admittingPlatformAlarmId) {
+                arm(appContext, alarmManager, winner)
+            }
+            cancel(appContext, alarmManager, loser.platformAlarmId)
+        } catch (error: RuntimeException) {
+            return@synchronized AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = error.message ?: "Native alarm replacement recovery failed.",
+            )
+        }
+        if (!journalStore.clear()) {
+            return@synchronized AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Failed to clear native alarm replacement journal.",
+            )
+        }
+        AlarmReplacementRecoveryResult(isSuccess = true)
+    }
+
+    private fun arm(
+        context: Context,
+        alarmManager: AlarmManager,
+        request: AlarmRequest,
+    ) {
+        alarmManager.setAlarmClock(
+            AlarmManager.AlarmClockInfo(
+                request.scheduledAtMillis,
+                AlarmIntents.showIntent(context, request.platformAlarmId),
+            ),
+            AlarmIntents.receiver(context, request.platformAlarmId),
+        )
+    }
+
+    private fun cancel(
+        context: Context,
+        alarmManager: AlarmManager,
+        platformAlarmId: String,
+    ) {
+        val receiver = AlarmIntents.receiver(context, platformAlarmId)
+        alarmManager.cancel(receiver)
+        receiver.cancel()
     }
 }
 
