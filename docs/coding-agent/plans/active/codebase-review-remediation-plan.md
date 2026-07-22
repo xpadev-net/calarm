@@ -636,7 +636,7 @@
 
 ### Task_15: Final harmonization and repository-wide merge gate
 
-- status: in progress
+- status: complete
 - reviewer: `019f8717-1e82-7dd2-80eb-9135c20cc291`
 - review_verdict: CHANGES_REQUESTED
 - type: review
@@ -696,7 +696,7 @@
 ### Task_24: Unify stable reservation recreation identity across platforms
 
 - status: in progress
-- worker: `019f875e-00fb-7440-b136-51c70bad8c78`
+- worker: `019f87ee-5bb5-7933-a622-b0d672d60e3a`
 - branch: `codex/task-24-stable-recreation-identity`
 - type: impl
 - owns:
@@ -709,7 +709,8 @@
   - `lib/core/platform/method_channel_native_alarm_gateway.dart` only if the wire contract changes
   - corresponding Dart gateway tests
   - `lib/features/wake_plan/application/wake_plan_service.dart` and its tests only for final reconciliation alignment after Task_22 merges
-  - `lib/features/wake_plan/domain/src/wake_plan.dart` only for a monotonic reservation-generation field
+  - `lib/features/alarm_ringing/application/alarm_ringing_controller.dart` and its tests only to copy the persisted reservation ID/generation into the exact native cancellation request; no dismissal state-machine or persistence changes
+  - `lib/features/wake_plan/domain/src/alarm_occurrence.dart` only for nullable/defaulted reservation identity and a nonnegative monotonic reservation-generation field
   - `lib/features/wake_plan/data/src/wake_plan_database.dart`
   - `lib/features/wake_plan/data/src/wake_plan_database.g.dart`
   - `lib/features/wake_plan/data/src/wake_plan_repository.dart`
@@ -722,6 +723,7 @@
   - Every same-reservation rebind carries monotonic durable generation/retirement evidence, so delayed replay of an older occurrence cannot roll the slot backward on iOS, Android, fake, or Dart reconciliation.
   - The schema change layers additively on Task_23's dismissal-intent migration, remains rollback-aware, and preserves old rows with a deterministic initial generation.
   - Existing exact cancellation, inventory ownership, and backward-compatible additive channel behavior remain intact.
+  - Ringing dismissal of a recreated generation uses the occurrence's exact reservation ID and generation, so strict native admission neither rejects the current alarm nor permits a stale generation to cancel it.
 - validation:
   - kind: command; required: true; owner: worker; detail: iOS RunnerTests, focused/full Android JVM tests, Dart gateway/service identity matrices, full Flutter tests, analyze, format, debug APK, Native Smoke CI, and diff-check.
   - kind: review; required: true; owner: reviewer; detail: cross-platform schema/identity parity, crash recovery, ownership/security, and compatibility review.
@@ -731,6 +733,8 @@
 - status: in progress
 - worker: `019f8794-042d-72f3-b9df-0e8c8aa9899d`
 - branch: `codex/task-25-hosted-android-jvm-gate`
+- pr: [#68](https://github.com/xpadev-net/calarm/pull/68)
+- merged: `35d93d9454d8243d55cace9056ce4588a4f1c0cd`
 - type: ci
 - owns:
   - `.github/workflows/native-smoke.yml`
@@ -747,7 +751,9 @@
 
 ### Task_26: Recover Android recreation state before delivery admission
 
-- status: unstarted
+- status: in progress
+- worker: `019f881b-da51-7a40-8590-e43e4b3d1172`
+- branch: `codex/task-26-receiver-delivery-recovery`
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmReceiver.kt`
@@ -1077,6 +1083,25 @@
   - The additive schema-v2 migration is rollback/re-upgrade aware, and Task_22-retired identities are refreshed without losing the durable user dismissal.
   - Fresh exact-head review approved. Worker and orchestrator `gh-review-hook 65` exited 0; PR-owned Baseline CI, Greptile, CodeRabbit, and Socket checks succeeded with CLEAN, zero-behind state. Exact-head Android APK/emulator native smoke run `29886103577` succeeded.
   - The failed run `29886217060` was explicitly excluded because it belongs to Task_25 PR #68, not Task_23. Heavy local validation remained disabled under the battery override.
+
+- 2026-07-22 Task_24 occurrence-model ownership corrected after Task_23 integration.
+  - The persisted occurrence model is `domain/src/alarm_occurrence.dart`, not `domain/src/wake_plan.dart`; Task_24 owns only its nullable/defaulted reservation identity and nonnegative generation fields plus matching domain tests.
+  - The approved schema-v3 design extends `AlarmOccurrence` and `alarm_occurrence_rows` additively on Task_23 schema v2. A parallel identity table is not introduced merely to preserve an incorrect path boundary.
+
+- 2026-07-22 Task_24 replacement worker queued after worktree loss.
+  - The original worker twice stopped with a transport error; its dedicated worktree and Git registration then disappeared. Read-only recovery found no Git object containing the reported uncommitted schema-v3 edits.
+  - The committed Task_24 head `76707340b7bc86cc08b6b321fdd11dee2c3309e5` and the normal Task_23/master integration at local branch head `55f13057e03b36c9fc37c67dbf5c5eea9f06bb1f` remain intact.
+  - Replacement worker `019f87ee-5bb5-7933-a622-b0d672d60e3a` (queued as `client-new-thread:da74e707-4f2e-4d24-bdd4-0bcb9bb5af1c`) must reconstruct only the lost schema-v3 delta in a fresh dedicated worktree; PR #67 remains not merge-ready and no validation gate is waived.
+
+- 2026-07-22 Task_25 hosted Android JVM gate completed.
+  - PR [#68](https://github.com/xpadev-net/calarm/pull/68) merged exact approved head `574c9251f154ba4ab995c0d3de95f941ba21316b` as `35d93d9454d8243d55cace9056ce4588a4f1c0cd`.
+  - Native Smoke now always verifies and records the exact checked-out head and runs the complete `:app:testDebugUnitTest` suite with bounded timeout, failure propagation, logs, and unconditional artifacts; manual `run_android` controls only APK/emulator work.
+  - Exact-head run `29890721615` passed Android JVM, APK, Android job, and iOS simulator job; unavailable hosted emulator execution remained honestly BLOCKED without granting physical-device approval.
+  - Fresh exact-head review approved. Worker and orchestrator `gh-review-hook 68` exited 0; all registered CI/AI/security checks passed with CLEAN, zero-behind state. No local heavy validation ran under the battery override.
+
+- 2026-07-22 Task_24 ringing-cancellation call site narrowly attributed.
+  - Static call-site audit found `AlarmRingingController` still constructed cancellation requests without the new persisted reservation ID/generation, which would make valid recreated alarms fail strict native admission.
+  - Task_24 owns only copying those two exact fields into the request and direct regression coverage. Task_23 dismissal ordering, replay, schema-v2 intent, and controller state transitions remain frozen and out of scope.
 
 ## Decision Log
 
