@@ -637,9 +637,11 @@
 ### Task_15: Final harmonization and repository-wide merge gate
 
 - status: in progress
+- reviewer: `019f8717-1e82-7dd2-80eb-9135c20cc291`
+- review_verdict: CHANGES_REQUESTED
 - type: review
 - owns: []
-- depends_on: [Task_5, Task_11, Task_12, Task_21]
+- depends_on: [Task_5, Task_11, Task_12, Task_21, Task_22, Task_23, Task_24]
 - acceptance:
   - All confirmed findings map to merged evidence and no cross-PR contract drift remains.
   - Dart/Android/iOS channel schemas, IDs, state transitions, docs, and tests agree.
@@ -648,6 +650,64 @@
   - kind: command; required: true; owner: orchestrator; detail: `dart format --output=none --set-exit-if-changed lib test integration_test`.
   - kind: command; required: true; owner: orchestrator; detail: `flutter analyze`, full `flutter test`, `flutter build apk --debug`, and `git diff --check`.
   - kind: review; required: true; owner: reviewer; detail: repository-wide `$deep-review` and orchestrator `gh-review-hook` evidence for every final PR.
+
+### Task_22: Block edit recovery when native inventory is unavailable
+
+- status: unstarted
+- type: impl
+- owns:
+  - `lib/features/wake_plan/application/wake_plan_service.dart`
+  - `test/features/wake_plan/application/wake_plan_service_test.dart`
+- depends_on: [Task_21]
+- acceptance:
+  - A restart after edited-plan persistence but before old-reservation retirement never schedules a replacement while native inventory is unavailable or non-authoritative.
+  - The affected plan remains observably recovery-required without destructive repair; unrelated plans may continue only when their authority is independently safe.
+  - An authoritative later pass deterministically retires/adopts the old identity and schedules the edited canonical bundle without duplicates.
+- validation:
+  - kind: command; required: true; owner: worker; detail: focused edit-crash/restart/unavailable/corrupt/read-failure and later-authoritative convergence tests, repeated/concurrent reconciliation, full Flutter tests, analyze, format, debug APK, and diff-check.
+  - kind: review; required: true; owner: reviewer; detail: Task_13 authority, edit transaction crash seams, per-plan isolation, and idempotency review.
+
+### Task_23: Make ringing dismissal durable across native-success persistence failure
+
+- status: unstarted
+- type: impl
+- owns:
+  - `lib/features/alarm_ringing/application/alarm_ringing_controller.dart`
+  - `lib/features/wake_plan/data/src/wake_plan_repository.dart` only for a minimal exact-occurrence dismissal operation
+  - `lib/features/wake_plan/data/src/wake_plan_database.dart` and generated output only if a schema change proves necessary
+  - corresponding ringing-controller and repository tests
+- depends_on: [Task_21]
+- acceptance:
+  - Native cancellation success followed by Drift failure/process loss converges on retry/reopen to the exact durable dismissed occurrence instead of missed/ringing.
+  - Native cancellation failure remains retryable and does not prematurely or incorrectly dismiss another occurrence.
+  - The solution is idempotent, serialized by the shared coordinator, and avoids schema change unless required; any schema change is additive and rollback-aware.
+- validation:
+  - kind: command; required: true; owner: worker; detail: cancellation-before-effect, native-success/DB-failure, side-effect-then-throw, retry, real Drift reopen, duplicate/current-selection, full Flutter tests, analyze, format, debug APK, and diff-check.
+  - kind: review; required: true; owner: reviewer; detail: durable intent/effect ordering, compensation/replay, exact identity, concurrency, and migration review.
+
+### Task_24: Unify stable reservation recreation identity across platforms
+
+- status: unstarted
+- type: impl
+- owns:
+  - `ios/Runner/AlarmKitBridge.swift`
+  - `ios/RunnerTests/RunnerTests.swift`
+  - `android/app/src/main/kotlin/dev/xpa/calarm/AndroidAlarmBridge.kt`
+  - corresponding Android bridge tests
+  - `lib/core/platform/native_alarm_gateway.dart`
+  - `lib/core/platform/fake_native_alarm_gateway.dart`
+  - `lib/core/platform/method_channel_native_alarm_gateway.dart` only if the wire contract changes
+  - corresponding Dart gateway tests
+  - `lib/features/wake_plan/application/wake_plan_service.dart` and its tests only for final reconciliation alignment after Task_22 merges
+  - `docs/platform/native-alarm-channel.md`
+- depends_on: [Task_22]
+- acceptance:
+  - One documented reservation/occurrence identity rule governs iOS, Android, fake, Dart validation, and Task_13 reconciliation for recreated occurrences.
+  - Side-effect/reply-loss and process-restart seams converge without silently accepting cross-plan ownership, duplicate logical identities, or corrupt tuples.
+  - Existing exact cancellation, inventory ownership, and backward-compatible additive channel behavior remain intact.
+- validation:
+  - kind: command; required: true; owner: worker; detail: iOS RunnerTests, focused/full Android JVM tests, Dart gateway/service identity matrices, full Flutter tests, analyze, format, debug APK, Native Smoke CI, and diff-check.
+  - kind: review; required: true; owner: reviewer; detail: cross-platform schema/identity parity, crash recovery, ownership/security, and compatibility review.
 
 ### Task_16: Real-device release evidence
 
@@ -680,7 +740,9 @@
 - Wave 8A (parallel dirty-WIP salvage): [Task_18, Task_19]
 - Wave 8B (Android event journal after shared native UX files settle): [Task_20]
 - Wave 8C (Task_13-aware event and ringing reconciliation): [Task_21]
-- Wave 9 (orchestrator/reviewer): [Task_15]
+- Wave 9A (parallel final-review remediation): [Task_22, Task_23]
+- Wave 9B (cross-platform identity contract after Task_22): [Task_24]
+- Wave 9C (orchestrator/reviewer): [Task_15]
 - Wave 10 (user-owned): [Task_16]
 
 ## Worker Contract
@@ -928,6 +990,13 @@
   - Fresh exact-head review approved with no findings. Worker and orchestrator `gh-review-hook 64` exited 0; Baseline CI, Android/iOS native smoke, Greptile, CodeRabbit, and Socket checks succeeded with CLEAN, base-current merge state.
   - Orchestrator validation passed focused service/repository/ringing tests 180/180, full Flutter 503/503, `flutter analyze`, debug APK, format 6 files/0 changed, and `git diff --check` from a clean detached PR-head worktree.
   - Task_14 and replacement Tasks 18-21 are complete. Task_15 final harmonization is now in progress; Task_16 remains blocked on real-device evidence.
+
+- 2026-07-22 Task_15 exact-master harmonization review requested remediation.
+  - Read-only reviewer `019f8717-1e82-7dd2-80eb-9135c20cc291` reviewed exact `origin/master` `f25dd96832d06dc0b7e4c7c54142a7137e256dba` and returned `CHANGES_REQUESTED` after format, analyze, 503/503 Flutter tests, debug APK, diff-check, and clean-tree verification.
+  - Blocker: restart after edited-plan persistence can schedule a new stable identity while native inventory is unavailable, leaving the old native alarm live. Task_22 owns the narrow authority/restart fix.
+  - High: native dismissal success followed by Drift failure can lose the exact dismissed transition. Task_23 owns durable dismissal ordering and replay.
+  - High: stable reservation recreation semantics differ across iOS, Android, fake, and Dart reconciliation. Task_24 owns the cross-platform contract after Task_22 settles shared service ownership.
+  - Task_22 and Task_23 may proceed in parallel. Task_24 waits for Task_22; Task_15 re-runs only after all three merge. Task_16 remains blocked on physical-device evidence.
 
 ## Decision Log
 
