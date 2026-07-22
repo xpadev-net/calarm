@@ -555,6 +555,8 @@ class AndroidInventoryTest {
             reservationId = "ringing-adopted-reservation",
             wakePlanId = legacy.wakePlanId,
             scheduledAtMillis = scheduledAtMillis,
+            indexInPlan = 0,
+            totalInPlan = 2,
         )
         val scheduledBeforeRetry = scheduledAlarms()
 
@@ -568,6 +570,8 @@ class AndroidInventoryTest {
         assertEquals(legacy.occurrenceId, firstRow["occurrenceId"])
         assertEquals(legacy.platformAlarmId, firstRow["platformAlarmId"])
         assertEquals(scheduledBeforeRetry, scheduledAlarms())
+        assertEquals(0, AlarmStore(context).get(legacy.platformAlarmId)?.indexInPlan)
+        assertEquals(2, AlarmStore(context).get(legacy.platformAlarmId)?.totalInPlan)
 
         val firstInventoryResult = CapturingResult()
         bridge.onMethodCall(
@@ -595,6 +599,29 @@ class AndroidInventoryTest {
         assertEquals(legacy.occurrenceId, duplicateRow["occurrenceId"])
         assertEquals(legacy.wakePlanId, duplicateRow["wakePlanId"])
         assertEquals(legacy.platformAlarmId, duplicateRow["platformAlarmId"])
+        assertEquals(scheduledBeforeRetry, scheduledAlarms())
+
+        val mismatch = CapturingResult()
+        bridge.onMethodCall(
+            MethodCall(
+                "scheduleOccurrences",
+                scheduleArguments(
+                    occurrenceId = legacy.occurrenceId,
+                    reservationId = "ringing-adopted-reservation",
+                    wakePlanId = legacy.wakePlanId,
+                    scheduledAtMillis = scheduledAtMillis,
+                    indexInPlan = 1,
+                    totalInPlan = 2,
+                ),
+            ),
+            mismatch,
+        )
+        assertNull(mismatch.errorCode)
+        val mismatchPayload = mismatch.value as Map<*, *>
+        val mismatchRow = (mismatchPayload["occurrences"] as List<*>).single() as Map<*, *>
+        assertEquals("failure", mismatchRow["status"])
+        assertEquals("invalidRequest", mismatchRow["failureReason"])
+        assertEquals(0, AlarmStore(context).get(legacy.platformAlarmId)?.indexInPlan)
         assertEquals(scheduledBeforeRetry, scheduledAlarms())
 
         val duplicateInventoryResult = CapturingResult()
@@ -1746,6 +1773,8 @@ class AndroidInventoryTest {
         wakePlanId: String,
         scheduledAtMillis: Long = System.currentTimeMillis() + 60_000,
         reservationGeneration: Long = 0L,
+        indexInPlan: Int = 0,
+        totalInPlan: Int = 1,
     ): Map<String, Any?> {
         val scheduledAt = Instant.ofEpochMilli(scheduledAtMillis)
         return mapOf<String, Any?>(
@@ -1758,8 +1787,8 @@ class AndroidInventoryTest {
                     "wakePlanId" to wakePlanId,
                     "scheduledAt" to scheduledAt.toString(),
                     "targetAt" to scheduledAt.toString(),
-                    "indexInPlan" to 0,
-                    "totalInPlan" to 1,
+                    "indexInPlan" to indexInPlan,
+                    "totalInPlan" to totalInPlan,
                     "soundId" to "default",
                     "vibrationEnabled" to false,
                 ),

@@ -500,8 +500,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 )
             }
             if (legacyRequest != null && existing.reservationId != request.reservationId) {
-                val adoptedRingingRequest = existing.copy(
-                    reservationId = request.reservationId,
+                val adoptedRingingRequest = comparableExisting.copy(
                     platformAlarmIdOverride = platformAlarmId,
                 )
                 if (
