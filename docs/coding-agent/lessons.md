@@ -455,8 +455,8 @@ Purpose:
 ### 2026-07-22 - Honor the User's Future Worker Model Default
 
 - tags: workflow/process, delegation, model-selection, orchestration
-- symptom: Worker creation relied on the configured default model even after the user requested that all subsequent tasks use `gpt-5.6-luna` instead of `gpt-5.6-sol`.
+- symptom: Worker creation relied on the configured default model even after the user requested that all subsequent tasks use `gpt-5.6-luna` instead of `gpt-5.6-sol`, and the initial effort assumption was too high.
 - root cause: The orchestration prompt and worker contract described the preferred model, but dispatch calls did not explicitly pass the newly requested model and existing active workers were not distinguished from future workers.
-- fix: Keep already-running workers unchanged; apply the explicit `gpt-5.6-luna` model on every newly created worker or reviewer after the correction.
-- prevention: Treat a user-requested model change as a persistent dispatch default, include it in the automation prompt and task ledger, and pass `model: gpt-5.6-luna` explicitly on every future `create_thread`/reviewer dispatch.
+- fix: Keep already-running workers unchanged; apply the explicit `gpt-5.6-luna` model with `medium` effort on every newly created worker or reviewer after the correction.
+- prevention: Treat a user-requested model/effort change as a persistent dispatch default, include it in the automation prompt and task ledger, and pass `model: gpt-5.6-luna` plus `thinking: medium` explicitly on every future `create_thread`/reviewer dispatch.
 - promotion: Repo-local orchestration guardrail; no bundled skill changes.
