@@ -636,9 +636,10 @@
 
 ### Task_15: Final harmonization and repository-wide merge gate
 
-- status: in progress
+- status: split in progress
 - reviewer: `019f8717-1e82-7dd2-80eb-9135c20cc291` (prior remediation review); `task15_exact_master_reviewer` (fresh exact-master review)
-- review_verdict: pending
+- review_verdict: NEEDS_REVISION
+- findings_routed_to: Task_28 (Android schedule transaction serialization), Task_29 (receiver/dismissal idempotency and durable dismissal semantics)
 - type: review
 - owns: []
 - depends_on: [Task_5, Task_11, Task_12, Task_21, Task_22, Task_23, Task_24]
@@ -1127,9 +1128,49 @@
   - Historical CodeRabbit change requests were preserved and formally dismissed; current review decision is clear. Fresh exact-head independent review approved, all seven GitHub checks and Native Smoke jobs succeeded, and orchestrator `gh-review-hook 67` exited 0.
   - Task_24 worker `019f87ee-5bb5-7933-a622-b0d672d60e3a` is archived. Task_15 final harmonization re-review is now the next gate; queued alarm-sound and ringing-notification plans remain blocked on that harmonization and existing device evidence policy.
 
+### Task_28: Serialize Android schedule mutation admission end to end
+
+- status: in progress
+- worker: `/root/task28_android_schedule_serialization`
+- type: impl
+- owns:
+  - `android/app/src/main/kotlin/dev/xpa/calarm/AndroidAlarmBridge.kt`
+  - `android/app/src/test/kotlin/dev/xpa/calarm/AndroidInventoryTest.kt` only for schedule/authority interleavings
+- depends_on: [Task_24, Task_26]
+- acceptance:
+  - Concurrent schedule/cancel/recovery calls cannot pass separate identity/authority checks and then overwrite or arm conflicting generations; the complete mutation sequence is serialized or transactionally equivalent.
+  - Task_24 reservation generation/retirement, exact identity, fail-closed corruption, and Task_27 recovery semantics remain unchanged.
+  - Deterministic interleaving tests cover same-reservation and cross-generation races.
+- validation:
+  - kind: command; required: true; owner: worker; detail: exact-head hosted Android JVM/APK/native smoke and lightweight format/diff checks; no local heavy validation.
+  - kind: review; required: true; owner: reviewer; detail: bridge-wide lock scope, authority/mirror/OS ordering, deadlock/reentrancy, and generation race review.
+
+### Task_29: Preserve Android delivery and dismissal idempotency
+
+- status: in progress
+- worker: `/root/task29_android_delivery_dismissal_idempotency`
+- type: impl
+- owns:
+  - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmReceiver.kt`
+  - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmStopActivity.kt`
+  - corresponding receiver/dismissal/event tests only
+- depends_on: [Task_24, Task_26]
+- acceptance:
+  - Overlapping delivery paths cannot duplicate ringing state or delivered events; the Android dispatch serialization contract is explicit and regression-tested.
+  - A dismissal after mirror removal follows the durable native-dismissal contract and does not silently lose a user dismissal or acknowledge the wrong identity.
+  - Current-only stop, exact reservation ID/generation, Task_26 admission recovery, and Task20 journal fetch/ack semantics remain intact.
+- validation:
+  - kind: command; required: true; owner: worker; detail: exact-head hosted Android JVM/APK/native smoke and lightweight format/diff checks; no local heavy validation.
+  - kind: review; required: true; owner: reviewer; detail: delivery concurrency, event dedupe, missing-mirror dismissal, Direct Boot, and exact-identity review.
+
 - 2026-07-22 Task_15 final harmonization re-review dispatched.
   - Fresh exact-master read-only reviewer `task15_exact_master_reviewer` is active against origin/master `0fd59ffbe7a1af27866eb05eb52443e4e382f717` after PR #67 merged.
   - The review covers cross-PR Dart/Android/iOS channel contracts, Task_13 authority, native event state/ack ordering, schema-v3 generation/retirement, serialization/concurrency, Task_25 hosted gates, and Task_26 receiver recovery. Battery override routes heavy evidence to GitHub Actions only.
+
+- 2026-07-22 Task_15 exact-master review requested remediation.
+  - Fresh reviewer found a major Android scheduling admission race: identity inspection, authority validation, mirror persistence, and AlarmManager mutation are not one serialized transaction. Task_28 owns the bridge-only fix and interleaving tests.
+  - Reviewer also raised receiver markRinging atomicity and missing-mirror dismissal-event semantics. Task_29 owns only receiver/stop/event paths; it must confirm the intended Android dispatch and durable-dismissal contracts before editing.
+  - Task_15 remains split in progress and will be re-reviewed only after Task_28 and Task_29 merge with fresh exact-head approvals and hosted gates.
 
 - 2026-07-22 Task_25 hosted Android JVM gate completed.
   - PR [#68](https://github.com/xpadev-net/calarm/pull/68) merged exact approved head `574c9251f154ba4ab995c0d3de95f941ba21316b` as `35d93d9454d8243d55cace9056ce4588a4f1c0cd`.
