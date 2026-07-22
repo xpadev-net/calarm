@@ -64,7 +64,16 @@ class AlarmRingingController {
       occurrenceId,
     );
     if (pending != null) {
-      return _completePendingDismissal(pending);
+      if (pending.occurrence.platformAlarmId == pending.platformAlarmId) {
+        return _completePendingDismissal(pending);
+      }
+      return _completePreparation(
+        await store.prepareAlarmOccurrenceDismissal(
+          occurrenceId: pending.occurrence.id,
+          expectedPlatformAlarmId: pending.occurrence.platformAlarmId,
+          requestedAt: _clock(),
+        ),
+      );
     }
 
     final occurrence = await store.fetchAlarmOccurrence(occurrenceId);
@@ -85,6 +94,12 @@ class AlarmRingingController {
       expectedPlatformAlarmId: occurrence.platformAlarmId,
       requestedAt: now,
     );
+    return _completePreparation(preparation);
+  }
+
+  Future<AlarmDismissResult> _completePreparation(
+    AlarmOccurrenceDismissalPreparation preparation,
+  ) async {
     switch (preparation.status) {
       case AlarmOccurrenceDismissalPreparationStatus.ready:
         return _completePendingDismissal(preparation.intent!);

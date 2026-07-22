@@ -544,6 +544,42 @@ void main() {
     );
   });
 
+  test('refreshes a stale pending identity for direct dismissal', () async {
+    final current = _occurrence(
+      id: 'plan-1:20640:410',
+      day: monday,
+      minute: 410,
+      status: AlarmOccurrenceStatus.ringing,
+      platformAlarmId: 'native-current',
+      firedAt: DateTime(2026, 7, 6, 6, 50),
+    );
+    final gateway = FakeNativeAlarmGateway()
+      ..inventoryRows.add(_inventoryRow(current));
+    final store = _AlarmRingingStore(
+      plans: [_plan(day: monday)],
+      occurrences: [current],
+    );
+    store.pendingDismissals[current.id] = AlarmOccurrenceDismissalIntent(
+      occurrence: current,
+      requestedAt: DateTime(2026, 7, 6, 6, 45),
+      platformAlarmId: 'native-stale',
+    );
+
+    expect(
+      await _controller(store, gateway: gateway).dismissCurrent(current.id),
+      AlarmDismissResult.dismissed,
+    );
+    expect(
+      store.occurrences[current.id]!.status,
+      AlarmOccurrenceStatus.dismissed,
+    );
+    expect(
+      gateway.cancelledOccurrences.single.platformAlarmId,
+      'native-current',
+    );
+    expect(store.pendingDismissals, isEmpty);
+  });
+
   test(
     'reopen replays native success after Drift completion failure exactly once',
     () async {
@@ -888,13 +924,15 @@ class _AlarmRingingStore implements AlarmRingingStore {
       failNextPrepareBeforeEffect = false;
       throw StateError('prepare failed before effect');
     }
-    final pending = pendingDismissals[occurrenceId];
-    if (pending != null) {
-      return AlarmOccurrenceDismissalPreparation.ready(pending);
-    }
     final occurrence = occurrences[occurrenceId];
     if (occurrence == null) {
       return const AlarmOccurrenceDismissalPreparation.notFound();
+    }
+    final pending = pendingDismissals[occurrenceId];
+    if (pending != null &&
+        pending.platformAlarmId == expectedPlatformAlarmId &&
+        occurrence.platformAlarmId == expectedPlatformAlarmId) {
+      return AlarmOccurrenceDismissalPreparation.ready(pending);
     }
     if (occurrence.status == AlarmOccurrenceStatus.dismissed) {
       return const AlarmOccurrenceDismissalPreparation.alreadyDismissed();

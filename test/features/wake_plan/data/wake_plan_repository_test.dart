@@ -682,6 +682,21 @@ void main() {
       final unchanged = await repository.fetchAlarmOccurrence('occ-1');
       expect(unchanged!.status, AlarmOccurrenceStatus.scheduled);
       expect(unchanged.platformAlarmId, 'native-replacement');
+
+      final refreshed = await repository.prepareAlarmOccurrenceDismissal(
+        occurrenceId: 'occ-1',
+        expectedPlatformAlarmId: 'native-replacement',
+        requestedAt: DateTime(2026, 7, 6, 8, 4),
+      );
+      expect(refreshed.intent!.platformAlarmId, 'native-replacement');
+      await repository.completeAlarmOccurrenceDismissal(
+        intent: refreshed.intent!,
+        dismissedAt: DateTime(2026, 7, 6, 8, 5),
+      );
+      expect(
+        (await repository.fetchAlarmOccurrence('occ-1'))!.status,
+        AlarmOccurrenceStatus.dismissed,
+      );
     });
 
     test('round-trips the distinct user-disabled occurrence state', () async {

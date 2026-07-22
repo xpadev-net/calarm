@@ -253,7 +253,9 @@ class WakePlanRepository {
       }
 
       final existingIntent = _dismissalIntentFromRow(row);
-      if (existingIntent != null) {
+      if (existingIntent != null &&
+          existingIntent.platformAlarmId == expectedPlatformAlarmId &&
+          row.platformAlarmId == expectedPlatformAlarmId) {
         return AlarmOccurrenceDismissalPreparation.ready(existingIntent);
       }
       if (row.status == AlarmOccurrenceStatus.dismissed.name) {
