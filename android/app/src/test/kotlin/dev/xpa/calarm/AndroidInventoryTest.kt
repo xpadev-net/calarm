@@ -1500,8 +1500,7 @@ class AndroidInventoryTest {
             occurrenceId = "committed-activation-occurrence",
             wakePlanId = "committed-activation-plan",
             reservationGeneration = 3L,
-            updatedAtMillis = 1L,
-        )
+        ).copy(updatedAtMillis = 1L)
         assertTrue(AlarmActivationCleanupStore(context).save(request))
         armForRecoveryTest(request)
         assertTrue(AlarmStore(context).put(request))
