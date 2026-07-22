@@ -1053,6 +1053,13 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
             it.occurrenceId == occurrenceId &&
                 it.reservationId == reservationId &&
                 it.reservationGeneration == reservationGeneration
+        } ?: requestedRow?.takeIf {
+            cancelIdentityMatches(
+                it,
+                occurrenceId,
+                reservationId,
+                reservationGeneration,
+            )
         }
         if (
             exactRow == null &&
@@ -2965,7 +2972,9 @@ internal object AndroidAlarmReplacementRecovery {
             )
         }
         val snapshot = store.inspectIdentities(appContext, System.currentTimeMillis())
-        if (snapshot.duplicateIdentity != null || snapshot.corruptKeys.isNotEmpty()) {
+        val admittedMirrorIsCorrupt = admittingPlatformAlarmId != null &&
+            snapshot.corruptKeys.contains(admittingPlatformAlarmId)
+        if (snapshot.duplicateIdentity != null || admittedMirrorIsCorrupt) {
             return AlarmReplacementRecoveryResult(
                 isSuccess = false,
                 message = snapshot.duplicateIdentity
