@@ -78,6 +78,18 @@ class AlarmReceiver : BroadcastReceiver() {
         recoveryContext: Context,
         platformAlarmId: String,
     ): Boolean {
+        val storageContext = if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.N &&
+                !recoveryContext.isDeviceProtectedStorage
+        ) {
+            recoveryContext.createDeviceProtectedStorageContext()
+        } else {
+            recoveryContext
+        }
+        val rawJournal = storageContext
+            .getSharedPreferences(REPLACEMENT_JOURNAL_PREFERENCES, Context.MODE_PRIVATE)
+            .getString(REPLACEMENT_JOURNAL_KEY, null)
+            ?: return true
         val journal = try {
             AlarmReplacementJournalStore(recoveryContext).load()
         } catch (_: Exception) {
@@ -226,5 +238,7 @@ class AlarmReceiver : BroadcastReceiver() {
 
     private companion object {
         const val TAG = "CalarmAlarmReceiver"
+        const val REPLACEMENT_JOURNAL_PREFERENCES = "native_alarm_replacement_journal"
+        const val REPLACEMENT_JOURNAL_KEY = "active"
     }
 }
