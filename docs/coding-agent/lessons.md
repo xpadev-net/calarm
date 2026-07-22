@@ -451,3 +451,12 @@ Purpose:
 - fix: Authenticate with GitHub OIDC through `google-github-actions/auth`, pass the generated external-account credential file to the Play uploader, grant `id-token: write`, and validate only the WIF secrets.
 - prevention: Before running a deployment workflow, compare the configured secret names, authentication mechanism, and uploader inputs end to end; reject mixed JSON-key/WIF assumptions during CI preflight.
 - promotion: Repo-local CI/security lesson only for now; no rule suite exists in this repository.
+
+### 2026-07-22 - Honor the User's Future Worker Model Default
+
+- tags: workflow/process, delegation, model-selection, orchestration
+- symptom: Worker creation relied on the configured default model even after the user requested that all subsequent tasks use `gpt-5.6-luna` instead of `gpt-5.6-sol`.
+- root cause: The orchestration prompt and worker contract described the preferred model, but dispatch calls did not explicitly pass the newly requested model and existing active workers were not distinguished from future workers.
+- fix: Keep already-running workers unchanged; apply the explicit `gpt-5.6-luna` model on every newly created worker or reviewer after the correction.
+- prevention: Treat a user-requested model change as a persistent dispatch default, include it in the automation prompt and task ledger, and pass `model: gpt-5.6-luna` explicitly on every future `create_thread`/reviewer dispatch.
+- promotion: Repo-local orchestration guardrail; no bundled skill changes.
