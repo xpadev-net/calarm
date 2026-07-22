@@ -153,6 +153,8 @@ class AlarmRingingController {
     }
     final request = NativeAlarmCancelRequest(
       occurrenceId: intent.occurrence.id,
+      reservationId: intent.occurrence.reservationId,
+      reservationGeneration: intent.occurrence.reservationGeneration,
       platformAlarmId: platformAlarmId,
     );
     try {

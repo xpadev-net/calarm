@@ -2699,6 +2699,267 @@ class RunnerTests: XCTestCase {
     }
     XCTAssertEqual(error.code, "corrupt")
   }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testReservationGenerationPayloadIsExactNonNegativeAndLegacyDefaultsToZero() async {
+    let fake = FakeAlarmKitNativeClient()
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    clearMirror()
+    defer { clearMirror() }
+
+    let legacy = await bridge.scheduleOccurrence(makeSchedulePayload())
+    XCTAssertEqual(legacy["status"] as? String, "success")
+    XCTAssertEqual(legacy["reservationGeneration"] as? Int, 0)
+    XCTAssertEqual(fake.scheduleAttempts, 1)
+
+    for invalid: Any in [-1, 1.25, true, "1"] {
+      var payload = makeSchedulePayload(occurrenceId: "invalid-\(String(describing: invalid))")
+      payload["reservationId"] = "reservation-invalid-\(String(describing: invalid))"
+      payload["reservationGeneration"] = invalid
+      let row = await bridge.scheduleOccurrence(payload)
+      XCTAssertEqual(row["status"] as? String, "failure")
+      XCTAssertEqual(row["failureReason"] as? String, "invalidRequest")
+      XCTAssertEqual(fake.scheduleAttempts, 1)
+    }
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testReservationGenerationRejectsLowerEqualMismatchAndCrossPlanBeforeMutation() async {
+    let fake = FakeAlarmKitNativeClient()
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    clearMirror()
+    defer { clearMirror() }
+
+    let initial = makeScheduleRequest("reservation-generation-order")
+    let initialResult = await bridge.scheduleAlarm(initial)
+    let exactRetryResult = await bridge.scheduleAlarm(initial)
+    XCTAssertEqual(initialResult.status, "success")
+    XCTAssertEqual(exactRetryResult.status, "success")
+    XCTAssertEqual(fake.scheduleAttempts, 1, "an exact equal-generation retry is idempotent")
+
+    let equalMismatch = makeScheduleRequest(
+      initial.reservationId,
+      occurrenceId: "occurrence-equal-mismatch",
+      reservationGeneration: 0
+    )
+    let equalMismatchResult = await bridge.scheduleAlarm(equalMismatch)
+    XCTAssertEqual(equalMismatchResult.failureReason, "invalidRequest")
+
+    let higher = makeScheduleRequest(
+      initial.reservationId,
+      occurrenceId: "occurrence-generation-five",
+      reservationGeneration: 5
+    )
+    let higherResult = await bridge.scheduleAlarm(higher)
+    XCTAssertEqual(higherResult.status, "success")
+    XCTAssertEqual(fake.scheduleAttempts, 2, "generation gaps are accepted")
+
+    let delayedResult = await bridge.scheduleAlarm(initial)
+    XCTAssertEqual(delayedResult.failureReason, "invalidRequest")
+    let otherPlan = makeScheduleRequest(
+      initial.reservationId,
+      occurrenceId: "occurrence-other-plan",
+      reservationGeneration: 6,
+      wakePlanId: "wake-plan-2"
+    )
+    let otherPlanResult = await bridge.scheduleAlarm(otherPlan)
+    XCTAssertEqual(otherPlanResult.failureReason, "invalidRequest")
+    XCTAssertEqual(fake.scheduleAttempts, 2, "replays fail before native mutation")
+
+    let inventory = await inventoryValue(bridge) as? [String: Any?]
+    let rows = inventory?["reservations"] as? [[String: Any?]]
+    XCTAssertEqual(rows?.count, 1)
+    XCTAssertEqual(rows?.first?["reservationGeneration"] as? Int, 5)
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testReservationRetirementSurvivesCancelAndAllowsOnlyHigherSamePlanGeneration() async {
+    let fake = FakeAlarmKitNativeClient()
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    clearMirror()
+    defer { clearMirror() }
+
+    let initial = makeScheduleRequest("reservation-retirement")
+    let initialResult = await bridge.scheduleAlarm(initial)
+    let initialId = try! XCTUnwrap(initialResult.platformAlarmId)
+    let generationThree = makeScheduleRequest(
+      initial.reservationId,
+      occurrenceId: "occurrence-generation-three",
+      reservationGeneration: 3
+    )
+    let replacement = await bridge.scheduleAlarm(generationThree)
+    let replacementId = try! XCTUnwrap(replacement.platformAlarmId)
+
+    let cancel: [String: Any?] = [
+      "occurrenceId": generationThree.occurrenceId,
+      "reservationId": generationThree.reservationId,
+      "reservationGeneration": generationThree.reservationGeneration,
+      "platformAlarmId": replacementId,
+    ]
+    let cancelResult = await bridge.cancelAlarm(cancel)
+    XCTAssertEqual(cancelResult["status"] as? String, "success")
+    let cancelCalls = fake.cancelCalls
+    let cancelRetryResult = await bridge.cancelAlarm(cancel)
+    XCTAssertEqual(cancelRetryResult["status"] as? String, "success")
+    XCTAssertEqual(fake.cancelCalls, cancelCalls, "retired exact cancellation is idempotent")
+    XCTAssertNotNil(UserDefaults.standard.data(forKey: authorityKey))
+
+    let retiredReplay = await bridge.scheduleAlarm(generationThree)
+    XCTAssertEqual(retiredReplay.failureReason, "invalidRequest")
+    let generationNine = makeScheduleRequest(
+      initial.reservationId,
+      occurrenceId: "occurrence-generation-nine",
+      reservationGeneration: 9
+    )
+    let generationNineResult = await bridge.scheduleAlarm(generationNine)
+    XCTAssertEqual(generationNineResult.status, "success")
+    XCTAssertNotEqual(initialId, replacementId)
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testReservationGenerationReplacementRollbackCanReupgradeAfterReopen() async {
+    enum Crash: Error { case injected }
+    let fake = FakeAlarmKitNativeClient()
+    clearMirror()
+    defer { clearMirror() }
+    let initial = makeScheduleRequest("reservation-reupgrade")
+    let crashingBridge = AlarmKitBridge(
+      nativeClient: fake,
+      replacementBeforeCommit: { throw Crash.injected }
+    )
+    let initialResult = await crashingBridge.scheduleAlarm(initial)
+    XCTAssertEqual(initialResult.status, "success")
+    let upgraded = makeScheduleRequest(
+      initial.reservationId,
+      occurrenceId: "occurrence-reupgrade",
+      reservationGeneration: 8
+    )
+    let crashedUpgrade = await crashingBridge.scheduleAlarm(upgraded)
+    XCTAssertEqual(crashedUpgrade.status, "failure")
+
+    let reopenedBridge = AlarmKitBridge(nativeClient: fake)
+    let retryResult = await reopenedBridge.scheduleAlarm(upgraded)
+    XCTAssertEqual(retryResult.status, "success")
+    let inventory = await inventoryValue(reopenedBridge) as? [String: Any?]
+    let rows = inventory?["reservations"] as? [[String: Any?]]
+    XCTAssertEqual(rows?.count, 1)
+    XCTAssertEqual(rows?.first?["occurrenceId"] as? String, upgraded.occurrenceId)
+    XCTAssertEqual(rows?.first?["reservationGeneration"] as? Int, 8)
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testReservationGenerationJournalCommitsSoleCandidateAfterReopen() async {
+    enum Crash: Error { case injected }
+    let fake = FakeAlarmKitNativeClient()
+    clearMirror()
+    defer { clearMirror() }
+    let initial = makeScheduleRequest("reservation-journal-generation")
+    let crashingBridge = AlarmKitBridge(
+      nativeClient: fake,
+      replacementAfterRetireBeforeCommit: { throw Crash.injected }
+    )
+    let initialResult = await crashingBridge.scheduleAlarm(initial)
+    XCTAssertEqual(initialResult.status, "success")
+    let upgraded = makeScheduleRequest(
+      initial.reservationId,
+      occurrenceId: "occurrence-journal-generation",
+      reservationGeneration: 4
+    )
+    let crashedUpgrade = await crashingBridge.scheduleAlarm(upgraded)
+    XCTAssertEqual(crashedUpgrade.status, "failure")
+    XCTAssertNotNil(UserDefaults.standard.data(forKey: replacementJournalKey))
+
+    let reopenedBridge = AlarmKitBridge(nativeClient: fake)
+    let inventory = await inventoryValue(reopenedBridge) as? [String: Any?]
+    let rows = inventory?["reservations"] as? [[String: Any?]]
+    XCTAssertEqual(rows?.count, 1)
+    XCTAssertEqual(rows?.first?["occurrenceId"] as? String, upgraded.occurrenceId)
+    XCTAssertEqual(rows?.first?["reservationGeneration"] as? Int, 4)
+    XCTAssertNil(UserDefaults.standard.data(forKey: replacementJournalKey))
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testDisappearancePersistsRetirementAndRejectsDelayedReplayAfterReopen() async {
+    let fake = FakeAlarmKitNativeClient()
+    clearMirror()
+    defer { clearMirror() }
+    let initial = makeScheduleRequest("reservation-disappeared")
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let initialResult = await bridge.scheduleAlarm(initial)
+    XCTAssertEqual(initialResult.status, "success")
+    fake.nativeAlarmIds.removeAll()
+    _ = await inventoryValue(bridge)
+    XCTAssertFalse(mirrorContains(calarmPlatformAlarmId(for: initial.reservationId)))
+    XCTAssertNotNil(UserDefaults.standard.data(forKey: authorityKey))
+
+    let reopenedBridge = AlarmKitBridge(nativeClient: fake)
+    let delayedReplay = await reopenedBridge.scheduleAlarm(initial)
+    XCTAssertEqual(delayedReplay.failureReason, "invalidRequest")
+    let later = makeScheduleRequest(
+      initial.reservationId,
+      occurrenceId: "occurrence-after-disappearance",
+      reservationGeneration: 2
+    )
+    let laterResult = await reopenedBridge.scheduleAlarm(later)
+    XCTAssertEqual(laterResult.status, "success")
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testCorruptReservationAuthorityFailsClosedBeforeNativeMutation() async {
+    let fake = FakeAlarmKitNativeClient()
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    clearMirror()
+    defer { clearMirror() }
+    UserDefaults.standard.set(Data("not-json".utf8), forKey: authorityKey)
+
+    let result = await bridge.scheduleAlarm(makeScheduleRequest("reservation-corrupt-authority"))
+    XCTAssertNotEqual(result.status, "success")
+    XCTAssertEqual(fake.scheduleAttempts, 0)
+    XCTAssertEqual(fake.cancelCalls, 0)
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
+  func testDuplicateReservationAuthorityFailsClosedBeforeNativeMutation() async {
+    let fake = FakeAlarmKitNativeClient()
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    clearMirror()
+    defer { clearMirror() }
+    let first = makeScheduleRequest("reservation-authority-one", occurrenceId: "occurrence-one")
+    let second = makeScheduleRequest("reservation-authority-two", occurrenceId: "occurrence-two")
+    let firstResult = await bridge.scheduleAlarm(first)
+    let secondResult = await bridge.scheduleAlarm(second)
+    XCTAssertEqual(firstResult.status, "success")
+    XCTAssertEqual(secondResult.status, "success")
+
+    let data = try! XCTUnwrap(UserDefaults.standard.data(forKey: authorityKey))
+    var ledger = try! XCTUnwrap(
+      JSONSerialization.jsonObject(with: data) as? [String: Any]
+    )
+    var reservations = try! XCTUnwrap(ledger["reservations"] as? [String: Any])
+    var secondRecord = try! XCTUnwrap(
+      reservations[second.reservationId] as? [String: Any]
+    )
+    secondRecord["occurrenceId"] = first.occurrenceId
+    reservations[second.reservationId] = secondRecord
+    ledger["reservations"] = reservations
+    UserDefaults.standard.set(
+      try! JSONSerialization.data(withJSONObject: ledger, options: [.sortedKeys]),
+      forKey: authorityKey
+    )
+    let attempts = fake.scheduleAttempts
+
+    let result = await bridge.scheduleAlarm(makeScheduleRequest("reservation-authority-three"))
+    XCTAssertNotEqual(result.status, "success")
+    XCTAssertEqual(fake.scheduleAttempts, attempts)
+  }
 }
 
 private let mirrorKey = "net.xpadev.calarm/native_alarm_mirror"
@@ -2706,6 +2967,7 @@ private let pendingMirrorKey = "net.xpadev.calarm/native_alarm_pending_mirror"
 private let envelopeKey = "net.xpadev.calarm/native_alarm_mirror_envelope"
 private let transactionKey = "net.xpadev.calarm/native_alarm_mirror_transaction"
 private let replacementJournalKey = "net.xpadev.calarm/native_alarm_replacement_journal"
+private let authorityKey = "net.xpadev.calarm/native_alarm_reservation_authority"
 
 @MainActor
 private final class FakeAlarmKitNativeClient: AlarmKitNativeClient {
@@ -2807,13 +3069,16 @@ private final class FakeAlarmKitNativeClient: AlarmKitNativeClient {
 
 private func makeScheduleRequest(
   _ reservationId: String = "reservation-1",
-  occurrenceId: String = "occurrence-1"
+  occurrenceId: String = "occurrence-1",
+  reservationGeneration: Int = 0,
+  wakePlanId: String = "wake-plan-1"
 ) -> ScheduleRequest {
   let date = Date(timeIntervalSince1970: 1_900_000_000)
   return ScheduleRequest(
     occurrenceId: occurrenceId,
     reservationId: reservationId,
-    wakePlanId: "wake-plan-1",
+    reservationGeneration: reservationGeneration,
+    wakePlanId: wakePlanId,
     scheduledAt: date,
     targetAt: date,
     soundId: "default",
@@ -2841,6 +3106,7 @@ private func clearMirror() {
   UserDefaults.standard.removeObject(forKey: envelopeKey)
   UserDefaults.standard.removeObject(forKey: transactionKey)
   UserDefaults.standard.removeObject(forKey: replacementJournalKey)
+  UserDefaults.standard.removeObject(forKey: authorityKey)
 }
 
 private func clearMirrorSynchronously() {

@@ -39,6 +39,7 @@ class AndroidInventoryTest {
         mirrorPreferences().edit().clear().commit()
         credentialPreferences().edit().clear().commit()
         replacementPreferences().edit().clear().commit()
+        authorityPreferences().edit().clear().commit()
         ShadowAlarmManager.reset()
         ShadowAlarmManager.setCanScheduleExactAlarms(true)
         Shadows.shadowOf(context.applicationContext as Application).clearNextStartedActivities()
@@ -52,6 +53,7 @@ class AndroidInventoryTest {
         mirrorPreferences().edit().clear().commit()
         credentialPreferences().edit().clear().commit()
         replacementPreferences().edit().clear().commit()
+        authorityPreferences().edit().clear().commit()
         ShadowAlarmManager.reset()
         ShadowAlarmManager.setCanScheduleExactAlarms(true)
         Shadows.shadowOf(context.applicationContext as Application).clearNextStartedActivities()
@@ -820,6 +822,7 @@ class AndroidInventoryTest {
             reservationId = "reservation-recreated",
             wakePlanId = "plan-recreated",
             scheduledAtMillis = System.currentTimeMillis() + 120_000,
+            reservationGeneration = 1L,
         )
 
         val first = CapturingResult()
@@ -889,7 +892,12 @@ class AndroidInventoryTest {
         )
 
         for (arguments in listOf(
-            scheduleArguments("occurrence-new", "reservation-owned", "plan-foreign"),
+            scheduleArguments(
+                "occurrence-new",
+                "reservation-owned",
+                "plan-foreign",
+                reservationGeneration = 2L,
+            ),
             scheduleArguments("occurrence-owned", "reservation-foreign", "plan-owned"),
         )) {
             val result = CapturingResult()
@@ -907,6 +915,245 @@ class AndroidInventoryTest {
     }
 
     @Test
+    fun `reservation generation round trips and legacy rows default to zero`() {
+        val current = alarmRequest(
+            platformAlarmId = "android:reservation:generation-round-trip",
+            reservationId = "generation-round-trip",
+            occurrenceId = "generation-occurrence",
+            reservationGeneration = 7L,
+        )
+        val legacy = current.toJson().apply { remove("reservationGeneration") }
+
+        assertEquals(7L, AlarmRequest.fromJson(current.toJson()).reservationGeneration)
+        assertEquals(0L, AlarmRequest.fromJson(legacy).reservationGeneration)
+        for (invalid in listOf(-1, 1.0, "1", true)) {
+            assertThrows(IllegalArgumentException::class.java) {
+                AlarmRequest.fromJson(current.toJson().put("reservationGeneration", invalid))
+            }
+        }
+    }
+
+    @Test
+    fun `higher generation with a gap wins and delayed replay cannot roll it back`() {
+        val reservationId = "monotonic-slot"
+        val planId = "monotonic-plan"
+        val firstArguments = scheduleArguments(
+            "monotonic-old",
+            reservationId,
+            planId,
+            reservationGeneration = 0L,
+        )
+        val currentArguments = scheduleArguments(
+            "monotonic-current",
+            reservationId,
+            planId,
+            scheduledAtMillis = System.currentTimeMillis() + 120_000,
+            reservationGeneration = 2L,
+        )
+        val bridge = AndroidAlarmBridge(context)
+        val first = CapturingResult()
+        bridge.onMethodCall(MethodCall("scheduleOccurrences", firstArguments), first)
+        val current = CapturingResult()
+        bridge.onMethodCall(MethodCall("scheduleOccurrences", currentArguments), current)
+
+        val restartedBridge = AndroidAlarmBridge(context)
+        val replay = CapturingResult()
+        restartedBridge.onMethodCall(MethodCall("scheduleOccurrences", firstArguments), replay)
+        val replayRow = ((replay.value as Map<*, *>)["occurrences"] as List<*>)
+            .single() as Map<*, *>
+        val inventory = AlarmStore(context).inventory(context, System.currentTimeMillis())
+
+        assertEquals("failure", replayRow["status"])
+        assertEquals("invalidRequest", replayRow["failureReason"])
+        assertEquals(1, inventory.requests.size)
+        assertEquals("monotonic-current", inventory.requests.single().occurrenceId)
+        assertEquals(2L, inventory.requests.single().reservationGeneration)
+        assertEquals(1, scheduledAlarms().size)
+    }
+
+    @Test
+    fun `equal generation with changed payload fails closed`() {
+        val scheduledAt = System.currentTimeMillis() + 60_000
+        val original = scheduleArguments(
+            "same-generation-occurrence",
+            "same-generation-slot",
+            "same-generation-plan",
+            scheduledAtMillis = scheduledAt,
+            reservationGeneration = 4L,
+        )
+        val mismatch = scheduleArguments(
+            "same-generation-occurrence",
+            "same-generation-slot",
+            "same-generation-plan",
+            scheduledAtMillis = scheduledAt + 60_000,
+            reservationGeneration = 4L,
+        )
+        val bridge = AndroidAlarmBridge(context)
+        bridge.onMethodCall(MethodCall("scheduleOccurrences", original), CapturingResult())
+        val result = CapturingResult()
+        bridge.onMethodCall(MethodCall("scheduleOccurrences", mismatch), result)
+        val row = ((result.value as Map<*, *>)["occurrences"] as List<*>)
+            .single() as Map<*, *>
+
+        assertEquals("failure", row["status"])
+        assertEquals("invalidRequest", row["failureReason"])
+        assertEquals(
+            scheduledAt,
+            AlarmStore(context).inventory(context, System.currentTimeMillis())
+                .requests.single().scheduledAtMillis,
+        )
+    }
+
+    @Test
+    fun `higher generation may update payload without changing occurrence identity`() {
+        val firstAt = System.currentTimeMillis() + 60_000
+        val bridge = AndroidAlarmBridge(context)
+        bridge.onMethodCall(
+            MethodCall(
+                "scheduleOccurrences",
+                scheduleArguments(
+                    "configuration-occurrence",
+                    "configuration-slot",
+                    "configuration-plan",
+                    scheduledAtMillis = firstAt,
+                    reservationGeneration = 1L,
+                ),
+            ),
+            CapturingResult(),
+        )
+        val updated = CapturingResult()
+        bridge.onMethodCall(
+            MethodCall(
+                "scheduleOccurrences",
+                scheduleArguments(
+                    "configuration-occurrence",
+                    "configuration-slot",
+                    "configuration-plan",
+                    scheduledAtMillis = firstAt + 60_000,
+                    reservationGeneration = 2L,
+                ),
+            ),
+            updated,
+        )
+        val row = ((updated.value as Map<*, *>)["occurrences"] as List<*>)
+            .single() as Map<*, *>
+        val current = AlarmStore(context).inventory(context, System.currentTimeMillis())
+            .requests.single()
+
+        assertEquals("success", row["status"])
+        assertEquals(2L, row["reservationGeneration"])
+        assertEquals("configuration-occurrence", current.occurrenceId)
+        assertEquals(2L, current.reservationGeneration)
+        assertEquals(firstAt + 60_000, current.scheduledAtMillis)
+    }
+
+    @Test
+    fun `retired generation rejects exact and older replay after reopen`() {
+        val arguments = scheduleArguments(
+            "retired-occurrence",
+            "retired-slot",
+            "retired-plan",
+            reservationGeneration = 3L,
+        )
+        val bridge = AndroidAlarmBridge(context)
+        val scheduled = CapturingResult()
+        bridge.onMethodCall(MethodCall("scheduleOccurrences", arguments), scheduled)
+        val scheduledRow = ((scheduled.value as Map<*, *>)["occurrences"] as List<*>)
+            .single() as Map<*, *>
+        val cancel = CapturingResult()
+        bridge.onMethodCall(
+            MethodCall(
+                "cancelOccurrences",
+                mapOf(
+                    "schemaVersion" to 1,
+                    "alarms" to listOf(
+                        mapOf(
+                            "occurrenceId" to "retired-occurrence",
+                            "reservationId" to "retired-slot",
+                            "reservationGeneration" to 3L,
+                            "platformAlarmId" to scheduledRow["platformAlarmId"],
+                        ),
+                    ),
+                ),
+            ),
+            cancel,
+        )
+        val replay = CapturingResult()
+        AndroidAlarmBridge(context).onMethodCall(
+            MethodCall("scheduleOccurrences", arguments),
+            replay,
+        )
+        val replayRow = ((replay.value as Map<*, *>)["occurrences"] as List<*>)
+            .single() as Map<*, *>
+
+        assertEquals("success", ((cancel.value as Map<*, *>)["alarms"] as List<*>).single().let { (it as Map<*, *>)["status"] })
+        assertEquals("failure", replayRow["status"])
+        assertTrue(AlarmStore(context).inventory(context, System.currentTimeMillis()).requests.isEmpty())
+    }
+
+    @Test
+    fun `corrupt generation authority blocks scheduling without deleting evidence`() {
+        assertTrue(authorityPreferences().edit().putString("authority", "not-json").commit())
+        val result = CapturingResult()
+
+        AndroidAlarmBridge(context).onMethodCall(
+            MethodCall(
+                "scheduleOccurrences",
+                scheduleArguments("blocked-occurrence", "blocked-slot", "blocked-plan"),
+            ),
+            result,
+        )
+        val row = ((result.value as Map<*, *>)["occurrences"] as List<*>)
+            .single() as Map<*, *>
+
+        assertEquals("failure", row["status"])
+        assertEquals("not-json", authorityPreferences().getString("authority", null))
+        assertTrue(scheduledAlarms().isEmpty())
+    }
+
+    @Test
+    fun `replacement platform identity includes generation when occurrence cycles`() {
+        val first = alarmRequest(
+            platformAlarmId = "ignored",
+            reservationId = "cycle-slot",
+            occurrenceId = "cycle-occurrence",
+            reservationGeneration = 1L,
+        )
+        val second = first.copy(reservationGeneration = 2L)
+
+        assertFalse(
+            AlarmRequest.replacementPlatformAlarmId(first) ==
+                AlarmRequest.replacementPlatformAlarmId(second),
+        )
+    }
+
+    @Test
+    fun `non-monotonic version two replacement journal is rejected`() {
+        val old = alarmRequest(
+            platformAlarmId = "android:reservation:non-monotonic-slot",
+            reservationId = "non-monotonic-slot",
+            occurrenceId = "non-monotonic-old",
+            reservationGeneration = 2L,
+        )
+        val newTemplate = old.copy(
+            occurrenceId = "non-monotonic-new",
+            reservationGeneration = 1L,
+            platformAlarmIdOverride = null,
+        )
+        val replacement = newTemplate.copy(
+            platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(newTemplate),
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            AlarmReplacementJournal(
+                old = old,
+                new = replacement,
+                schemaVersion = 2,
+            )
+        }
+    }
+
+    @Test
     fun `replacement journal chooses one authoritative generation after process death`() {
         for (phase in AlarmReplacementPhase.values()) {
             setUp()
@@ -917,7 +1164,10 @@ class AndroidInventoryTest {
                 occurrenceId = "occurrence-old",
                 wakePlanId = "plan-restart",
             )
-            val newTemplate = old.copy(occurrenceId = "occurrence-new")
+            val newTemplate = old.copy(
+                occurrenceId = "occurrence-new",
+                reservationGeneration = 1L,
+            )
             val replacement = newTemplate.copy(
                 platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(newTemplate),
             )
@@ -997,7 +1247,10 @@ class AndroidInventoryTest {
             wakePlanId = "expired-journal-plan",
             scheduledAtMillis = expiredAt,
         )
-        val newTemplate = old.copy(occurrenceId = "expired-journal-new")
+        val newTemplate = old.copy(
+            occurrenceId = "expired-journal-new",
+            reservationGeneration = 1L,
+        )
         val replacement = newTemplate.copy(
             platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(newTemplate),
         )
@@ -1026,6 +1279,20 @@ class AndroidInventoryTest {
             ),
             schedule,
         )
+        val expiredReplay = CapturingResult()
+        AndroidAlarmBridge(context).onMethodCall(
+            MethodCall(
+                "scheduleOccurrences",
+                scheduleArguments(
+                    occurrenceId = old.occurrenceId,
+                    reservationId = old.reservationId,
+                    wakePlanId = old.wakePlanId,
+                    scheduledAtMillis = System.currentTimeMillis() + 60_000,
+                    reservationGeneration = old.reservationGeneration,
+                ),
+            ),
+            expiredReplay,
+        )
 
         assertTrue(recovery.isSuccess)
         assertNull(AlarmStore(context).get(old.platformAlarmId))
@@ -1035,6 +1302,9 @@ class AndroidInventoryTest {
         val row = ((schedule.value as Map<*, *>)["occurrences"] as List<*>)
             .single() as Map<*, *>
         assertEquals("success", row["status"])
+        val replayRow = ((expiredReplay.value as Map<*, *>)["occurrences"] as List<*>)
+            .single() as Map<*, *>
+        assertEquals("failure", replayRow["status"])
     }
 
     private fun scheduleArguments(
@@ -1042,6 +1312,7 @@ class AndroidInventoryTest {
         reservationId: String,
         wakePlanId: String,
         scheduledAtMillis: Long = System.currentTimeMillis() + 60_000,
+        reservationGeneration: Long = 0L,
     ): Map<String, Any?> {
         val scheduledAt = Instant.ofEpochMilli(scheduledAtMillis)
         return mapOf<String, Any?>(
@@ -1050,6 +1321,7 @@ class AndroidInventoryTest {
                 mapOf<String, Any?>(
                     "occurrenceId" to occurrenceId,
                     "reservationId" to reservationId,
+                    "reservationGeneration" to reservationGeneration,
                     "wakePlanId" to wakePlanId,
                     "scheduledAt" to scheduledAt.toString(),
                     "targetAt" to scheduledAt.toString(),
@@ -1070,6 +1342,9 @@ class AndroidInventoryTest {
 
     private fun replacementPreferences() = deviceProtectedContext()
         .getSharedPreferences("native_alarm_replacement_journal", Context.MODE_PRIVATE)
+
+    private fun authorityPreferences() = deviceProtectedContext()
+        .getSharedPreferences("native_alarm_reservation_authority", Context.MODE_PRIVATE)
 
     private fun deviceProtectedContext(): Context {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -1095,6 +1370,7 @@ class AndroidInventoryTest {
         scheduledAtMillis: Long = System.currentTimeMillis() + 60_000,
         state: AlarmState = AlarmState.SCHEDULED,
         vibrationEnabled: Boolean = false,
+        reservationGeneration: Long = 0L,
     ): AlarmRequest {
         val identifiersOmitted = occurrenceId == null && reservationId == null && wakePlanId == null
         val resolvedOccurrenceId = if (identifiersOmitted) {
@@ -1107,6 +1383,7 @@ class AndroidInventoryTest {
         return AlarmRequest(
             occurrenceId = resolvedOccurrenceId,
             reservationId = resolvedReservationId,
+            reservationGeneration = reservationGeneration,
             wakePlanId = resolvedWakePlanId,
             scheduledAtMillis = scheduledAtMillis,
             targetAtMillis = scheduledAtMillis,
