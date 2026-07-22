@@ -460,3 +460,12 @@ Purpose:
 - fix: Keep already-running workers unchanged; apply the explicit `gpt-5.6-luna` model with `medium` effort on every newly created worker or reviewer after the correction.
 - prevention: Treat a user-requested model/effort change as a persistent dispatch default, include it in the automation prompt and task ledger, and pass `model: gpt-5.6-luna` plus `thinking: medium` explicitly on every future `create_thread`/reviewer dispatch.
 - promotion: Repo-local orchestration guardrail; no bundled skill changes.
+
+### 2026-07-22 - Allow Ledger-Only Branch Lag at GitHub Merge
+
+- tags: workflow/process, git, merge, orchestration
+- symptom: A worker branch can be behind current master only because the ledger was updated separately, creating an unnecessary temptation to return an otherwise merge-ready product PR.
+- root cause: Product-head freshness and durable ledger synchronization were treated as one gate even though ledger-only commits do not alter the reviewed product diff.
+- fix: Permit merge when the only branch lag is ledger-update history, after verifying the PR head, product diff, checks, review, and clean merge state; perform the merge through GitHub rather than a local merge.
+- prevention: Distinguish product commits from ledger-only commits during preflight; never reject a merge-ready PR solely for ledger-only lag, and use `gh pr merge` as the canonical merge operation.
+- promotion: Repo-local orchestration/git guardrail; no bundled skill changes.
