@@ -218,6 +218,14 @@ journal. Neither transient state is exposed as successful steady-state
 inventory. A currently ringing reservation may only accept the exact current
 tuple.
 
+Android also stages device-protected activation-cleanup evidence before arming
+a previously absent reservation. It clears that evidence only after the alarm
+mirror and active authority are durable. An interrupted or failed activation
+is first recorded as retired, then its exact OS identity is cancelled and its
+mirror is removed. Recovery completes that sequence before schedule, cancel,
+inventory, or receiver admission; a retired reservation with a surviving
+mirror is cleanup-pending and is never exposed as active inventory.
+
 Cancellation and one-shot disappearance persist a retired authority record
 before removing OS or mirror state. Retirement is not inventory, but it blocks
 all delayed requests at or below its generation. Only a higher same-plan

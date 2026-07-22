@@ -31,6 +31,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
     private val notificationManager = appContext.getSystemService(NotificationManager::class.java)
     private val store = AlarmStore(appContext)
     private val authorityStore = ReservationAuthorityStore(appContext)
+    private val activationCleanupStore = AlarmActivationCleanupStore(appContext)
     private val eventStore = AlarmEventStore(appContext)
     private var pendingNotificationPermissionResult: MethodChannel.Result? = null
     private var requestNotificationRuntimePermission: (Activity, Array<String>, Int) -> Unit =
@@ -316,15 +317,26 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 it.reservationId == it.occurrenceId &&
                 it.wakePlanId == request.wakePlanId
         }
-        val authorityFailure = authorityStore.validateAndSeedActive(
+        val authorityValidationFailure = authorityStore.validateAndSeedActive(
             identitySnapshot.requests.filterNot { it == adoptableLegacyIdentity },
-        ) ?: authorityStore.admissionFailure(request)
+        )
+        if (authorityValidationFailure != null) {
+            return scheduleFailure(
+                request.occurrenceId,
+                request.wakePlanId,
+                "nativeError",
+                authorityValidationFailure,
+                request.reservationId,
+                request.reservationGeneration,
+            )
+        }
+        val authorityFailure = authorityStore.admissionFailure(request)
         if (authorityFailure != null) {
             return scheduleFailure(
                 request.occurrenceId,
                 request.wakePlanId,
-                "invalidRequest",
-                authorityFailure,
+                authorityFailure.failureReason,
+                authorityFailure.message,
                 request.reservationId,
                 request.reservationGeneration,
             )
@@ -503,15 +515,23 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 val adoptedRingingRequest = comparableExisting.copy(
                     platformAlarmIdOverride = platformAlarmId,
                 )
-                if (
-                    !store.put(adoptedRingingRequest) ||
-                    !authorityStore.recordActive(adoptedRingingRequest)
-                ) {
+                if (!store.put(adoptedRingingRequest)) {
                     return scheduleFailure(
                         request.occurrenceId,
                         request.wakePlanId,
                         "nativeError",
                         "Failed to persist native alarm mirror state.",
+                        request.reservationId,
+                        request.reservationGeneration,
+                    )
+                }
+                if (!authorityStore.recordActive(adoptedRingingRequest)) {
+                    store.put(existing)
+                    return scheduleFailure(
+                        request.occurrenceId,
+                        request.wakePlanId,
+                        "nativeError",
+                        "Failed to persist native reservation generation authority.",
                         request.reservationId,
                         request.reservationGeneration,
                     )
@@ -525,12 +545,23 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                     platformAlarmIdOverride = platformAlarmId,
                     state = existing.state,
                 )
-                if (!store.put(adopted) || !authorityStore.recordActive(adopted)) {
+                if (!store.put(adopted)) {
                     return scheduleFailure(
                         request.occurrenceId,
                         request.wakePlanId,
                         "nativeError",
                         "Failed to persist adopted native reservation generation.",
+                        request.reservationId,
+                        request.reservationGeneration,
+                    )
+                }
+                if (!authorityStore.recordActive(adopted)) {
+                    store.put(existing)
+                    return scheduleFailure(
+                        request.occurrenceId,
+                        request.wakePlanId,
+                        "nativeError",
+                        "Failed to persist adopted native reservation generation authority.",
                         request.reservationId,
                         request.reservationGeneration,
                     )
@@ -622,53 +653,114 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         persist: () -> Boolean = {
             store.put(request.copy(platformAlarmIdOverride = platformAlarmId, state = AlarmState.SCHEDULED))
         },
-        cancel: () -> Unit = { cancelReceiver(platformAlarmId) },
+        cancel: () -> Boolean = { cancelReceiver(platformAlarmId) },
+        recordActive: (AlarmRequest) -> Boolean = { authorityStore.recordActive(it) },
+        recordRetired: (AlarmRequest) -> Boolean = {
+            authorityStore.recordRetired(listOf(it))
+        },
+        removePersisted: () -> Boolean = { store.removeRaw(platformAlarmId) },
     ): MutableMap<String, Any?> {
+        val persisted = request.copy(
+            platformAlarmIdOverride = platformAlarmId,
+            state = AlarmState.SCHEDULED,
+        )
         return try {
-            arm()
-            if (!persist()) {
-                cancel()
+            if (!activationCleanupStore.save(persisted)) {
                 return scheduleFailure(
                     request.occurrenceId,
                     request.wakePlanId,
                     "nativeError",
-                    "Failed to persist native alarm mirror state.",
+                    "Failed to persist native alarm activation cleanup evidence.",
                     request.reservationId,
                     request.reservationGeneration,
                 )
             }
-            val persisted = request.copy(
-                platformAlarmIdOverride = platformAlarmId,
-                state = AlarmState.SCHEDULED,
-            )
-            if (!authorityStore.recordActive(persisted)) {
+            arm()
+            if (!persist()) {
+                val cleanupCompleted = cleanupStagedActivation(
+                    persisted,
+                    cancel,
+                    removePersisted,
+                    recordRetired,
+                )
                 return scheduleFailure(
                     request.occurrenceId,
                     request.wakePlanId,
                     "nativeError",
-                    "Failed to persist native reservation generation authority.",
+                    activationFailureMessage(
+                        "Failed to persist native alarm mirror state.",
+                        cleanupCompleted,
+                    ),
+                    request.reservationId,
+                    request.reservationGeneration,
+                )
+            }
+            if (!recordActive(persisted)) {
+                val cleanupCompleted = cleanupStagedActivation(
+                    persisted,
+                    cancel,
+                    removePersisted,
+                    recordRetired,
+                )
+                return scheduleFailure(
+                    request.occurrenceId,
+                    request.wakePlanId,
+                    "nativeError",
+                    activationFailureMessage(
+                        "Failed to persist native reservation generation authority.",
+                        cleanupCompleted,
+                    ),
+                    request.reservationId,
+                    request.reservationGeneration,
+                )
+            }
+            if (!activationCleanupStore.clear()) {
+                return scheduleFailure(
+                    request.occurrenceId,
+                    request.wakePlanId,
+                    "nativeError",
+                    activationFailureMessage(
+                        "Failed to clear native alarm activation cleanup evidence.",
+                        cleanupCompleted = false,
+                    ),
                     request.reservationId,
                     request.reservationGeneration,
                 )
             }
             scheduleSuccess(request, platformAlarmId)
         } catch (error: JSONException) {
-            cancel()
+            val cleanupCompleted = cleanupStagedActivation(
+                persisted,
+                cancel,
+                removePersisted,
+                recordRetired,
+            )
             scheduleFailure(
                 request.occurrenceId,
                 request.wakePlanId,
                 "nativeError",
-                error.message ?: "Failed to persist native alarm mirror state.",
+                activationFailureMessage(
+                    error.message ?: "Failed to persist native alarm mirror state.",
+                    cleanupCompleted,
+                ),
                 request.reservationId,
                 request.reservationGeneration,
             )
         } catch (error: RuntimeException) {
-            cancel()
+            val cleanupCompleted = cleanupStagedActivation(
+                persisted,
+                cancel,
+                removePersisted,
+                recordRetired,
+            )
             scheduleFailure(
                 request.occurrenceId,
                 request.wakePlanId,
                 "nativeError",
-                error.message ?: "AlarmManager rejected the alarm.",
+                activationFailureMessage(
+                    error.message ?: "AlarmManager rejected the alarm.",
+                    cleanupCompleted,
+                ),
                 request.reservationId,
                 request.reservationGeneration,
             )
@@ -680,16 +772,68 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
         platformAlarmId: String,
         arm: () -> Unit,
         persist: () -> Boolean,
-        cancel: () -> Unit,
+        cancel: () -> Boolean,
+        recordActive: (AlarmRequest) -> Boolean = { authorityStore.recordActive(it) },
+        recordRetired: (AlarmRequest) -> Boolean = {
+            authorityStore.recordRetired(listOf(it))
+        },
+        removePersisted: () -> Boolean = { store.removeRaw(platformAlarmId) },
     ): Map<String, Any?> {
-        return armAndPersist(request, platformAlarmId, arm, persist, cancel)
+        return armAndPersist(
+            request,
+            platformAlarmId,
+            arm,
+            persist,
+            cancel,
+            recordActive,
+            recordRetired,
+            removePersisted,
+        )
     }
 
-    private fun cancelReceiver(platformAlarmId: String) {
-        try {
-            alarmManager.cancel(AlarmIntents.receiver(appContext, platformAlarmId))
+    private fun activationFailureMessage(
+        message: String,
+        cleanupCompleted: Boolean,
+    ): String = if (cleanupCompleted) {
+        message
+    } else {
+        "$message Activation cleanup remains pending durable recovery."
+    }
+
+    private fun cleanupStagedActivation(
+        request: AlarmRequest,
+        cancel: () -> Boolean,
+        removePersisted: () -> Boolean,
+        recordRetired: (AlarmRequest) -> Boolean,
+    ): Boolean {
+        if (!recordRetired(request)) return false
+        val (cancelled, mirrorRemoved) = cleanupActivation(cancel, removePersisted)
+        return cancelled && mirrorRemoved && activationCleanupStore.clear()
+    }
+
+    private fun cleanupActivation(
+        cancel: () -> Boolean,
+        removePersisted: () -> Boolean,
+    ): Pair<Boolean, Boolean> {
+        val cancelled = try {
+            cancel()
         } catch (_: RuntimeException) {
-            // Preserve the original schedule failure if cleanup is rejected.
+            false
+        }
+        val mirrorRemoved = cancelled && try {
+            removePersisted()
+        } catch (_: RuntimeException) {
+            false
+        }
+        return cancelled to mirrorRemoved
+    }
+
+    private fun cancelReceiver(platformAlarmId: String): Boolean {
+        return try {
+            alarmManager.cancel(AlarmIntents.receiver(appContext, platformAlarmId))
+            true
+        } catch (_: RuntimeException) {
+            false
         }
     }
 
@@ -872,10 +1016,64 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                 reservationGeneration,
             )
         }
+        val identitySnapshot = store.inspectIdentities(appContext, System.currentTimeMillis())
+        if (identitySnapshot.corruptKeys.isNotEmpty() || identitySnapshot.duplicateIdentity != null) {
+            return cancelFailure(
+                occurrenceId,
+                platformAlarmId,
+                "nativeError",
+                identitySnapshot.duplicateIdentity
+                    ?: "Native alarm mirror contains corrupt identity rows.",
+                reservationId,
+                reservationGeneration,
+            )
+        }
+        val requestedRow = identitySnapshot.requests.singleOrNull {
+            it.platformAlarmId == platformAlarmId
+        }
+        if (
+            requestedRow != null &&
+            !cancelIdentityMatches(
+                requestedRow,
+                occurrenceId,
+                reservationId,
+                reservationGeneration,
+            )
+        ) {
+            return cancelFailure(
+                occurrenceId,
+                platformAlarmId,
+                "invalidRequest",
+                "Native alarm identity does not match the requested reservation.",
+                reservationId,
+                reservationGeneration,
+            )
+        }
+        val exactRow = identitySnapshot.requests.singleOrNull {
+            it.occurrenceId == occurrenceId &&
+                it.reservationId == reservationId &&
+                it.reservationGeneration == reservationGeneration
+        }
+        if (
+            exactRow == null &&
+            identitySnapshot.requests.any {
+                it.occurrenceId == occurrenceId || it.reservationId == reservationId
+            }
+        ) {
+            return cancelFailure(
+                occurrenceId,
+                platformAlarmId,
+                "invalidRequest",
+                "Native alarm identity does not match the requested reservation.",
+                reservationId,
+                reservationGeneration,
+            )
+        }
+        val effectivePlatformAlarmId = exactRow?.platformAlarmId ?: platformAlarmId
         return try {
-            val stored = store.get(platformAlarmId)
+            val stored = store.get(effectivePlatformAlarmId)
             when {
-                store.contains(platformAlarmId) && stored == null -> cancelFailure(
+                store.contains(effectivePlatformAlarmId) && stored == null -> cancelFailure(
                     occurrenceId,
                     platformAlarmId,
                     "nativeError",
@@ -884,7 +1082,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                     reservationGeneration,
                 )
                 stored != null &&
-                    (stored.platformAlarmId != platformAlarmId ||
+                    (stored.platformAlarmId != effectivePlatformAlarmId ||
                         !stored.hasCanonicalPlatformAlarmId()) -> cancelFailure(
                     occurrenceId,
                     platformAlarmId,
@@ -919,8 +1117,8 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                             reservationGeneration,
                         )
                     }
-                    alarmManager.cancel(AlarmIntents.receiver(appContext, platformAlarmId))
-                    if (!store.remove(platformAlarmId)) {
+                    alarmManager.cancel(AlarmIntents.receiver(appContext, effectivePlatformAlarmId))
+                    if (!store.removeRaw(effectivePlatformAlarmId)) {
                         cancelFailure(
                             occurrenceId,
                             platformAlarmId,
@@ -930,7 +1128,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                             reservationGeneration,
                         )
                     } else {
-                        notificationManager.cancel(platformAlarmId.hashCode())
+                        notificationManager.cancel(effectivePlatformAlarmId.hashCode())
                         mutableMapOf(
                             "occurrenceId" to occurrenceId,
                             "reservationId" to reservationId,
@@ -1700,8 +1898,11 @@ class AlarmStore(context: Context) {
         if (request != null && !ReservationAuthorityStore(storageContext).recordRetired(listOf(request))) {
             return false
         }
-        return preferences.edit().remove(platformAlarmId).commit()
+        return removeRaw(platformAlarmId)
     }
+
+    internal fun removeRaw(platformAlarmId: String): Boolean =
+        preferences.edit().remove(platformAlarmId).commit()
 
     fun replace(
         oldPlatformAlarmId: String,
@@ -1781,6 +1982,20 @@ class AlarmStore(context: Context) {
                     requests = emptyList(),
                     corruptKeys = cleanupKeys,
                     duplicateIdentity = "Failed to persist expired native alarm generation retirement.",
+                    context = context,
+                )
+            }
+            try {
+                val alarmManager = context.getSystemService(AlarmManager::class.java)
+                expiredRequests.forEach { request ->
+                    alarmManager.cancel(AlarmIntents.receiver(context, request.platformAlarmId))
+                }
+            } catch (error: RuntimeException) {
+                return AlarmInventorySnapshot(
+                    requests = emptyList(),
+                    corruptKeys = cleanupKeys,
+                    duplicateIdentity = error.message
+                        ?: "Failed to cancel expired native alarm rows.",
                     context = context,
                 )
             }
@@ -2098,6 +2313,11 @@ internal data class ReservationAuthoritySnapshot(
     val occurrenceOwners: Map<String, Pair<String, String>> = emptyMap(),
 )
 
+internal data class ReservationAdmissionFailure(
+    val failureReason: String,
+    val message: String,
+)
+
 internal class ReservationAuthorityStore(context: Context) {
     private val preferences = (if (
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !context.isDeviceProtectedStorage
@@ -2112,6 +2332,12 @@ internal class ReservationAuthorityStore(context: Context) {
     }
 
     fun validateAndSeedActive(requests: Collection<AlarmRequest>): String? = synchronized(lock) {
+        if (requests.groupBy { it.reservationId }.values.any { it.size > 1 }) {
+            return@synchronized "Duplicate native reservation identity."
+        }
+        if (requests.groupBy { it.occurrenceId }.values.any { it.size > 1 }) {
+            return@synchronized "Duplicate native occurrence identity."
+        }
         val snapshot = try {
             loadUnlocked()
         } catch (_: Exception) {
@@ -2130,6 +2356,16 @@ internal class ReservationAuthorityStore(context: Context) {
             }
             val authority = reservations[request.reservationId]
             if (authority == null) {
+                reservations[request.reservationId] = request.activeAuthority()
+                occurrenceOwners[request.occurrenceId] =
+                    request.reservationId to request.wakePlanId
+                changed = true
+                continue
+            }
+            if (
+                authority.wakePlanId == request.wakePlanId &&
+                request.reservationGeneration > authority.reservationGeneration
+            ) {
                 reservations[request.reservationId] = request.activeAuthority()
                 occurrenceOwners[request.occurrenceId] =
                     request.reservationId to request.wakePlanId
@@ -2159,21 +2395,27 @@ internal class ReservationAuthorityStore(context: Context) {
         null
     }
 
-    fun admissionFailure(request: AlarmRequest): String? = synchronized(lock) {
+    fun admissionFailure(request: AlarmRequest): ReservationAdmissionFailure? = synchronized(lock) {
         val snapshot = try {
             loadUnlocked()
         } catch (_: Exception) {
-            return@synchronized "Native reservation generation authority is corrupt."
+            return@synchronized ReservationAdmissionFailure(
+                failureReason = "nativeError",
+                message = "Native reservation generation authority is corrupt.",
+            )
         }
         val occurrenceOwner = snapshot.occurrenceOwners[request.occurrenceId]
         if (
             occurrenceOwner != null &&
             occurrenceOwner != (request.reservationId to request.wakePlanId)
         ) {
-            return@synchronized "Native occurrence identity is already owned by another reservation."
+            return@synchronized ReservationAdmissionFailure(
+                failureReason = "invalidRequest",
+                message = "Native occurrence identity is already owned by another reservation.",
+            )
         }
         val authority = snapshot.reservations[request.reservationId] ?: return@synchronized null
-        when {
+        val message = when {
             authority.wakePlanId != request.wakePlanId ->
                 "Native reservation identity is already owned by another wake plan."
             request.reservationGeneration < authority.reservationGeneration ->
@@ -2185,6 +2427,12 @@ internal class ReservationAuthorityStore(context: Context) {
                 authority.occurrenceId != request.occurrenceId ->
                 "Native reservation generation does not match its occurrence."
             else -> null
+        }
+        message?.let {
+            ReservationAdmissionFailure(
+                failureReason = "invalidRequest",
+                message = it,
+            )
         }
     }
 
@@ -2423,6 +2671,43 @@ internal class AlarmReplacementJournalStore(context: Context) {
     }
 }
 
+internal class AlarmActivationCleanupStore(context: Context) {
+    private val preferences = (if (
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !context.isDeviceProtectedStorage
+    ) {
+        context.createDeviceProtectedStorageContext()
+    } else {
+        context
+    }).getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+
+    fun load(): AlarmRequest? = synchronized(lock) {
+        val value = preferences.getString(JOURNAL_KEY, null) ?: return@synchronized null
+        val json = JSONObject(value)
+        require(json.getInt("schemaVersion") == STORAGE_SCHEMA_VERSION)
+        AlarmRequest.fromJson(json.getJSONObject("request"))
+    }
+
+    fun save(request: AlarmRequest): Boolean = synchronized(lock) {
+        if (preferences.contains(JOURNAL_KEY)) return@synchronized false
+        val encoded = JSONObject()
+            .put("schemaVersion", STORAGE_SCHEMA_VERSION)
+            .put("request", request.toJson())
+            .toString()
+        preferences.edit().putString(JOURNAL_KEY, encoded).commit()
+    }
+
+    fun clear(): Boolean = synchronized(lock) {
+        preferences.edit().remove(JOURNAL_KEY).commit()
+    }
+
+    private companion object {
+        const val PREFERENCES_NAME = "native_alarm_activation_cleanup"
+        const val JOURNAL_KEY = "active"
+        const val STORAGE_SCHEMA_VERSION = 1
+        val lock = Any()
+    }
+}
+
 internal data class AlarmReplacementRecoveryResult(
     val isSuccess: Boolean,
     val message: String? = null,
@@ -2438,6 +2723,7 @@ internal object AndroidAlarmReplacementRecovery {
     ): AlarmReplacementRecoveryResult = synchronized(lock) {
         val appContext = serviceContext.applicationContext
         val journalStore = AlarmReplacementJournalStore(storageContext)
+        val activationCleanupStore = AlarmActivationCleanupStore(storageContext)
         val journal = try {
             journalStore.load()
         } catch (error: Exception) {
@@ -2445,11 +2731,49 @@ internal object AndroidAlarmReplacementRecovery {
                 isSuccess = false,
                 message = error.message ?: "Native alarm replacement journal is corrupt.",
             )
-        } ?: return@synchronized AlarmReplacementRecoveryResult(isSuccess = true)
+        }
+        val activationCleanup = try {
+            activationCleanupStore.load()
+        } catch (error: Exception) {
+            return@synchronized AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = error.message ?: "Native alarm activation cleanup journal is corrupt.",
+            )
+        }
+        if (journal != null && activationCleanup != null) {
+            return@synchronized AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Native alarm replacement and activation cleanup journals conflict.",
+            )
+        }
 
         val alarmManager = appContext.getSystemService(AlarmManager::class.java)
         val store = AlarmStore(storageContext)
         val authorityStore = ReservationAuthorityStore(storageContext)
+        if (
+            activationCleanup != null &&
+            (admittingPlatformAlarmId == null ||
+                admittingPlatformAlarmId == activationCleanup.platformAlarmId)
+        ) {
+            val cleanup = reconcileActivationCleanup(
+                activationCleanup,
+                appContext,
+                alarmManager,
+                store,
+                authorityStore,
+                activationCleanupStore,
+            )
+            if (!cleanup.isSuccess) return@synchronized cleanup
+        }
+        if (journal == null) {
+            return@synchronized reconcileRetiredMirrors(
+                appContext,
+                alarmManager,
+                store,
+                authorityStore,
+                admittingPlatformAlarmId,
+            )
+        }
         if (
             admittingPlatformAlarmId != null &&
             admittingPlatformAlarmId != journal.old.platformAlarmId &&
@@ -2464,14 +2788,28 @@ internal object AndroidAlarmReplacementRecovery {
             journal,
             System.currentTimeMillis(),
             admittingPlatformAlarmId,
-        ) ?: return@synchronized retireExpired(
-            journal,
-            appContext,
-            alarmManager,
-            store,
-            journalStore,
-            authorityStore,
         )
+        if (winner == null) {
+            val retired = retireExpired(
+                journal,
+                appContext,
+                alarmManager,
+                store,
+                journalStore,
+                authorityStore,
+            )
+            return@synchronized if (retired.isSuccess) {
+                reconcileRetiredMirrors(
+                    appContext,
+                    alarmManager,
+                    store,
+                    authorityStore,
+                    admittingPlatformAlarmId,
+                )
+            } else {
+                retired
+            }
+        }
         val loser = if (winner == journal.new) journal.old else journal.new
 
         if (!authorityStore.recordActive(winner)) {
@@ -2508,7 +2846,203 @@ internal object AndroidAlarmReplacementRecovery {
                 message = "Failed to clear native alarm replacement journal.",
             )
         }
-        AlarmReplacementRecoveryResult(isSuccess = true)
+        reconcileRetiredMirrors(
+            appContext,
+            alarmManager,
+            store,
+            authorityStore,
+            admittingPlatformAlarmId,
+        )
+    }
+
+    private fun reconcileActivationCleanup(
+        request: AlarmRequest,
+        appContext: Context,
+        alarmManager: AlarmManager,
+        store: AlarmStore,
+        authorityStore: ReservationAuthorityStore,
+        cleanupStore: AlarmActivationCleanupStore,
+    ): AlarmReplacementRecoveryResult {
+        val authority = try {
+            authorityStore.load().reservations[request.reservationId]
+        } catch (error: Exception) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = error.message ?: "Native reservation generation authority is corrupt.",
+            )
+        }
+        if (
+            authority?.state == ReservationAuthorityState.ACTIVE &&
+            authority.wakePlanId == request.wakePlanId &&
+            authority.reservationGeneration == request.reservationGeneration &&
+            authority.occurrenceId == request.occurrenceId
+        ) {
+            val snapshot = store.inspectIdentities(appContext, System.currentTimeMillis())
+            if (snapshot.duplicateIdentity != null || snapshot.corruptKeys.isNotEmpty()) {
+                return AlarmReplacementRecoveryResult(
+                    isSuccess = false,
+                    message = snapshot.duplicateIdentity
+                        ?: "Native alarm mirror state is corrupt during activation recovery.",
+                )
+            }
+            val mirror = snapshot.requests.singleOrNull {
+                it.platformAlarmId == request.platformAlarmId
+            }
+            if (mirror?.copy(updatedAtMillis = request.updatedAtMillis) == request) {
+                return if (cleanupStore.clear()) {
+                    AlarmReplacementRecoveryResult(isSuccess = true)
+                } else {
+                    AlarmReplacementRecoveryResult(
+                        isSuccess = false,
+                        message = "Failed to clear committed native alarm activation evidence.",
+                    )
+                }
+            }
+        }
+        if (!authorityStore.recordRetired(listOf(request))) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Failed to persist pending native alarm activation retirement.",
+            )
+        }
+        val retired = try {
+            authorityStore.load().reservations[request.reservationId]
+        } catch (error: Exception) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = error.message ?: "Native reservation generation authority is corrupt.",
+            )
+        }
+        if (
+            retired?.state != ReservationAuthorityState.RETIRED ||
+            retired.wakePlanId != request.wakePlanId ||
+            retired.reservationGeneration != request.reservationGeneration ||
+            retired.occurrenceId != request.occurrenceId
+        ) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Pending native alarm activation retirement is non-monotonic.",
+            )
+        }
+        try {
+            cancel(appContext, alarmManager, request.platformAlarmId)
+        } catch (error: RuntimeException) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = error.message ?: "Failed to cancel a pending native alarm activation.",
+            )
+        }
+        if (!store.removeRaw(request.platformAlarmId)) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Failed to remove a pending native alarm activation mirror.",
+            )
+        }
+        appContext.getSystemService(NotificationManager::class.java)
+            .cancel(request.platformAlarmId.hashCode())
+        if (!cleanupStore.clear()) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Failed to clear native alarm activation cleanup evidence.",
+            )
+        }
+        return AlarmReplacementRecoveryResult(isSuccess = true)
+    }
+
+    private fun reconcileRetiredMirrors(
+        appContext: Context,
+        alarmManager: AlarmManager,
+        store: AlarmStore,
+        authorityStore: ReservationAuthorityStore,
+        admittingPlatformAlarmId: String?,
+    ): AlarmReplacementRecoveryResult {
+        var authority = try {
+            authorityStore.load()
+        } catch (error: Exception) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = error.message ?: "Native reservation generation authority is corrupt.",
+            )
+        }
+        val snapshot = store.inspectIdentities(appContext, System.currentTimeMillis())
+        if (snapshot.duplicateIdentity != null) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = snapshot.duplicateIdentity,
+            )
+        }
+        val pendingActivations = snapshot.requests.filter { request ->
+            val persisted = authority.reservations[request.reservationId]
+            val matchesAdmission = admittingPlatformAlarmId == null ||
+                request.platformAlarmId == admittingPlatformAlarmId
+            val advancesAuthority = persisted != null &&
+                persisted.wakePlanId == request.wakePlanId &&
+                request.reservationGeneration > persisted.reservationGeneration
+            val seedsStableAuthority = persisted == null &&
+                request.reservationId != request.occurrenceId &&
+                request.platformAlarmId != AlarmRequest.legacyPlatformAlarmId(request)
+            matchesAdmission && (advancesAuthority || seedsStableAuthority)
+        }
+        for (request in pendingActivations) {
+            if (
+                request.state != AlarmState.RINGING &&
+                request.platformAlarmId != admittingPlatformAlarmId
+            ) {
+                try {
+                    arm(appContext, alarmManager, request)
+                } catch (error: RuntimeException) {
+                    return AlarmReplacementRecoveryResult(
+                        isSuccess = false,
+                        message = error.message ?: "Failed to restore native alarm activation.",
+                    )
+                }
+            }
+            if (!authorityStore.recordActive(request)) {
+                return AlarmReplacementRecoveryResult(
+                    isSuccess = false,
+                    message = "Failed to finish native alarm generation activation.",
+                )
+            }
+        }
+        if (pendingActivations.isNotEmpty()) {
+            authority = try {
+                authorityStore.load()
+            } catch (error: Exception) {
+                return AlarmReplacementRecoveryResult(
+                    isSuccess = false,
+                    message = error.message
+                        ?: "Native reservation generation authority is corrupt.",
+                )
+            }
+        }
+        val pendingRetirements = snapshot.requests.filter { request ->
+            val persisted = authority.reservations[request.reservationId]
+            (admittingPlatformAlarmId == null ||
+                request.platformAlarmId == admittingPlatformAlarmId) &&
+                persisted?.state == ReservationAuthorityState.RETIRED &&
+                persisted.wakePlanId == request.wakePlanId &&
+                persisted.reservationGeneration == request.reservationGeneration &&
+                persisted.occurrenceId == request.occurrenceId
+        }
+        for (request in pendingRetirements) {
+            try {
+                cancel(appContext, alarmManager, request.platformAlarmId)
+            } catch (error: RuntimeException) {
+                return AlarmReplacementRecoveryResult(
+                    isSuccess = false,
+                    message = error.message ?: "Failed to finish native alarm retirement.",
+                )
+            }
+            if (!store.removeRaw(request.platformAlarmId)) {
+                return AlarmReplacementRecoveryResult(
+                    isSuccess = false,
+                    message = "Failed to remove a retired native alarm mirror row.",
+                )
+            }
+            appContext.getSystemService(NotificationManager::class.java)
+                .cancel(request.platformAlarmId.hashCode())
+        }
+        return AlarmReplacementRecoveryResult(isSuccess = true)
     }
 
     private fun selectWinner(
@@ -2548,12 +3082,6 @@ internal object AndroidAlarmReplacementRecovery {
                 message = "Failed to persist expired native alarm generation retirement.",
             )
         }
-        if (!store.removeAll(expiredPlatformAlarmIds)) {
-            return AlarmReplacementRecoveryResult(
-                isSuccess = false,
-                message = "Failed to retire expired native alarm replacement rows.",
-            )
-        }
         try {
             cancel(appContext, alarmManager, journal.old.platformAlarmId)
             cancel(appContext, alarmManager, journal.new.platformAlarmId)
@@ -2561,6 +3089,12 @@ internal object AndroidAlarmReplacementRecovery {
             return AlarmReplacementRecoveryResult(
                 isSuccess = false,
                 message = error.message ?: "Failed to retire expired native alarms.",
+            )
+        }
+        if (!store.removeAll(expiredPlatformAlarmIds)) {
+            return AlarmReplacementRecoveryResult(
+                isSuccess = false,
+                message = "Failed to retire expired native alarm replacement rows.",
             )
         }
         if (!journalStore.clear()) {

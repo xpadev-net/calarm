@@ -14,6 +14,7 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -40,6 +41,7 @@ class AndroidInventoryTest {
         credentialPreferences().edit().clear().commit()
         replacementPreferences().edit().clear().commit()
         replacementCredentialPreferences().edit().clear().commit()
+        activationCleanupPreferences().edit().clear().commit()
         authorityPreferences().edit().clear().commit()
         ShadowAlarmManager.reset()
         ShadowAlarmManager.setCanScheduleExactAlarms(true)
@@ -55,6 +57,7 @@ class AndroidInventoryTest {
         credentialPreferences().edit().clear().commit()
         replacementPreferences().edit().clear().commit()
         replacementCredentialPreferences().edit().clear().commit()
+        activationCleanupPreferences().edit().clear().commit()
         authorityPreferences().edit().clear().commit()
         ShadowAlarmManager.reset()
         ShadowAlarmManager.setCanScheduleExactAlarms(true)
@@ -118,6 +121,7 @@ class AndroidInventoryTest {
             .putString(expired.platformAlarmId, expired.toJson().toString())
             .putString("android:plan:corrupt-inventory", "not-json")
             .commit()
+        armForRecoveryTest(expired)
 
         val snapshot = AlarmStore(context).inventory(context, System.currentTimeMillis())
 
@@ -125,6 +129,7 @@ class AndroidInventoryTest {
         assertTrue(snapshot.corruptKeys.contains("android:plan:corrupt-inventory"))
         assertFalse(mirrorPreferences().contains(expired.platformAlarmId))
         assertFalse(mirrorPreferences().contains("android:plan:corrupt-inventory"))
+        assertTrue(scheduledAlarmIds().isEmpty())
     }
 
     @Test
@@ -601,6 +606,31 @@ class AndroidInventoryTest {
         assertEquals(legacy.platformAlarmId, duplicateRow["platformAlarmId"])
         assertEquals(scheduledBeforeRetry, scheduledAlarms())
 
+        val newerGeneration = CapturingResult()
+        bridge.onMethodCall(
+            MethodCall(
+                "scheduleOccurrences",
+                scheduleArguments(
+                    occurrenceId = legacy.occurrenceId,
+                    reservationId = "ringing-adopted-reservation",
+                    wakePlanId = legacy.wakePlanId,
+                    scheduledAtMillis = scheduledAtMillis,
+                    reservationGeneration = 1L,
+                    indexInPlan = 0,
+                    totalInPlan = 2,
+                ),
+            ),
+            newerGeneration,
+        )
+        val newerGenerationRow =
+            (((newerGeneration.value as Map<*, *>)["occurrences"] as List<*>).single())
+                as Map<*, *>
+        assertEquals("failure", newerGenerationRow["status"])
+        assertEquals("invalidRequest", newerGenerationRow["failureReason"])
+        assertEquals(0L, AlarmStore(context).get(legacy.platformAlarmId)?.reservationGeneration)
+        assertEquals(AlarmState.RINGING, AlarmStore(context).get(legacy.platformAlarmId)?.state)
+        assertEquals(scheduledBeforeRetry, scheduledAlarms())
+
         val mismatch = CapturingResult()
         bridge.onMethodCall(
             MethodCall(
@@ -814,13 +844,13 @@ class AndroidInventoryTest {
     }
 
     @Test
-    fun `schedule persistence failure control flow cancels the same receiver and preserves prior mirror`() {
+    fun `schedule activation failures compensate or retain durable recovery evidence`() {
         val request = alarmRequest(
-            platformAlarmId = "android:plan:rollback",
-            occurrenceId = "rollback",
+            platformAlarmId = "android:reservation:rollback-slot",
+            reservationId = "rollback-slot",
+            occurrenceId = "rollback-occurrence",
+            wakePlanId = "rollback-plan",
         )
-        assertTrue(AlarmStore(context).put(request))
-        val priorJson = mirrorPreferences().getString(request.platformAlarmId, null)
         var armCount = 0
         var cancelCount = 0
         val bridge = AndroidAlarmBridge(context)
@@ -828,28 +858,142 @@ class AndroidInventoryTest {
         val failed = bridge.armAndPersistForTest(
             request = request,
             platformAlarmId = request.platformAlarmId,
-            arm = { armCount += 1 },
+            arm = {
+                assertNotNull(activationCleanupPreferences().getString("active", null))
+                armCount += 1
+            },
             persist = { false },
-            cancel = { cancelCount += 1 },
+            cancel = {
+                cancelCount += 1
+                true
+            },
         )
         assertEquals("failure", failed["status"])
         assertEquals("nativeError", failed["failureReason"])
         assertEquals(1, armCount)
         assertEquals(1, cancelCount)
-        assertEquals(priorJson, mirrorPreferences().getString(request.platformAlarmId, null))
+        assertNull(AlarmStore(context).get(request.platformAlarmId))
 
         val exceptionFailure = bridge.armAndPersistForTest(
             request = request,
             platformAlarmId = request.platformAlarmId,
             arm = { armCount += 1 },
             persist = { throw JSONException("toJson failure") },
-            cancel = { cancelCount += 1 },
+            cancel = {
+                cancelCount += 1
+                true
+            },
         )
         assertEquals("failure", exceptionFailure["status"])
         assertEquals("nativeError", exceptionFailure["failureReason"])
         assertEquals(2, armCount)
         assertEquals(2, cancelCount)
-        assertEquals(priorJson, mirrorPreferences().getString(request.platformAlarmId, null))
+        assertNull(AlarmStore(context).get(request.platformAlarmId))
+
+        val authorityFailure = bridge.armAndPersistForTest(
+            request = request,
+            platformAlarmId = request.platformAlarmId,
+            arm = { armCount += 1 },
+            persist = { AlarmStore(context).put(request) },
+            cancel = {
+                cancelCount += 1
+                true
+            },
+            recordActive = { false },
+        )
+        assertEquals("failure", authorityFailure["status"])
+        assertEquals("nativeError", authorityFailure["failureReason"])
+        assertEquals(3, armCount)
+        assertEquals(3, cancelCount)
+        assertNull(AlarmStore(context).get(request.platformAlarmId))
+
+        val retired = alarmRequest(
+            platformAlarmId = "android:reservation:pending-activation-slot",
+            reservationId = "pending-activation-slot",
+            occurrenceId = "pending-activation-old",
+            wakePlanId = "pending-activation-plan",
+            reservationGeneration = 1L,
+        )
+        val pendingTemplate = retired.copy(
+            occurrenceId = "pending-activation-current",
+            reservationGeneration = 2L,
+        )
+        val pending = pendingTemplate.copy(
+            platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(pendingTemplate),
+        )
+        val authorityStore = ReservationAuthorityStore(context)
+        assertTrue(authorityStore.recordRetired(listOf(retired)))
+        var pendingCancelCount = 0
+        val pendingFailure = bridge.armAndPersistForTest(
+            request = pending,
+            platformAlarmId = pending.platformAlarmId,
+            arm = { armForRecoveryTest(pending) },
+            persist = { AlarmStore(context).put(pending) },
+            cancel = {
+                pendingCancelCount += 1
+                false
+            },
+            recordActive = { false },
+            recordRetired = { false },
+            removePersisted = { throw AssertionError("Mirror removal must follow cancellation.") },
+        )
+        assertEquals("failure", pendingFailure["status"])
+        assertTrue(
+            (pendingFailure["failureMessage"] as String).contains("pending durable recovery"),
+        )
+        assertEquals(0, pendingCancelCount)
+        assertNotNull(AlarmStore(context).get(pending.platformAlarmId))
+        assertNotNull(activationCleanupPreferences().getString("active", null))
+
+        val recovery = AndroidAlarmReplacementRecovery.reconcile(context, context)
+
+        assertTrue(recovery.isSuccess)
+        assertNull(AlarmStore(context).get(pending.platformAlarmId))
+        assertFalse(scheduledAlarmIds().contains(pending.platformAlarmId))
+        assertNull(activationCleanupPreferences().getString("active", null))
+        assertEquals(
+            ReservationAuthorityState.RETIRED,
+            authorityStore.load().reservations[pending.reservationId]?.state,
+        )
+
+        val removalRetired = retired.copy(
+            occurrenceId = "pending-removal-old",
+            reservationId = "pending-removal-slot",
+            platformAlarmIdOverride = "android:reservation:pending-removal-slot",
+        )
+        val removalTemplate = removalRetired.copy(
+            occurrenceId = "pending-removal-current",
+            reservationGeneration = 2L,
+        )
+        val removalPending = removalTemplate.copy(
+            platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(removalTemplate),
+        )
+        assertTrue(authorityStore.recordRetired(listOf(removalRetired)))
+        val removalFailure = bridge.armAndPersistForTest(
+            request = removalPending,
+            platformAlarmId = removalPending.platformAlarmId,
+            arm = { armForRecoveryTest(removalPending) },
+            persist = { AlarmStore(context).put(removalPending) },
+            cancel = {
+                context.getSystemService(AlarmManager::class.java)
+                    .cancel(AlarmIntents.receiver(context, removalPending.platformAlarmId))
+                true
+            },
+            recordActive = { false },
+            removePersisted = { false },
+        )
+        assertEquals("failure", removalFailure["status"])
+        assertNotNull(AlarmStore(context).get(removalPending.platformAlarmId))
+
+        val removalRecovery = AndroidAlarmReplacementRecovery.reconcile(context, context)
+
+        assertTrue(removalRecovery.isSuccess)
+        assertNull(AlarmStore(context).get(removalPending.platformAlarmId))
+        assertFalse(scheduledAlarmIds().contains(removalPending.platformAlarmId))
+        assertEquals(
+            ReservationAuthorityState.RETIRED,
+            authorityStore.load().reservations[removalPending.reservationId]?.state,
+        )
     }
 
     @Test
@@ -939,6 +1083,97 @@ class AndroidInventoryTest {
             armCandidate = true,
             mirrorCommitted = true,
             expectedNewWinner = true,
+        )
+    }
+
+    @Test
+    fun `cancel resolves the exact replacement winner after recovery`() {
+        val old = alarmRequest(
+            platformAlarmId = "android:reservation:cancel-recovery-slot",
+            reservationId = "cancel-recovery-slot",
+            occurrenceId = "cancel-recovery-old",
+            wakePlanId = "cancel-recovery-plan",
+            reservationGeneration = 0L,
+        )
+        val newTemplate = old.copy(
+            occurrenceId = "cancel-recovery-current",
+            reservationGeneration = 1L,
+        )
+        val candidate = newTemplate.copy(
+            platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(newTemplate),
+        )
+        assertTrue(AlarmStore(context).put(candidate))
+        armForRecoveryTest(old)
+        armForRecoveryTest(candidate)
+        assertTrue(
+            AlarmReplacementJournalStore(context).save(
+                AlarmReplacementJournal(
+                    old = old,
+                    new = candidate,
+                    phase = AlarmReplacementPhase.OLD_RETIRED,
+                ),
+            ),
+        )
+        val recovery = AndroidAlarmReplacementRecovery.reconcile(context, context)
+        assertTrue(recovery.isSuccess)
+        assertNull(AlarmStore(context).get(old.platformAlarmId))
+        assertNotNull(AlarmStore(context).get(candidate.platformAlarmId))
+
+        val staleCancel = CapturingResult()
+        AndroidAlarmBridge(context).onMethodCall(
+            MethodCall(
+                "cancelOccurrences",
+                mapOf(
+                    "schemaVersion" to 1,
+                    "alarms" to listOf(
+                        mapOf(
+                            "occurrenceId" to candidate.occurrenceId,
+                            "reservationId" to candidate.reservationId,
+                            "reservationGeneration" to old.reservationGeneration,
+                            "platformAlarmId" to old.platformAlarmId,
+                        ),
+                    ),
+                ),
+            ),
+            staleCancel,
+        )
+        val staleRow = ((staleCancel.value as Map<*, *>)["alarms"] as List<*>)
+            .single() as Map<*, *>
+        assertEquals("failure", staleRow["status"])
+        assertEquals("invalidRequest", staleRow["failureReason"])
+        assertNotNull(AlarmStore(context).get(candidate.platformAlarmId))
+
+        val cancel = CapturingResult()
+
+        AndroidAlarmBridge(context).onMethodCall(
+            MethodCall(
+                "cancelOccurrences",
+                mapOf(
+                    "schemaVersion" to 1,
+                    "alarms" to listOf(
+                        mapOf(
+                            "occurrenceId" to candidate.occurrenceId,
+                            "reservationId" to candidate.reservationId,
+                            "reservationGeneration" to candidate.reservationGeneration,
+                            "platformAlarmId" to old.platformAlarmId,
+                        ),
+                    ),
+                ),
+            ),
+            cancel,
+        )
+
+        val row = ((cancel.value as Map<*, *>)["alarms"] as List<*>)
+            .single() as Map<*, *>
+        assertEquals("success", row["status"])
+        assertEquals(old.platformAlarmId, row["platformAlarmId"])
+        assertNull(AlarmStore(context).get(old.platformAlarmId))
+        assertNull(AlarmStore(context).get(candidate.platformAlarmId))
+        assertTrue(scheduledAlarmIds().isEmpty())
+        assertEquals(
+            ReservationAuthorityState.RETIRED,
+            ReservationAuthorityStore(context).load()
+                .reservations[candidate.reservationId]?.state,
         )
     }
 
@@ -1185,6 +1420,56 @@ class AndroidInventoryTest {
             assertEquals(journal, replacementPreferences().getString("active", null))
             assertEquals(0, scheduledAlarms().size)
         }
+    }
+
+    @Test
+    fun `corrupt activation cleanup journal fails closed and retains evidence`() {
+        val evidence = "not-json"
+        assertTrue(
+            activationCleanupPreferences().edit().putString("active", evidence).commit(),
+        )
+
+        val first = AndroidAlarmReplacementRecovery.reconcile(context, context)
+        val second = AndroidAlarmReplacementRecovery.reconcile(context, context)
+
+        assertFalse(first.isSuccess)
+        assertFalse(second.isSuccess)
+        assertEquals(evidence, activationCleanupPreferences().getString("active", null))
+        assertTrue(scheduledAlarmIds().isEmpty())
+    }
+
+    @Test
+    fun `committed activation survives reopen before cleanup evidence clears`() {
+        val request = alarmRequest(
+            platformAlarmId = "android:reservation:committed-activation-slot",
+            reservationId = "committed-activation-slot",
+            occurrenceId = "committed-activation-occurrence",
+            wakePlanId = "committed-activation-plan",
+            reservationGeneration = 3L,
+            updatedAtMillis = 1L,
+        )
+        assertTrue(AlarmActivationCleanupStore(context).save(request))
+        armForRecoveryTest(request)
+        assertTrue(AlarmStore(context).put(request))
+        val persisted = AlarmStore(context).get(request.platformAlarmId)
+        assertNotNull(persisted)
+        assertNotEquals(
+            request.updatedAtMillis,
+            persisted?.updatedAtMillis,
+        )
+        val authorityStore = ReservationAuthorityStore(context)
+        assertTrue(authorityStore.recordActive(request))
+
+        val recovery = AndroidAlarmReplacementRecovery.reconcile(context, context)
+
+        assertTrue(recovery.isSuccess)
+        assertEquals(persisted, AlarmStore(context).get(request.platformAlarmId))
+        assertEquals(listOf(request.platformAlarmId), scheduledAlarmIds())
+        assertEquals(
+            ReservationAuthorityState.ACTIVE,
+            authorityStore.load().reservations[request.reservationId]?.state,
+        )
+        assertNull(activationCleanupPreferences().getString("active", null))
     }
 
     @Test
@@ -1569,6 +1854,61 @@ class AndroidInventoryTest {
     }
 
     @Test
+    fun `retired mirror is finished from durable authority after reopen`() {
+        val request = alarmRequest(
+            platformAlarmId = "android:reservation:retirement-recovery-slot",
+            reservationId = "retirement-recovery-slot",
+            occurrenceId = "retirement-recovery-occurrence",
+            wakePlanId = "retirement-recovery-plan",
+            reservationGeneration = 4L,
+        )
+        assertTrue(AlarmStore(context).put(request))
+        armForRecoveryTest(request)
+        val authorityStore = ReservationAuthorityStore(context)
+        assertTrue(authorityStore.recordActive(request))
+        assertTrue(authorityStore.recordRetired(listOf(request)))
+
+        val recovery = AndroidAlarmReplacementRecovery.reconcile(context, context)
+
+        assertTrue(recovery.isSuccess)
+        assertNull(AlarmStore(context).get(request.platformAlarmId))
+        assertTrue(scheduledAlarmIds().isEmpty())
+        assertEquals(
+            ReservationAuthorityState.RETIRED,
+            authorityStore.load().reservations[request.reservationId]?.state,
+        )
+    }
+
+    @Test
+    fun `higher durable mirror repairs activation after authority write crash`() {
+        val retired = alarmRequest(
+            platformAlarmId = "android:reservation:activation-recovery-slot",
+            reservationId = "activation-recovery-slot",
+            occurrenceId = "activation-recovery-old",
+            wakePlanId = "activation-recovery-plan",
+            reservationGeneration = 2L,
+        )
+        val currentTemplate = retired.copy(
+            occurrenceId = "activation-recovery-current",
+            reservationGeneration = 3L,
+        )
+        val current = currentTemplate.copy(
+            platformAlarmIdOverride = AlarmRequest.replacementPlatformAlarmId(currentTemplate),
+        )
+        val authorityStore = ReservationAuthorityStore(context)
+        assertTrue(authorityStore.recordRetired(listOf(retired)))
+        assertTrue(AlarmStore(context).put(current))
+
+        val failure = authorityStore.validateAndSeedActive(listOf(current))
+
+        assertNull(failure)
+        val repaired = authorityStore.load().reservations[current.reservationId]
+        assertEquals(ReservationAuthorityState.ACTIVE, repaired?.state)
+        assertEquals(current.reservationGeneration, repaired?.reservationGeneration)
+        assertEquals(current.occurrenceId, repaired?.occurrenceId)
+    }
+
+    @Test
     fun `corrupt generation authority blocks scheduling without deleting evidence`() {
         assertTrue(authorityPreferences().edit().putString("authority", "not-json").commit())
         val result = CapturingResult()
@@ -1584,6 +1924,7 @@ class AndroidInventoryTest {
             .single() as Map<*, *>
 
         assertEquals("failure", row["status"])
+        assertEquals("nativeError", row["failureReason"])
         assertEquals("not-json", authorityPreferences().getString("authority", null))
         assertTrue(scheduledAlarms().isEmpty())
     }
@@ -1871,6 +2212,9 @@ class AndroidInventoryTest {
 
     private fun replacementCredentialPreferences() = context
         .getSharedPreferences("native_alarm_replacement_journal", Context.MODE_PRIVATE)
+
+    private fun activationCleanupPreferences() = deviceProtectedContext()
+        .getSharedPreferences("native_alarm_activation_cleanup", Context.MODE_PRIVATE)
 
     private fun authorityPreferences() = deviceProtectedContext()
         .getSharedPreferences("native_alarm_reservation_authority", Context.MODE_PRIVATE)
