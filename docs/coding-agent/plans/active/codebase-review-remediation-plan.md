@@ -706,7 +706,7 @@
   - corresponding Dart gateway tests
   - `lib/features/wake_plan/application/wake_plan_service.dart` and its tests only for final reconciliation alignment after Task_22 merges
   - `docs/platform/native-alarm-channel.md`
-- depends_on: [Task_22]
+- depends_on: [Task_22, Task_25]
 - acceptance:
   - One documented reservation/occurrence identity rule governs iOS, Android, fake, Dart validation, and Task_13 reconciliation for recreated occurrences.
   - Side-effect/reply-loss and process-restart seams converge without silently accepting cross-plan ownership, duplicate logical identities, or corrupt tuples.
@@ -714,6 +714,25 @@
 - validation:
   - kind: command; required: true; owner: worker; detail: iOS RunnerTests, focused/full Android JVM tests, Dart gateway/service identity matrices, full Flutter tests, analyze, format, debug APK, Native Smoke CI, and diff-check.
   - kind: review; required: true; owner: reviewer; detail: cross-platform schema/identity parity, crash recovery, ownership/security, and compatibility review.
+
+### Task_25: Add the hosted Android JVM test gate
+
+- status: in progress
+- worker: `client-new-thread:b02a6dc6-65a9-4283-a82a-d52b3c4aedbb`
+- branch: `codex/task-25-hosted-android-jvm-gate`
+- type: ci
+- owns:
+  - `.github/workflows/native-smoke.yml`
+  - `docs/qa/ci-native-smoke.md` only if the executed gate/evidence contract needs documentation
+- depends_on: [Task_22]
+- acceptance:
+  - GitHub Actions runs the complete Android `:app:testDebugUnitTest` suite for Android/native-contract pull requests and manual native-smoke dispatches.
+  - A failing, timed-out, or skipped-required JVM suite prevents the Android native-smoke job from succeeding and retains actionable logs/artifacts.
+  - The gate runs against the exact checked-out PR head, uses the repository Flutter/Android toolchain, and does not relabel emulator or JVM evidence as physical-device approval.
+  - Task_24 can normally merge the workflow update, rerun exact-head CI, and satisfy its Android JVM acceptance without any local build.
+- validation:
+  - kind: command; required: true; owner: worker; detail: workflow/YAML/static shell validation that does not compile locally, followed by exact-head GitHub Actions execution proving the full Android JVM suite passes.
+  - kind: review; required: true; owner: reviewer; detail: trigger/path coverage, failure propagation, timeout/logging, exact-head provenance, and non-duplication review.
 
 ### Task_16: Real-device release evidence
 
@@ -747,8 +766,9 @@
 - Wave 8B (Android event journal after shared native UX files settle): [Task_20]
 - Wave 8C (Task_13-aware event and ringing reconciliation): [Task_21]
 - Wave 9A (parallel final-review remediation): [Task_22, Task_23]
-- Wave 9B (cross-platform identity contract after Task_22): [Task_24]
-- Wave 9C (orchestrator/reviewer): [Task_15]
+- Wave 9B (hosted Android JVM gate): [Task_25]
+- Wave 9C (cross-platform identity contract after Task_22 and Task_25): [Task_24]
+- Wave 9D (orchestrator/reviewer): [Task_15]
 - Wave 10 (user-owned): [Task_16]
 
 ## Worker Contract
@@ -1010,6 +1030,11 @@
   - Fresh exact-head review approved with no findings. Worker and orchestrator `gh-review-hook 66` exited 0; Baseline CI, Greptile, CodeRabbit, and Socket checks passed with CLEAN, base-current merge state.
   - Orchestrator validation passed focused service 143/143, full Flutter 507/507, `flutter analyze`, debug APK, format 2 files/0 changed, and `git diff --check` from a clean detached PR-head worktree.
   - Task_22 worker is archived. Task_24 is dispatched from the merged base for the cross-platform stable recreation identity contract; Task_23 continues independently.
+
+- 2026-07-22 Task_24 requested CI ownership decomposition for Android JVM evidence.
+  - The user disabled local build/compile-heavy validation because the local battery is failing; required evidence moved to exact-head GitHub Actions without waiving a gate.
+  - Task_24 proved the official workflows cover Flutter/analyze, debug APK, iOS RunnerTests, and native smoke, but no workflow runs the complete Android `:app:testDebugUnitTest` suite.
+  - Task_25 exclusively owns the narrow workflow update. Task_24 remains not merge-ready at PR [#67](https://github.com/xpadev-net/calarm/pull/67) head `4a40b9a` until Task_25 merges and exact-head CI supplies the missing Android JVM evidence.
 
 ## Decision Log
 
