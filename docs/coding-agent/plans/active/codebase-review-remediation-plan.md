@@ -750,7 +750,7 @@
 ### Task_26: Recover Android recreation state before delivery admission
 
 - status: in progress
-- worker: `client-new-thread:872bd327-b530-4932-847d-debe013f671e`
+- worker: `019f881b-da51-7a40-8590-e43e4b3d1172`
 - branch: `codex/task-26-receiver-delivery-recovery`
 - type: impl
 - owns:
