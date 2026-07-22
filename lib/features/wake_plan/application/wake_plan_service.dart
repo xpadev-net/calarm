@@ -486,14 +486,13 @@ class WakePlanService {
     final activeRowsByPlatformId = <String, NativeAlarmInventoryRow>{};
     var hasConflictingIdentity = false;
     for (final row in inventory.rows) {
-      final isRelated =
-          row.reservationId == occurrenceId || row.occurrenceId == occurrenceId;
-      if (!isRelated) {
+      final isCurrentOccurrence = row.occurrenceId == occurrenceId;
+      final isPriorGeneration =
+          row.reservationId == occurrenceId && !isCurrentOccurrence;
+      if (!isCurrentOccurrence && !isPriorGeneration) {
         continue;
       }
-      if (row.reservationId != occurrenceId ||
-          row.occurrenceId != occurrenceId ||
-          row.wakePlanId != wakePlanId) {
+      if (isPriorGeneration || row.wakePlanId != wakePlanId) {
         hasConflictingIdentity = true;
         continue;
       }
@@ -880,8 +879,7 @@ class WakePlanService {
           row.occurrenceId == occurrence.id ||
           row.platformAlarmId == occurrence.platformAlarmId;
       if (touchesOccurrence &&
-          (row.reservationId != occurrence.id ||
-              row.occurrenceId != occurrence.id ||
+          (row.occurrenceId != occurrence.id ||
               row.wakePlanId != occurrence.wakePlanId ||
               row.platformAlarmId != occurrence.platformAlarmId)) {
         return false;
@@ -889,10 +887,10 @@ class WakePlanService {
       if (row.wakePlanId == occurrence.wakePlanId) {
         final byReservation = occurrencesById[row.reservationId];
         final byOccurrence = occurrencesById[row.occurrenceId];
-        if (row.reservationId != row.occurrenceId ||
-            byReservation != byOccurrence ||
-            (byReservation != null &&
-                byReservation.wakePlanId != row.wakePlanId)) {
+        if ((byReservation != null &&
+                byReservation.wakePlanId != row.wakePlanId) ||
+            (byOccurrence != null &&
+                byOccurrence.wakePlanId != row.wakePlanId)) {
           return false;
         }
       }
@@ -1081,10 +1079,10 @@ class WakePlanService {
     bool hasTupleConflict(NativeAlarmInventoryRow row) {
       final byReservation = originalById[row.reservationId];
       final byOccurrence = originalById[row.occurrenceId];
-      return row.reservationId != row.occurrenceId ||
-          byReservation != byOccurrence ||
-          participantPlanIds(row).length > 1 ||
-          (byReservation != null && byReservation.wakePlanId != row.wakePlanId);
+      return participantPlanIds(row).length > 1 ||
+          (byReservation != null &&
+              byReservation.wakePlanId != row.wakePlanId) ||
+          (byOccurrence != null && byOccurrence.wakePlanId != row.wakePlanId);
     }
 
     void propagateBlockedParticipants() {

@@ -25,7 +25,7 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
            ),
        platformAlarmIdFactory =
            platformAlarmIdFactory ??
-           ((request) => 'platform-${request.occurrenceId}');
+           ((request) => 'platform-${request.reservationId}');
 
   NativeAlarmCapability capability;
   NativeAlarmPermissionResult permissionResult;
@@ -74,6 +74,31 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
         : scheduleFailureReason;
 
     final results = occurrences.map((request) {
+      final platformAlarmId = platformAlarmIdFactory(request);
+      final relatedRows = inventoryRows
+          .where(
+            (row) =>
+                row.reservationId == request.reservationId ||
+                row.occurrenceId == request.occurrenceId ||
+                row.platformAlarmId == platformAlarmId,
+          )
+          .toList(growable: false);
+      final canRebind =
+          relatedRows.length <= 1 &&
+          relatedRows.every(
+            (row) =>
+                row.reservationId == request.reservationId &&
+                row.wakePlanId == request.wakePlanId,
+          );
+      if (!canRebind) {
+        return ScheduleOccurrenceResult.failure(
+          occurrenceId: request.occurrenceId,
+          wakePlanId: request.wakePlanId,
+          reason: ScheduleFailureReason.invalidRequest,
+          reservationId: request.reservationId,
+          message: 'Fake native alarm identity conflicts with the request.',
+        );
+      }
       final occurrenceFailureReason =
           scheduleFailureOccurrenceIds.contains(request.occurrenceId)
           ? ScheduleFailureReason.nativeError
@@ -98,7 +123,6 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
         return result;
       }
 
-      final platformAlarmId = platformAlarmIdFactory(request);
       _upsertInventoryRow(request, platformAlarmId);
       return ScheduleOccurrenceResult.success(
         occurrenceId: request.occurrenceId,
@@ -283,10 +307,7 @@ class FakeNativeAlarmGateway implements NativeAlarmGateway {
     String platformAlarmId,
   ) {
     inventoryRows.removeWhere(
-      (row) =>
-          row.reservationId == request.reservationId &&
-          row.occurrenceId == request.occurrenceId &&
-          row.platformAlarmId == platformAlarmId,
+      (row) => row.reservationId == request.reservationId,
     );
     inventoryRows.add(
       NativeAlarmInventoryRow.create(

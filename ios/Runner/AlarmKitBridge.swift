@@ -742,6 +742,23 @@ final class AlarmKitBridge {
       guard committedReservationMatches.count + pendingReservationMatches.count <= 1 else {
         throw MirrorValidationError.invalid
       }
+      let conflictingOccurrenceOwner = mirror.values.contains { record in
+        record.occurrenceId == request.occurrenceId
+          && (record.reservationId != request.reservationId
+            || record.wakePlanId != request.wakePlanId)
+      } || pendingMirror.values.contains { record in
+        record.occurrenceId == request.occurrenceId
+          && (record.reservationId != request.reservationId
+            || record.wakePlanId != request.wakePlanId)
+      }
+      if conflictingOccurrenceOwner {
+        return ScheduleRow(
+          status: "failure",
+          platformAlarmId: nil,
+          failureReason: "invalidRequest",
+          failureMessage: "occurrenceId is already owned by another reservation."
+        )
+      }
       if let active = committedReservationMatches.first ?? pendingReservationMatches.first {
         platformAlarmId = active.key
         guard let activeAlarmId = UUID(uuidString: platformAlarmId) else {

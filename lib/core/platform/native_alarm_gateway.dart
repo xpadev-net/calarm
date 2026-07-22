@@ -211,8 +211,9 @@ class NativeAlarmScheduleRequest {
   /// Stable logical identity for the native reservation.
   ///
   /// It defaults to [occurrenceId] for callers compiled against the original
-  /// contract. New callers should persist and reuse this value across retry
-  /// and process restarts.
+  /// contract. New callers should persist and reuse this value across retry,
+  /// process restarts, and same-plan occurrence recreation. A reservation may
+  /// be rebound to one newer occurrence, but never to another wake plan.
   late final String reservationId;
   final String wakePlanId;
   final DateTime scheduledAt;

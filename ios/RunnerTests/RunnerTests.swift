@@ -127,6 +127,48 @@ class RunnerTests: XCTestCase {
 
   @available(iOS 26.0, *)
   @MainActor
+  func testBridgeRejectsOccurrenceHijackAndCrossPlanRebindBeforeSideEffects() async {
+    let fake = FakeAlarmKitNativeClient()
+    let bridge = AlarmKitBridge(nativeClient: fake)
+    let original = makeScheduleRequest("reservation-owned")
+    let hijack = ScheduleRequest(
+      occurrenceId: original.occurrenceId,
+      reservationId: "reservation-foreign",
+      wakePlanId: original.wakePlanId,
+      scheduledAt: original.scheduledAt,
+      targetAt: original.targetAt,
+      soundId: original.soundId,
+      vibrationEnabled: original.vibrationEnabled
+    )
+    let crossPlan = ScheduleRequest(
+      occurrenceId: "occurrence-cross-plan",
+      reservationId: original.reservationId,
+      wakePlanId: "wake-plan-foreign",
+      scheduledAt: original.scheduledAt,
+      targetAt: original.targetAt,
+      soundId: original.soundId,
+      vibrationEnabled: original.vibrationEnabled
+    )
+    clearMirror()
+    defer { clearMirror() }
+
+    let originalResult = await bridge.scheduleAlarm(original)
+    XCTAssertEqual(originalResult.status, "success")
+    let hijackResult = await bridge.scheduleAlarm(hijack)
+    let crossPlanResult = await bridge.scheduleAlarm(crossPlan)
+
+    XCTAssertEqual(hijackResult.failureReason, "invalidRequest")
+    XCTAssertEqual(crossPlanResult.status, "failure")
+    XCTAssertEqual(fake.scheduleAttempts, 1)
+    let inventory = await inventoryValue(bridge)
+    let rows = (inventory as? [String: Any?])?["reservations"] as? [[String: Any?]]
+    XCTAssertEqual(rows?.count, 1)
+    XCTAssertEqual(rows?.first?["occurrenceId"] as? String, original.occurrenceId)
+    XCTAssertEqual(rows?.first?["wakePlanId"] as? String, original.wakePlanId)
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor
   func testBridgeLostScheduleReplyReconcilesAfterRestartWithoutDuplicateOrStranding() async {
     let fake = FakeAlarmKitNativeClient()
     let reservationId = "reservation-lost-reply"

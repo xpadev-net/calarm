@@ -1715,6 +1715,55 @@ void main() {
       },
     );
 
+    test(
+      'same-plan recreated occurrence adopts its stable reservation after restart',
+      () async {
+        final pending = buildOccurrence(
+          id: occurrenceId,
+          status: AlarmOccurrenceStatus.userEnablePending,
+          platformAlarmId: null,
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan]
+          ..storedOccurrences = [pending];
+        final gateway = _CountingInventoryGateway()
+          ..inventoryRows.add(
+            NativeAlarmInventoryRow(
+              reservationId: 'stable-recreation-slot',
+              occurrenceId: pending.id,
+              wakePlanId: pending.wakePlanId,
+              platformAlarmId: 'native-recreated',
+              status: NativeAlarmReservationStatus.scheduled,
+            ),
+          );
+
+        final first = await service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 1,
+        ).reconcileSchedules();
+        final reopened = await service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 1,
+        ).reconcileSchedules();
+
+        expect(first.single.status, WakePlanSchedulingStatus.scheduled);
+        expect(reopened.single.status, WakePlanSchedulingStatus.scheduled);
+        expect(
+          store.storedOccurrences.single.status,
+          AlarmOccurrenceStatus.scheduled,
+        );
+        expect(
+          store.storedOccurrences.single.platformAlarmId,
+          'native-recreated',
+        );
+        expect(gateway.scheduledRequests, isEmpty);
+        expect(gateway.cancelledOccurrences, isEmpty);
+        expect(gateway.inventoryRows, hasLength(1));
+      },
+    );
+
     for (final failure in [
       NativeAlarmInventoryFailureReason.unavailable,
       NativeAlarmInventoryFailureReason.corrupt,
@@ -1774,9 +1823,9 @@ void main() {
           kind == 'duplicate'
               ? inventoryRow(pending, platformAlarmId: 'native-two')
               : NativeAlarmInventoryRow(
-                  reservationId: 'different-reservation',
+                  reservationId: pending.id,
                   occurrenceId: 'plan-1:20640:420',
-                  wakePlanId: 'plan-1',
+                  wakePlanId: 'other-plan',
                   platformAlarmId: 'native-conflict',
                   status: NativeAlarmReservationStatus.scheduled,
                 ),
@@ -1790,7 +1839,9 @@ void main() {
         final result = await serviceUnderTest.reconcileSchedules();
 
         expect(
-          result.single.status,
+          result
+              .singleWhere((candidate) => candidate.wakePlanId == plan.id)
+              .status,
           WakePlanSchedulingStatus.recoveryRequired,
           reason: kind,
         );
