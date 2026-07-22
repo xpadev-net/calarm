@@ -798,7 +798,7 @@
 
 ### Task_16: Real-device release evidence
 
-- status: blocked
+- status: in progress
 - type: test
 - owns:
   - `docs/qa/artifacts/**`
@@ -1150,10 +1150,10 @@
 
 ### Task_29: Preserve Android delivery and dismissal idempotency
 
-- status: blocked
+- status: in progress
 - worker: `/root/task29_android_delivery_dismissal_idempotency`
-- PR: [#72](https://github.com/xpadev-net/calarm/pull/72), current head `a6d913214e73dbfe5a64bb1f1e1ad5d898032267`
-- reviewer: `/root/task29_exact_head_reviewer_v3` returned CHANGES_REQUESTED for readiness only; no code defect found
+- PR: [#72](https://github.com/xpadev-net/calarm/pull/72), current head `7ccfa3a098260263045f34b7166e572209e98cb0`
+- reviewer: pending fresh exact-head review after current-head hook/CI; prior reviews stale
 - type: impl
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AlarmReceiver.kt`
@@ -1167,7 +1167,7 @@
 - validation:
   - kind: command; required: true; owner: worker; detail: exact-head hosted Android JVM/APK/native smoke and lightweight format/diff checks; no local heavy validation.
   - kind: review; required: true; owner: reviewer; detail: delivery concurrency, event dedupe, missing-mirror dismissal, Direct Boot, and exact-identity review.
-- blocker: current master advanced by one commit (`173e25c...`), PR comparison is diverged and UNSTABLE; iOS native smoke remains in progress, Android emulator artifact is honestly BLOCKED, and `gh-review-hook 72` cannot complete. Integrate current master normally, then obtain a fresh exact-head review and hosted gates.
+- blocker: current head was refreshed by normal master integration; worker is rerunning hosted checks and `gh-review-hook 72`. Freeze master updates until hook exit 0, then dispatch a fresh exact-head review.
 
 - 2026-07-22 Task_15 final harmonization re-review dispatched.
   - Fresh exact-master read-only reviewer `task15_exact_master_reviewer` is active against origin/master `0fd59ffbe7a1af27866eb05eb52443e4e382f717` after PR #67 merged.
@@ -1201,6 +1201,10 @@
 - 2026-07-22 Task_29 exact-head review result.
   - Reviewer found no in-scope code defect in delivery/dismissal behavior, but returned CHANGES_REQUESTED for readiness because master advanced one commit, PR #72 is UNSTABLE/diverged, iOS smoke is incomplete, and hook 72 cannot finish while required checks are pending.
   - Task_29 is blocked pending normal master integration, fresh exact-head review, completed hosted checks, and hook exit 0. No local heavy validation ran.
+
+- 2026-07-22 Task_29 post-review master integration.
+  - Worker normally integrated the latest origin/master (which advanced beyond `173e25c`) and pushed PR #72 exact head `7ccfa3a098260263045f34b7166e572209e98cb0`; product diff remains exactly three owned files.
+  - Worker is rerunning current-head hosted checks and hook 72. Master updates are frozen until hook exit 0, after which a fresh exact-head reviewer is required.
 
 - 2026-07-22 Task_25 hosted Android JVM gate completed.
   - PR [#68](https://github.com/xpadev-net/calarm/pull/68) merged exact approved head `574c9251f154ba4ab995c0d3de95f941ba21316b` as `35d93d9454d8243d55cace9056ce4588a4f1c0cd`.
