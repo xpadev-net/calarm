@@ -44,13 +44,32 @@ jobs:
     name: Android emulator native smoke
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_android }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+
+      - name: Verify checked-out Android test head
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${SMOKE_ARTIFACT_ROOT}/logs"
+          actual_head="$(git rev-parse HEAD)"
+          {
+            echo "event=${GITHUB_EVENT_NAME}"
+            echo "ref=${GITHUB_REF}"
+            echo "expected-sha=${EXPECTED_HEAD}"
+            echo "tested-sha=${actual_head}"
+          } | tee "${SMOKE_ARTIFACT_ROOT}/logs/android-tested-revision.log"
+          if [[ "${actual_head}" != "${EXPECTED_HEAD}" ]]; then
+            echo "::error::Android tests must run against ${EXPECTED_HEAD}, but checkout produced ${actual_head}"
+            exit 1
+          fi
 
       - name: Read Flutter version
         id: flutter-version
@@ -90,7 +109,22 @@ jobs:
           mkdir -p "${SMOKE_ARTIFACT_ROOT}/logs"
           flutter pub get 2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/android-flutter-pub-get.log"
 
+      - name: Run complete Android JVM test suite
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter_sdk="$(dirname "$(dirname "$(command -v flutter)")")"
+          printf 'flutter.sdk=%s\n' "${flutter_sdk}" > android/local.properties
+          {
+            echo "flutter-sdk=${flutter_sdk}"
+            echo "gradle-task=:app:testDebugUnitTest"
+          } >> "${SMOKE_ARTIFACT_ROOT}/logs/android-tested-revision.log"
+          ./android/gradlew -p android :app:testDebugUnitTest --stacktrace --console=plain \
+            2>&1 | tee "${SMOKE_ARTIFACT_ROOT}/logs/android-jvm-tests.log"
+
       - name: Build Android debug APK
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_android }}
         shell: bash
         run: |
           set -euo pipefail
@@ -141,6 +175,7 @@ jobs:
           fi
 
       - name: Run Android emulator smoke
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_android }}
         id: android-smoke
         shell: bash
         run: |

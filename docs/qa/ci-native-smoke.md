@@ -60,13 +60,17 @@ Fallback: Android API 35 Google APIs x86_64 emulator image when API 36 is not li
 Smoke steps:
 
 - Resolve Flutter dependencies.
+- Verify the checkout matches the exact pull-request head (or dispatched/scheduled commit) and retain the tested SHA in the Android artifact.
+- Run the complete Android JVM/Robolectric suite with `:app:testDebugUnitTest`; failure or timeout fails the Android job, and the captured Gradle log is uploaded even on failure.
 - Build the debug APK.
 - Install and run `integration_test/native_alarm_smoke_test.dart` on the selected emulator.
 - Exercise `getCapability`, `scheduleOccurrences`, `cancelOccurrences`, `scheduleTestAlarm`, and best-effort cleanup cancel paths through the native MethodChannel.
 - Parse the machine-readable smoke outcome from the test log and keep the summary `BLOCKED` unless schedule, cancel, test-alarm, and cleanup cancel semantics all succeed.
 - Upload Flutter logs, emulator logs, `adb logcat`, and optional `dumpsys alarm`.
 
-Release status: Android CI emulator evidence does not approve real-device Android API 36 wake delivery, lock/terminated behavior, full-screen stop UI, notification/Silent/Focus-equivalent behavior, or reboot restore. Those gates remain release-blocking until real-device QA explicitly passes.
+The JVM gate runs on every manual Native Smoke dispatch. The `run_android` input controls only the additional APK/emulator smoke work, so disabling emulator smoke cannot skip the required JVM suite.
+
+Release status: Android CI JVM and emulator evidence does not approve real-device Android API 36 wake delivery, lock/terminated behavior, full-screen stop UI, notification/Silent/Focus-equivalent behavior, or reboot restore. Those gates remain release-blocking until real-device QA explicitly passes.
 
 ## iOS Hosted Evidence
 
