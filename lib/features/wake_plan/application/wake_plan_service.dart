@@ -1141,6 +1141,29 @@ class WakePlanService {
       );
     }
 
+    bool isActiveInventoryRow(NativeAlarmInventoryRow row) {
+      return row.status == NativeAlarmReservationStatus.scheduled ||
+          row.status == NativeAlarmReservationStatus.ringing;
+    }
+
+    final activeReservationCounts = <String, int>{};
+    final activeOccurrenceCounts = <String, int>{};
+    for (final row in inventory?.rows ?? const <NativeAlarmInventoryRow>[]) {
+      if (!isActiveInventoryRow(row)) {
+        continue;
+      }
+      activeReservationCounts.update(
+        row.reservationId,
+        (count) => count + 1,
+        ifAbsent: () => 1,
+      );
+      activeOccurrenceCounts.update(
+        row.occurrenceId,
+        (count) => count + 1,
+        ifAbsent: () => 1,
+      );
+    }
+
     bool hasTupleConflict(NativeAlarmInventoryRow row) {
       final byReservation = originalByReservation[row.reservationId];
       final byOccurrence = originalById[row.occurrenceId];
@@ -1148,7 +1171,10 @@ class WakePlanService {
           byOccurrence?.wakePlanId == row.wakePlanId ||
           (desiredPlanIdsById[row.occurrenceId]?.contains(row.wakePlanId) ??
               false);
-      return participantPlanIds(row).length > 1 ||
+      return (isActiveInventoryRow(row) &&
+              ((activeReservationCounts[row.reservationId] ?? 0) > 1 ||
+                  (activeOccurrenceCounts[row.occurrenceId] ?? 0) > 1)) ||
+          participantPlanIds(row).length > 1 ||
           (byReservation != null &&
               (byReservation.wakePlanId != row.wakePlanId ||
                   row.reservationGeneration <
@@ -1242,9 +1268,7 @@ class WakePlanService {
     final activeRowsByOccurrence = <String, NativeAlarmInventoryRow>{};
     for (final row in inventory.rows) {
       final participants = participantPlanIds(row);
-      final isActive =
-          row.status == NativeAlarmReservationStatus.scheduled ||
-          row.status == NativeAlarmReservationStatus.ringing;
+      final isActive = isActiveInventoryRow(row);
       if (!isActive && hasOwnedParticipant(participants)) {
         corruptInventoryPlanIds.addAll(participants);
         continue;

@@ -1867,6 +1867,52 @@ void main() {
       },
     );
 
+    test('duplicate forward generations fail closed in either order', () async {
+      for (final generations in [
+        [5, 6],
+        [6, 5],
+      ]) {
+        final pending = buildOccurrence(
+          id: occurrenceId,
+          status: AlarmOccurrenceStatus.userEnablePending,
+          platformAlarmId: null,
+          reservationId: 'stable-recreation-slot',
+          reservationGeneration: 4,
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..wakePlans = [plan]
+          ..storedOccurrences = [pending];
+        final gateway = _CountingInventoryGateway();
+        for (final generation in generations) {
+          gateway.inventoryRows.add(
+            NativeAlarmInventoryRow(
+              reservationId: pending.reservationId,
+              reservationGeneration: generation,
+              occurrenceId: pending.id,
+              wakePlanId: pending.wakePlanId,
+              platformAlarmId: 'native-forward-$generation',
+              status: NativeAlarmReservationStatus.scheduled,
+            ),
+          );
+        }
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 1,
+        ).reconcileSchedules();
+
+        expect(
+          result.single.status,
+          WakePlanSchedulingStatus.recoveryRequired,
+          reason: '$generations',
+        );
+        expect(store.savedOccurrences, isEmpty, reason: '$generations');
+        expect(gateway.scheduledRequests, isEmpty, reason: '$generations');
+        expect(gateway.cancelledOccurrences, isEmpty, reason: '$generations');
+      }
+    });
+
     for (final failure in [
       NativeAlarmInventoryFailureReason.unavailable,
       NativeAlarmInventoryFailureReason.corrupt,
