@@ -72,9 +72,9 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
           widget.initialWeek ??
           currentCalendarRange(widget.now, visibleDays: widget.visibleDays),
     );
+    _currentPageIndex = _initialPage;
     _pageController = PageController(initialPage: _initialPage)
       ..addListener(_handlePageControllerChanged);
-    _currentPageIndex = _initialPage;
     final axisTarget = initialWeekCalendarScrollTarget(
       week: _initialCalendarPage.week,
       now: widget.now,
