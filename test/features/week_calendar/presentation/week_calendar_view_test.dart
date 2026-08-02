@@ -269,40 +269,97 @@ void main() {
     });
   }
 
-  testWidgets('converts a grid tap into a calendar day and five-minute time', (
-    tester,
-  ) async {
-    WeekCalendarTapTarget? selected;
+  testWidgets(
+    'converts a grid tap into a calendar day and zoom-appropriate time',
+    (tester) async {
+      WeekCalendarTapTarget? selected;
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: WeekCalendarView(
-            now: DateTime(2026, 7, 8, 7, 30),
-            initialWeek: WeekRange(
-              start: CalendarDay(year: 2026, month: 7, day: 6),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: WeekCalendarView(
+              now: DateTime(2026, 7, 8, 7, 30),
+              initialWeek: WeekRange(
+                start: CalendarDay(year: 2026, month: 7, day: 6),
+              ),
+              onTargetTap: (target) => selected = target,
             ),
-            onTargetTap: (target) => selected = target,
           ),
         ),
-      ),
-    );
+      );
 
-    final gridFinder = find.byType(CustomPaint).last;
-    final gridTopLeft = tester.getTopLeft(gridFinder);
-    final gridSize = tester.getSize(gridFinder);
-    await tester.tapAt(
-      Offset(
-        gridTopLeft.dx + (gridSize.width / DateTime.daysPerWeek * 2.5),
-        gridTopLeft.dy + (gridSize.height / 24 * 7) + 3,
-      ),
-    );
-    await tester.pump();
+      final gridFinder = find.byType(CustomPaint).last;
+      final gridTopLeft = tester.getTopLeft(gridFinder);
+      final gridSize = tester.getSize(gridFinder);
+      await tester.tapAt(
+        Offset(
+          gridTopLeft.dx + (gridSize.width / DateTime.daysPerWeek * 2.5),
+          gridTopLeft.dy + (gridSize.height / 24 * 7) + 3,
+        ),
+      );
+      await tester.pump();
 
-    expect(selected, isNotNull);
-    expect(selected!.day, CalendarDay(year: 2026, month: 7, day: 8));
-    expect(selected!.time, TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 5));
-  });
+      expect(selected, isNotNull);
+      expect(selected!.day, CalendarDay(year: 2026, month: 7, day: 8));
+      // Default hourHeight (56) is below the 30-minute snap threshold, so
+      // taps snap to the nearest whole hour.
+      expect(selected!.time, TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0));
+    },
+  );
+
+  testWidgets(
+    'shows a tap preview cell on tap-down and clears it after the tap',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: WeekCalendarView(
+              now: DateTime(2026, 7, 8, 7, 30),
+              initialWeek: WeekRange(
+                start: CalendarDay(year: 2026, month: 7, day: 6),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final previewFinder = find.byKey(
+        const ValueKey('week-calendar-tap-preview-cell'),
+      );
+      expect(previewFinder, findsNothing);
+
+      final tapSurface = find
+          .byWidgetPredicate(
+            (widget) => widget is GestureDetector && widget.onTapUp != null,
+          )
+          .first;
+      final size = tester.getSize(tapSurface);
+      final gestureDetector = tester.widget<GestureDetector>(tapSurface);
+      final localPosition = Offset(size.width / 2, size.height * 7 / 24);
+
+      gestureDetector.onTapDown!(TapDownDetails(localPosition: localPosition));
+      await tester.pump();
+      expect(previewFinder, findsOneWidget);
+
+      gestureDetector.onTapCancel!();
+      await tester.pump();
+      expect(previewFinder, findsNothing);
+
+      gestureDetector.onTapDown!(TapDownDetails(localPosition: localPosition));
+      await tester.pump();
+      expect(previewFinder, findsOneWidget);
+
+      gestureDetector.onTapUp!(
+        TapUpDetails(
+          localPosition: localPosition,
+          kind: PointerDeviceKind.touch,
+        ),
+      );
+      await tester.pump();
+      expect(previewFinder, findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('renders a wake plan block label and hides the empty state', (
     tester,
@@ -1105,7 +1162,9 @@ void main() {
 
     expect(tappedTarget, isNotNull);
     expect(tappedTarget!.day, CalendarDay(year: 2026, month: 7, day: 8));
-    expect(tappedTarget!.time.minutesSinceMidnight, 9 * 60 + 50);
+    // hourHeight 92 falls in the 30-minute snap bracket, so a tap ~8 minutes
+    // before 10:00 snaps forward to the nearest half hour.
+    expect(tappedTarget!.time.minutesSinceMidnight, 10 * 60);
     expect(tester.takeException(), isNull);
   });
 
@@ -1464,61 +1523,66 @@ void main() {
     );
   });
 
-  testWidgets('three-day mode pages, renders blocks, and maps taps by 3 days', (
-    tester,
-  ) async {
-    WeekCalendarTapTarget? selected;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: WeekCalendarView(
-            now: DateTime(2026, 7, 6, 7, 30),
-            visibleDays: 3,
-            initialWeek: WeekRange(
-              start: CalendarDay(year: 2026, month: 7, day: 6),
+  testWidgets(
+    'three-day mode pages, renders blocks, and maps taps by one day',
+    (tester) async {
+      WeekCalendarTapTarget? selected;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: WeekCalendarView(
+              now: DateTime(2026, 7, 6, 7, 30),
               visibleDays: 3,
-            ),
-            wakePlans: [
-              buildPlan(
-                id: 'three-day-plan',
-                targetDay: CalendarDay(year: 2026, month: 7, day: 8),
-                targetTime: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+              initialWeek: WeekRange(
+                start: CalendarDay(year: 2026, month: 7, day: 6),
+                visibleDays: 3,
               ),
-            ],
-            onTargetTap: (target) => selected = target,
+              wakePlans: [
+                buildPlan(
+                  id: 'three-day-plan',
+                  targetDay: CalendarDay(year: 2026, month: 7, day: 8),
+                  targetTime: TimeOfDayMinutes.fromHourMinute(
+                    hour: 7,
+                    minute: 0,
+                  ),
+                ),
+              ],
+              onTargetTap: (target) => selected = target,
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(find.text('Mon'), findsOneWidget);
-    expect(find.text('Tue'), findsOneWidget);
-    expect(find.text('Wed'), findsOneWidget);
-    expect(find.text('Thu'), findsNothing);
-    expect(find.textContaining('13 alarms'), findsOneWidget);
+      expect(find.text('Mon'), findsOneWidget);
+      expect(find.text('Tue'), findsOneWidget);
+      expect(find.text('Wed'), findsOneWidget);
+      expect(find.text('Thu'), findsNothing);
+      expect(find.textContaining('13 alarms'), findsOneWidget);
 
-    final tapSurface = find
-        .byWidgetPredicate(
-          (widget) => widget is GestureDetector && widget.onTapUp != null,
-        )
-        .first;
-    final size = tester.getSize(tapSurface);
-    tester.widget<GestureDetector>(tapSurface).onTapUp!(
-      TapUpDetails(
-        localPosition: Offset(size.width * 5 / 6, size.height * 10 / 24),
-        kind: PointerDeviceKind.touch,
-      ),
-    );
-    await tester.pump();
-    expect(selected?.day, CalendarDay(year: 2026, month: 7, day: 8));
+      final tapSurface = find
+          .byWidgetPredicate(
+            (widget) => widget is GestureDetector && widget.onTapUp != null,
+          )
+          .first;
+      final size = tester.getSize(tapSurface);
+      tester.widget<GestureDetector>(tapSurface).onTapUp!(
+        TapUpDetails(
+          localPosition: Offset(size.width * 5 / 6, size.height * 10 / 24),
+          kind: PointerDeviceKind.touch,
+        ),
+      );
+      await tester.pump();
+      expect(selected?.day, CalendarDay(year: 2026, month: 7, day: 8));
 
-    await tester.drag(find.byType(PageView), const Offset(-600, 0));
-    await tester.pumpAndSettle();
-    expect(find.text('Thu'), findsOneWidget);
-    expect(find.text('Sat'), findsOneWidget);
-    expect(find.text('Sun'), findsNothing);
-    expect(tester.takeException(), isNull);
-  });
+      await tester.drag(find.byType(PageView), const Offset(-600, 0));
+      await tester.pumpAndSettle();
+      expect(find.text('Mon'), findsNothing);
+      expect(find.text('Tue'), findsOneWidget);
+      expect(find.text('Wed'), findsOneWidget);
+      expect(find.text('Thu'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'two-finger diagonal pinch zooms without paging then restores page swipe',
@@ -1625,11 +1689,11 @@ void main() {
       await first.moveTo(center - const Offset(45, -6));
       await tester.pump();
       await second.down(center + const Offset(40, 0));
-      await first.moveTo(center - const Offset(220, 0));
-      await second.moveTo(center + const Offset(220, 0));
+      await first.moveTo(center - const Offset(520, 0));
+      await second.moveTo(center + const Offset(520, 0));
       await tester.pumpAndSettle();
 
-      expect(hourHeight, 92);
+      expect(hourHeight, weekCalendarMaxHourHeight);
       final focalMinuteAtMaximum =
           (scrollController.offset + focalY) / (hourHeight / 60);
       expect(focalMinuteAtMaximum, closeTo(focalMinuteBefore, 0.01));
@@ -1703,11 +1767,11 @@ void main() {
     final second = await tester.createGesture(pointer: 76);
     await first.down(focalPoint - const Offset(40, 0));
     await second.down(focalPoint + const Offset(40, 0));
-    await first.moveTo(focalPoint - const Offset(180, 0));
-    await second.moveTo(focalPoint + const Offset(180, 0));
+    await first.moveTo(focalPoint - const Offset(480, 0));
+    await second.moveTo(focalPoint + const Offset(480, 0));
     await tester.pumpAndSettle();
 
-    expect(hourHeight, 92);
+    expect(hourHeight, weekCalendarMaxHourHeight);
     final focalMinuteAfter =
         (scrollController.offset + focalY) / (hourHeight / 60);
     expect(focalMinuteAfter, closeTo(targetMinute, 0.01));
@@ -1761,13 +1825,13 @@ void main() {
     expect(tester.takeException(), isNull);
     final heightAfterFirstMove = hourHeight;
 
-    await second.moveTo(center + const Offset(100, 60));
+    await second.moveTo(center + const Offset(400, 60));
     await tester.pump();
     expect(tester.takeException(), isNull);
     expect(hourHeight, greaterThan(heightAfterFirstMove));
-    expect(hourHeight, 92);
+    expect(hourHeight, weekCalendarMaxHourHeight);
     await first.moveTo(center + const Offset(-80, 40));
-    await second.moveTo(center + const Offset(100, 100));
+    await second.moveTo(center + const Offset(400, 100));
     await tester.pump();
     final focalMinuteAfter =
         (scrollController.offset + focalY + 70) / (hourHeight / 60);

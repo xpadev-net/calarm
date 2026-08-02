@@ -46,12 +46,12 @@ class _WeekCalendarPlaceholderState
     extends ConsumerState<WeekCalendarPlaceholder>
     with WidgetsBindingObserver {
   static final _draftRandom = Random.secure();
-  static const double _minHourHeight = 36;
-  static const double _maxHourHeight = 92;
+  static const double _minHourHeight = weekCalendarMinHourHeight;
+  static const double _maxHourHeight = weekCalendarMaxHourHeight;
 
   bool _sheetOpen = false;
   double _hourHeight = 52;
-  int _visibleDays = DateTime.daysPerWeek;
+  int _visibleDays = 1;
   WeekCalendarDraft? _draft;
   bool _savingDraft = false;
   bool _draftSubmissionAttempted = false;
@@ -137,6 +137,13 @@ class _WeekCalendarPlaceholderState
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
+              ),
+              _CalendarControlButton(
+                key: const ValueKey('week-calendar-one-day-button'),
+                tooltip: 'Show 1 day',
+                selected: _visibleDays == 1,
+                label: '1',
+                onPressed: _draft == null ? () => _setVisibleDays(1) : null,
               ),
               _CalendarControlButton(
                 key: const ValueKey('week-calendar-three-day-button'),

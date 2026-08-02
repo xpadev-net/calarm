@@ -23,7 +23,7 @@ void main() {
       );
     });
 
-    test('builds three-day periods from today and pages by three days', () {
+    test('builds three-day periods from today and pages by one day', () {
       final page = WeekCalendarPage.fromAnchor(
         DateTime(2026, 7, 8, 9),
         visibleDays: 3,
@@ -33,12 +33,63 @@ void main() {
       expect(page.week.start, CalendarDay(year: 2026, month: 7, day: 8));
       expect(
         page.addPages(1).week.start,
-        CalendarDay(year: 2026, month: 7, day: 11),
+        CalendarDay(year: 2026, month: 7, day: 9),
       );
       expect(
         page.addPages(-1).week.start,
-        CalendarDay(year: 2026, month: 7, day: 5),
+        CalendarDay(year: 2026, month: 7, day: 7),
       );
+    });
+
+    test('builds single-day periods from today and pages by one day', () {
+      final page = WeekCalendarPage.fromAnchor(
+        DateTime(2026, 7, 8, 9),
+        visibleDays: 1,
+      );
+
+      expect(page.days, hasLength(1));
+      expect(page.week.start, CalendarDay(year: 2026, month: 7, day: 8));
+      expect(
+        page.addPages(1).week.start,
+        CalendarDay(year: 2026, month: 7, day: 9),
+      );
+      expect(
+        page.addPages(-1).week.start,
+        CalendarDay(year: 2026, month: 7, day: 7),
+      );
+    });
+  });
+
+  group('weekCalendarPagingStepDays', () {
+    test('steps by a full week for the week view and by one day otherwise', () {
+      expect(weekCalendarPagingStepDays(DateTime.daysPerWeek), 7);
+      expect(weekCalendarPagingStepDays(3), 1);
+      expect(weekCalendarPagingStepDays(1), 1);
+    });
+  });
+
+  group('weekCalendarTapSnapIntervalMinutes', () {
+    test('coarsens to 60 minutes when zoomed out', () {
+      expect(weekCalendarTapSnapIntervalMinutes(weekCalendarMinHourHeight), 60);
+    });
+
+    test('refines to 30 minutes at medium zoom', () {
+      expect(
+        weekCalendarTapSnapIntervalMinutes(
+          weekCalendarThirtyMinuteGridThreshold,
+        ),
+        30,
+      );
+    });
+
+    test('refines to 15 minutes at high zoom', () {
+      expect(
+        weekCalendarTapSnapIntervalMinutes(
+          weekCalendarFifteenMinuteGridThreshold,
+        ),
+        15,
+      );
+      expect(weekCalendarTapSnapIntervalMinutes(weekCalendarMaxHourHeight), 15);
     });
   });
 
@@ -114,6 +165,22 @@ void main() {
 
       expect(target.day, CalendarDay(year: 2026, month: 7, day: 8));
       expect(target.time, TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0));
+    });
+
+    test('snaps to the given interval instead of the five-minute default', () {
+      final target = weekCalendarTapTargetFromPosition(
+        week: week,
+        localX: 250,
+        localY: 423,
+        gridWidth: 700,
+        gridHeight: 1440,
+        snapIntervalMinutes: 30,
+      );
+
+      expect(
+        target.time,
+        TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+      );
     });
 
     test('keeps a 24:00 internal boundary by returning next-day midnight', () {

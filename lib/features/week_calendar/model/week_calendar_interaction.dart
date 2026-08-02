@@ -8,6 +8,30 @@ const Duration weekCalendarDraftSnapInterval = Duration(minutes: 5);
 const Duration weekCalendarDraftMinimumDuration = Duration(minutes: 5);
 const Duration weekCalendarDraftMaximumDuration = Duration(hours: 3);
 
+/// Vertical zoom bounds for the calendar grid, in pixels per hour.
+const double weekCalendarMinHourHeight = 36;
+const double weekCalendarMaxHourHeight = 240;
+
+/// Hour-height thresholds at which the tap-to-create grid switches from a
+/// coarse 60-minute grid to 30 minutes, then 15 minutes, as the user zooms
+/// in. Sub-hour gridlines are drawn to match, so the grid a user sees is
+/// always the grid a tap snaps to.
+const double weekCalendarThirtyMinuteGridThreshold = 90;
+const double weekCalendarFifteenMinuteGridThreshold = 160;
+
+/// Snap interval, in minutes, used for tap-to-create targets at the given
+/// zoom level. See [weekCalendarThirtyMinuteGridThreshold] and
+/// [weekCalendarFifteenMinuteGridThreshold].
+int weekCalendarTapSnapIntervalMinutes(double hourHeight) {
+  if (hourHeight >= weekCalendarFifteenMinuteGridThreshold) {
+    return 15;
+  }
+  if (hourHeight >= weekCalendarThirtyMinuteGridThreshold) {
+    return 30;
+  }
+  return 60;
+}
+
 enum WeekCalendarDraftRangeError { notOrdered, tooShort, tooLong }
 
 class WeekCalendarDraftRangeEdit {
@@ -234,21 +258,31 @@ class WeekCalendarPage {
   bool contains(CalendarDay day) => week.contains(day);
 
   WeekCalendarPage addPages(int pages) {
+    final step = weekCalendarPagingStepDays(week.visibleDays);
     return WeekCalendarPage(
       week: WeekRange(
-        start: week.start.addDays(pages * week.visibleDays),
+        start: week.start.addDays(pages * step),
         visibleDays: week.visibleDays,
       ),
     );
   }
 }
 
+/// Number of days a single page swipe moves the visible range by.
+///
+/// The full week view stays aligned to Sunday-start weeks, so it pages by a
+/// whole week. Every other width (1-day, 3-day, ...) slides by a single day
+/// so windows like 3-5, 4-6, 5-7 are reachable one swipe at a time.
+int weekCalendarPagingStepDays(int visibleDays) {
+  return visibleDays == DateTime.daysPerWeek ? DateTime.daysPerWeek : 1;
+}
+
 WeekRange currentCalendarRange(DateTime anchor, {required int visibleDays}) {
-  if (visibleDays != 3 && visibleDays != DateTime.daysPerWeek) {
+  if (visibleDays != 1 && visibleDays != 3 && visibleDays != DateTime.daysPerWeek) {
     throw ArgumentError.value(
       visibleDays,
       'visibleDays',
-      'must be 3 or ${DateTime.daysPerWeek}',
+      'must be 1, 3, or ${DateTime.daysPerWeek}',
     );
   }
 
@@ -393,6 +427,7 @@ WeekCalendarTapTarget weekCalendarTapTargetFromPosition({
   required double localY,
   required double gridWidth,
   required double gridHeight,
+  int snapIntervalMinutes = 5,
 }) {
   if (gridWidth <= 0) {
     throw ArgumentError.value(gridWidth, 'gridWidth', 'must be positive');
@@ -419,7 +454,7 @@ WeekCalendarTapTarget weekCalendarTapTargetFromPosition({
         )
       : roundMinutesSinceMidnightToNearestInterval(
           wholeMinute,
-          intervalMinutes: minimumWakePlanInterval.inMinutes,
+          intervalMinutes: snapIntervalMinutes,
         );
 
   return WeekCalendarTapTarget(

@@ -1087,6 +1087,52 @@ void main() {
   );
 
   testWidgets(
+    'defaults to the one-day view and can switch to it from other widths',
+    (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            weekCalendarRepositoryProvider.overrideWith(
+              (ref) async => repository,
+            ),
+            wakePlanDefaultsRepositoryProvider.overrideWith(
+              (ref) async => repository,
+            ),
+            weekCalendarClockProvider.overrideWith(
+              (ref) => () => DateTime(2026, 7, 8, 5, 30),
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: SizedBox(height: 720, child: WeekCalendarPlaceholder()),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(_calendar(tester).visibleDays, 1);
+      expect(
+        find.byKey(const ValueKey('week-calendar-one-day-button')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('week-calendar-seven-day-button')),
+      );
+      await tester.pumpAndSettle();
+      expect(_calendar(tester).visibleDays, DateTime.daysPerWeek);
+
+      await tester.tap(
+        find.byKey(const ValueKey('week-calendar-one-day-button')),
+      );
+      await tester.pumpAndSettle();
+      expect(_calendar(tester).visibleDays, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'switches 3/7-day modes and pinches between bounded hour heights',
     (tester) async {
       await tester.pumpWidget(
@@ -1120,7 +1166,7 @@ void main() {
         find.byKey(const ValueKey('week-calendar-zoom-out-button')),
         findsNothing,
       );
-      expect(_calendar(tester).visibleDays, DateTime.daysPerWeek);
+      expect(_calendar(tester).visibleDays, 1);
 
       await tester.tap(
         find.byKey(const ValueKey('week-calendar-three-day-button')),
@@ -1148,7 +1194,7 @@ void main() {
           (_calendar(tester).hourHeight / 60);
 
       await _pinch(tester, surface, startDistance: 80, endDistance: 400);
-      expect(_calendar(tester).hourHeight, 92);
+      expect(_calendar(tester).hourHeight, weekCalendarMaxHourHeight);
       final afterMinute =
           (scrollController.offset + focalY) /
           (_calendar(tester).hourHeight / 60);
