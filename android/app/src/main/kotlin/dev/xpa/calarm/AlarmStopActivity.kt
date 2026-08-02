@@ -233,32 +233,48 @@ class AlarmStopActivity : Activity() {
             layoutParams = FrameLayout.LayoutParams(handleSize, handleSize).apply {
                 gravity = Gravity.START or Gravity.CENTER_VERTICAL
             }
+            // Accessibility fallback: TalkBack issues a synthetic click via
+            // performClick() (bypassing raw touch dispatch), so this lets a
+            // screen-reader user dismiss the alarm without performing the drag.
+            isClickable = true
+            contentDescription = "Stop alarm"
+            setOnClickListener { onSwipeToDismissConfirmed() }
         }
         track.addView(handle)
 
         handle.setOnTouchListener(
             object : View.OnTouchListener {
                 private var downRawX = 0f
-                private var startTranslationX = 0f
+                private var startProgress = 0f
                 private var maxTranslation = 0f
+                private var isRtl = false
+                private var isConfirmed = false
 
                 override fun onTouch(v: View, event: MotionEvent): Boolean {
+                    if (isConfirmed) return true
                     when (event.actionMasked) {
                         MotionEvent.ACTION_DOWN -> {
+                            handle.animate().cancel()
+                            isRtl = track.layoutDirection == View.LAYOUT_DIRECTION_RTL
                             downRawX = event.rawX
-                            startTranslationX = handle.translationX
-                            maxTranslation = (track.width - handle.width).toFloat()
+                            startProgress = signedProgress(isRtl, handle.translationX)
+                            maxTranslation = maxOf(0f, (track.width - handle.width).toFloat())
                         }
                         MotionEvent.ACTION_MOVE -> {
-                            val delta = event.rawX - downRawX
-                            handle.translationX =
-                                (startTranslationX + delta).coerceIn(0f, maxTranslation)
+                            val rawDelta = event.rawX - downRawX
+                            val delta = if (isRtl) -rawDelta else rawDelta
+                            val progress = (startProgress + delta).coerceIn(0f, maxTranslation)
+                            handle.translationX = if (isRtl) -progress else progress
                         }
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            val progress = signedProgress(isRtl, handle.translationX)
                             val threshold = maxTranslation * SWIPE_DISMISS_THRESHOLD_FRACTION
-                            if (maxTranslation > 0 && handle.translationX >= threshold) {
+                            handle.animate().cancel()
+                            if (maxTranslation > 0 && progress >= threshold) {
+                                isConfirmed = true
+                                val target = if (isRtl) -maxTranslation else maxTranslation
                                 handle.animate()
-                                    .translationX(maxTranslation)
+                                    .translationX(target)
                                     .setDuration(SWIPE_CONFIRM_ANIM_MILLIS)
                                     .withEndAction { onSwipeToDismissConfirmed() }
                                     .start()
@@ -276,6 +292,10 @@ class AlarmStopActivity : Activity() {
             },
         )
         return track
+    }
+
+    private fun signedProgress(isRtl: Boolean, translationX: Float): Float {
+        return if (isRtl) -translationX else translationX
     }
 
     private fun onSwipeToDismissConfirmed() {
