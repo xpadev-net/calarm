@@ -16,6 +16,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.UserManager
 import android.provider.Settings
+import android.util.Log
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -1980,8 +1981,9 @@ class AlarmStore(context: Context) {
 
     fun inventory(context: Context, nowMillis: Long): AlarmInventorySnapshot {
         val corruptKeys = mutableListOf<String>()
-        val expiredKeys = mutableListOf<String>()
-        val expiredRequests = mutableListOf<AlarmRequest>()
+        val staleKeys = mutableListOf<String>()
+        val staleRequests = mutableListOf<AlarmRequest>()
+        val missedRequests = mutableListOf<AlarmRequest>()
         val requests = mutableListOf<AlarmRequest>()
         preferences.all.forEach { (key, value) ->
             val request = try {
@@ -1996,17 +1998,22 @@ class AlarmStore(context: Context) {
             ) {
                 corruptKeys += key
             } else if (request.state != AlarmState.RINGING && request.scheduledAtMillis <= nowMillis) {
-                expiredKeys += key
-                expiredRequests += request
+                if (nowMillis - request.scheduledAtMillis <= MISSED_ALARM_CATCH_UP_WINDOW_MILLIS) {
+                    missedRequests += request
+                } else {
+                    staleKeys += key
+                    staleRequests += request
+                }
             } else {
                 requests += request
             }
         }
-        val cleanupKeys = corruptKeys + expiredKeys
-        if (cleanupKeys.isNotEmpty()) {
+        val cleanupKeys = corruptKeys + staleKeys
+        val cancelTargets = staleRequests + missedRequests
+        if (cleanupKeys.isNotEmpty() || cancelTargets.isNotEmpty()) {
             if (
-                expiredRequests.isNotEmpty() &&
-                !ReservationAuthorityStore(storageContext).recordRetired(expiredRequests)
+                staleRequests.isNotEmpty() &&
+                !ReservationAuthorityStore(storageContext).recordRetired(staleRequests)
             ) {
                 return AlarmInventorySnapshot(
                     requests = emptyList(),
@@ -2017,7 +2024,7 @@ class AlarmStore(context: Context) {
             }
             try {
                 val alarmManager = context.getSystemService(AlarmManager::class.java)
-                expiredRequests.forEach { request ->
+                cancelTargets.forEach { request ->
                     alarmManager.cancel(AlarmIntents.receiver(context, request.platformAlarmId))
                 }
             } catch (error: RuntimeException) {
@@ -2029,19 +2036,24 @@ class AlarmStore(context: Context) {
                     context = context,
                 )
             }
-            val editor = preferences.edit()
-            cleanupKeys.forEach { key -> editor.remove(key) }
-            if (!editor.commit()) {
-                return AlarmInventorySnapshot(
-                    requests = emptyList(),
-                    corruptKeys = cleanupKeys,
-                    duplicateIdentity = "Failed to clean native alarm mirror rows.",
-                    context = context,
-                )
+            if (cleanupKeys.isNotEmpty()) {
+                val editor = preferences.edit()
+                cleanupKeys.forEach { key -> editor.remove(key) }
+                if (!editor.commit()) {
+                    return AlarmInventorySnapshot(
+                        requests = emptyList(),
+                        corruptKeys = cleanupKeys,
+                        duplicateIdentity = "Failed to clean native alarm mirror rows.",
+                        context = context,
+                    )
+                }
             }
         }
-
-        val duplicateReservation = requests.groupBy { it.reservationId }
+        // Identity validation runs before any missed alarm is delivered below: once delivery
+        // rings the device it can't be undone, so a corrupt/duplicate inventory must be reported
+        // as a failure first rather than after an irreversible side effect.
+        val candidateRequests = requests + missedRequests
+        val duplicateReservation = candidateRequests.groupBy { it.reservationId }
             .values.firstOrNull { it.size > 1 }
         if (duplicateReservation != null) {
             return AlarmInventorySnapshot(
@@ -2051,7 +2063,7 @@ class AlarmStore(context: Context) {
                 context = context,
             )
         }
-        val duplicateOccurrence = requests.groupBy { it.occurrenceId }
+        val duplicateOccurrence = candidateRequests.groupBy { it.occurrenceId }
             .values.firstOrNull { it.size > 1 }
         if (duplicateOccurrence != null) {
             return AlarmInventorySnapshot(
@@ -2060,6 +2072,27 @@ class AlarmStore(context: Context) {
                 duplicateIdentity = "Duplicate native occurrence identity: ${duplicateOccurrence.first().occurrenceId}.",
                 context = context,
             )
+        }
+        missedRequests.forEach { request ->
+            val platformAlarmId = request.platformAlarmId
+            Log.w(
+                TAG,
+                "Delivering a native alarm missed while the app was killed instead of " +
+                    "discarding it: $platformAlarmId",
+            )
+            if (
+                markRinging(platformAlarmId) &&
+                AlarmReceiver().deliverAlreadyRingingAlarm(context, this, request)
+            ) {
+                requests += request.copy(state = AlarmState.RINGING)
+            } else {
+                Log.e(
+                    TAG,
+                    "Failed to deliver a missed native alarm during inventory reconciliation; " +
+                        "it was removed: $platformAlarmId",
+                )
+                remove(platformAlarmId)
+            }
         }
         return AlarmInventorySnapshot(
             requests = requests,
@@ -2161,6 +2194,7 @@ class AlarmStore(context: Context) {
 
     private companion object {
         const val PREFERENCES_NAME = "native_alarm_store"
+        const val TAG = "CalarmAlarmStore"
 
         fun migrateCredentialProtectedRows(context: Context) {
             if (
@@ -3181,6 +3215,13 @@ internal object AndroidAlarmReplacementRecovery {
     }
 }
 
+/**
+ * Bound on how long after its scheduled time a missed alarm (device off, app killed, or a
+ * broadcast lost to Doze) is still delivered as a catch-up. Beyond this the row is discarded
+ * silently, since redelivering an alarm from days ago would surprise rather than help the user.
+ */
+internal const val MISSED_ALARM_CATCH_UP_WINDOW_MILLIS = 24L * 60 * 60 * 1000
+
 object AlarmRestore {
     fun restore(context: Context) {
         restore(context, context.applicationContext)
@@ -3227,10 +3268,39 @@ object AlarmRestore {
             val requests = store.all()
             requests.forEach { request ->
                 if (request.state != AlarmState.RINGING && request.scheduledAtMillis <= now) {
-                    store.remove(request.platformAlarmId)
+                    val platformAlarmId = request.platformAlarmId
+                    if (now - request.scheduledAtMillis <= MISSED_ALARM_CATCH_UP_WINDOW_MILLIS) {
+                        Log.w(
+                            TAG,
+                            "Delivering an alarm that was due while the device was off or the " +
+                                "app was killed instead of discarding it: $platformAlarmId",
+                        )
+                        if (
+                            !store.markRinging(platformAlarmId) ||
+                            !AlarmReceiver().deliverAlreadyRingingAlarm(appContext, store, request)
+                        ) {
+                            Log.e(
+                                TAG,
+                                "Failed to deliver a missed native alarm; it was removed: $platformAlarmId",
+                            )
+                            store.remove(platformAlarmId)
+                        }
+                    } else {
+                        Log.w(
+                            TAG,
+                            "Discarding a native alarm long overdue beyond the catch-up window: " +
+                                platformAlarmId,
+                        )
+                        store.remove(platformAlarmId)
+                    }
                 }
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+                Log.w(
+                    TAG,
+                    "Skipping restore of future native alarms because exact-alarm scheduling " +
+                        "permission is missing; rows are kept for a permission-state retry.",
+                )
                 return@restore
             }
             requests.asSequence()
@@ -3238,12 +3308,20 @@ object AlarmRestore {
                 .forEach { request ->
                     try {
                         schedule(request)
-                    } catch (_: RuntimeException) {
-                        // Keep future rows for a later boot or permission-state retry.
+                    } catch (error: RuntimeException) {
+                        Log.w(
+                            TAG,
+                            "Failed to re-arm a future native alarm during restore; keeping " +
+                                "the row for a later boot or permission-state retry: " +
+                                request.platformAlarmId,
+                            error,
+                        )
                     }
                 }
         }
     }
+
+    private const val TAG = "CalarmAlarmRestore"
 }
 
 object AlarmIntents {

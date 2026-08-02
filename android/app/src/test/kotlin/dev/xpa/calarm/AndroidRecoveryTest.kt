@@ -2,6 +2,7 @@ package dev.xpa.calarm
 
 import android.app.AlarmManager
 import android.app.Application
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -249,23 +250,95 @@ class AndroidRecoveryTest {
     }
 
     @Test
-    fun `expired and corrupt mirror rows are removed without scheduling`() {
-        val expiredRequest = alarmRequest(
-            platformAlarmId = "android:plan:expired",
-            scheduledAtMillis = System.currentTimeMillis() - 1_000,
-        )
+    fun `corrupt mirror rows are removed without scheduling`() {
         mirrorPreferences().edit()
-            .putString(expiredRequest.platformAlarmId, expiredRequest.toJson().toString())
             .putString("android:plan:malformed", "not-json")
             .putInt("android:plan:wrong-type", 7)
             .commit()
 
         BootReceiver().onReceive(context, Intent(Intent.ACTION_BOOT_COMPLETED))
 
-        assertFalse(mirrorPreferences().contains(expiredRequest.platformAlarmId))
         assertFalse(mirrorPreferences().contains("android:plan:malformed"))
         assertFalse(mirrorPreferences().contains("android:plan:wrong-type"))
         assertTrue(scheduledAlarms().isEmpty())
+    }
+
+    @Test
+    fun `a due alarm missed across reboot or force-kill is delivered instead of discarded`() {
+        val missedRequest = alarmRequest(
+            platformAlarmId = "android:plan:missed-across-reboot",
+            scheduledAtMillis = System.currentTimeMillis() - 1_000,
+        )
+        assertTrue(AlarmStore(context).put(missedRequest))
+
+        BootReceiver().onReceive(context, Intent(Intent.ACTION_BOOT_COMPLETED))
+
+        assertEquals(
+            AlarmState.RINGING,
+            AlarmStore(context).get(missedRequest.platformAlarmId)?.state,
+        )
+        assertNotNull(Shadows.shadowOf(application).peekNextStartedActivity())
+        assertFalse(
+            context.getSystemService(NotificationManager::class.java)
+                .activeNotifications
+                .isEmpty(),
+        )
+        assertTrue(scheduledAlarms().isEmpty())
+    }
+
+    @Test
+    fun `an alarm missed long beyond the catch-up window is discarded without delivery`() {
+        val staleRequest = alarmRequest(
+            platformAlarmId = "android:plan:stale-missed-reboot",
+            scheduledAtMillis = System.currentTimeMillis() -
+                MISSED_ALARM_CATCH_UP_WINDOW_MILLIS - 60_000,
+        )
+        assertTrue(AlarmStore(context).put(staleRequest))
+
+        BootReceiver().onReceive(context, Intent(Intent.ACTION_BOOT_COMPLETED))
+
+        assertNull(AlarmStore(context).get(staleRequest.platformAlarmId))
+        assertNull(Shadows.shadowOf(application).peekNextStartedActivity())
+        assertTrue(scheduledAlarms().isEmpty())
+    }
+
+    @Test
+    fun `a missed alarm is delivered even when exact-alarm scheduling permission is revoked`() {
+        val missedRequest = alarmRequest(
+            platformAlarmId = "android:plan:missed-permission-revoked",
+            scheduledAtMillis = System.currentTimeMillis() - 1_000,
+        )
+        assertTrue(AlarmStore(context).put(missedRequest))
+        ShadowAlarmManager.setCanScheduleExactAlarms(false)
+
+        BootReceiver().onReceive(context, Intent(Intent.ACTION_BOOT_COMPLETED))
+
+        assertEquals(
+            AlarmState.RINGING,
+            AlarmStore(context).get(missedRequest.platformAlarmId)?.state,
+        )
+        assertNotNull(Shadows.shadowOf(application).peekNextStartedActivity())
+    }
+
+    @Test
+    fun `duplicate boot broadcasts deliver a missed alarm only once`() {
+        val missedRequest = alarmRequest(
+            platformAlarmId = "android:plan:missed-duplicate-boot",
+            scheduledAtMillis = System.currentTimeMillis() - 1_000,
+        )
+        assertTrue(AlarmStore(context).put(missedRequest))
+
+        BootReceiver().onReceive(context, Intent(Intent.ACTION_BOOT_COMPLETED))
+        assertNotNull(Shadows.shadowOf(application).peekNextStartedActivity())
+        Shadows.shadowOf(application).clearNextStartedActivities()
+
+        BootReceiver().onReceive(context, Intent(Intent.ACTION_MY_PACKAGE_REPLACED))
+
+        assertNull(Shadows.shadowOf(application).peekNextStartedActivity())
+        assertEquals(
+            AlarmState.RINGING,
+            AlarmStore(context).get(missedRequest.platformAlarmId)?.state,
+        )
     }
 
     private fun mirrorPreferences() = deviceProtectedContext()
