@@ -59,6 +59,9 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
   late final ValueNotifier<double> _axisOffset;
   late int _appliedRecenterRequest;
   late int _recenterPageIndex;
+  late int _currentPageIndex;
+  final Map<int, ScrollController> _pageScrollControllers = {};
+  VoidCallback? _removeActiveScrollListener;
   bool _pinching = false;
 
   @override
@@ -69,7 +72,9 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
           widget.initialWeek ??
           currentCalendarRange(widget.now, visibleDays: widget.visibleDays),
     );
-    _pageController = PageController(initialPage: _initialPage);
+    _pageController = PageController(initialPage: _initialPage)
+      ..addListener(_handlePageControllerChanged);
+    _currentPageIndex = _initialPage;
     final axisTarget = initialWeekCalendarScrollTarget(
       week: _initialCalendarPage.week,
       now: widget.now,
@@ -95,9 +100,63 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
 
   @override
   void dispose() {
+    _removeActiveScrollListener?.call();
+    _pageController.removeListener(_handlePageControllerChanged);
     _pageController.dispose();
     _axisOffset.dispose();
     super.dispose();
+  }
+
+  void _handlePageControllerChanged() {
+    final page = _pageController.page;
+    if (page == null) {
+      return;
+    }
+    final rounded = page.round();
+    if (rounded != _currentPageIndex) {
+      _currentPageIndex = rounded;
+      _updateActiveScrollSync();
+    }
+  }
+
+  // Only the page the PageController currently reports as active drives the
+  // fixed axis: PageView.builder constructs the neighboring page as soon as
+  // a swipe starts, and that neighbor's own scroll position (e.g. "today" vs
+  // a default 05:00 target) would otherwise fight with the visible page's.
+  void _registerPageScrollController(
+    int pageIndex,
+    ScrollController? controller,
+  ) {
+    if (controller == null) {
+      _pageScrollControllers.remove(pageIndex);
+    } else {
+      _pageScrollControllers[pageIndex] = controller;
+    }
+    if (pageIndex == _currentPageIndex) {
+      _updateActiveScrollSync();
+    }
+  }
+
+  void _updateActiveScrollSync() {
+    _removeActiveScrollListener?.call();
+    _removeActiveScrollListener = null;
+    final controller = _pageScrollControllers[_currentPageIndex];
+    if (controller == null) {
+      return;
+    }
+    void listener() {
+      if (!mounted || !controller.hasClients) {
+        return;
+      }
+      _axisOffset.value = controller.offset;
+    }
+
+    controller.addListener(listener);
+    _removeActiveScrollListener = () => controller.removeListener(listener);
+    // Registration/page-index changes can happen while a descendant is
+    // still being built or laid out, so defer the initial read a frame
+    // rather than mutating the notifier synchronously.
+    WidgetsBinding.instance.addPostFrameCallback((_) => listener());
   }
 
   @override
@@ -178,7 +237,8 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
                       recenterRequest: index == _recenterPageIndex
                           ? widget.recenterRequest
                           : null,
-                      onVerticalScroll: _handleVerticalScroll,
+                      pageIndex: index,
+                      onScrollControllerReady: _registerPageScrollController,
                     );
                   },
                 ),
@@ -197,10 +257,6 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
     setState(() {
       _pinching = pinching;
     });
-  }
-
-  void _handleVerticalScroll(double offset) {
-    _axisOffset.value = offset;
   }
 
   void _applyRecenterRequest() {
@@ -247,7 +303,8 @@ class _WeekCalendarWeekPage extends StatefulWidget {
     required this.onDraftChanged,
     required this.draftInteractionEnabled,
     required this.recenterRequest,
-    required this.onVerticalScroll,
+    required this.pageIndex,
+    required this.onScrollControllerReady,
   });
 
   final WeekRange week;
@@ -263,7 +320,9 @@ class _WeekCalendarWeekPage extends StatefulWidget {
   final WeekCalendarDraftChanged? onDraftChanged;
   final bool draftInteractionEnabled;
   final int? recenterRequest;
-  final ValueChanged<double> onVerticalScroll;
+  final int pageIndex;
+  final void Function(int pageIndex, ScrollController? controller)
+  onScrollControllerReady;
 
   @override
   State<_WeekCalendarWeekPage> createState() => _WeekCalendarWeekPageState();
@@ -306,17 +365,9 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
       now: widget.now,
       pixelsPerMinute: _pixelsPerMinute,
     );
-    _scrollController = ScrollController(initialScrollOffset: target.offset)
-      ..addListener(_reportVerticalScroll);
+    _scrollController = ScrollController(initialScrollOffset: target.offset);
     _appliedRecenterRequest = widget.recenterRequest;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _reportVerticalScroll());
-  }
-
-  void _reportVerticalScroll() {
-    if (!mounted || !_scrollController.hasClients) {
-      return;
-    }
-    widget.onVerticalScroll(_scrollController.offset);
+    widget.onScrollControllerReady(widget.pageIndex, _scrollController);
   }
 
   @override
@@ -438,6 +489,7 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
 
   @override
   void dispose() {
+    widget.onScrollControllerReady(widget.pageIndex, null);
     _draftBodyFocusNode.dispose();
     _draftStartFocusNode.dispose();
     _draftEndFocusNode.dispose();
