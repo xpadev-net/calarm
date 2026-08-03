@@ -33,10 +33,13 @@ class CalarmApp extends ConsumerStatefulWidget {
 
 class _CalarmAppState extends ConsumerState<CalarmApp>
     with WidgetsBindingObserver {
+  static const _holidayReconciliationRetryDelay = Duration(seconds: 30);
+
   var _disposed = false;
   var _lastQueuedCapabilityRevision = 0;
   Set<CalendarDay>? _lastReconciledHolidays;
   Future<void> _reconciliationTail = Future<void>.value();
+  Timer? _holidayReconciliationRetryTimer;
 
   @override
   void initState() {
@@ -47,6 +50,7 @@ class _CalarmAppState extends ConsumerState<CalarmApp>
   @override
   void dispose() {
     _disposed = true;
+    _holidayReconciliationRetryTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -103,14 +107,28 @@ class _CalarmAppState extends ConsumerState<CalarmApp>
         _setEquals(_lastReconciledHolidays, holidays)) {
       return;
     }
+    _holidayReconciliationRetryTimer?.cancel();
     // Only commit the marker once reconciliation actually succeeds — if it
     // fails, `_lastReconciledHolidays` stays at its previous value, so an
     // unchanged (but still-not-reconciled) `holidays` set is retried on the
     // next build instead of being silently treated as already handled.
     _reconciliationTail = _reconciliationTail.then((_) async {
       final succeeded = await _runReconciliation();
-      if (succeeded && !_disposed) {
+      if (_disposed) {
+        return;
+      }
+      if (succeeded) {
         _lastReconciledHolidays = holidays;
+      } else {
+        // Nothing else guarantees another rebuild will happen soon (the
+        // holiday stream may have already gone quiet at this exact set) —
+        // schedule a bounded retry ourselves rather than leaving alarms
+        // scheduled through a holiday until some unrelated event happens
+        // to trigger reconciliation again.
+        _holidayReconciliationRetryTimer = Timer(
+          _holidayReconciliationRetryDelay,
+          () => _queueReconciliationForHolidayChange(health, holidays),
+        );
       }
     });
   }
