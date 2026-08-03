@@ -422,6 +422,73 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'a preview crossing midnight shows a continuation on the next day, '
+    'matching the draft that tap release creates',
+    (tester) async {
+      WeekCalendarTapTarget? selected;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: WeekCalendarView(
+              now: DateTime(2026, 7, 8, 7, 30),
+              initialWeek: WeekRange(
+                start: CalendarDay(year: 2026, month: 7, day: 6),
+              ),
+              draftDuration: const Duration(minutes: 90),
+              onTargetTap: (target) => selected = target,
+            ),
+          ),
+        ),
+      );
+
+      final tapSurface = find
+          .byWidgetPredicate(
+            (widget) => widget is GestureDetector && widget.onTapUp != null,
+          )
+          .first;
+      final size = tester.getSize(tapSurface);
+      // Day index 2 (July 8, the third of 7 visible days), at 23:00 — a
+      // 90-minute duration from there crosses into July 9, which is still
+      // visible, so the preview should show a continuation there.
+      final localPosition = Offset(
+        size.width * 2.5 / 7,
+        size.height * 1380 / 1440,
+      );
+
+      final gestureDetector = tester.widget<GestureDetector>(tapSurface);
+      gestureDetector.onTapDown!(TapDownDetails(localPosition: localPosition));
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('week-calendar-tap-preview-cell')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(
+          const ValueKey('week-calendar-tap-preview-cell-continuation-3'),
+        ),
+        findsOneWidget,
+      );
+
+      gestureDetector.onTapUp!(
+        TapUpDetails(
+          localPosition: localPosition,
+          kind: PointerDeviceKind.touch,
+        ),
+      );
+      await tester.pump();
+
+      expect(selected, isNotNull);
+      expect(selected!.day, CalendarDay(year: 2026, month: 7, day: 8));
+      expect(
+        selected!.time,
+        TimeOfDayMinutes.fromHourMinute(hour: 23, minute: 0),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('renders a wake plan block label and hides the empty state', (
     tester,
   ) async {

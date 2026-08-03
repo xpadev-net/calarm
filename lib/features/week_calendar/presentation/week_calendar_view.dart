@@ -629,15 +629,25 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
                               snapIntervalMinutes: snapIntervalMinutes,
                             ),
                             if (_tapPreviewTarget case final preview?)
-                              _TapPreviewCell(
+                              for (final segment in _tapPreviewSegments(
                                 target: preview,
-                                week: widget.week,
-                                pixelsPerMinute: _pixelsPerMinute,
-                                dayWidth:
-                                    constraints.maxWidth /
-                                    widget.week.visibleDays,
                                 durationMinutes: previewDurationMinutes,
-                              ),
+                                week: widget.week,
+                              ))
+                                _TapPreviewCell(
+                                  key: ValueKey(
+                                    segment.containsStart
+                                        ? 'week-calendar-tap-preview-cell'
+                                        : 'week-calendar-tap-preview-cell-'
+                                              'continuation-'
+                                              '${segment.dayIndex}',
+                                  ),
+                                  segment: segment,
+                                  pixelsPerMinute: _pixelsPerMinute,
+                                  dayWidth:
+                                      constraints.maxWidth /
+                                      widget.week.visibleDays,
+                                ),
                             for (final block in blocks)
                               _WakePlanBlock(
                                 block: block,
@@ -1409,39 +1419,48 @@ class _DraftHandleControlState extends State<_DraftHandleControl> {
   }
 }
 
-/// Shows the grid cell a tap would create a draft in, before the tap is
+/// Builds the segments a tap-preview draft of [durationMinutes] starting at
+/// [target] would occupy, reusing the same day-splitting [_draftSegments]
+/// uses for real drafts so a preview that crosses midnight is shown as a
+/// continuation in the next visible day instead of one clipped cell — the
+/// same shape the draft created on tap-up will actually have.
+List<_DraftSegment> _tapPreviewSegments({
+  required WeekCalendarTapTarget target,
+  required int durationMinutes,
+  required WeekRange week,
+}) {
+  final startAt = target.dateTime;
+  final draft = WeekCalendarDraft(
+    id: 'tap-preview',
+    startAt: startAt,
+    endAt: startAt.add(Duration(minutes: durationMinutes)),
+    createdAt: startAt,
+  );
+  return _draftSegments(draft, week);
+}
+
+/// Shows the grid cell(s) a tap would create a draft in, before the tap is
 /// released, so it's obvious ahead of time where the block will land.
 class _TapPreviewCell extends StatelessWidget {
   const _TapPreviewCell({
-    required this.target,
-    required this.week,
+    super.key,
+    required this.segment,
     required this.pixelsPerMinute,
     required this.dayWidth,
-    required this.durationMinutes,
   });
 
-  final WeekCalendarTapTarget target;
-  final WeekRange week;
+  final _DraftSegment segment;
   final double pixelsPerMinute;
   final double dayWidth;
-  final int durationMinutes;
 
   @override
   Widget build(BuildContext context) {
-    final dayIndex = target.day.differenceInDays(week.start);
-    // The target passed in is already clamped to the visible week (see
-    // weekCalendarClampTapTargetToWeek), so this only guards against a
-    // target that was never within range to begin with.
-    if (dayIndex < 0 || dayIndex >= week.visibleDays) {
-      return const SizedBox.shrink();
-    }
-    final top = target.time.minutesSinceMidnight * pixelsPerMinute;
-    final height = durationMinutes * pixelsPerMinute;
+    final top = segment.topMinute * pixelsPerMinute;
+    final height = segment.durationMinutes * pixelsPerMinute;
     final colorScheme = Theme.of(context).colorScheme;
 
     return Positioned(
-      key: const ValueKey('week-calendar-tap-preview-cell'),
-      left: dayIndex * dayWidth,
+      left: segment.dayIndex * dayWidth,
       top: top,
       width: dayWidth,
       height: height,
