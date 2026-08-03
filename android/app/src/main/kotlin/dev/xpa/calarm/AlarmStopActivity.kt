@@ -3,6 +3,8 @@ package dev.xpa.calarm
 import android.app.Activity
 import android.app.NotificationManager
 import android.content.Intent
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.media.AudioAttributes
 import android.media.Ringtone
 import android.media.RingtoneManager
@@ -15,8 +17,11 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import java.text.DateFormat
@@ -31,6 +36,7 @@ class AlarmStopActivity : Activity() {
     private var titleView: TextView? = null
     private var currentTimeView: TextView? = null
     private var actionButton: Button? = null
+    private var swipeToDismissView: FrameLayout? = null
     private var contentLayout: LinearLayout? = null
     private val clockHandler = Handler(Looper.getMainLooper())
     private val clockTick = object : Runnable {
@@ -61,10 +67,7 @@ class AlarmStopActivity : Activity() {
             setPadding(48, 48, 48, 48)
         }
         if (isRinging) {
-            val currentTime = TextView(this).apply {
-                textSize = 20f
-                gravity = Gravity.CENTER
-            }
+            val currentTime = buildCurrentTimeView()
             currentTimeView = currentTime
             layout.addView(currentTime)
 
@@ -75,6 +78,10 @@ class AlarmStopActivity : Activity() {
             }
             titleView = info
             layout.addView(info)
+
+            val swipeTrack = buildSwipeToDismissView()
+            swipeToDismissView = swipeTrack
+            layout.addView(swipeTrack)
         } else {
             val title = TextView(this).apply {
                 text = detailSummary()
@@ -83,20 +90,14 @@ class AlarmStopActivity : Activity() {
             }
             titleView = title
             layout.addView(title)
-        }
-        val button = Button(this).apply {
-            text = if (isRinging) "Stop current alarm" else "Close"
-            setOnClickListener {
-                if (isRinging) {
-                    dismissCurrentAlarm()
-                    finishAndRemoveTask()
-                } else {
-                    finish()
-                }
+
+            val button = Button(this).apply {
+                text = "Close"
+                setOnClickListener { finish() }
             }
+            actionButton = button
+            layout.addView(button)
         }
-        actionButton = button
-        layout.addView(button)
         contentLayout = layout
         setContentView(layout)
         if (isRinging) {
@@ -116,15 +117,20 @@ class AlarmStopActivity : Activity() {
         isRinging = true
         configureRingingPresentation()
         if (currentTimeView == null) {
-            val currentTime = TextView(this).apply {
-                textSize = 20f
-                gravity = Gravity.CENTER
-            }
+            val currentTime = buildCurrentTimeView()
             currentTimeView = currentTime
             contentLayout?.addView(currentTime, 0)
         }
         titleView?.text = ringingSummary()
-        actionButton?.text = "Stop current alarm"
+        actionButton?.let { button ->
+            contentLayout?.removeView(button)
+            actionButton = null
+        }
+        if (swipeToDismissView == null) {
+            val swipeTrack = buildSwipeToDismissView()
+            swipeToDismissView = swipeTrack
+            contentLayout?.addView(swipeTrack)
+        }
         startAlarmSound()
         startClockTick()
     }
@@ -167,9 +173,138 @@ class AlarmStopActivity : Activity() {
         }
     }
 
+    private fun buildCurrentTimeView(): TextView {
+        return TextView(this).apply {
+            textSize = 72f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dp(24))
+        }
+    }
+
     private fun updateCurrentTime() {
         val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date())
-        currentTimeView?.text = "Current time: $time"
+        currentTimeView?.text = time
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    /**
+     * Builds a "slide to stop" track: dragging the handle across the track
+     * dismisses the alarm. Prevents accidental taps from silencing the alarm.
+     */
+    private fun buildSwipeToDismissView(): FrameLayout {
+        val trackHeight = dp(64)
+        val handleSize = dp(56)
+        val track = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                trackHeight,
+            ).apply { topMargin = dp(32) }
+            background = GradientDrawable().apply {
+                cornerRadius = trackHeight / 2f
+                setColor(0xFF2E2E2E.toInt())
+            }
+            clipToPadding = false
+            clipChildren = false
+        }
+
+        val label = TextView(this).apply {
+            text = "Swipe to stop alarm"
+            textSize = 16f
+            gravity = Gravity.CENTER
+            setTextColor(0xFFBDBDBD.toInt())
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            )
+        }
+        track.addView(label)
+
+        val handle = TextView(this).apply {
+            text = "»"
+            textSize = 22f
+            gravity = Gravity.CENTER
+            setTextColor(0xFFFFFFFF.toInt())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0xFF43A047.toInt())
+            }
+            layoutParams = FrameLayout.LayoutParams(handleSize, handleSize).apply {
+                gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            }
+            // Accessibility fallback: TalkBack issues a synthetic click via
+            // performClick() (bypassing raw touch dispatch), so this lets a
+            // screen-reader user dismiss the alarm without performing the drag.
+            isClickable = true
+            contentDescription = "Stop alarm"
+            setOnClickListener { onSwipeToDismissConfirmed() }
+        }
+        track.addView(handle)
+
+        handle.setOnTouchListener(
+            object : View.OnTouchListener {
+                private var downRawX = 0f
+                private var startProgress = 0f
+                private var maxTranslation = 0f
+                private var isRtl = false
+                private var isConfirmed = false
+
+                override fun onTouch(v: View, event: MotionEvent): Boolean {
+                    if (isConfirmed) return true
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            handle.animate().cancel()
+                            isRtl = track.layoutDirection == View.LAYOUT_DIRECTION_RTL
+                            downRawX = event.rawX
+                            startProgress = signedProgress(isRtl, handle.translationX)
+                            maxTranslation = maxOf(0f, (track.width - handle.width).toFloat())
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            val rawDelta = event.rawX - downRawX
+                            val delta = if (isRtl) -rawDelta else rawDelta
+                            val progress = (startProgress + delta).coerceIn(0f, maxTranslation)
+                            handle.translationX = if (isRtl) -progress else progress
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            val progress = signedProgress(isRtl, handle.translationX)
+                            val threshold = maxTranslation * SWIPE_DISMISS_THRESHOLD_FRACTION
+                            handle.animate().cancel()
+                            if (maxTranslation > 0 && progress >= threshold) {
+                                isConfirmed = true
+                                val target = if (isRtl) -maxTranslation else maxTranslation
+                                handle.animate()
+                                    .translationX(target)
+                                    .setDuration(SWIPE_CONFIRM_ANIM_MILLIS)
+                                    .withEndAction { onSwipeToDismissConfirmed() }
+                                    .start()
+                            } else {
+                                handle.animate()
+                                    .translationX(0f)
+                                    .setDuration(SWIPE_CANCEL_ANIM_MILLIS)
+                                    .start()
+                            }
+                        }
+                        else -> return false
+                    }
+                    return true
+                }
+            },
+        )
+        return track
+    }
+
+    private fun signedProgress(isRtl: Boolean, translationX: Float): Float {
+        return if (isRtl) -translationX else translationX
+    }
+
+    private fun onSwipeToDismissConfirmed() {
+        if (isRinging) {
+            dismissCurrentAlarm()
+            finishAndRemoveTask()
+        } else {
+            finish()
+        }
     }
 
     private fun startClockTick() {
@@ -321,5 +456,8 @@ class AlarmStopActivity : Activity() {
         const val STATE_IS_RINGING = "is_ringing"
         const val STATE_PLATFORM_ALARM_ID = "platform_alarm_id"
         const val CLOCK_TICK_MILLIS = 60_000L
+        const val SWIPE_DISMISS_THRESHOLD_FRACTION = 0.75f
+        const val SWIPE_CONFIRM_ANIM_MILLIS = 120L
+        const val SWIPE_CANCEL_ANIM_MILLIS = 150L
     }
 }

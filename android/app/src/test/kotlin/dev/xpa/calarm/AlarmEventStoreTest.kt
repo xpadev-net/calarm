@@ -6,7 +6,8 @@ import android.content.Intent
 import android.os.Build
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.LinearLayout
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONObject
@@ -323,15 +324,7 @@ class AlarmEventStoreTest {
             AlarmStopActivity::class.java,
             stopIntent(stoppedAlarmId),
         ).setup().get()
-        val layout = activity.findViewById<ViewGroup>(android.R.id.content)
-        val matchingViews = arrayListOf<View>()
-        layout.findViewsWithText(
-            matchingViews,
-            "Stop current alarm",
-            View.FIND_VIEWS_WITH_TEXT,
-        )
-
-        (matchingViews.single { it is Button } as Button).performClick()
+        swipeToDismissHandle(activity).performClick()
 
         assertEquals(
             "$stoppedAlarmId:dismissed",
@@ -348,20 +341,20 @@ class AlarmEventStoreTest {
             stopIntent(alarmId),
         ).setup().get()
         assertTrue(AlarmStore(context).removeRaw(alarmId))
-        val layout = activity.findViewById<ViewGroup>(android.R.id.content)
-        val matchingViews = arrayListOf<View>()
-        layout.findViewsWithText(
-            matchingViews,
-            "Stop current alarm",
-            View.FIND_VIEWS_WITH_TEXT,
-        )
-
-        (matchingViews.single { it is Button } as Button).performClick()
+        swipeToDismissHandle(activity).performClick()
 
         val event = AlarmEventStore(context).fetch().events.single()
         assertEquals(AlarmEvent.idFor(alarmId, AlarmEventType.DISMISSED), event.eventId)
         assertEquals(alarmId, event.platformAlarmId)
         assertEquals(AlarmEventType.DISMISSED, event.type)
+    }
+
+    /** The draggable "stop alarm" handle inside the swipe-to-dismiss track (the ringing layout's last child). */
+    private fun swipeToDismissHandle(activity: AlarmStopActivity): View {
+        val layout = activity.findViewById<ViewGroup>(android.R.id.content)
+            .getChildAt(0) as LinearLayout
+        val track = layout.getChildAt(layout.childCount - 1) as FrameLayout
+        return track.getChildAt(track.childCount - 1)
     }
 
     private fun stopIntent(platformAlarmId: String): Intent {

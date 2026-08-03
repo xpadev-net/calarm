@@ -10,7 +10,9 @@ import android.os.Build
 import android.os.Vibrator
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.view.View
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import org.junit.After
@@ -422,9 +424,7 @@ class AlarmReceiverTest {
             .get()
         val content = activity.findViewById<ViewGroup>(android.R.id.content)
         val layout = content.getChildAt(0) as LinearLayout
-        val stopButton = layout.getChildAt(layout.childCount - 1) as Button
-
-        stopButton.performClick()
+        swipeToDismissHandle(layout).performClick()
 
         assertNull(AlarmStore(context).get(platformAlarmId))
         assertTrue(activity.isFinishing)
@@ -445,9 +445,8 @@ class AlarmReceiverTest {
 
         val content = activity.findViewById<ViewGroup>(android.R.id.content)
         val layout = content.getChildAt(0) as LinearLayout
-        val stopButton = layout.getChildAt(layout.childCount - 1) as Button
-        assertEquals("Stop current alarm", stopButton.text)
-        stopButton.performClick()
+        assertTrue(layout.getChildAt(layout.childCount - 1) is FrameLayout)
+        swipeToDismissHandle(layout).performClick()
         assertNull(AlarmStore(context).get(platformAlarmId))
     }
 
@@ -467,7 +466,7 @@ class AlarmReceiverTest {
 
         val content = activity.findViewById<ViewGroup>(android.R.id.content)
         val layout = content.getChildAt(0) as LinearLayout
-        (layout.getChildAt(layout.childCount - 1) as Button).performClick()
+        swipeToDismissHandle(layout).performClick()
 
         assertNull(AlarmStore(context).get(currentAlarmId))
         assertNotNull(AlarmStore(context).get(secondAlarmId))
@@ -488,10 +487,8 @@ class AlarmReceiverTest {
         assertNotNull(AlarmStore(context).get(platformAlarmId))
         val content = recreated.findViewById<ViewGroup>(android.R.id.content)
         val layout = content.getChildAt(0) as LinearLayout
-        val stopButton = layout.getChildAt(layout.childCount - 1) as Button
-        assertEquals("Stop current alarm", stopButton.text)
         assertEquals(0, shadowVibrator().repeat)
-        stopButton.performClick()
+        swipeToDismissHandle(layout).performClick()
         assertNull(AlarmStore(context).get(platformAlarmId))
     }
 
@@ -719,12 +716,14 @@ class AlarmReceiverTest {
         val currentText = (layout.getChildAt(0) as TextView).text.toString()
         val summary = (layout.getChildAt(1) as TextView).text.toString()
 
-        assertTrue(currentText.startsWith("Current time:"))
+        val expectedTime = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT)
+            .format(java.util.Date())
+        assertEquals(expectedTime, currentText)
         assertTrue(summary.contains("Scheduled:"))
         assertTrue(summary.contains("Wake target:"))
         assertTrue(summary.contains("Alarm 1 of 2"))
         assertTrue(summary.contains("Next alarm:"))
-        assertEquals("Stop current alarm", (layout.getChildAt(2) as Button).text)
+        assertTrue(layout.getChildAt(2) is FrameLayout)
         activity.finish()
     }
 
@@ -741,7 +740,7 @@ class AlarmReceiverTest {
         assertEquals(0, shadowVibrator().repeat)
         val layout = enabledActivity.findViewById<ViewGroup>(android.R.id.content)
             .getChildAt(0) as LinearLayout
-        (layout.getChildAt(layout.childCount - 1) as Button).performClick()
+        swipeToDismissHandle(layout).performClick()
         assertTrue(shadowVibrator().isCancelled)
 
         ShadowVibrator.reset()
@@ -775,6 +774,12 @@ class AlarmReceiverTest {
 
     private fun shadowVibrator(): ShadowVibrator {
         return Shadows.shadowOf(context.getSystemService(Vibrator::class.java))
+    }
+
+    /** The draggable "stop alarm" handle inside the swipe-to-dismiss track (the ringing layout's last child). */
+    private fun swipeToDismissHandle(layout: LinearLayout): View {
+        val track = layout.getChildAt(layout.childCount - 1) as FrameLayout
+        return track.getChildAt(track.childCount - 1)
     }
 
     private fun deviceProtectedPreferences(name: String = "native_alarm_store") =
