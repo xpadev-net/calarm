@@ -302,6 +302,24 @@ class _SettingsDefaultsPanel extends ConsumerWidget {
                 );
               },
             ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<HolidayRegion?>(
+              key: ValueKey(settings.holidayRegion),
+              initialValue: settings.holidayRegion,
+              decoration: const InputDecoration(labelText: 'Holiday calendar'),
+              hint: const Text('Off'),
+              items: [
+                const DropdownMenuItem(value: null, child: Text('Off')),
+                for (final region in HolidayRegion.values)
+                  DropdownMenuItem(
+                    value: region,
+                    child: Text(region.displayName),
+                  ),
+              ],
+              onChanged: (value) {
+                _handleSave(context, controller.setHolidayRegion(value));
+              },
+            ),
           ],
         ),
       ),

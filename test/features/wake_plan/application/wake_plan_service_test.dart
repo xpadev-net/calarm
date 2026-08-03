@@ -30,6 +30,7 @@ void main() {
     bool isEnabled = true,
     WakePlanStatus status = WakePlanStatus.scheduled,
     CalendarDay? skipNextDate,
+    bool skipHolidays = false,
   }) {
     return WakePlan(
       id: id,
@@ -41,6 +42,7 @@ void main() {
       isEnabled: isEnabled,
       status: status,
       skipNextDate: skipNextDate,
+      skipHolidays: skipHolidays,
       soundId: soundId,
       vibrationEnabled: vibrationEnabled,
       createdAt: now,
@@ -107,6 +109,7 @@ void main() {
     DateTime? clockNow,
     OccurrencePlanner occurrencePlanner = const OccurrencePlanner(),
     WakePlanMutationCoordinator? coordinator,
+    HolidaysSnapshot? holidaysSnapshot,
   }) {
     return WakePlanService.withStore(
       store: store,
@@ -115,6 +118,7 @@ void main() {
       clock: () => clockNow ?? now,
       rollingScheduleDays: rollingScheduleDays,
       coordinator: coordinator ?? WakePlanMutationCoordinator(),
+      holidaysSnapshot: holidaysSnapshot,
     );
   }
 
@@ -7542,6 +7546,30 @@ void main() {
     });
 
     test(
+      'skips the holiday-aware next target date, not a holiday-excluded day',
+      () async {
+        final weeklyPlan = buildPlan(
+          repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
+          skipHolidays: true,
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: weeklyPlan);
+        final gateway = FakeNativeAlarmGateway();
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+          holidaysSnapshot: () => {monday},
+        ).skipNextOccurrence(weeklyPlan);
+
+        expect(result.status, WakePlanSchedulingStatus.scheduled);
+        // Monday is already excluded by the holiday skip, so "skip next"
+        // must target Tuesday (the actual next occurrence the user would
+        // experience), not redundantly mark the already-skipped Monday.
+        expect(store.savedPlans.first.skipNextDate, tuesday);
+      },
+    );
+
+    test(
       'stores the next target date and recreates following concrete alarms',
       () async {
         final weeklyPlan = buildPlan(
@@ -8365,6 +8393,7 @@ class _EmptyOccurrencePlanner extends OccurrencePlanner {
     required CalendarDay startDay,
     required CalendarDay endExclusive,
     required DateTime now,
+    Set<CalendarDay> holidays = const {},
   }) {
     return OccurrencePlan(
       wakeInstances: const [],

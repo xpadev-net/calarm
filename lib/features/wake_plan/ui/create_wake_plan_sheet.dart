@@ -44,6 +44,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
   late TimeOfDayMinutes _targetTime;
   late String _soundId;
   late bool _vibrationEnabled;
+  late bool _skipHolidays;
   bool _saving = false;
   bool _submissionAttempted = false;
   bool _advancedExpanded = false;
@@ -88,6 +89,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
     _vibrationEnabled =
         existingWakePlan?.vibrationEnabled ??
         widget.defaults.defaultVibrationEnabled;
+    _skipHolidays = existingWakePlan?.skipHolidays ?? false;
   }
 
   @override
@@ -207,6 +209,9 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
                               Weekday.fromDateTimeValue(_targetDay.weekday),
                             };
                           }
+                          if (value == _RepeatOption.oneTime) {
+                            _skipHolidays = false;
+                          }
                         });
                       }
                     : null,
@@ -219,6 +224,24 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
                   onChanged: (weekdays) {
                     setState(() => _selectedWeekdays = weekdays);
                   },
+                ),
+              ],
+              if (_repeatOption != _RepeatOption.oneTime) ...[
+                const SizedBox(height: 4),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Skip public holidays'),
+                  subtitle: widget.defaults.holidayRegion == null
+                      ? const Text(
+                          'Set a holiday calendar in Settings to use this.',
+                        )
+                      : null,
+                  value: _skipHolidays,
+                  onChanged: !_saving && !_draftLocked
+                      ? (value) {
+                          setState(() => _skipHolidays = value);
+                        }
+                      : null,
                 ),
               ],
               const SizedBox(height: 12),
@@ -402,6 +425,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
       isEnabled: existingWakePlan?.isEnabled ?? true,
       status: _statusForEditedPlan(existingWakePlan),
       skipNextDate: _skipDateForEditedPlan(existingWakePlan, repeatRule),
+      skipHolidays: _skipHolidays,
       soundId: _soundId,
       vibrationEnabled: _vibrationEnabled,
       createdAt: existingWakePlan?.createdAt ?? createdAt,

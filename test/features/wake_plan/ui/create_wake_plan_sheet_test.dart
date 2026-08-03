@@ -635,7 +635,14 @@ Future<void> _expectCreateDraftControlsLocked(WidgetTester tester) async {
   );
   await tester.tap(soundFinder, warnIfMissed: false);
 
-  final vibrationFinder = find.byType(SwitchListTile);
+  final skipHolidaysFinder = find.widgetWithText(
+    SwitchListTile,
+    'Skip public holidays',
+  );
+  expect(skipHolidaysFinder, findsOneWidget);
+  expect(tester.widget<SwitchListTile>(skipHolidaysFinder).onChanged, isNull);
+
+  final vibrationFinder = find.widgetWithText(SwitchListTile, 'Vibration');
   expect(vibrationFinder, findsOneWidget);
   await tester.ensureVisible(vibrationFinder);
   expect(tester.widget<SwitchListTile>(vibrationFinder).onChanged, isNull);

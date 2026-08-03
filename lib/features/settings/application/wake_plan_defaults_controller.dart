@@ -34,6 +34,7 @@ class WakePlanDefaultsController extends AsyncNotifier<AppSettings> {
         defaultVibrationEnabled: current.defaultVibrationEnabled,
         defaultRepeatType: current.defaultRepeatType,
         defaultTargetTime: current.defaultTargetTime,
+        holidayRegion: current.holidayRegion,
       ),
     );
   }
@@ -47,6 +48,7 @@ class WakePlanDefaultsController extends AsyncNotifier<AppSettings> {
         defaultVibrationEnabled: current.defaultVibrationEnabled,
         defaultRepeatType: current.defaultRepeatType,
         defaultTargetTime: current.defaultTargetTime,
+        holidayRegion: current.holidayRegion,
       ),
     );
   }
@@ -60,6 +62,7 @@ class WakePlanDefaultsController extends AsyncNotifier<AppSettings> {
         defaultVibrationEnabled: current.defaultVibrationEnabled,
         defaultRepeatType: current.defaultRepeatType,
         defaultTargetTime: current.defaultTargetTime,
+        holidayRegion: current.holidayRegion,
       ),
     );
   }
@@ -74,6 +77,10 @@ class WakePlanDefaultsController extends AsyncNotifier<AppSettings> {
     return _enqueueSave(
       (current) => current.copyWith(defaultRepeatType: value),
     );
+  }
+
+  Future<void> setHolidayRegion(HolidayRegion? value) {
+    return _enqueueSave((current) => current.copyWith(holidayRegion: value));
   }
 
   AppSettings get _current => state.value ?? AppSettings.initial();
@@ -93,6 +100,7 @@ class WakePlanDefaultsController extends AsyncNotifier<AppSettings> {
       defaultVibrationEnabled: settings.defaultVibrationEnabled,
       defaultRepeatType: settings.defaultRepeatType,
       defaultTargetTime: settings.defaultTargetTime,
+      holidayRegion: settings.holidayRegion,
     );
 
     final repository = await ref.read(

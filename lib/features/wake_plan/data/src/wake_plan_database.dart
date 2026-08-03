@@ -15,6 +15,7 @@ class WakePlanRows extends Table {
   BoolColumn get isEnabled => boolean()();
   TextColumn get status => text()();
   IntColumn get skipNextDateDays => integer().nullable()();
+  BoolColumn get skipHolidays => boolean().withDefault(const Constant(false))();
   TextColumn get soundId => text()();
   BoolColumn get vibrationEnabled => boolean()();
   DateTimeColumn get createdAt => dateTime()();
@@ -57,17 +58,47 @@ class AppSettingsRows extends Table {
   BoolColumn get defaultVibrationEnabled => boolean()();
   TextColumn get defaultRepeatType => text()();
   IntColumn get defaultTargetTimeMinutes => integer().nullable()();
+  TextColumn get holidayRegion => text().nullable()();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
 }
 
-@DriftDatabase(tables: [WakePlanRows, AlarmOccurrenceRows, AppSettingsRows])
+@DataClassName('HolidayCacheRow')
+class HolidayCacheRows extends Table {
+  TextColumn get region => text()();
+  IntColumn get dateDays => integer()();
+  TextColumn get name => text()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {region, dateDays};
+}
+
+@DataClassName('HolidayFetchMetadataRow')
+class HolidayFetchMetadataRows extends Table {
+  TextColumn get region => text()();
+  DateTimeColumn get lastFetchedAt => dateTime().nullable()();
+  DateTimeColumn get lastSuccessAt => dateTime().nullable()();
+  TextColumn get lastError => text().nullable()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {region};
+}
+
+@DriftDatabase(
+  tables: [
+    WakePlanRows,
+    AlarmOccurrenceRows,
+    AppSettingsRows,
+    HolidayCacheRows,
+    HolidayFetchMetadataRows,
+  ],
+)
 class WakePlanDatabase extends _$WakePlanDatabase {
   WakePlanDatabase(super.executor);
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration {
@@ -116,6 +147,48 @@ class WakePlanDatabase extends _$WakePlanDatabase {
               alarmOccurrenceRows,
               alarmOccurrenceRows.reservationGeneration,
             );
+          }
+        }
+        if (from < 4) {
+          final existingTables = await customSelect(
+            "SELECT name FROM sqlite_master WHERE type = 'table'",
+          ).get();
+          final existingTableNames = existingTables
+              .map((row) => row.read<String>('name'))
+              .toSet();
+
+          if (existingTableNames.contains('wake_plan_rows')) {
+            final existingWakePlanColumns = await customSelect(
+              'PRAGMA table_info(wake_plan_rows)',
+            ).get();
+            final existingWakePlanColumnNames = existingWakePlanColumns
+                .map((row) => row.read<String>('name'))
+                .toSet();
+            if (!existingWakePlanColumnNames.contains('skip_holidays')) {
+              await migrator.addColumn(wakePlanRows, wakePlanRows.skipHolidays);
+            }
+          }
+
+          if (existingTableNames.contains('app_settings_rows')) {
+            final existingAppSettingsColumns = await customSelect(
+              'PRAGMA table_info(app_settings_rows)',
+            ).get();
+            final existingAppSettingsColumnNames = existingAppSettingsColumns
+                .map((row) => row.read<String>('name'))
+                .toSet();
+            if (!existingAppSettingsColumnNames.contains('holiday_region')) {
+              await migrator.addColumn(
+                appSettingsRows,
+                appSettingsRows.holidayRegion,
+              );
+            }
+          }
+
+          if (!existingTableNames.contains('holiday_cache_rows')) {
+            await migrator.createTable(holidayCacheRows);
+          }
+          if (!existingTableNames.contains('holiday_fetch_metadata_rows')) {
+            await migrator.createTable(holidayFetchMetadataRows);
           }
         }
       },
