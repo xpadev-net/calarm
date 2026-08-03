@@ -7,6 +7,9 @@ import '../domain/wake_plan_domain.dart';
 import 'occurrence_planner.dart';
 
 typedef WakePlanClock = DateTime Function();
+typedef HolidaysSnapshot = Set<CalendarDay> Function();
+
+Set<CalendarDay> _noHolidays() => const {};
 
 class WakePlanService {
   /// A delivered alarm remains actionable for this long. After the window it
@@ -18,6 +21,7 @@ class WakePlanService {
     required NativeAlarmGateway nativeAlarmGateway,
     OccurrencePlanner occurrencePlanner = const OccurrencePlanner(),
     WakePlanClock? clock,
+    HolidaysSnapshot? holidaysSnapshot,
     int rollingScheduleDays = 7,
     required WakePlanMutationCoordinator coordinator,
   }) : this._(
@@ -26,6 +30,7 @@ class WakePlanService {
          nativeAlarmGateway: nativeAlarmGateway,
          occurrencePlanner: occurrencePlanner,
          clock: clock ?? DateTime.now,
+         holidaysSnapshot: holidaysSnapshot ?? _noHolidays,
          rollingScheduleDays: rollingScheduleDays,
        );
 
@@ -34,6 +39,7 @@ class WakePlanService {
     required NativeAlarmGateway nativeAlarmGateway,
     OccurrencePlanner occurrencePlanner = const OccurrencePlanner(),
     WakePlanClock? clock,
+    HolidaysSnapshot? holidaysSnapshot,
     int rollingScheduleDays = 7,
     required WakePlanMutationCoordinator coordinator,
   }) : this._(
@@ -42,6 +48,7 @@ class WakePlanService {
          nativeAlarmGateway: nativeAlarmGateway,
          occurrencePlanner: occurrencePlanner,
          clock: clock ?? DateTime.now,
+         holidaysSnapshot: holidaysSnapshot ?? _noHolidays,
          rollingScheduleDays: rollingScheduleDays,
        );
 
@@ -51,6 +58,7 @@ class WakePlanService {
     required this._nativeAlarmGateway,
     required this._occurrencePlanner,
     required this._clock,
+    required this._holidaysSnapshot,
     required int rollingScheduleDays,
   }) : _rollingScheduleDays = rollingScheduleDays {
     if (rollingScheduleDays <= 0) {
@@ -67,6 +75,7 @@ class WakePlanService {
   final NativeAlarmGateway _nativeAlarmGateway;
   final OccurrencePlanner _occurrencePlanner;
   final WakePlanClock _clock;
+  final HolidaysSnapshot _holidaysSnapshot;
   final int _rollingScheduleDays;
   Future<List<WakePlanSchedulingResult>>? _reconciliation;
   bool _reconciliationPending = false;
@@ -2651,6 +2660,7 @@ class WakePlanService {
       // boundary by the smallest DateTime unit also lets its weekly fallback
       // search run when the only occurrence in the current horizon is due now.
       now: now.add(const Duration(microseconds: 1)),
+      holidays: _holidaysSnapshot(),
     );
     final createdOccurrences = <AlarmOccurrence>[];
     final requests = <NativeAlarmScheduleRequest>[];

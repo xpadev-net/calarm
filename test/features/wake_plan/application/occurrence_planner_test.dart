@@ -20,6 +20,7 @@ void main() {
     WakePlanStatus status = WakePlanStatus.scheduled,
     bool isEnabled = true,
     CalendarDay? skipNextDate,
+    bool skipHolidays = false,
   }) {
     return WakePlan(
       id: 'plan-1',
@@ -32,6 +33,7 @@ void main() {
       isEnabled: isEnabled,
       status: status,
       skipNextDate: skipNextDate,
+      skipHolidays: skipHolidays,
       soundId: 'default',
       vibrationEnabled: true,
       createdAt: createdAt,
@@ -260,6 +262,90 @@ void main() {
         expect(result.schedulingCandidates, isEmpty);
       }
     });
+
+    test('skips a weekday occurrence that falls on a holiday', () {
+      final result = planner.plan(
+        wakePlan: buildPlan(
+          repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
+          skipHolidays: true,
+        ),
+        startDay: monday,
+        endExclusive: wednesday,
+        now: DateTime(2026, 7, 6, 5),
+        holidays: {monday},
+      );
+
+      expect(result.wakeInstances.map((instance) => instance.targetDay), [
+        tuesday,
+      ]);
+    });
+
+    test(
+      'does not skip a holiday when skipHolidays is false (regression guard)',
+      () {
+        final result = planner.plan(
+          wakePlan: buildPlan(
+            repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
+          ),
+          startDay: monday,
+          endExclusive: wednesday,
+          now: DateTime(2026, 7, 6, 5),
+          holidays: {monday},
+        );
+
+        expect(result.wakeInstances.map((instance) => instance.targetDay), [
+          monday,
+          tuesday,
+        ]);
+      },
+    );
+
+    test(
+      'skipHolidays with an empty holiday set behaves like skipHolidays: false',
+      () {
+        final result = planner.plan(
+          wakePlan: buildPlan(
+            repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
+            skipHolidays: true,
+          ),
+          startDay: monday,
+          endExclusive: wednesday,
+          now: DateTime(2026, 7, 6, 5),
+        );
+
+        expect(result.wakeInstances.map((instance) => instance.targetDay), [
+          monday,
+          tuesday,
+        ]);
+      },
+    );
+
+    test(
+      'weekly lookahead skips a run of consecutive holiday-matching days',
+      () {
+        // Target weekday is Monday only; the next three Mondays are holidays,
+        // so the fallback lookahead must extend past the default 7-day cap
+        // (but within the widened 21-day, holiday-aware cap) to find one.
+        final nextMonday = monday.addDays(7);
+        final monthAfterMonday = monday.addDays(14);
+        final result = planner.plan(
+          wakePlan: buildPlan(
+            targetTime: TimeOfDayMinutes.fromHourMinute(hour: 5, minute: 0),
+            startOffset: const Duration(minutes: 15),
+            repeatRule: RepeatRule.weekly({Weekday.monday}),
+            skipHolidays: true,
+          ),
+          startDay: monday,
+          endExclusive: monday.addDays(1),
+          now: DateTime(2026, 7, 6, 5, 5),
+          holidays: {monday, nextMonday, monthAfterMonday},
+        );
+
+        expect(result.wakeInstances.map((instance) => instance.targetDay), [
+          monday.addDays(21),
+        ]);
+      },
+    );
 
     test('rejects inverted ranges', () {
       expect(

@@ -126,6 +126,21 @@ class $WakePlanRowsTable extends WakePlanRows
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _skipHolidaysMeta = const VerificationMeta(
+    'skipHolidays',
+  );
+  @override
+  late final GeneratedColumn<bool> skipHolidays = GeneratedColumn<bool>(
+    'skip_holidays',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("skip_holidays" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   static const VerificationMeta _soundIdMeta = const VerificationMeta(
     'soundId',
   );
@@ -186,6 +201,7 @@ class $WakePlanRowsTable extends WakePlanRows
     isEnabled,
     status,
     skipNextDateDays,
+    skipHolidays,
     soundId,
     vibrationEnabled,
     createdAt,
@@ -300,6 +316,15 @@ class $WakePlanRowsTable extends WakePlanRows
         ),
       );
     }
+    if (data.containsKey('skip_holidays')) {
+      context.handle(
+        _skipHolidaysMeta,
+        skipHolidays.isAcceptableOrUnknown(
+          data['skip_holidays']!,
+          _skipHolidaysMeta,
+        ),
+      );
+    }
     if (data.containsKey('sound_id')) {
       context.handle(
         _soundIdMeta,
@@ -388,6 +413,10 @@ class $WakePlanRowsTable extends WakePlanRows
         DriftSqlType.int,
         data['${effectivePrefix}skip_next_date_days'],
       ),
+      skipHolidays: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}skip_holidays'],
+      )!,
       soundId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}sound_id'],
@@ -425,6 +454,7 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
   final bool isEnabled;
   final String status;
   final int? skipNextDateDays;
+  final bool skipHolidays;
   final String soundId;
   final bool vibrationEnabled;
   final DateTime createdAt;
@@ -441,6 +471,7 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
     required this.isEnabled,
     required this.status,
     this.skipNextDateDays,
+    required this.skipHolidays,
     required this.soundId,
     required this.vibrationEnabled,
     required this.createdAt,
@@ -466,6 +497,7 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
     if (!nullToAbsent || skipNextDateDays != null) {
       map['skip_next_date_days'] = Variable<int>(skipNextDateDays);
     }
+    map['skip_holidays'] = Variable<bool>(skipHolidays);
     map['sound_id'] = Variable<String>(soundId);
     map['vibration_enabled'] = Variable<bool>(vibrationEnabled);
     map['created_at'] = Variable<DateTime>(createdAt);
@@ -492,6 +524,7 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
       skipNextDateDays: skipNextDateDays == null && nullToAbsent
           ? const Value.absent()
           : Value(skipNextDateDays),
+      skipHolidays: Value(skipHolidays),
       soundId: Value(soundId),
       vibrationEnabled: Value(vibrationEnabled),
       createdAt: Value(createdAt),
@@ -516,6 +549,7 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
       isEnabled: serializer.fromJson<bool>(json['isEnabled']),
       status: serializer.fromJson<String>(json['status']),
       skipNextDateDays: serializer.fromJson<int?>(json['skipNextDateDays']),
+      skipHolidays: serializer.fromJson<bool>(json['skipHolidays']),
       soundId: serializer.fromJson<String>(json['soundId']),
       vibrationEnabled: serializer.fromJson<bool>(json['vibrationEnabled']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
@@ -537,6 +571,7 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
       'isEnabled': serializer.toJson<bool>(isEnabled),
       'status': serializer.toJson<String>(status),
       'skipNextDateDays': serializer.toJson<int?>(skipNextDateDays),
+      'skipHolidays': serializer.toJson<bool>(skipHolidays),
       'soundId': serializer.toJson<String>(soundId),
       'vibrationEnabled': serializer.toJson<bool>(vibrationEnabled),
       'createdAt': serializer.toJson<DateTime>(createdAt),
@@ -556,6 +591,7 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
     bool? isEnabled,
     String? status,
     Value<int?> skipNextDateDays = const Value.absent(),
+    bool? skipHolidays,
     String? soundId,
     bool? vibrationEnabled,
     DateTime? createdAt,
@@ -576,6 +612,7 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
     skipNextDateDays: skipNextDateDays.present
         ? skipNextDateDays.value
         : this.skipNextDateDays,
+    skipHolidays: skipHolidays ?? this.skipHolidays,
     soundId: soundId ?? this.soundId,
     vibrationEnabled: vibrationEnabled ?? this.vibrationEnabled,
     createdAt: createdAt ?? this.createdAt,
@@ -608,6 +645,9 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
       skipNextDateDays: data.skipNextDateDays.present
           ? data.skipNextDateDays.value
           : this.skipNextDateDays,
+      skipHolidays: data.skipHolidays.present
+          ? data.skipHolidays.value
+          : this.skipHolidays,
       soundId: data.soundId.present ? data.soundId.value : this.soundId,
       vibrationEnabled: data.vibrationEnabled.present
           ? data.vibrationEnabled.value
@@ -631,6 +671,7 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
           ..write('isEnabled: $isEnabled, ')
           ..write('status: $status, ')
           ..write('skipNextDateDays: $skipNextDateDays, ')
+          ..write('skipHolidays: $skipHolidays, ')
           ..write('soundId: $soundId, ')
           ..write('vibrationEnabled: $vibrationEnabled, ')
           ..write('createdAt: $createdAt, ')
@@ -652,6 +693,7 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
     isEnabled,
     status,
     skipNextDateDays,
+    skipHolidays,
     soundId,
     vibrationEnabled,
     createdAt,
@@ -672,6 +714,7 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
           other.isEnabled == this.isEnabled &&
           other.status == this.status &&
           other.skipNextDateDays == this.skipNextDateDays &&
+          other.skipHolidays == this.skipHolidays &&
           other.soundId == this.soundId &&
           other.vibrationEnabled == this.vibrationEnabled &&
           other.createdAt == this.createdAt &&
@@ -690,6 +733,7 @@ class WakePlanRowsCompanion extends UpdateCompanion<WakePlanRow> {
   final Value<bool> isEnabled;
   final Value<String> status;
   final Value<int?> skipNextDateDays;
+  final Value<bool> skipHolidays;
   final Value<String> soundId;
   final Value<bool> vibrationEnabled;
   final Value<DateTime> createdAt;
@@ -707,6 +751,7 @@ class WakePlanRowsCompanion extends UpdateCompanion<WakePlanRow> {
     this.isEnabled = const Value.absent(),
     this.status = const Value.absent(),
     this.skipNextDateDays = const Value.absent(),
+    this.skipHolidays = const Value.absent(),
     this.soundId = const Value.absent(),
     this.vibrationEnabled = const Value.absent(),
     this.createdAt = const Value.absent(),
@@ -725,6 +770,7 @@ class WakePlanRowsCompanion extends UpdateCompanion<WakePlanRow> {
     required bool isEnabled,
     required String status,
     this.skipNextDateDays = const Value.absent(),
+    this.skipHolidays = const Value.absent(),
     required String soundId,
     required bool vibrationEnabled,
     required DateTime createdAt,
@@ -754,6 +800,7 @@ class WakePlanRowsCompanion extends UpdateCompanion<WakePlanRow> {
     Expression<bool>? isEnabled,
     Expression<String>? status,
     Expression<int>? skipNextDateDays,
+    Expression<bool>? skipHolidays,
     Expression<String>? soundId,
     Expression<bool>? vibrationEnabled,
     Expression<DateTime>? createdAt,
@@ -773,6 +820,7 @@ class WakePlanRowsCompanion extends UpdateCompanion<WakePlanRow> {
       if (isEnabled != null) 'is_enabled': isEnabled,
       if (status != null) 'status': status,
       if (skipNextDateDays != null) 'skip_next_date_days': skipNextDateDays,
+      if (skipHolidays != null) 'skip_holidays': skipHolidays,
       if (soundId != null) 'sound_id': soundId,
       if (vibrationEnabled != null) 'vibration_enabled': vibrationEnabled,
       if (createdAt != null) 'created_at': createdAt,
@@ -793,6 +841,7 @@ class WakePlanRowsCompanion extends UpdateCompanion<WakePlanRow> {
     Value<bool>? isEnabled,
     Value<String>? status,
     Value<int?>? skipNextDateDays,
+    Value<bool>? skipHolidays,
     Value<String>? soundId,
     Value<bool>? vibrationEnabled,
     Value<DateTime>? createdAt,
@@ -811,6 +860,7 @@ class WakePlanRowsCompanion extends UpdateCompanion<WakePlanRow> {
       isEnabled: isEnabled ?? this.isEnabled,
       status: status ?? this.status,
       skipNextDateDays: skipNextDateDays ?? this.skipNextDateDays,
+      skipHolidays: skipHolidays ?? this.skipHolidays,
       soundId: soundId ?? this.soundId,
       vibrationEnabled: vibrationEnabled ?? this.vibrationEnabled,
       createdAt: createdAt ?? this.createdAt,
@@ -855,6 +905,9 @@ class WakePlanRowsCompanion extends UpdateCompanion<WakePlanRow> {
     if (skipNextDateDays.present) {
       map['skip_next_date_days'] = Variable<int>(skipNextDateDays.value);
     }
+    if (skipHolidays.present) {
+      map['skip_holidays'] = Variable<bool>(skipHolidays.value);
+    }
     if (soundId.present) {
       map['sound_id'] = Variable<String>(soundId.value);
     }
@@ -887,6 +940,7 @@ class WakePlanRowsCompanion extends UpdateCompanion<WakePlanRow> {
           ..write('isEnabled: $isEnabled, ')
           ..write('status: $status, ')
           ..write('skipNextDateDays: $skipNextDateDays, ')
+          ..write('skipHolidays: $skipHolidays, ')
           ..write('soundId: $soundId, ')
           ..write('vibrationEnabled: $vibrationEnabled, ')
           ..write('createdAt: $createdAt, ')
@@ -1918,6 +1972,17 @@ class $AppSettingsRowsTable extends AppSettingsRows
         type: DriftSqlType.int,
         requiredDuringInsert: false,
       );
+  static const VerificationMeta _holidayRegionMeta = const VerificationMeta(
+    'holidayRegion',
+  );
+  @override
+  late final GeneratedColumn<String> holidayRegion = GeneratedColumn<String>(
+    'holiday_region',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -1927,6 +1992,7 @@ class $AppSettingsRowsTable extends AppSettingsRows
     defaultVibrationEnabled,
     defaultRepeatType,
     defaultTargetTimeMinutes,
+    holidayRegion,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -2007,6 +2073,15 @@ class $AppSettingsRowsTable extends AppSettingsRows
         ),
       );
     }
+    if (data.containsKey('holiday_region')) {
+      context.handle(
+        _holidayRegionMeta,
+        holidayRegion.isAcceptableOrUnknown(
+          data['holiday_region']!,
+          _holidayRegionMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -2044,6 +2119,10 @@ class $AppSettingsRowsTable extends AppSettingsRows
         DriftSqlType.int,
         data['${effectivePrefix}default_target_time_minutes'],
       ),
+      holidayRegion: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}holiday_region'],
+      ),
     );
   }
 
@@ -2061,6 +2140,7 @@ class AppSettingsRow extends DataClass implements Insertable<AppSettingsRow> {
   final bool defaultVibrationEnabled;
   final String defaultRepeatType;
   final int? defaultTargetTimeMinutes;
+  final String? holidayRegion;
   const AppSettingsRow({
     required this.id,
     required this.defaultStartOffsetMinutes,
@@ -2069,6 +2149,7 @@ class AppSettingsRow extends DataClass implements Insertable<AppSettingsRow> {
     required this.defaultVibrationEnabled,
     required this.defaultRepeatType,
     this.defaultTargetTimeMinutes,
+    this.holidayRegion,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -2086,6 +2167,9 @@ class AppSettingsRow extends DataClass implements Insertable<AppSettingsRow> {
         defaultTargetTimeMinutes,
       );
     }
+    if (!nullToAbsent || holidayRegion != null) {
+      map['holiday_region'] = Variable<String>(holidayRegion);
+    }
     return map;
   }
 
@@ -2100,6 +2184,9 @@ class AppSettingsRow extends DataClass implements Insertable<AppSettingsRow> {
       defaultTargetTimeMinutes: defaultTargetTimeMinutes == null && nullToAbsent
           ? const Value.absent()
           : Value(defaultTargetTimeMinutes),
+      holidayRegion: holidayRegion == null && nullToAbsent
+          ? const Value.absent()
+          : Value(holidayRegion),
     );
   }
 
@@ -2124,6 +2211,7 @@ class AppSettingsRow extends DataClass implements Insertable<AppSettingsRow> {
       defaultTargetTimeMinutes: serializer.fromJson<int?>(
         json['defaultTargetTimeMinutes'],
       ),
+      holidayRegion: serializer.fromJson<String?>(json['holidayRegion']),
     );
   }
   @override
@@ -2143,6 +2231,7 @@ class AppSettingsRow extends DataClass implements Insertable<AppSettingsRow> {
       'defaultTargetTimeMinutes': serializer.toJson<int?>(
         defaultTargetTimeMinutes,
       ),
+      'holidayRegion': serializer.toJson<String?>(holidayRegion),
     };
   }
 
@@ -2154,6 +2243,7 @@ class AppSettingsRow extends DataClass implements Insertable<AppSettingsRow> {
     bool? defaultVibrationEnabled,
     String? defaultRepeatType,
     Value<int?> defaultTargetTimeMinutes = const Value.absent(),
+    Value<String?> holidayRegion = const Value.absent(),
   }) => AppSettingsRow(
     id: id ?? this.id,
     defaultStartOffsetMinutes:
@@ -2167,6 +2257,9 @@ class AppSettingsRow extends DataClass implements Insertable<AppSettingsRow> {
     defaultTargetTimeMinutes: defaultTargetTimeMinutes.present
         ? defaultTargetTimeMinutes.value
         : this.defaultTargetTimeMinutes,
+    holidayRegion: holidayRegion.present
+        ? holidayRegion.value
+        : this.holidayRegion,
   );
   AppSettingsRow copyWithCompanion(AppSettingsRowsCompanion data) {
     return AppSettingsRow(
@@ -2189,6 +2282,9 @@ class AppSettingsRow extends DataClass implements Insertable<AppSettingsRow> {
       defaultTargetTimeMinutes: data.defaultTargetTimeMinutes.present
           ? data.defaultTargetTimeMinutes.value
           : this.defaultTargetTimeMinutes,
+      holidayRegion: data.holidayRegion.present
+          ? data.holidayRegion.value
+          : this.holidayRegion,
     );
   }
 
@@ -2201,7 +2297,8 @@ class AppSettingsRow extends DataClass implements Insertable<AppSettingsRow> {
           ..write('defaultSoundId: $defaultSoundId, ')
           ..write('defaultVibrationEnabled: $defaultVibrationEnabled, ')
           ..write('defaultRepeatType: $defaultRepeatType, ')
-          ..write('defaultTargetTimeMinutes: $defaultTargetTimeMinutes')
+          ..write('defaultTargetTimeMinutes: $defaultTargetTimeMinutes, ')
+          ..write('holidayRegion: $holidayRegion')
           ..write(')'))
         .toString();
   }
@@ -2215,6 +2312,7 @@ class AppSettingsRow extends DataClass implements Insertable<AppSettingsRow> {
     defaultVibrationEnabled,
     defaultRepeatType,
     defaultTargetTimeMinutes,
+    holidayRegion,
   );
   @override
   bool operator ==(Object other) =>
@@ -2226,7 +2324,8 @@ class AppSettingsRow extends DataClass implements Insertable<AppSettingsRow> {
           other.defaultSoundId == this.defaultSoundId &&
           other.defaultVibrationEnabled == this.defaultVibrationEnabled &&
           other.defaultRepeatType == this.defaultRepeatType &&
-          other.defaultTargetTimeMinutes == this.defaultTargetTimeMinutes);
+          other.defaultTargetTimeMinutes == this.defaultTargetTimeMinutes &&
+          other.holidayRegion == this.holidayRegion);
 }
 
 class AppSettingsRowsCompanion extends UpdateCompanion<AppSettingsRow> {
@@ -2237,6 +2336,7 @@ class AppSettingsRowsCompanion extends UpdateCompanion<AppSettingsRow> {
   final Value<bool> defaultVibrationEnabled;
   final Value<String> defaultRepeatType;
   final Value<int?> defaultTargetTimeMinutes;
+  final Value<String?> holidayRegion;
   const AppSettingsRowsCompanion({
     this.id = const Value.absent(),
     this.defaultStartOffsetMinutes = const Value.absent(),
@@ -2245,6 +2345,7 @@ class AppSettingsRowsCompanion extends UpdateCompanion<AppSettingsRow> {
     this.defaultVibrationEnabled = const Value.absent(),
     this.defaultRepeatType = const Value.absent(),
     this.defaultTargetTimeMinutes = const Value.absent(),
+    this.holidayRegion = const Value.absent(),
   });
   AppSettingsRowsCompanion.insert({
     this.id = const Value.absent(),
@@ -2254,6 +2355,7 @@ class AppSettingsRowsCompanion extends UpdateCompanion<AppSettingsRow> {
     required bool defaultVibrationEnabled,
     required String defaultRepeatType,
     this.defaultTargetTimeMinutes = const Value.absent(),
+    this.holidayRegion = const Value.absent(),
   }) : defaultStartOffsetMinutes = Value(defaultStartOffsetMinutes),
        defaultIntervalMinutes = Value(defaultIntervalMinutes),
        defaultSoundId = Value(defaultSoundId),
@@ -2267,6 +2369,7 @@ class AppSettingsRowsCompanion extends UpdateCompanion<AppSettingsRow> {
     Expression<bool>? defaultVibrationEnabled,
     Expression<String>? defaultRepeatType,
     Expression<int>? defaultTargetTimeMinutes,
+    Expression<String>? holidayRegion,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -2280,6 +2383,7 @@ class AppSettingsRowsCompanion extends UpdateCompanion<AppSettingsRow> {
       if (defaultRepeatType != null) 'default_repeat_type': defaultRepeatType,
       if (defaultTargetTimeMinutes != null)
         'default_target_time_minutes': defaultTargetTimeMinutes,
+      if (holidayRegion != null) 'holiday_region': holidayRegion,
     });
   }
 
@@ -2291,6 +2395,7 @@ class AppSettingsRowsCompanion extends UpdateCompanion<AppSettingsRow> {
     Value<bool>? defaultVibrationEnabled,
     Value<String>? defaultRepeatType,
     Value<int?>? defaultTargetTimeMinutes,
+    Value<String?>? holidayRegion,
   }) {
     return AppSettingsRowsCompanion(
       id: id ?? this.id,
@@ -2304,6 +2409,7 @@ class AppSettingsRowsCompanion extends UpdateCompanion<AppSettingsRow> {
       defaultRepeatType: defaultRepeatType ?? this.defaultRepeatType,
       defaultTargetTimeMinutes:
           defaultTargetTimeMinutes ?? this.defaultTargetTimeMinutes,
+      holidayRegion: holidayRegion ?? this.holidayRegion,
     );
   }
 
@@ -2339,6 +2445,9 @@ class AppSettingsRowsCompanion extends UpdateCompanion<AppSettingsRow> {
         defaultTargetTimeMinutes.value,
       );
     }
+    if (holidayRegion.present) {
+      map['holiday_region'] = Variable<String>(holidayRegion.value);
+    }
     return map;
   }
 
@@ -2351,7 +2460,615 @@ class AppSettingsRowsCompanion extends UpdateCompanion<AppSettingsRow> {
           ..write('defaultSoundId: $defaultSoundId, ')
           ..write('defaultVibrationEnabled: $defaultVibrationEnabled, ')
           ..write('defaultRepeatType: $defaultRepeatType, ')
-          ..write('defaultTargetTimeMinutes: $defaultTargetTimeMinutes')
+          ..write('defaultTargetTimeMinutes: $defaultTargetTimeMinutes, ')
+          ..write('holidayRegion: $holidayRegion')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $HolidayCacheRowsTable extends HolidayCacheRows
+    with TableInfo<$HolidayCacheRowsTable, HolidayCacheRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $HolidayCacheRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _regionMeta = const VerificationMeta('region');
+  @override
+  late final GeneratedColumn<String> region = GeneratedColumn<String>(
+    'region',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _dateDaysMeta = const VerificationMeta(
+    'dateDays',
+  );
+  @override
+  late final GeneratedColumn<int> dateDays = GeneratedColumn<int>(
+    'date_days',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [region, dateDays, name];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'holiday_cache_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<HolidayCacheRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('region')) {
+      context.handle(
+        _regionMeta,
+        region.isAcceptableOrUnknown(data['region']!, _regionMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_regionMeta);
+    }
+    if (data.containsKey('date_days')) {
+      context.handle(
+        _dateDaysMeta,
+        dateDays.isAcceptableOrUnknown(data['date_days']!, _dateDaysMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_dateDaysMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {region, dateDays};
+  @override
+  HolidayCacheRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return HolidayCacheRow(
+      region: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}region'],
+      )!,
+      dateDays: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}date_days'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+    );
+  }
+
+  @override
+  $HolidayCacheRowsTable createAlias(String alias) {
+    return $HolidayCacheRowsTable(attachedDatabase, alias);
+  }
+}
+
+class HolidayCacheRow extends DataClass implements Insertable<HolidayCacheRow> {
+  final String region;
+  final int dateDays;
+  final String name;
+  const HolidayCacheRow({
+    required this.region,
+    required this.dateDays,
+    required this.name,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['region'] = Variable<String>(region);
+    map['date_days'] = Variable<int>(dateDays);
+    map['name'] = Variable<String>(name);
+    return map;
+  }
+
+  HolidayCacheRowsCompanion toCompanion(bool nullToAbsent) {
+    return HolidayCacheRowsCompanion(
+      region: Value(region),
+      dateDays: Value(dateDays),
+      name: Value(name),
+    );
+  }
+
+  factory HolidayCacheRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return HolidayCacheRow(
+      region: serializer.fromJson<String>(json['region']),
+      dateDays: serializer.fromJson<int>(json['dateDays']),
+      name: serializer.fromJson<String>(json['name']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'region': serializer.toJson<String>(region),
+      'dateDays': serializer.toJson<int>(dateDays),
+      'name': serializer.toJson<String>(name),
+    };
+  }
+
+  HolidayCacheRow copyWith({String? region, int? dateDays, String? name}) =>
+      HolidayCacheRow(
+        region: region ?? this.region,
+        dateDays: dateDays ?? this.dateDays,
+        name: name ?? this.name,
+      );
+  HolidayCacheRow copyWithCompanion(HolidayCacheRowsCompanion data) {
+    return HolidayCacheRow(
+      region: data.region.present ? data.region.value : this.region,
+      dateDays: data.dateDays.present ? data.dateDays.value : this.dateDays,
+      name: data.name.present ? data.name.value : this.name,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('HolidayCacheRow(')
+          ..write('region: $region, ')
+          ..write('dateDays: $dateDays, ')
+          ..write('name: $name')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(region, dateDays, name);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is HolidayCacheRow &&
+          other.region == this.region &&
+          other.dateDays == this.dateDays &&
+          other.name == this.name);
+}
+
+class HolidayCacheRowsCompanion extends UpdateCompanion<HolidayCacheRow> {
+  final Value<String> region;
+  final Value<int> dateDays;
+  final Value<String> name;
+  final Value<int> rowid;
+  const HolidayCacheRowsCompanion({
+    this.region = const Value.absent(),
+    this.dateDays = const Value.absent(),
+    this.name = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  HolidayCacheRowsCompanion.insert({
+    required String region,
+    required int dateDays,
+    required String name,
+    this.rowid = const Value.absent(),
+  }) : region = Value(region),
+       dateDays = Value(dateDays),
+       name = Value(name);
+  static Insertable<HolidayCacheRow> custom({
+    Expression<String>? region,
+    Expression<int>? dateDays,
+    Expression<String>? name,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (region != null) 'region': region,
+      if (dateDays != null) 'date_days': dateDays,
+      if (name != null) 'name': name,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  HolidayCacheRowsCompanion copyWith({
+    Value<String>? region,
+    Value<int>? dateDays,
+    Value<String>? name,
+    Value<int>? rowid,
+  }) {
+    return HolidayCacheRowsCompanion(
+      region: region ?? this.region,
+      dateDays: dateDays ?? this.dateDays,
+      name: name ?? this.name,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (region.present) {
+      map['region'] = Variable<String>(region.value);
+    }
+    if (dateDays.present) {
+      map['date_days'] = Variable<int>(dateDays.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('HolidayCacheRowsCompanion(')
+          ..write('region: $region, ')
+          ..write('dateDays: $dateDays, ')
+          ..write('name: $name, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $HolidayFetchMetadataRowsTable extends HolidayFetchMetadataRows
+    with TableInfo<$HolidayFetchMetadataRowsTable, HolidayFetchMetadataRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $HolidayFetchMetadataRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _regionMeta = const VerificationMeta('region');
+  @override
+  late final GeneratedColumn<String> region = GeneratedColumn<String>(
+    'region',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _lastFetchedAtMeta = const VerificationMeta(
+    'lastFetchedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> lastFetchedAt =
+      GeneratedColumn<DateTime>(
+        'last_fetched_at',
+        aliasedName,
+        true,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _lastSuccessAtMeta = const VerificationMeta(
+    'lastSuccessAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> lastSuccessAt =
+      GeneratedColumn<DateTime>(
+        'last_success_at',
+        aliasedName,
+        true,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _lastErrorMeta = const VerificationMeta(
+    'lastError',
+  );
+  @override
+  late final GeneratedColumn<String> lastError = GeneratedColumn<String>(
+    'last_error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    region,
+    lastFetchedAt,
+    lastSuccessAt,
+    lastError,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'holiday_fetch_metadata_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<HolidayFetchMetadataRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('region')) {
+      context.handle(
+        _regionMeta,
+        region.isAcceptableOrUnknown(data['region']!, _regionMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_regionMeta);
+    }
+    if (data.containsKey('last_fetched_at')) {
+      context.handle(
+        _lastFetchedAtMeta,
+        lastFetchedAt.isAcceptableOrUnknown(
+          data['last_fetched_at']!,
+          _lastFetchedAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('last_success_at')) {
+      context.handle(
+        _lastSuccessAtMeta,
+        lastSuccessAt.isAcceptableOrUnknown(
+          data['last_success_at']!,
+          _lastSuccessAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('last_error')) {
+      context.handle(
+        _lastErrorMeta,
+        lastError.isAcceptableOrUnknown(data['last_error']!, _lastErrorMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {region};
+  @override
+  HolidayFetchMetadataRow map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return HolidayFetchMetadataRow(
+      region: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}region'],
+      )!,
+      lastFetchedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}last_fetched_at'],
+      ),
+      lastSuccessAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}last_success_at'],
+      ),
+      lastError: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_error'],
+      ),
+    );
+  }
+
+  @override
+  $HolidayFetchMetadataRowsTable createAlias(String alias) {
+    return $HolidayFetchMetadataRowsTable(attachedDatabase, alias);
+  }
+}
+
+class HolidayFetchMetadataRow extends DataClass
+    implements Insertable<HolidayFetchMetadataRow> {
+  final String region;
+  final DateTime? lastFetchedAt;
+  final DateTime? lastSuccessAt;
+  final String? lastError;
+  const HolidayFetchMetadataRow({
+    required this.region,
+    this.lastFetchedAt,
+    this.lastSuccessAt,
+    this.lastError,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['region'] = Variable<String>(region);
+    if (!nullToAbsent || lastFetchedAt != null) {
+      map['last_fetched_at'] = Variable<DateTime>(lastFetchedAt);
+    }
+    if (!nullToAbsent || lastSuccessAt != null) {
+      map['last_success_at'] = Variable<DateTime>(lastSuccessAt);
+    }
+    if (!nullToAbsent || lastError != null) {
+      map['last_error'] = Variable<String>(lastError);
+    }
+    return map;
+  }
+
+  HolidayFetchMetadataRowsCompanion toCompanion(bool nullToAbsent) {
+    return HolidayFetchMetadataRowsCompanion(
+      region: Value(region),
+      lastFetchedAt: lastFetchedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastFetchedAt),
+      lastSuccessAt: lastSuccessAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastSuccessAt),
+      lastError: lastError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastError),
+    );
+  }
+
+  factory HolidayFetchMetadataRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return HolidayFetchMetadataRow(
+      region: serializer.fromJson<String>(json['region']),
+      lastFetchedAt: serializer.fromJson<DateTime?>(json['lastFetchedAt']),
+      lastSuccessAt: serializer.fromJson<DateTime?>(json['lastSuccessAt']),
+      lastError: serializer.fromJson<String?>(json['lastError']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'region': serializer.toJson<String>(region),
+      'lastFetchedAt': serializer.toJson<DateTime?>(lastFetchedAt),
+      'lastSuccessAt': serializer.toJson<DateTime?>(lastSuccessAt),
+      'lastError': serializer.toJson<String?>(lastError),
+    };
+  }
+
+  HolidayFetchMetadataRow copyWith({
+    String? region,
+    Value<DateTime?> lastFetchedAt = const Value.absent(),
+    Value<DateTime?> lastSuccessAt = const Value.absent(),
+    Value<String?> lastError = const Value.absent(),
+  }) => HolidayFetchMetadataRow(
+    region: region ?? this.region,
+    lastFetchedAt: lastFetchedAt.present
+        ? lastFetchedAt.value
+        : this.lastFetchedAt,
+    lastSuccessAt: lastSuccessAt.present
+        ? lastSuccessAt.value
+        : this.lastSuccessAt,
+    lastError: lastError.present ? lastError.value : this.lastError,
+  );
+  HolidayFetchMetadataRow copyWithCompanion(
+    HolidayFetchMetadataRowsCompanion data,
+  ) {
+    return HolidayFetchMetadataRow(
+      region: data.region.present ? data.region.value : this.region,
+      lastFetchedAt: data.lastFetchedAt.present
+          ? data.lastFetchedAt.value
+          : this.lastFetchedAt,
+      lastSuccessAt: data.lastSuccessAt.present
+          ? data.lastSuccessAt.value
+          : this.lastSuccessAt,
+      lastError: data.lastError.present ? data.lastError.value : this.lastError,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('HolidayFetchMetadataRow(')
+          ..write('region: $region, ')
+          ..write('lastFetchedAt: $lastFetchedAt, ')
+          ..write('lastSuccessAt: $lastSuccessAt, ')
+          ..write('lastError: $lastError')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(region, lastFetchedAt, lastSuccessAt, lastError);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is HolidayFetchMetadataRow &&
+          other.region == this.region &&
+          other.lastFetchedAt == this.lastFetchedAt &&
+          other.lastSuccessAt == this.lastSuccessAt &&
+          other.lastError == this.lastError);
+}
+
+class HolidayFetchMetadataRowsCompanion
+    extends UpdateCompanion<HolidayFetchMetadataRow> {
+  final Value<String> region;
+  final Value<DateTime?> lastFetchedAt;
+  final Value<DateTime?> lastSuccessAt;
+  final Value<String?> lastError;
+  final Value<int> rowid;
+  const HolidayFetchMetadataRowsCompanion({
+    this.region = const Value.absent(),
+    this.lastFetchedAt = const Value.absent(),
+    this.lastSuccessAt = const Value.absent(),
+    this.lastError = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  HolidayFetchMetadataRowsCompanion.insert({
+    required String region,
+    this.lastFetchedAt = const Value.absent(),
+    this.lastSuccessAt = const Value.absent(),
+    this.lastError = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : region = Value(region);
+  static Insertable<HolidayFetchMetadataRow> custom({
+    Expression<String>? region,
+    Expression<DateTime>? lastFetchedAt,
+    Expression<DateTime>? lastSuccessAt,
+    Expression<String>? lastError,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (region != null) 'region': region,
+      if (lastFetchedAt != null) 'last_fetched_at': lastFetchedAt,
+      if (lastSuccessAt != null) 'last_success_at': lastSuccessAt,
+      if (lastError != null) 'last_error': lastError,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  HolidayFetchMetadataRowsCompanion copyWith({
+    Value<String>? region,
+    Value<DateTime?>? lastFetchedAt,
+    Value<DateTime?>? lastSuccessAt,
+    Value<String?>? lastError,
+    Value<int>? rowid,
+  }) {
+    return HolidayFetchMetadataRowsCompanion(
+      region: region ?? this.region,
+      lastFetchedAt: lastFetchedAt ?? this.lastFetchedAt,
+      lastSuccessAt: lastSuccessAt ?? this.lastSuccessAt,
+      lastError: lastError ?? this.lastError,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (region.present) {
+      map['region'] = Variable<String>(region.value);
+    }
+    if (lastFetchedAt.present) {
+      map['last_fetched_at'] = Variable<DateTime>(lastFetchedAt.value);
+    }
+    if (lastSuccessAt.present) {
+      map['last_success_at'] = Variable<DateTime>(lastSuccessAt.value);
+    }
+    if (lastError.present) {
+      map['last_error'] = Variable<String>(lastError.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('HolidayFetchMetadataRowsCompanion(')
+          ..write('region: $region, ')
+          ..write('lastFetchedAt: $lastFetchedAt, ')
+          ..write('lastSuccessAt: $lastSuccessAt, ')
+          ..write('lastError: $lastError, ')
+          ..write('rowid: $rowid')
           ..write(')'))
         .toString();
   }
@@ -2366,6 +3083,11 @@ abstract class _$WakePlanDatabase extends GeneratedDatabase {
   late final $AppSettingsRowsTable appSettingsRows = $AppSettingsRowsTable(
     this,
   );
+  late final $HolidayCacheRowsTable holidayCacheRows = $HolidayCacheRowsTable(
+    this,
+  );
+  late final $HolidayFetchMetadataRowsTable holidayFetchMetadataRows =
+      $HolidayFetchMetadataRowsTable(this);
   late final Index alarmOccurrenceWakePlanId = Index(
     'alarm_occurrence_wake_plan_id',
     'CREATE INDEX alarm_occurrence_wake_plan_id ON alarm_occurrence_rows (wake_plan_id)',
@@ -2378,6 +3100,8 @@ abstract class _$WakePlanDatabase extends GeneratedDatabase {
     wakePlanRows,
     alarmOccurrenceRows,
     appSettingsRows,
+    holidayCacheRows,
+    holidayFetchMetadataRows,
     alarmOccurrenceWakePlanId,
   ];
 }
@@ -2395,6 +3119,7 @@ typedef $$WakePlanRowsTableCreateCompanionBuilder =
       required bool isEnabled,
       required String status,
       Value<int?> skipNextDateDays,
+      Value<bool> skipHolidays,
       required String soundId,
       required bool vibrationEnabled,
       required DateTime createdAt,
@@ -2414,6 +3139,7 @@ typedef $$WakePlanRowsTableUpdateCompanionBuilder =
       Value<bool> isEnabled,
       Value<String> status,
       Value<int?> skipNextDateDays,
+      Value<bool> skipHolidays,
       Value<String> soundId,
       Value<bool> vibrationEnabled,
       Value<DateTime> createdAt,
@@ -2515,6 +3241,11 @@ class $$WakePlanRowsTableFilterComposer
 
   ColumnFilters<int> get skipNextDateDays => $composableBuilder(
     column: $table.skipNextDateDays,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get skipHolidays => $composableBuilder(
+    column: $table.skipHolidays,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -2628,6 +3359,11 @@ class $$WakePlanRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get skipHolidays => $composableBuilder(
+    column: $table.skipHolidays,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get soundId => $composableBuilder(
     column: $table.soundId,
     builder: (column) => ColumnOrderings(column),
@@ -2702,6 +3438,11 @@ class $$WakePlanRowsTableAnnotationComposer
 
   GeneratedColumn<int> get skipNextDateDays => $composableBuilder(
     column: $table.skipNextDateDays,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get skipHolidays => $composableBuilder(
+    column: $table.skipHolidays,
     builder: (column) => column,
   );
 
@@ -2787,6 +3528,7 @@ class $$WakePlanRowsTableTableManager
                 Value<bool> isEnabled = const Value.absent(),
                 Value<String> status = const Value.absent(),
                 Value<int?> skipNextDateDays = const Value.absent(),
+                Value<bool> skipHolidays = const Value.absent(),
                 Value<String> soundId = const Value.absent(),
                 Value<bool> vibrationEnabled = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
@@ -2804,6 +3546,7 @@ class $$WakePlanRowsTableTableManager
                 isEnabled: isEnabled,
                 status: status,
                 skipNextDateDays: skipNextDateDays,
+                skipHolidays: skipHolidays,
                 soundId: soundId,
                 vibrationEnabled: vibrationEnabled,
                 createdAt: createdAt,
@@ -2823,6 +3566,7 @@ class $$WakePlanRowsTableTableManager
                 required bool isEnabled,
                 required String status,
                 Value<int?> skipNextDateDays = const Value.absent(),
+                Value<bool> skipHolidays = const Value.absent(),
                 required String soundId,
                 required bool vibrationEnabled,
                 required DateTime createdAt,
@@ -2840,6 +3584,7 @@ class $$WakePlanRowsTableTableManager
                 isEnabled: isEnabled,
                 status: status,
                 skipNextDateDays: skipNextDateDays,
+                skipHolidays: skipHolidays,
                 soundId: soundId,
                 vibrationEnabled: vibrationEnabled,
                 createdAt: createdAt,
@@ -3027,6 +3772,7 @@ class $$AlarmOccurrenceRowsTableFilterComposer
     column: $table.failureReason,
     builder: (column) => ColumnFilters(column),
   );
+
   ColumnFilters<String> get reservationId => $composableBuilder(
     column: $table.reservationId,
     builder: (column) => ColumnFilters(column),
@@ -3129,6 +3875,7 @@ class $$AlarmOccurrenceRowsTableOrderingComposer
     column: $table.failureReason,
     builder: (column) => ColumnOrderings(column),
   );
+
   ColumnOrderings<String> get reservationId => $composableBuilder(
     column: $table.reservationId,
     builder: (column) => ColumnOrderings(column),
@@ -3225,6 +3972,7 @@ class $$AlarmOccurrenceRowsTableAnnotationComposer
     column: $table.failureReason,
     builder: (column) => column,
   );
+
   GeneratedColumn<String> get reservationId => $composableBuilder(
     column: $table.reservationId,
     builder: (column) => column,
@@ -3459,6 +4207,7 @@ typedef $$AppSettingsRowsTableCreateCompanionBuilder =
       required bool defaultVibrationEnabled,
       required String defaultRepeatType,
       Value<int?> defaultTargetTimeMinutes,
+      Value<String?> holidayRegion,
     });
 typedef $$AppSettingsRowsTableUpdateCompanionBuilder =
     AppSettingsRowsCompanion Function({
@@ -3469,6 +4218,7 @@ typedef $$AppSettingsRowsTableUpdateCompanionBuilder =
       Value<bool> defaultVibrationEnabled,
       Value<String> defaultRepeatType,
       Value<int?> defaultTargetTimeMinutes,
+      Value<String?> holidayRegion,
     });
 
 class $$AppSettingsRowsTableFilterComposer
@@ -3512,6 +4262,11 @@ class $$AppSettingsRowsTableFilterComposer
 
   ColumnFilters<int> get defaultTargetTimeMinutes => $composableBuilder(
     column: $table.defaultTargetTimeMinutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get holidayRegion => $composableBuilder(
+    column: $table.holidayRegion,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -3559,6 +4314,11 @@ class $$AppSettingsRowsTableOrderingComposer
     column: $table.defaultTargetTimeMinutes,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get holidayRegion => $composableBuilder(
+    column: $table.holidayRegion,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$AppSettingsRowsTableAnnotationComposer
@@ -3600,6 +4360,11 @@ class $$AppSettingsRowsTableAnnotationComposer
 
   GeneratedColumn<int> get defaultTargetTimeMinutes => $composableBuilder(
     column: $table.defaultTargetTimeMinutes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get holidayRegion => $composableBuilder(
+    column: $table.holidayRegion,
     builder: (column) => column,
   );
 }
@@ -3648,6 +4413,7 @@ class $$AppSettingsRowsTableTableManager
                 Value<bool> defaultVibrationEnabled = const Value.absent(),
                 Value<String> defaultRepeatType = const Value.absent(),
                 Value<int?> defaultTargetTimeMinutes = const Value.absent(),
+                Value<String?> holidayRegion = const Value.absent(),
               }) => AppSettingsRowsCompanion(
                 id: id,
                 defaultStartOffsetMinutes: defaultStartOffsetMinutes,
@@ -3656,6 +4422,7 @@ class $$AppSettingsRowsTableTableManager
                 defaultVibrationEnabled: defaultVibrationEnabled,
                 defaultRepeatType: defaultRepeatType,
                 defaultTargetTimeMinutes: defaultTargetTimeMinutes,
+                holidayRegion: holidayRegion,
               ),
           createCompanionCallback:
               ({
@@ -3666,6 +4433,7 @@ class $$AppSettingsRowsTableTableManager
                 required bool defaultVibrationEnabled,
                 required String defaultRepeatType,
                 Value<int?> defaultTargetTimeMinutes = const Value.absent(),
+                Value<String?> holidayRegion = const Value.absent(),
               }) => AppSettingsRowsCompanion.insert(
                 id: id,
                 defaultStartOffsetMinutes: defaultStartOffsetMinutes,
@@ -3674,6 +4442,7 @@ class $$AppSettingsRowsTableTableManager
                 defaultVibrationEnabled: defaultVibrationEnabled,
                 defaultRepeatType: defaultRepeatType,
                 defaultTargetTimeMinutes: defaultTargetTimeMinutes,
+                holidayRegion: holidayRegion,
               ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
@@ -3704,6 +4473,382 @@ typedef $$AppSettingsRowsTableProcessedTableManager =
       AppSettingsRow,
       PrefetchHooks Function()
     >;
+typedef $$HolidayCacheRowsTableCreateCompanionBuilder =
+    HolidayCacheRowsCompanion Function({
+      required String region,
+      required int dateDays,
+      required String name,
+      Value<int> rowid,
+    });
+typedef $$HolidayCacheRowsTableUpdateCompanionBuilder =
+    HolidayCacheRowsCompanion Function({
+      Value<String> region,
+      Value<int> dateDays,
+      Value<String> name,
+      Value<int> rowid,
+    });
+
+class $$HolidayCacheRowsTableFilterComposer
+    extends Composer<_$WakePlanDatabase, $HolidayCacheRowsTable> {
+  $$HolidayCacheRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get region => $composableBuilder(
+    column: $table.region,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get dateDays => $composableBuilder(
+    column: $table.dateDays,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$HolidayCacheRowsTableOrderingComposer
+    extends Composer<_$WakePlanDatabase, $HolidayCacheRowsTable> {
+  $$HolidayCacheRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get region => $composableBuilder(
+    column: $table.region,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get dateDays => $composableBuilder(
+    column: $table.dateDays,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$HolidayCacheRowsTableAnnotationComposer
+    extends Composer<_$WakePlanDatabase, $HolidayCacheRowsTable> {
+  $$HolidayCacheRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get region =>
+      $composableBuilder(column: $table.region, builder: (column) => column);
+
+  GeneratedColumn<int> get dateDays =>
+      $composableBuilder(column: $table.dateDays, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+}
+
+class $$HolidayCacheRowsTableTableManager
+    extends
+        RootTableManager<
+          _$WakePlanDatabase,
+          $HolidayCacheRowsTable,
+          HolidayCacheRow,
+          $$HolidayCacheRowsTableFilterComposer,
+          $$HolidayCacheRowsTableOrderingComposer,
+          $$HolidayCacheRowsTableAnnotationComposer,
+          $$HolidayCacheRowsTableCreateCompanionBuilder,
+          $$HolidayCacheRowsTableUpdateCompanionBuilder,
+          (
+            HolidayCacheRow,
+            BaseReferences<
+              _$WakePlanDatabase,
+              $HolidayCacheRowsTable,
+              HolidayCacheRow
+            >,
+          ),
+          HolidayCacheRow,
+          PrefetchHooks Function()
+        > {
+  $$HolidayCacheRowsTableTableManager(
+    _$WakePlanDatabase db,
+    $HolidayCacheRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$HolidayCacheRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$HolidayCacheRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$HolidayCacheRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> region = const Value.absent(),
+                Value<int> dateDays = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => HolidayCacheRowsCompanion(
+                region: region,
+                dateDays: dateDays,
+                name: name,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String region,
+                required int dateDays,
+                required String name,
+                Value<int> rowid = const Value.absent(),
+              }) => HolidayCacheRowsCompanion.insert(
+                region: region,
+                dateDays: dateDays,
+                name: name,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$HolidayCacheRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$WakePlanDatabase,
+      $HolidayCacheRowsTable,
+      HolidayCacheRow,
+      $$HolidayCacheRowsTableFilterComposer,
+      $$HolidayCacheRowsTableOrderingComposer,
+      $$HolidayCacheRowsTableAnnotationComposer,
+      $$HolidayCacheRowsTableCreateCompanionBuilder,
+      $$HolidayCacheRowsTableUpdateCompanionBuilder,
+      (
+        HolidayCacheRow,
+        BaseReferences<
+          _$WakePlanDatabase,
+          $HolidayCacheRowsTable,
+          HolidayCacheRow
+        >,
+      ),
+      HolidayCacheRow,
+      PrefetchHooks Function()
+    >;
+typedef $$HolidayFetchMetadataRowsTableCreateCompanionBuilder =
+    HolidayFetchMetadataRowsCompanion Function({
+      required String region,
+      Value<DateTime?> lastFetchedAt,
+      Value<DateTime?> lastSuccessAt,
+      Value<String?> lastError,
+      Value<int> rowid,
+    });
+typedef $$HolidayFetchMetadataRowsTableUpdateCompanionBuilder =
+    HolidayFetchMetadataRowsCompanion Function({
+      Value<String> region,
+      Value<DateTime?> lastFetchedAt,
+      Value<DateTime?> lastSuccessAt,
+      Value<String?> lastError,
+      Value<int> rowid,
+    });
+
+class $$HolidayFetchMetadataRowsTableFilterComposer
+    extends Composer<_$WakePlanDatabase, $HolidayFetchMetadataRowsTable> {
+  $$HolidayFetchMetadataRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get region => $composableBuilder(
+    column: $table.region,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get lastFetchedAt => $composableBuilder(
+    column: $table.lastFetchedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get lastSuccessAt => $composableBuilder(
+    column: $table.lastSuccessAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$HolidayFetchMetadataRowsTableOrderingComposer
+    extends Composer<_$WakePlanDatabase, $HolidayFetchMetadataRowsTable> {
+  $$HolidayFetchMetadataRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get region => $composableBuilder(
+    column: $table.region,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get lastFetchedAt => $composableBuilder(
+    column: $table.lastFetchedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get lastSuccessAt => $composableBuilder(
+    column: $table.lastSuccessAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$HolidayFetchMetadataRowsTableAnnotationComposer
+    extends Composer<_$WakePlanDatabase, $HolidayFetchMetadataRowsTable> {
+  $$HolidayFetchMetadataRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get region =>
+      $composableBuilder(column: $table.region, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get lastFetchedAt => $composableBuilder(
+    column: $table.lastFetchedAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get lastSuccessAt => $composableBuilder(
+    column: $table.lastSuccessAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get lastError =>
+      $composableBuilder(column: $table.lastError, builder: (column) => column);
+}
+
+class $$HolidayFetchMetadataRowsTableTableManager
+    extends
+        RootTableManager<
+          _$WakePlanDatabase,
+          $HolidayFetchMetadataRowsTable,
+          HolidayFetchMetadataRow,
+          $$HolidayFetchMetadataRowsTableFilterComposer,
+          $$HolidayFetchMetadataRowsTableOrderingComposer,
+          $$HolidayFetchMetadataRowsTableAnnotationComposer,
+          $$HolidayFetchMetadataRowsTableCreateCompanionBuilder,
+          $$HolidayFetchMetadataRowsTableUpdateCompanionBuilder,
+          (
+            HolidayFetchMetadataRow,
+            BaseReferences<
+              _$WakePlanDatabase,
+              $HolidayFetchMetadataRowsTable,
+              HolidayFetchMetadataRow
+            >,
+          ),
+          HolidayFetchMetadataRow,
+          PrefetchHooks Function()
+        > {
+  $$HolidayFetchMetadataRowsTableTableManager(
+    _$WakePlanDatabase db,
+    $HolidayFetchMetadataRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$HolidayFetchMetadataRowsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$HolidayFetchMetadataRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$HolidayFetchMetadataRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> region = const Value.absent(),
+                Value<DateTime?> lastFetchedAt = const Value.absent(),
+                Value<DateTime?> lastSuccessAt = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => HolidayFetchMetadataRowsCompanion(
+                region: region,
+                lastFetchedAt: lastFetchedAt,
+                lastSuccessAt: lastSuccessAt,
+                lastError: lastError,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String region,
+                Value<DateTime?> lastFetchedAt = const Value.absent(),
+                Value<DateTime?> lastSuccessAt = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => HolidayFetchMetadataRowsCompanion.insert(
+                region: region,
+                lastFetchedAt: lastFetchedAt,
+                lastSuccessAt: lastSuccessAt,
+                lastError: lastError,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$HolidayFetchMetadataRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$WakePlanDatabase,
+      $HolidayFetchMetadataRowsTable,
+      HolidayFetchMetadataRow,
+      $$HolidayFetchMetadataRowsTableFilterComposer,
+      $$HolidayFetchMetadataRowsTableOrderingComposer,
+      $$HolidayFetchMetadataRowsTableAnnotationComposer,
+      $$HolidayFetchMetadataRowsTableCreateCompanionBuilder,
+      $$HolidayFetchMetadataRowsTableUpdateCompanionBuilder,
+      (
+        HolidayFetchMetadataRow,
+        BaseReferences<
+          _$WakePlanDatabase,
+          $HolidayFetchMetadataRowsTable,
+          HolidayFetchMetadataRow
+        >,
+      ),
+      HolidayFetchMetadataRow,
+      PrefetchHooks Function()
+    >;
 
 class $WakePlanDatabaseManager {
   final _$WakePlanDatabase _db;
@@ -3714,4 +4859,11 @@ class $WakePlanDatabaseManager {
       $$AlarmOccurrenceRowsTableTableManager(_db, _db.alarmOccurrenceRows);
   $$AppSettingsRowsTableTableManager get appSettingsRows =>
       $$AppSettingsRowsTableTableManager(_db, _db.appSettingsRows);
+  $$HolidayCacheRowsTableTableManager get holidayCacheRows =>
+      $$HolidayCacheRowsTableTableManager(_db, _db.holidayCacheRows);
+  $$HolidayFetchMetadataRowsTableTableManager get holidayFetchMetadataRows =>
+      $$HolidayFetchMetadataRowsTableTableManager(
+        _db,
+        _db.holidayFetchMetadataRows,
+      );
 }

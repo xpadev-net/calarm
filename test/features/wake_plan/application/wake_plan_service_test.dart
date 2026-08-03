@@ -8365,6 +8365,7 @@ class _EmptyOccurrencePlanner extends OccurrencePlanner {
     required CalendarDay startDay,
     required CalendarDay endExclusive,
     required DateTime now,
+    Set<CalendarDay> holidays = const {},
   }) {
     return OccurrencePlan(
       wakeInstances: const [],

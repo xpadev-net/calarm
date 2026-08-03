@@ -619,7 +619,7 @@ Future<void> _dragUntilVisible(
   Rect viewport,
   String label,
 ) async {
-  for (var attempt = 0; attempt < 20; attempt++) {
+  for (var attempt = 0; attempt < 30; attempt++) {
     final rect = tester.getRect(target);
     if (rect.top >= viewport.top && rect.bottom <= viewport.bottom) {
       return;

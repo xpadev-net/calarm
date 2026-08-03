@@ -739,6 +739,7 @@ class WakePlanRepository {
       isEnabled: plan.isEnabled,
       status: plan.status.name,
       skipNextDateDays: Value(plan.skipNextDate?.daysSinceUnixEpoch),
+      skipHolidays: Value(plan.skipHolidays),
       soundId: plan.soundId,
       vibrationEnabled: plan.vibrationEnabled,
       createdAt: plan.createdAt,
@@ -759,6 +760,7 @@ class WakePlanRepository {
       isEnabled: row.isEnabled,
       status: WakePlanStatus.values.byName(row.status),
       skipNextDate: _calendarDayFromEpochDays(row.skipNextDateDays),
+      skipHolidays: row.skipHolidays,
       soundId: row.soundId,
       vibrationEnabled: row.vibrationEnabled,
       createdAt: row.createdAt,
@@ -881,6 +883,7 @@ class WakePlanRepository {
       defaultTargetTimeMinutes: Value(
         settings.defaultTargetTime?.minutesSinceMidnight,
       ),
+      holidayRegion: Value(settings.holidayRegion?.code),
     );
   }
 
@@ -896,6 +899,7 @@ class WakePlanRepository {
           : TimeOfDayMinutes.fromMinutesSinceMidnight(
               row.defaultTargetTimeMinutes!,
             ),
+      holidayRegion: HolidayRegion.fromCode(row.holidayRegion),
     );
   }
 

@@ -80,9 +80,89 @@ void main() {
   }
 
   group('schema', () {
-    test('starts at migration version 3', () {
-      expect(database.schemaVersion, 3);
+    test('starts at migration version 4', () {
+      expect(database.schemaVersion, 4);
       expect(database.migration, isNotNull);
+    });
+
+    test('migrates version 3 rows onto the holiday-aware v4 schema', () async {
+      await database.close();
+      final directory = await Directory.systemTemp.createTemp(
+        'calarm-holiday-migration-',
+      );
+      final file = File('${directory.path}/wake-plan.sqlite');
+      final legacy = sqlite.sqlite3.open(file.path);
+      legacy.execute('''
+        CREATE TABLE wake_plan_rows (
+          id TEXT NOT NULL PRIMARY KEY,
+          title TEXT NOT NULL,
+          target_time_minutes INTEGER NOT NULL,
+          start_offset_minutes INTEGER NOT NULL,
+          interval_minutes INTEGER NOT NULL,
+          repeat_type TEXT NOT NULL,
+          one_time_date_days INTEGER,
+          weekdays_mask INTEGER,
+          is_enabled INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          skip_next_date_days INTEGER,
+          sound_id TEXT NOT NULL,
+          vibration_enabled INTEGER NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      ''');
+      legacy.execute(
+        'INSERT INTO wake_plan_rows '
+        '(id, title, target_time_minutes, start_offset_minutes, '
+        'interval_minutes, repeat_type, one_time_date_days, weekdays_mask, '
+        'is_enabled, status, skip_next_date_days, sound_id, '
+        'vibration_enabled, created_at, updated_at) '
+        "VALUES ('v3-plan', 'Weekday wake up', 420, 60, 5, 'weekly', "
+        "NULL, 62, 1, 'scheduled', NULL, 'default', 1, 0, 0)",
+      );
+      legacy.execute('''
+        CREATE TABLE app_settings_rows (
+          id INTEGER NOT NULL PRIMARY KEY,
+          default_start_offset_minutes INTEGER NOT NULL,
+          default_interval_minutes INTEGER NOT NULL,
+          default_sound_id TEXT NOT NULL,
+          default_vibration_enabled INTEGER NOT NULL,
+          default_repeat_type TEXT NOT NULL,
+          default_target_time_minutes INTEGER
+        )
+      ''');
+      legacy.execute(
+        'INSERT INTO app_settings_rows '
+        '(id, default_start_offset_minutes, default_interval_minutes, '
+        'default_sound_id, default_vibration_enabled, default_repeat_type, '
+        'default_target_time_minutes) '
+        "VALUES (1, 60, 5, 'default', 1, 'oneTime', NULL)",
+      );
+      legacy.execute('PRAGMA user_version = 3');
+      legacy.dispose();
+
+      final migratedDatabase = WakePlanDatabase(NativeDatabase(file));
+      final migratedRepository = WakePlanRepository(migratedDatabase);
+      try {
+        final plan = await migratedRepository.fetchWakePlan('v3-plan');
+        expect(plan, isNotNull);
+        expect(plan!.skipHolidays, isFalse);
+
+        final settings = await migratedRepository.fetchEffectiveAppSettings();
+        expect(settings.holidayRegion, isNull);
+
+        await migratedDatabase
+            .into(migratedDatabase.holidayCacheRows)
+            .insert(HolidayCacheRow(region: 'JP', dateDays: 20640, name: '元日'));
+        final cached = await migratedDatabase
+            .select(migratedDatabase.holidayCacheRows)
+            .get();
+        expect(cached, hasLength(1));
+        expect(cached.single.name, '元日');
+      } finally {
+        await migratedDatabase.close();
+        await directory.delete(recursive: true);
+      }
     });
 
     test('migrates version 1 rows with no pending dismissal', () async {

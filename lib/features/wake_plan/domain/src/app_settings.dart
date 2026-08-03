@@ -1,4 +1,5 @@
 import '../../../../core/time/time.dart';
+import 'holiday_region.dart';
 import 'repeat_rule.dart';
 import 'wake_plan.dart';
 
@@ -20,6 +21,7 @@ class AppSettings {
     required bool defaultVibrationEnabled,
     required RepeatType defaultRepeatType,
     TimeOfDayMinutes? defaultTargetTime,
+    HolidayRegion? holidayRegion,
   }) {
     validateWakePlanTiming(
       startOffset: defaultStartOffset,
@@ -48,6 +50,7 @@ class AppSettings {
       defaultVibrationEnabled: defaultVibrationEnabled,
       defaultRepeatType: defaultRepeatType,
       defaultTargetTime: defaultTargetTime,
+      holidayRegion: holidayRegion,
     );
   }
 
@@ -58,6 +61,7 @@ class AppSettings {
     required this.defaultVibrationEnabled,
     required this.defaultRepeatType,
     required this.defaultTargetTime,
+    required this.holidayRegion,
   });
 
   final Duration defaultStartOffset;
@@ -66,6 +70,7 @@ class AppSettings {
   final bool defaultVibrationEnabled;
   final RepeatType defaultRepeatType;
   final TimeOfDayMinutes? defaultTargetTime;
+  final HolidayRegion? holidayRegion;
 
   RepeatRule repeatRuleForDate(CalendarDay date) {
     return switch (defaultRepeatType) {
@@ -83,10 +88,14 @@ class AppSettings {
     bool? defaultVibrationEnabled,
     RepeatType? defaultRepeatType,
     Object? defaultTargetTime = _unchanged,
+    Object? holidayRegion = _unchanged,
   }) {
     final nextDefaultTargetTime = defaultTargetTime == _unchanged
         ? this.defaultTargetTime
         : defaultTargetTime as TimeOfDayMinutes?;
+    final nextHolidayRegion = holidayRegion == _unchanged
+        ? this.holidayRegion
+        : holidayRegion as HolidayRegion?;
 
     return AppSettings(
       defaultStartOffset: defaultStartOffset ?? this.defaultStartOffset,
@@ -96,6 +105,7 @@ class AppSettings {
           defaultVibrationEnabled ?? this.defaultVibrationEnabled,
       defaultRepeatType: defaultRepeatType ?? this.defaultRepeatType,
       defaultTargetTime: nextDefaultTargetTime,
+      holidayRegion: nextHolidayRegion,
     );
   }
 }
@@ -109,6 +119,7 @@ AppSettings sanitizeAppSettings({
   bool? defaultVibrationEnabled,
   RepeatType? defaultRepeatType,
   TimeOfDayMinutes? defaultTargetTime,
+  HolidayRegion? holidayRegion,
 }) {
   final fallback = AppSettings.initial();
   return AppSettings(
@@ -129,6 +140,7 @@ AppSettings sanitizeAppSettings({
         defaultVibrationEnabled ?? fallback.defaultVibrationEnabled,
     defaultRepeatType: defaultRepeatType ?? fallback.defaultRepeatType,
     defaultTargetTime: defaultTargetTime ?? fallback.defaultTargetTime,
+    holidayRegion: holidayRegion ?? fallback.holidayRegion,
   );
 }
 

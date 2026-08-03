@@ -4,11 +4,15 @@ import '../domain/wake_plan_domain.dart';
 class OccurrencePlanner {
   const OccurrencePlanner();
 
+  static const int _defaultWeeklyLookaheadDays = 7;
+  static const int _holidayAwareWeeklyLookaheadDays = 21;
+
   OccurrencePlan plan({
     required WakePlan wakePlan,
     required CalendarDay startDay,
     required CalendarDay endExclusive,
     required DateTime now,
+    Set<CalendarDay> holidays = const {},
   }) {
     if (endExclusive.compareTo(startDay) < 0) {
       throw ArgumentError.value(
@@ -27,7 +31,7 @@ class OccurrencePlanner {
       day.compareTo(endExclusive) < 0;
       day = day.addDays(1)
     ) {
-      if (!wakePlan.occursOn(day)) {
+      if (!_occursOn(wakePlan, day, holidays)) {
         continue;
       }
 
@@ -51,6 +55,7 @@ class OccurrencePlanner {
         wakePlan: wakePlan,
         startDay: endExclusive,
         now: now,
+        holidays: holidays,
       );
       if (nextDay != null) {
         final wakeInstance = _buildWakeInstance(wakePlan, nextDay);
@@ -105,14 +110,28 @@ class OccurrencePlanner {
     required WakePlan wakePlan,
     required CalendarDay startDay,
     required DateTime now,
+    required Set<CalendarDay> holidays,
   }) {
-    for (var offset = 0; offset <= 7; offset += 1) {
+    final lookaheadDays = wakePlan.skipHolidays
+        ? _holidayAwareWeeklyLookaheadDays
+        : _defaultWeeklyLookaheadDays;
+    for (var offset = 0; offset <= lookaheadDays; offset += 1) {
       final day = startDay.addDays(offset);
-      if (wakePlan.occursOn(day) && !wakePlan.targetAt(day).isBefore(now)) {
+      if (_occursOn(wakePlan, day, holidays) &&
+          !wakePlan.targetAt(day).isBefore(now)) {
         return day;
       }
     }
     return null;
+  }
+
+  bool _occursOn(
+    WakePlan wakePlan,
+    CalendarDay day,
+    Set<CalendarDay> holidays,
+  ) {
+    return wakePlan.occursOn(day) &&
+        !(wakePlan.skipHolidays && holidays.contains(day));
   }
 }
 

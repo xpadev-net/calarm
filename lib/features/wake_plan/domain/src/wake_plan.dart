@@ -26,6 +26,7 @@ class WakePlan {
     required DateTime createdAt,
     required DateTime updatedAt,
     CalendarDay? skipNextDate,
+    bool skipHolidays = false,
   }) {
     _validateId(id, 'id');
     _validateTitle(title);
@@ -56,6 +57,7 @@ class WakePlan {
       isEnabled: isEnabled,
       status: status,
       skipNextDate: skipNextDate,
+      skipHolidays: skipHolidays,
       soundId: soundId,
       vibrationEnabled: vibrationEnabled,
       createdAt: createdAt,
@@ -73,6 +75,7 @@ class WakePlan {
     required this.isEnabled,
     required this.status,
     required this.skipNextDate,
+    required this.skipHolidays,
     required this.soundId,
     required this.vibrationEnabled,
     required this.createdAt,
@@ -88,6 +91,7 @@ class WakePlan {
   final bool isEnabled;
   final WakePlanStatus status;
   final CalendarDay? skipNextDate;
+  final bool skipHolidays;
   final String soundId;
   final bool vibrationEnabled;
   final DateTime createdAt;
@@ -123,6 +127,7 @@ class WakePlan {
     bool? isEnabled,
     WakePlanStatus? status,
     Object? skipNextDate = _unchanged,
+    bool? skipHolidays,
     String? soundId,
     bool? vibrationEnabled,
     DateTime? createdAt,
@@ -142,6 +147,7 @@ class WakePlan {
       isEnabled: isEnabled ?? this.isEnabled,
       status: status ?? this.status,
       skipNextDate: nextSkipNextDate,
+      skipHolidays: skipHolidays ?? this.skipHolidays,
       soundId: soundId ?? this.soundId,
       vibrationEnabled: vibrationEnabled ?? this.vibrationEnabled,
       createdAt: createdAt ?? this.createdAt,
