@@ -174,6 +174,7 @@ class _WeekCalendarPlaceholderState
               height: constraints.maxHeight,
               hourHeight: _hourHeight,
               visibleDays: _visibleDays,
+              draftDuration: currentDefaults.defaultStartOffset,
               onHourHeightChanged: _setHourHeight,
               draft: _draft,
               onDraftChanged: (draft) {

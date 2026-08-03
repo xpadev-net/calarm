@@ -177,10 +177,7 @@ void main() {
         snapIntervalMinutes: 30,
       );
 
-      expect(
-        target.time,
-        TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
-      );
+      expect(target.time, TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0));
     });
 
     test('keeps a 24:00 internal boundary by returning next-day midnight', () {

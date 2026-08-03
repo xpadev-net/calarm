@@ -29,6 +29,7 @@ class WeekCalendarView extends StatefulWidget {
     this.onDraftChanged,
     this.draftInteractionEnabled = true,
     this.recenterRequest = 0,
+    this.draftDuration = defaultWakePlanStartOffset,
   });
 
   final DateTime now;
@@ -45,6 +46,12 @@ class WeekCalendarView extends StatefulWidget {
   final bool draftInteractionEnabled;
   final int recenterRequest;
 
+  /// The duration a tap-to-create draft will actually get (before snapping
+  /// to [weekCalendarDraftSnapInterval] and clamping to the allowed range).
+  /// Used only to size the tap-down preview cell so it matches the draft
+  /// that tapping up will create.
+  final Duration draftDuration;
+
   @override
   State<WeekCalendarView> createState() => _WeekCalendarViewState();
 }
@@ -52,7 +59,6 @@ class WeekCalendarView extends StatefulWidget {
 class _WeekCalendarViewState extends State<WeekCalendarView> {
   static const int _initialPage = 10000;
   static const double _timeAxisWidth = 52;
-  static const double _headerHeight = 56;
 
   late final WeekCalendarPage _initialCalendarPage;
   late final PageController _pageController;
@@ -182,7 +188,14 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
                 width: _timeAxisWidth,
                 child: Column(
                   children: [
-                    const SizedBox(height: _headerHeight),
+                    // An invisible header cell reserves exactly the space
+                    // the real (visible, paging) header takes, including
+                    // under text scaling, without hardcoding a pixel height
+                    // that could overflow or leave a gap.
+                    const Opacity(
+                      opacity: 0,
+                      child: IgnorePointer(child: _DateHeaderSizingProbe()),
+                    ),
                     Expanded(
                       child: ClipRect(
                         child: ValueListenableBuilder<double>(
@@ -228,7 +241,7 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
                       onTargetTap: widget.onTargetTap,
                       onWakePlanTap: widget.onWakePlanTap,
                       hourHeight: widget.hourHeight,
-                      headerHeight: _headerHeight,
+                      draftDuration: widget.draftDuration,
                       onHourHeightChanged: widget.onHourHeightChanged,
                       onPinchStateChanged: _setPinching,
                       draft: widget.draft,
@@ -296,7 +309,7 @@ class _WeekCalendarWeekPage extends StatefulWidget {
     required this.onTargetTap,
     required this.onWakePlanTap,
     required this.hourHeight,
-    required this.headerHeight,
+    required this.draftDuration,
     required this.onHourHeightChanged,
     required this.onPinchStateChanged,
     required this.draft,
@@ -313,7 +326,7 @@ class _WeekCalendarWeekPage extends StatefulWidget {
   final WeekCalendarTapCallback? onTargetTap;
   final WeekCalendarWakePlanTapCallback? onWakePlanTap;
   final double hourHeight;
-  final double headerHeight;
+  final Duration draftDuration;
   final WeekCalendarHourHeightChanged? onHourHeightChanged;
   final ValueChanged<bool> onPinchStateChanged;
   final WeekCalendarDraft? draft;
@@ -525,13 +538,13 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
     final snapIntervalMinutes = weekCalendarTapSnapIntervalMinutes(
       _displayHourHeight,
     );
+    final previewDurationMinutes = weekCalendarBoundedDraftDuration(
+      widget.draftDuration,
+    ).inMinutes;
 
     return Column(
       children: [
-        SizedBox(
-          height: widget.headerHeight,
-          child: _DateHeader(week: widget.week, now: widget.now),
-        ),
+        _DateHeader(week: widget.week, now: widget.now),
         Expanded(
           child: RawGestureDetector(
             key: const ValueKey('week-calendar-pinch-surface'),
@@ -614,7 +627,7 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
                                 dayWidth:
                                     constraints.maxWidth /
                                     widget.week.visibleDays,
-                                snapIntervalMinutes: snapIntervalMinutes,
+                                durationMinutes: previewDurationMinutes,
                               ),
                             for (final block in blocks)
                               _WakePlanBlock(
@@ -1395,24 +1408,31 @@ class _TapPreviewCell extends StatelessWidget {
     required this.week,
     required this.pixelsPerMinute,
     required this.dayWidth,
-    required this.snapIntervalMinutes,
+    required this.durationMinutes,
   });
 
   final WeekCalendarTapTarget target;
   final WeekRange week;
   final double pixelsPerMinute;
   final double dayWidth;
-  final int snapIntervalMinutes;
+  final int durationMinutes;
 
   @override
   Widget build(BuildContext context) {
-    final dayIndex = target.day.differenceInDays(week.start);
-    if (dayIndex < 0 || dayIndex >= week.visibleDays) {
+    var dayIndex = target.day.differenceInDays(week.start);
+    var top = target.time.minutesSinceMidnight * pixelsPerMinute;
+    final height = durationMinutes * pixelsPerMinute;
+    if (dayIndex == week.visibleDays) {
+      // A tap near the bottom of the last visible day can round up to
+      // next-day midnight, which is off-grid. Clamp to the end of the last
+      // visible day instead of hiding the preview, so a tap that will
+      // create a draft always shows one.
+      dayIndex = week.visibleDays - 1;
+      top = (TimeOfDayMinutes.minutesPerDay * pixelsPerMinute) - height;
+    } else if (dayIndex < 0 || dayIndex >= week.visibleDays) {
       return const SizedBox.shrink();
     }
     final colorScheme = Theme.of(context).colorScheme;
-    final top = target.time.minutesSinceMidnight * pixelsPerMinute;
-    final height = snapIntervalMinutes * pixelsPerMinute;
 
     return Positioned(
       key: const ValueKey('week-calendar-tap-preview-cell'),
@@ -1542,49 +1562,86 @@ class _DateHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final today = CalendarDay.fromDateTime(now);
-    final colorScheme = Theme.of(context).colorScheme;
 
     return Row(
       children: [
         for (final day in week.days)
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      _weekdayLabel(day.weekday),
-                      style: Theme.of(context).textTheme.labelMedium,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Container(
-                    width: 32,
-                    height: 32,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: day == today
-                          ? colorScheme.primary
-                          : Colors.transparent,
-                    ),
-                    child: Text(
-                      '${day.day}',
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: day == today
-                            ? colorScheme.onPrimary
-                            : colorScheme.onSurface,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+            child: _DateHeaderCell(
+              weekdayLabel: _weekdayLabel(day.weekday),
+              dayLabel: '${day.day}',
+              highlighted: day == today,
             ),
           ),
       ],
+    );
+  }
+}
+
+/// Reserves exactly the height a real [_DateHeader] cell takes, without
+/// rendering any real weekday/day-number text, so it can size the fixed time
+/// axis's header spacer without also being matched by `find.text('Mon')`
+/// (etc.) finders in tests.
+class _DateHeaderSizingProbe extends StatelessWidget {
+  const _DateHeaderSizingProbe();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _DateHeaderCell(
+      weekdayLabel: '',
+      dayLabel: '',
+      highlighted: false,
+    );
+  }
+}
+
+class _DateHeaderCell extends StatelessWidget {
+  const _DateHeaderCell({
+    required this.weekdayLabel,
+    required this.dayLabel,
+    required this.highlighted,
+  });
+
+  final String weekdayLabel;
+  final String dayLabel;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              weekdayLabel,
+              style: Theme.of(context).textTheme.labelMedium,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Container(
+            width: 32,
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: highlighted ? colorScheme.primary : Colors.transparent,
+            ),
+            child: Text(
+              dayLabel,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: highlighted
+                    ? colorScheme.onPrimary
+                    : colorScheme.onSurface,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1641,9 +1698,7 @@ class _TimeGrid extends StatelessWidget {
       key: const ValueKey('week-calendar-time-grid'),
       painter: _TimeGridPainter(
         lineColor: colorScheme.outlineVariant,
-        subIntervalLineColor: colorScheme.outlineVariant.withValues(
-          alpha: 0.4,
-        ),
+        subIntervalLineColor: colorScheme.outlineVariant.withValues(alpha: 0.4),
         dayLineColor: colorScheme.outline,
         currentTimeColor: colorScheme.error,
         hourHeight: hourHeight,
@@ -1705,11 +1760,7 @@ class _TimeGridPainter extends CustomPainter {
           continue;
         }
         final y = minute * pixelsPerMinute;
-        canvas.drawLine(
-          Offset(0, y),
-          Offset(size.width, y),
-          subIntervalPaint,
-        );
+        canvas.drawLine(Offset(0, y), Offset(size.width, y), subIntervalPaint);
       }
     }
 

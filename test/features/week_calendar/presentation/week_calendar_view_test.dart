@@ -162,7 +162,9 @@ void main() {
     },
   );
 
-  testWidgets('resume page uses the initial range stride', (tester) async {
+  testWidgets('resume page uses the one-day stride for a 3-day width', (
+    tester,
+  ) async {
     var recenterRequest = 0;
     late StateSetter updateHarness;
     await tester.pumpWidget(
@@ -199,20 +201,27 @@ void main() {
           find.byType(SingleChildScrollView).hitTestable(),
         )
         .controller!;
-    expect(pageController.page, 10002);
+    // July 8 is 7 days after the July 1 initial range, and a 3-day width
+    // pages by a single day, so the resume page is 7 pages in (not the
+    // 2 pages a 3-day stride would have produced).
+    expect(pageController.page, 10007);
     expect(scrollController.offset, 912);
   });
 
   for (final testCase in [
     (
+      // A 3-day width pages by one day, so the two-day gap between the
+      // initial range and "now" lands on page 10002, not 10000.
       name: 'three-day',
       visibleDays: 3,
       start: CalendarDay(year: 2026, month: 7, day: 9),
+      expectedPage: 10002,
     ),
     (
       name: 'seven-day',
       visibleDays: DateTime.daysPerWeek,
       start: CalendarDay(year: 2026, month: 7, day: 5),
+      expectedPage: 10000,
     ),
   ]) {
     testWidgets('${testCase.name} midnight tick after resume never recenters', (
@@ -264,7 +273,7 @@ void main() {
       });
       await tester.pump();
 
-      expect(pageController.page, 10000);
+      expect(pageController.page, testCase.expectedPage);
       expect(scrollController.offset, 600);
     });
   }
@@ -303,7 +312,10 @@ void main() {
       expect(selected!.day, CalendarDay(year: 2026, month: 7, day: 8));
       // Default hourHeight (56) is below the 30-minute snap threshold, so
       // taps snap to the nearest whole hour.
-      expect(selected!.time, TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0));
+      expect(
+        selected!.time,
+        TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+      );
     },
   );
 
@@ -1627,8 +1639,11 @@ void main() {
         isA<NeverScrollableScrollPhysics>(),
       );
 
-      await first.moveTo(center + const Offset(-200, -80));
-      await second.moveTo(center + const Offset(200, 80));
+      // Sized to land close to the old fixed zoom bound (92px/hour) rather
+      // than the current, much higher, max, so the hour labels this test
+      // checks for stay at the same scroll position as originally tuned.
+      await first.moveTo(center + const Offset(-67.7, -27.1));
+      await second.moveTo(center + const Offset(67.7, 27.1));
       await tester.pumpAndSettle();
 
       expect(hourHeight, greaterThan(52));
@@ -1644,10 +1659,14 @@ void main() {
         isNot(isA<NeverScrollableScrollPhysics>()),
       );
 
+      // A 3-day width pages by one day, so dragging once moves the window
+      // from Mon-Tue-Wed to Tue-Wed-Thu — confirming paging still works
+      // after the pinch releases, without depending on exactly which hour
+      // labels a particular zoom level happens to leave on screen.
       await tester.drag(find.byType(PageView), const Offset(-600, 0));
       await tester.pumpAndSettle();
-      expect(find.text('9'), findsOneWidget);
-      expect(find.text('11'), findsOneWidget);
+      expect(find.text('Mon'), findsNothing);
+      expect(find.text('Thu'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -1718,11 +1737,15 @@ void main() {
       await third.down(center - const Offset(120, 0));
       await tester.pump(const Duration(milliseconds: 50));
       await fourth.down(center + const Offset(120, 0));
-      await third.moveTo(center - const Offset(20, 0));
-      await fourth.moveTo(center + const Offset(20, 0));
+      // This pinch starts from the post-max hourHeight left by the previous
+      // gesture (weekCalendarMaxHourHeight), so the pinch-in ratio needs to
+      // be small enough that even scaled from that much higher starting
+      // point, the result still lands below the minimum and clamps to it.
+      await third.moveTo(center - const Offset(2, 0));
+      await fourth.moveTo(center + const Offset(2, 0));
       await tester.pumpAndSettle();
 
-      expect(hourHeight, 36);
+      expect(hourHeight, weekCalendarMinHourHeight);
       final focalMinuteAtMinimum =
           (scrollController.offset + focalY) / (hourHeight / 60);
       expect(focalMinuteAtMinimum, closeTo(focalMinuteBeforeMinimum, 0.01));

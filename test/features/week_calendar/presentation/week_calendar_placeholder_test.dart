@@ -298,9 +298,12 @@ void main() {
       var calendar = tester.widget<WeekCalendarView>(
         find.byType(WeekCalendarView),
       );
+      // The default view is 1 day wide and pages by a single day, so after
+      // one drag from July 8 the only visible day is July 9 — the draft
+      // must land there for its handles to actually be in the tree.
       calendar.onTargetTap!(
         WeekCalendarTapTarget(
-          day: CalendarDay(year: 2026, month: 7, day: 15),
+          day: CalendarDay(year: 2026, month: 7, day: 9),
           time: TimeOfDayMinutes.fromHourMinute(hour: 10, minute: 0),
         ),
       );
@@ -1099,7 +1102,8 @@ void main() {
               (ref) async => repository,
             ),
             weekCalendarClockProvider.overrideWith(
-              (ref) => () => DateTime(2026, 7, 8, 5, 30),
+              (ref) =>
+                  () => DateTime(2026, 7, 8, 5, 30),
             ),
           ],
           child: const MaterialApp(

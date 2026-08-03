@@ -101,22 +101,31 @@ class WeekCalendarDraft {
   }
 }
 
-WeekCalendarDraft weekCalendarDraftFromTap({
-  required String id,
-  required WeekCalendarTapTarget target,
-  required Duration defaultDuration,
-  required DateTime createdAt,
-}) {
+/// Clamps [defaultDuration] to the allowed draft duration range and snaps it
+/// to [weekCalendarDraftSnapInterval] — the exact duration a draft created
+/// via [weekCalendarDraftFromTap] ends up with, so callers that need to
+/// preview that duration ahead of time (e.g. the tap-preview cell) show the
+/// same value the tap will actually produce.
+Duration weekCalendarBoundedDraftDuration(Duration defaultDuration) {
   final boundedDuration = defaultDuration < weekCalendarDraftMinimumDuration
       ? weekCalendarDraftMinimumDuration
       : defaultDuration > weekCalendarDraftMaximumDuration
       ? weekCalendarDraftMaximumDuration
       : defaultDuration;
   final intervalMinutes = weekCalendarDraftSnapInterval.inMinutes;
-  final snappedDuration = Duration(
+  return Duration(
     minutes:
         (boundedDuration.inMinutes / intervalMinutes).round() * intervalMinutes,
   );
+}
+
+WeekCalendarDraft weekCalendarDraftFromTap({
+  required String id,
+  required WeekCalendarTapTarget target,
+  required Duration defaultDuration,
+  required DateTime createdAt,
+}) {
+  final snappedDuration = weekCalendarBoundedDraftDuration(defaultDuration);
   final startAt = snapWeekCalendarDraftDateTime(target.dateTime);
   return WeekCalendarDraft(
     id: id,
@@ -278,7 +287,9 @@ int weekCalendarPagingStepDays(int visibleDays) {
 }
 
 WeekRange currentCalendarRange(DateTime anchor, {required int visibleDays}) {
-  if (visibleDays != 1 && visibleDays != 3 && visibleDays != DateTime.daysPerWeek) {
+  if (visibleDays != 1 &&
+      visibleDays != 3 &&
+      visibleDays != DateTime.daysPerWeek) {
     throw ArgumentError.value(
       visibleDays,
       'visibleDays',
