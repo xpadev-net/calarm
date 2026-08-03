@@ -296,6 +296,7 @@ class AndroidInventoryTest {
             .putString(missed.platformAlarmId, missed.toJson().toString())
             .putString(other.platformAlarmId, other.toJson().toString())
             .commit()
+        armForRecoveryTest(missed)
 
         val snapshot = AlarmStore(context).inventory(context, System.currentTimeMillis())
 
@@ -308,6 +309,10 @@ class AndroidInventoryTest {
             AlarmState.RINGING,
             AlarmStore(context).get(missed.platformAlarmId)?.state,
         )
+        // The pending AlarmManager entry must survive a duplicate-identity bail-out: cancelling
+        // it here would be irreversible, and the row hasn't been reported delivered or removed.
+        assertEquals(1, scheduledAlarmIds().size)
+        assertEquals(missed.platformAlarmId, scheduledAlarmIds().single())
     }
 
     @Test

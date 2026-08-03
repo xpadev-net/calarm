@@ -2019,9 +2019,33 @@ class AlarmStore(context: Context) {
                 requests += request
             }
         }
+        // Identity validation runs before any irreversible side effect below — including
+        // cancelling a missed alarm's pending AlarmManager entry, which (unlike removing a
+        // stale row) can't simply be redone if we bail out here — so a corrupt/duplicate
+        // inventory is reported as a failure first rather than discovered afterward.
+        val candidateRequests = requests + missedRequests
+        val duplicateReservation = candidateRequests.groupBy { it.reservationId }
+            .values.firstOrNull { it.size > 1 }
+        if (duplicateReservation != null) {
+            return AlarmInventorySnapshot(
+                requests = emptyList(),
+                corruptKeys = corruptKeys,
+                duplicateIdentity = "Duplicate native reservation identity: ${duplicateReservation.first().reservationId}.",
+                context = context,
+            )
+        }
+        val duplicateOccurrence = candidateRequests.groupBy { it.occurrenceId }
+            .values.firstOrNull { it.size > 1 }
+        if (duplicateOccurrence != null) {
+            return AlarmInventorySnapshot(
+                requests = emptyList(),
+                corruptKeys = corruptKeys,
+                duplicateIdentity = "Duplicate native occurrence identity: ${duplicateOccurrence.first().occurrenceId}.",
+                context = context,
+            )
+        }
         val cleanupKeys = corruptKeys + staleKeys
-        val cancelTargets = staleRequests + missedRequests
-        if (cleanupKeys.isNotEmpty() || cancelTargets.isNotEmpty()) {
+        if (cleanupKeys.isNotEmpty() || staleRequests.isNotEmpty()) {
             if (
                 staleRequests.isNotEmpty() &&
                 !ReservationAuthorityStore(storageContext).recordRetired(staleRequests)
@@ -2035,7 +2059,7 @@ class AlarmStore(context: Context) {
             }
             try {
                 val alarmManager = context.getSystemService(AlarmManager::class.java)
-                cancelTargets.forEach { request ->
+                staleRequests.forEach { request ->
                     alarmManager.cancel(AlarmIntents.receiver(context, request.platformAlarmId))
                 }
             } catch (error: RuntimeException) {
@@ -2060,32 +2084,19 @@ class AlarmStore(context: Context) {
                 }
             }
         }
-        // Identity validation runs before any missed alarm is delivered below: once delivery
-        // rings the device it can't be undone, so a corrupt/duplicate inventory must be reported
-        // as a failure first rather than after an irreversible side effect.
-        val candidateRequests = requests + missedRequests
-        val duplicateReservation = candidateRequests.groupBy { it.reservationId }
-            .values.firstOrNull { it.size > 1 }
-        if (duplicateReservation != null) {
-            return AlarmInventorySnapshot(
-                requests = emptyList(),
-                corruptKeys = corruptKeys,
-                duplicateIdentity = "Duplicate native reservation identity: ${duplicateReservation.first().reservationId}.",
-                context = context,
-            )
-        }
-        val duplicateOccurrence = candidateRequests.groupBy { it.occurrenceId }
-            .values.firstOrNull { it.size > 1 }
-        if (duplicateOccurrence != null) {
-            return AlarmInventorySnapshot(
-                requests = emptyList(),
-                corruptKeys = corruptKeys,
-                duplicateIdentity = "Duplicate native occurrence identity: ${duplicateOccurrence.first().occurrenceId}.",
-                context = context,
-            )
-        }
         missedRequests.forEach { request ->
             val platformAlarmId = request.platformAlarmId
+            try {
+                context.getSystemService(AlarmManager::class.java)
+                    .cancel(AlarmIntents.receiver(context, platformAlarmId))
+            } catch (error: RuntimeException) {
+                Log.w(
+                    TAG,
+                    "Failed to cancel a missed native alarm's pending AlarmManager entry; " +
+                        "proceeding with catch-up delivery regardless: $platformAlarmId",
+                    error,
+                )
+            }
             if (!markRinging(platformAlarmId)) {
                 val current = get(platformAlarmId)
                 if (current?.state == AlarmState.RINGING) {
