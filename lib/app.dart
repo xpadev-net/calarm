@@ -5,10 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/bootstrap/app_bootstrap.dart';
 import 'core/identity/app_identity.dart';
+import 'core/time/time.dart';
 import 'features/alarm_ringing/presentation/alarm_ringing_placeholder.dart';
 import 'features/settings/presentation/settings_placeholder.dart';
 import 'features/settings/application/alarm_health_controller.dart';
 import 'features/settings/presentation/alarm_permission_gate.dart';
+import 'features/wake_plan/application/holiday_set_provider.dart';
 import 'features/wake_plan/application/wake_plan_service_providers.dart';
 import 'features/wake_plan/presentation/wake_plan_placeholder.dart';
 import 'features/week_calendar/presentation/week_calendar_placeholder.dart';
@@ -31,6 +33,7 @@ class _CalarmAppState extends ConsumerState<CalarmApp>
     with WidgetsBindingObserver {
   var _disposed = false;
   var _lastQueuedCapabilityRevision = 0;
+  Set<CalendarDay>? _lastReconciledHolidays;
   Future<void> _reconciliationTail = Future<void>.value();
 
   @override
@@ -63,6 +66,26 @@ class _CalarmAppState extends ConsumerState<CalarmApp>
     _reconciliationTail = _reconciliationTail.then((_) => _runReconciliation());
   }
 
+  /// Reconciliation only ever reads the *current* holiday set when it
+  /// builds a plan's occurrence bundle — nothing else re-derives scheduled
+  /// native alarms once holiday data changes. Without this, an alarm
+  /// created (or already scheduled) before a background holiday refresh
+  /// completes could keep firing on a day that's since been confirmed a
+  /// holiday, for as long as the app session runs without some other event
+  /// (a capability change, an edit) happening to trigger reconciliation.
+  void _queueReconciliationForHolidayChange(
+    AlarmHealthState health,
+    Set<CalendarDay> holidays,
+  ) {
+    if (_disposed ||
+        health.readinessStatus != AlarmReadinessStatus.ready ||
+        _setEquals(_lastReconciledHolidays, holidays)) {
+      return;
+    }
+    _lastReconciledHolidays = holidays;
+    _reconciliationTail = _reconciliationTail.then((_) => _runReconciliation());
+  }
+
   Future<void> _runReconciliation() async {
     if (_disposed) {
       return;
@@ -84,9 +107,14 @@ class _CalarmAppState extends ConsumerState<CalarmApp>
   Widget build(BuildContext context) {
     final identity = ref.watch(appIdentityProvider);
     final alarmHealth = ref.watch(alarmHealthProvider);
+    final holidays = ref.watch(activeHolidaySetProvider);
     final health = alarmHealth.value;
     if (health != null) {
       _queueReconciliation(health);
+      final holidaySet = holidays.value;
+      if (holidaySet != null) {
+        _queueReconciliationForHolidayChange(health, holidaySet);
+      }
     }
 
     return MaterialApp(
@@ -107,6 +135,13 @@ class _CalarmAppState extends ConsumerState<CalarmApp>
             ),
     );
   }
+}
+
+bool _setEquals(Set<CalendarDay>? a, Set<CalendarDay> b) {
+  if (a == null) {
+    return false;
+  }
+  return a.length == b.length && a.containsAll(b);
 }
 
 class CalarmHomePage extends StatelessWidget {

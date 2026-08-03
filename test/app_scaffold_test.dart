@@ -10,6 +10,7 @@ import 'package:calarm/core/time/time.dart';
 import 'package:calarm/features/settings/application/alarm_health_controller.dart';
 import 'package:calarm/features/settings/presentation/alarm_permission_gate.dart';
 import 'package:calarm/features/week_calendar/presentation/week_calendar_placeholder.dart';
+import 'package:calarm/features/wake_plan/application/holiday_set_provider.dart';
 import 'package:calarm/features/wake_plan/application/wake_plan_service.dart';
 import 'package:calarm/features/wake_plan/data/wake_plan_data.dart';
 import 'package:calarm/features/wake_plan/domain/wake_plan_domain.dart';
@@ -286,6 +287,90 @@ void main() {
       expect(
         occurrences.map((occurrence) => occurrence.platformAlarmId),
         everyElement(isNotNull),
+      );
+    },
+  );
+
+  testWidgets(
+    'reconciles and cancels a holiday occurrence once the active holiday '
+    'set updates',
+    (tester) async {
+      final database = WakePlanDatabase(NativeDatabase.memory());
+      final repository = WakePlanRepository(database);
+      final gateway = FakeNativeAlarmGateway();
+      final now = DateTime(2026, 7, 6, 5, 55);
+      final monday = CalendarDay(year: 2026, month: 7, day: 6);
+      final plan = WakePlan(
+        id: 'holiday-plan',
+        title: 'Morning',
+        targetTime: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+        startOffset: const Duration(minutes: 15),
+        interval: const Duration(minutes: 5),
+        repeatRule: RepeatRule.weekly({Weekday.monday}),
+        isEnabled: true,
+        status: WakePlanStatus.scheduled,
+        skipHolidays: true,
+        soundId: 'default',
+        vibrationEnabled: true,
+        createdAt: now,
+        updatedAt: now,
+      );
+      await repository.saveWakePlan(plan);
+      addTearDown(database.close);
+
+      // The real app wires WakePlanService's holidaysSnapshot to
+      // activeHolidaySetProvider (see wake_plan_service_providers.dart);
+      // this test drives both from the same mutable source so the fixed
+      // `service` instance below actually observes what the stream emits.
+      var currentHolidays = const <CalendarDay>{};
+      final service = WakePlanService(
+        repository: repository,
+        nativeAlarmGateway: gateway,
+        coordinator: WakePlanMutationCoordinator(),
+        clock: () => now,
+        rollingScheduleDays: 2,
+        holidaysSnapshot: () => currentHolidays,
+      );
+
+      final holidaysController = StreamController<Set<CalendarDay>>();
+      addTearDown(holidaysController.close);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appWakePlanRepositoryProvider.overrideWith(
+              (ref) async => repository,
+            ),
+            appNativeAlarmGatewayProvider.overrideWith((ref) => gateway),
+            appWakePlanServiceProvider.overrideWith((ref) async => service),
+            settingsNativeAlarmGatewayProvider.overrideWith((ref) => gateway),
+            activeHolidaySetProvider.overrideWith(
+              (ref) => holidaysController.stream,
+            ),
+          ],
+          child: const CalarmApp(),
+        ),
+      );
+      holidaysController.add(currentHolidays);
+      await tester.pumpAndSettle();
+
+      final mondayScheduledIds = gateway.scheduledRequests
+          .where((request) => request.scheduledAt.weekday == DateTime.monday)
+          .map((request) => request.occurrenceId)
+          .toSet();
+      expect(mondayScheduledIds, isNotEmpty);
+      expect(gateway.cancelledOccurrences, isEmpty);
+
+      currentHolidays = {monday};
+      holidaysController.add(currentHolidays);
+      await tester.pumpAndSettle();
+
+      expect(
+        gateway.cancelledOccurrences
+            .map((request) => request.occurrenceId)
+            .toSet()
+            .intersection(mondayScheduledIds),
+        isNotEmpty,
       );
     },
   );

@@ -52,7 +52,8 @@
 - 祝日データはDriftの`HolidayCacheRows`/`HolidayFetchMetadataRows`にキャッシュし、`HolidayRepository.holidaysFor()`はキャッシュを即座に返しつつバックグラウンドで非同期リフレッシュする（stale-while-revalidate、既定7日）。
 - `OccurrencePlanner.plan()`に`Set<CalendarDay> holidays`パラメータを追加。`WakePlan.skipHolidays`と組み合わせて判定し、`_nextWeeklyDay`のフォールバック探索は祝日スキップ有効時のみ7日→21日に拡大。
 - `WakePlanService`は`holidaysSnapshot`をコンストラクタで受け取る同期クロージャとして持つ。Riverpodワイヤリングでは`wakePlanServiceProvider`内で`ref.watch(activeHolidaySetProvider)`ではなく`ref.read`をクロージャ内で遅延評価する設計に修正した（`ref.watch`で直接依存させると`activeHolidaySetProvider`の解決のたびに`wakePlanServiceProvider`自体が再構築され、進行中のservice状態を破棄してしまい、既存のwidgetテストが壊れることが判明したため）。
-- ネットワーク/パース失敗時は例外を握りつぶし、`lastError`をメタデータに記録するのみで`holidaysFor`は空集合を返す（fail-open）。
+- ネットワーク/パース失敗時は例外を握りつぶし、`lastError`をメタデータに記録するのみで`holidaysFor`は空集合を返す（fail-open）。空イベントのICS（構文的には正常だが内容が空）も、パース失敗と同様に扱い、既存の良好なキャッシュを上書きしない。
+- **祝日データ更新の反映（レビューで修正）:** 当初は既存のrolling reconciliationが自然に新しい祝日データを拾うと想定していたが、コードレビュー（Greptile）で「祝日セットが変わってもreconciliationをトリガーする経路が無い」ことが指摘された。修正: (1) `activeHolidaySetProvider`をDriftのreactiveクエリ（`HolidayRepository.watchHolidays()`）で裏付けた`StreamProvider`にし、バックグラウンドリフレッシュ完了後も値が更新されるようにした。(2) `app.dart`で`activeHolidaySetProvider`を監視し、祝日セットが実際に変化した際にreconciliationをキューイングする（既存のcapability-revisionベースの仕組みと同様のパターン）。`test/app_scaffold_test.dart`にエンドツーエンドで検証するwidgetテストを追加。
 
 ## Progress Log (append-only)
 
@@ -61,3 +62,4 @@
   - Implemented calarm app changes per Scope above; full local `flutter test` (581 tests), `flutter analyze`, and `dart format --set-exit-if-changed .` all pass.
   - Found and fixed a real regression during implementation: watching `activeHolidaySetProvider` from `wakePlanServiceProvider` caused rebuild-driven state loss that broke `week_calendar_placeholder_test.dart`'s detail/edit flow; fixed by reading it lazily inside the `holidaysSnapshot` closure instead.
   - Widened `test/app_scaffold_test.dart`'s compact-landscape drag budget (20→30 attempts) since the new Settings region picker legitimately increased scrollable content height.
+  - PR #76 opened; two rounds of Greptile-flagged review findings fixed and re-verified (fail-open gap on DB-layer errors; stale `activeHolidaySetProvider` snapshot + empty-ICS cache wipe, both described above). 585 tests passing at completion.
