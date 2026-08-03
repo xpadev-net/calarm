@@ -39,7 +39,11 @@ class HolidayRepository {
 
   Future<Set<CalendarDay>> holidaysFor(HolidayRegion region) async {
     unawaited(refreshIfStale(region));
-    return _cachedDays(region);
+    try {
+      return await _cachedDays(region);
+    } catch (_) {
+      return const {};
+    }
   }
 
   Future<Set<CalendarDay>> _cachedDays(HolidayRegion region) async {
@@ -51,18 +55,25 @@ class HolidayRepository {
   }
 
   Future<void> refreshIfStale(HolidayRegion region) async {
-    final metadata = await (_database.select(
-      _database.holidayFetchMetadataRows,
-    )..where((row) => row.region.equals(region.code))).getSingleOrNull();
+    try {
+      final metadata = await (_database.select(
+        _database.holidayFetchMetadataRows,
+      )..where((row) => row.region.equals(region.code))).getSingleOrNull();
 
-    final lastSuccessAt = metadata?.lastSuccessAt;
-    final isStale =
-        lastSuccessAt == null || _now().difference(lastSuccessAt) > _staleAfter;
-    if (!isStale) {
-      return;
+      final lastSuccessAt = metadata?.lastSuccessAt;
+      final isStale =
+          lastSuccessAt == null ||
+          _now().difference(lastSuccessAt) > _staleAfter;
+      if (!isStale) {
+        return;
+      }
+
+      await refresh(region);
+    } catch (_) {
+      // Fail open: a DB-layer error here must not surface as an unhandled
+      // async error (this is invoked via `unawaited` from holidaysFor) or
+      // block scheduling — a future call will simply retry.
     }
-
-    await refresh(region);
   }
 
   Future<void> refresh(HolidayRegion region) async {

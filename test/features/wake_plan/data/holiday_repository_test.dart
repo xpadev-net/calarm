@@ -201,6 +201,22 @@ void main() {
       },
     );
 
+    test(
+      'fails open on a database-layer error: holidaysFor stays empty, no throw',
+      () async {
+        final repository = HolidayRepository(
+          database: database,
+          fetchIcs: (uri) async => _sampleIcs,
+        );
+        await database.close();
+
+        await expectLater(
+          repository.holidaysFor(HolidayRegion.japan),
+          completion(isEmpty),
+        );
+      },
+    );
+
     test('refreshIfStale refreshes when never fetched before', () async {
       var fetchCount = 0;
       final repository = HolidayRepository(
