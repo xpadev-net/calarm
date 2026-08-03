@@ -160,6 +160,58 @@ void main() {
       },
     );
 
+    test('refresh treats a valid but event-free response as a failure, '
+        'preserving the prior cache', () async {
+      var callCount = 0;
+      final repository = HolidayRepository(
+        database: database,
+        fetchIcs: (uri) async {
+          callCount += 1;
+          if (callCount == 1) {
+            return _sampleIcs;
+          }
+          // Well-formed but zero VEVENTs — e.g. a truncated/degraded
+          // response that's still syntactically parsable.
+          return 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n';
+        },
+      );
+
+      await repository.refresh(HolidayRegion.japan);
+      await repository.refresh(HolidayRegion.japan);
+      final holidays = await repository.holidaysFor(HolidayRegion.japan);
+
+      expect(holidays, {
+        CalendarDay(year: 2026, month: 1, day: 1),
+        CalendarDay(year: 2026, month: 1, day: 12),
+      });
+    });
+
+    test('watchHolidays reactively emits an updated set once a background '
+        'refresh completes', () async {
+      final fetchCompleter = Completer<String>();
+      final repository = HolidayRepository(
+        database: database,
+        fetchIcs: (uri) => fetchCompleter.future,
+      );
+
+      final emissions = <Set<CalendarDay>>[];
+      final subscription = repository
+          .watchHolidays(HolidayRegion.japan)
+          .listen(emissions.add);
+      addTearDown(subscription.cancel);
+
+      await _drainMicrotasks();
+      expect(emissions, [isEmpty]);
+
+      fetchCompleter.complete(_sampleIcs);
+      await _drainMicrotasks();
+
+      expect(emissions.last, {
+        CalendarDay(year: 2026, month: 1, day: 1),
+        CalendarDay(year: 2026, month: 1, day: 12),
+      });
+    });
+
     test('refreshIfStale skips refresh when recently fetched', () async {
       var fetchCount = 0;
       final fixedNow = DateTime(2026, 1, 10);

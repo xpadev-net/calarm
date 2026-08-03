@@ -8,13 +8,19 @@ import '../data/wake_plan_data.dart';
 /// an empty set if no region is configured. Fails open (empty set) while
 /// loading or on any upstream error, since alarm scheduling must never be
 /// blocked by holiday-data availability.
-final activeHolidaySetProvider = FutureProvider<Set<CalendarDay>>((ref) async {
+///
+/// Backed by a Drift reactive query (not a one-shot fetch): once a
+/// background refresh (triggered on first read) finishes populating the
+/// cache, this provider re-emits the updated set automatically instead of
+/// staying frozen at whatever was cached at the moment it first resolved.
+final activeHolidaySetProvider = StreamProvider<Set<CalendarDay>>((ref) async* {
   final settings = await ref.watch(wakePlanDefaultsProvider.future);
   final region = settings.holidayRegion;
   if (region == null) {
-    return const {};
+    yield const {};
+    return;
   }
 
   final repository = await ref.watch(holidayRepositoryProvider.future);
-  return repository.holidaysFor(region);
+  yield* repository.watchHolidays(region);
 });

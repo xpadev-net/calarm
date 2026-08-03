@@ -43,10 +43,30 @@ class HolidayRepository {
     }
   }
 
+  /// Like [holidaysFor], but keeps emitting as the cache is updated —
+  /// including once a background [refreshIfStale] triggered by this same
+  /// call completes. Plain one-shot reads of [holidaysFor] would otherwise
+  /// never observe data that only became available *after* the read.
+  Stream<Set<CalendarDay>> watchHolidays(HolidayRegion region) {
+    unawaited(refreshIfStale(region));
+    // Swallow (rather than propagate) query errors on this long-lived
+    // subscription: fail open by keeping whatever was last emitted instead
+    // of tearing the stream down over a transient error.
+    return (_database.select(_database.holidayCacheRows)
+          ..where((row) => row.region.equals(region.code)))
+        .watch()
+        .map(_toCalendarDays)
+        .handleError((Object _, StackTrace _) {});
+  }
+
   Future<Set<CalendarDay>> _cachedDays(HolidayRegion region) async {
     final rows = await (_database.select(
       _database.holidayCacheRows,
     )..where((row) => row.region.equals(region.code))).get();
+    return _toCalendarDays(rows);
+  }
+
+  Set<CalendarDay> _toCalendarDays(List<HolidayCacheRow> rows) {
     final epoch = CalendarDay.fromDateTime(DateTime.utc(1970, 1, 1));
     return rows.map((row) => epoch.addDays(row.dateDays)).toSet();
   }
@@ -78,6 +98,16 @@ class HolidayRepository {
     try {
       final icsContent = await _fetchIcs(holidayIcsUriFor(region));
       final holidays = parseHolidayIcs(icsContent);
+      if (holidays.isEmpty) {
+        // A syntactically valid but event-free response is virtually always
+        // a transient/degraded fetch (truncated body, wrong content, etc.)
+        // rather than a real "this region has zero holidays" answer. Treat
+        // it as a failure rather than silently replacing a previously good
+        // cache with nothing.
+        throw HolidayIcsParseException(
+          'fetched ICS contained no holiday events',
+        );
+      }
       await _replaceCachedHolidays(region, holidays);
       await _writeFetchMetadata(
         region,
