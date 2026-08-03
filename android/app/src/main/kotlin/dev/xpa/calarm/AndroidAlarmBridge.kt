@@ -1970,13 +1970,24 @@ class AlarmStore(context: Context) {
         return preferences.contains(platformAlarmId)
     }
 
+    /**
+     * Transitions [platformAlarmId] to [AlarmState.RINGING], or returns `false` if it is already
+     * ringing. The read-check-write runs under [AndroidAlarmMutationTransaction] so a broadcast
+     * delivery racing an inventory or restore catch-up can't both win this transition and
+     * deliver the same occurrence twice — exactly one caller sees `true`.
+     */
     fun markRinging(platformAlarmId: String): Boolean {
-        val request = get(platformAlarmId) ?: return false
-        if (
-            request.platformAlarmId != platformAlarmId ||
-            !request.hasCanonicalPlatformAlarmId()
-        ) return false
-        return put(request.copy(state = AlarmState.RINGING))
+        return AndroidAlarmMutationTransaction.run {
+            val request = get(platformAlarmId) ?: return@run false
+            if (
+                request.platformAlarmId != platformAlarmId ||
+                !request.hasCanonicalPlatformAlarmId() ||
+                request.state == AlarmState.RINGING
+            ) {
+                return@run false
+            }
+            put(request.copy(state = AlarmState.RINGING))
+        }
     }
 
     fun inventory(context: Context, nowMillis: Long): AlarmInventorySnapshot {
@@ -2075,15 +2086,27 @@ class AlarmStore(context: Context) {
         }
         missedRequests.forEach { request ->
             val platformAlarmId = request.platformAlarmId
+            if (!markRinging(platformAlarmId)) {
+                val current = get(platformAlarmId)
+                if (current?.state == AlarmState.RINGING) {
+                    // A concurrent broadcast delivery already claimed and rang this occurrence.
+                    requests += current
+                } else {
+                    Log.e(
+                        TAG,
+                        "Failed to deliver a missed native alarm during inventory " +
+                            "reconciliation; it was removed: $platformAlarmId",
+                    )
+                    remove(platformAlarmId)
+                }
+                return@forEach
+            }
             Log.w(
                 TAG,
                 "Delivering a native alarm missed while the app was killed instead of " +
                     "discarding it: $platformAlarmId",
             )
-            if (
-                markRinging(platformAlarmId) &&
-                AlarmReceiver().deliverAlreadyRingingAlarm(context, this, request)
-            ) {
+            if (AlarmReceiver().deliverAlreadyRingingAlarm(context, this, request)) {
                 requests += request.copy(state = AlarmState.RINGING)
             } else {
                 Log.e(
@@ -3270,20 +3293,31 @@ object AlarmRestore {
                 if (request.state != AlarmState.RINGING && request.scheduledAtMillis <= now) {
                     val platformAlarmId = request.platformAlarmId
                     if (now - request.scheduledAtMillis <= MISSED_ALARM_CATCH_UP_WINDOW_MILLIS) {
-                        Log.w(
-                            TAG,
-                            "Delivering an alarm that was due while the device was off or the " +
-                                "app was killed instead of discarding it: $platformAlarmId",
-                        )
-                        if (
-                            !store.markRinging(platformAlarmId) ||
-                            !AlarmReceiver().deliverAlreadyRingingAlarm(appContext, store, request)
-                        ) {
-                            Log.e(
+                        if (!store.markRinging(platformAlarmId)) {
+                            // A concurrent broadcast delivery may have already claimed and rung
+                            // this occurrence; only remove the row if it genuinely isn't there.
+                            if (store.get(platformAlarmId)?.state != AlarmState.RINGING) {
+                                Log.e(
+                                    TAG,
+                                    "Failed to deliver a missed native alarm; it was removed: " +
+                                        platformAlarmId,
+                                )
+                                store.remove(platformAlarmId)
+                            }
+                        } else {
+                            Log.w(
                                 TAG,
-                                "Failed to deliver a missed native alarm; it was removed: $platformAlarmId",
+                                "Delivering an alarm that was due while the device was off or " +
+                                    "the app was killed instead of discarding it: $platformAlarmId",
                             )
-                            store.remove(platformAlarmId)
+                            if (!AlarmReceiver().deliverAlreadyRingingAlarm(appContext, store, request)) {
+                                Log.e(
+                                    TAG,
+                                    "Failed to deliver a missed native alarm; it was removed: " +
+                                        platformAlarmId,
+                                )
+                                store.remove(platformAlarmId)
+                            }
                         }
                     } else {
                         Log.w(

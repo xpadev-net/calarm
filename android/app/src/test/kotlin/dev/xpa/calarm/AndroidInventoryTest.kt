@@ -284,13 +284,13 @@ class AndroidInventoryTest {
         val missed = alarmRequest(
             platformAlarmId = "android:plan:missed-duplicate-1",
             reservationId = "missed-duplicate",
-            occurrenceId = "missed-duplicate-occurrence-1",
+            occurrenceId = "missed-duplicate-1",
             scheduledAtMillis = System.currentTimeMillis() - 1_000,
         )
         val other = alarmRequest(
             platformAlarmId = "android:plan:missed-duplicate-2",
             reservationId = "missed-duplicate",
-            occurrenceId = "missed-duplicate-occurrence-2",
+            occurrenceId = "missed-duplicate-2",
         )
         mirrorPreferences().edit()
             .putString(missed.platformAlarmId, missed.toJson().toString())
@@ -485,6 +485,18 @@ class AndroidInventoryTest {
             AlarmState.SCHEDULED,
             store.get(lookupPlatformAlarmId)?.state,
         )
+    }
+
+    @Test
+    fun `mark ringing rejects an already ringing row so only one caller can win it`() {
+        val platformAlarmId = "android:plan:mark-ringing-twice"
+        val request = alarmRequest(platformAlarmId)
+        val store = AlarmStore(context)
+        assertTrue(store.put(request))
+
+        assertTrue(store.markRinging(platformAlarmId))
+        assertFalse(store.markRinging(platformAlarmId))
+        assertEquals(AlarmState.RINGING, store.get(platformAlarmId)?.state)
     }
 
     @Test
