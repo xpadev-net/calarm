@@ -51,7 +51,24 @@ class AlarmReceiver : BroadcastReceiver() {
         ) return
         if (request.state == AlarmState.RINGING) return
         if (!store.markRinging(platformAlarmId)) return
-        deliverAlarm(
+        deliverAlreadyRingingAlarm(context, store, request)
+    }
+
+    /**
+     * Delivers [request] (notification, full-screen intent, vibration) as if it had just
+     * fired. Callers must have already transitioned the persisted row to [AlarmState.RINGING]
+     * (e.g. via [AlarmStore.markRinging]) *and* checked it wasn't already ringing beforehand —
+     * every call site (a normal fire, a boot catch-up, an inventory catch-up) gates on that
+     * check, which is what keeps repeated invocations from re-delivering; this function itself
+     * has no such guard.
+     */
+    internal fun deliverAlreadyRingingAlarm(
+        context: Context,
+        store: AlarmStore,
+        request: AlarmRequest,
+    ): Boolean {
+        val platformAlarmId = request.platformAlarmId
+        return deliverAlarm(
             store = store,
             platformAlarmId = platformAlarmId,
             notification = {
@@ -59,10 +76,7 @@ class AlarmReceiver : BroadcastReceiver() {
                     context,
                     platformAlarmId,
                     request,
-                    store.nextScheduledAfter(
-                        request.wakePlanId,
-                        request.scheduledAtMillis,
-                    ),
+                    store.nextScheduledAfter(request.wakePlanId, request.scheduledAtMillis),
                 )
             },
             screen = { openAlarmScreen(context, platformAlarmId) },

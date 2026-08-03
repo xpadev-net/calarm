@@ -116,23 +116,64 @@ class AndroidInventoryTest {
     }
 
     @Test
-    fun `inventory removes expired and corrupt rows and does not return them as success`() {
-        val expired = alarmRequest(
-            platformAlarmId = "android:plan:expired-inventory",
-            scheduledAtMillis = System.currentTimeMillis() - 1_000,
-        )
+    fun `inventory removes corrupt rows and does not return them as success`() {
         mirrorPreferences().edit()
-            .putString(expired.platformAlarmId, expired.toJson().toString())
             .putString("android:plan:corrupt-inventory", "not-json")
             .commit()
-        armForRecoveryTest(expired)
 
         val snapshot = AlarmStore(context).inventory(context, System.currentTimeMillis())
 
         assertTrue(snapshot.requests.isEmpty())
         assertTrue(snapshot.corruptKeys.contains("android:plan:corrupt-inventory"))
-        assertFalse(mirrorPreferences().contains(expired.platformAlarmId))
         assertFalse(mirrorPreferences().contains("android:plan:corrupt-inventory"))
+        assertTrue(scheduledAlarmIds().isEmpty())
+    }
+
+    @Test
+    fun `inventory delivers a recently missed alarm instead of discarding it`() {
+        val missed = alarmRequest(
+            platformAlarmId = "android:plan:missed-inventory",
+            scheduledAtMillis = System.currentTimeMillis() - 1_000,
+            vibrationEnabled = true,
+        )
+        assertTrue(AlarmStore(context).put(missed))
+        armForRecoveryTest(missed)
+
+        val snapshot = AlarmStore(context).inventory(context, System.currentTimeMillis())
+
+        assertEquals(1, snapshot.requests.size)
+        assertEquals(AlarmState.RINGING, snapshot.requests.single().state)
+        assertEquals(AlarmState.RINGING, AlarmStore(context).get(missed.platformAlarmId)?.state)
+        assertNotNull(
+            Shadows.shadowOf(context.applicationContext as Application).peekNextStartedActivity(),
+        )
+        assertFalse(
+            context.getSystemService(NotificationManager::class.java)
+                .activeNotifications
+                .isEmpty(),
+        )
+        assertTrue(scheduledAlarmIds().isEmpty())
+    }
+
+    @Test
+    fun `inventory discards an alarm missed long beyond the catch-up window`() {
+        val staleMissed = alarmRequest(
+            platformAlarmId = "android:plan:stale-missed-inventory",
+            scheduledAtMillis = System.currentTimeMillis() -
+                MISSED_ALARM_CATCH_UP_WINDOW_MILLIS - 60_000,
+        )
+        mirrorPreferences().edit()
+            .putString(staleMissed.platformAlarmId, staleMissed.toJson().toString())
+            .commit()
+        armForRecoveryTest(staleMissed)
+
+        val snapshot = AlarmStore(context).inventory(context, System.currentTimeMillis())
+
+        assertTrue(snapshot.requests.isEmpty())
+        assertFalse(mirrorPreferences().contains(staleMissed.platformAlarmId))
+        assertNull(
+            Shadows.shadowOf(context.applicationContext as Application).peekNextStartedActivity(),
+        )
         assertTrue(scheduledAlarmIds().isEmpty())
     }
 
@@ -236,6 +277,42 @@ class AndroidInventoryTest {
 
         assertTrue(snapshot.requests.isEmpty())
         assertTrue(snapshot.duplicateIdentity!!.contains("duplicate"))
+    }
+
+    @Test
+    fun `a missed alarm colliding with a duplicate identity is reported as corrupt without ringing`() {
+        val missed = alarmRequest(
+            platformAlarmId = "android:plan:missed-duplicate-1",
+            reservationId = "missed-duplicate",
+            occurrenceId = "missed-duplicate-1",
+            scheduledAtMillis = System.currentTimeMillis() - 1_000,
+        )
+        val other = alarmRequest(
+            platformAlarmId = "android:plan:missed-duplicate-2",
+            reservationId = "missed-duplicate",
+            occurrenceId = "missed-duplicate-2",
+        )
+        mirrorPreferences().edit()
+            .putString(missed.platformAlarmId, missed.toJson().toString())
+            .putString(other.platformAlarmId, other.toJson().toString())
+            .commit()
+        armForRecoveryTest(missed)
+
+        val snapshot = AlarmStore(context).inventory(context, System.currentTimeMillis())
+
+        assertTrue(snapshot.requests.isEmpty())
+        assertTrue(snapshot.duplicateIdentity!!.contains("missed-duplicate"))
+        assertNull(
+            Shadows.shadowOf(context.applicationContext as Application).peekNextStartedActivity(),
+        )
+        assertNotEquals(
+            AlarmState.RINGING,
+            AlarmStore(context).get(missed.platformAlarmId)?.state,
+        )
+        // The pending AlarmManager entry must survive a duplicate-identity bail-out: cancelling
+        // it here would be irreversible, and the row hasn't been reported delivered or removed.
+        assertEquals(1, scheduledAlarmIds().size)
+        assertEquals(missed.platformAlarmId, scheduledAlarmIds().single())
     }
 
     @Test
@@ -413,6 +490,18 @@ class AndroidInventoryTest {
             AlarmState.SCHEDULED,
             store.get(lookupPlatformAlarmId)?.state,
         )
+    }
+
+    @Test
+    fun `mark ringing rejects an already ringing row so only one caller can win it`() {
+        val platformAlarmId = "android:plan:mark-ringing-twice"
+        val request = alarmRequest(platformAlarmId)
+        val store = AlarmStore(context)
+        assertTrue(store.put(request))
+
+        assertTrue(store.markRinging(platformAlarmId))
+        assertFalse(store.markRinging(platformAlarmId))
+        assertEquals(AlarmState.RINGING, store.get(platformAlarmId)?.state)
     }
 
     @Test
