@@ -7,7 +7,8 @@ import '../../../core/time/time.dart';
 import '../../wake_plan/domain/wake_plan_domain.dart';
 import '../model/week_calendar_interaction.dart';
 
-typedef WeekCalendarTapCallback = void Function(WeekCalendarTapTarget target);
+typedef WeekCalendarTapCallback =
+    void Function(WeekCalendarTapTarget target, WeekRange week);
 typedef WeekCalendarWakePlanTapCallback =
     void Function(WeekCalendarWakePlanTapTarget target);
 typedef WeekCalendarHourHeightChanged = void Function(double hourHeight);
@@ -538,9 +539,9 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
     final snapIntervalMinutes = weekCalendarTapSnapIntervalMinutes(
       _displayHourHeight,
     );
-    final previewDurationMinutes = weekCalendarBoundedDraftDuration(
+    final previewDuration = weekCalendarBoundedDraftDuration(
       widget.draftDuration,
-    ).inMinutes;
+    );
 
     return Column(
       children: [
@@ -618,7 +619,7 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
                           setState(() {
                             _tapPreviewTarget = null;
                           });
-                          widget.onTargetTap?.call(target);
+                          widget.onTargetTap?.call(target, widget.week);
                         },
                         child: Stack(
                           children: [
@@ -631,7 +632,7 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
                             if (_tapPreviewTarget case final preview?)
                               for (final segment in _tapPreviewSegments(
                                 target: preview,
-                                durationMinutes: previewDurationMinutes,
+                                duration: previewDuration,
                                 week: widget.week,
                               ))
                                 _TapPreviewCell(
@@ -1419,21 +1420,31 @@ class _DraftHandleControlState extends State<_DraftHandleControl> {
   }
 }
 
-/// Builds the segments a tap-preview draft of [durationMinutes] starting at
+/// Builds the segments a tap-preview draft of [duration] starting at
 /// [target] would occupy, reusing the same day-splitting [_draftSegments]
 /// uses for real drafts so a preview that crosses midnight is shown as a
 /// continuation in the next visible day instead of one clipped cell — the
 /// same shape the draft created on tap-up will actually have.
+///
+/// [duration] is capped to [week] the same way the real draft created on
+/// tap-up is (see weekCalendarClampDraftDurationToWeek), so a tap on the
+/// last visible day never previews — or creates — a continuation past the
+/// edge of what's currently on screen.
 List<_DraftSegment> _tapPreviewSegments({
   required WeekCalendarTapTarget target,
-  required int durationMinutes,
+  required Duration duration,
   required WeekRange week,
 }) {
   final startAt = target.dateTime;
+  final cappedDuration = weekCalendarClampDraftDurationToWeek(
+    startAt: startAt,
+    duration: duration,
+    week: week,
+  );
   final draft = WeekCalendarDraft(
     id: 'tap-preview',
     startAt: startAt,
-    endAt: startAt.add(Duration(minutes: durationMinutes)),
+    endAt: startAt.add(cappedDuration),
     createdAt: startAt,
   );
   return _draftSegments(draft, week);

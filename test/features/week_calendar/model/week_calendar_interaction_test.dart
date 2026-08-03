@@ -231,6 +231,41 @@ void main() {
     });
   });
 
+  group('weekCalendarClampDraftDurationToWeek', () {
+    test('leaves a duration that fits inside the visible week unchanged', () {
+      final duration = weekCalendarClampDraftDurationToWeek(
+        startAt: DateTime(2026, 7, 8, 22),
+        duration: const Duration(hours: 1),
+        week: week,
+      );
+
+      expect(duration, const Duration(hours: 1));
+    });
+
+    test('caps a duration that would cross the end of the visible week', () {
+      final duration = weekCalendarClampDraftDurationToWeek(
+        startAt: DateTime(2026, 7, 12, 23),
+        duration: const Duration(hours: 1),
+        week: week,
+      );
+
+      expect(duration, const Duration(hours: 1));
+      final endAt = DateTime(2026, 7, 12, 23).add(duration);
+      expect(endAt, DateTime(2026, 7, 13));
+      expect(endAt.isAfter(week.endExclusive.startOfDay), isFalse);
+    });
+
+    test('shrinks a longer duration down to exactly the remaining room', () {
+      final duration = weekCalendarClampDraftDurationToWeek(
+        startAt: DateTime(2026, 7, 12, 22),
+        duration: const Duration(hours: 3),
+        week: week,
+      );
+
+      expect(duration, const Duration(hours: 2));
+    });
+  });
+
   group('WeekCalendarDraft', () {
     final target = WeekCalendarTapTarget(
       day: CalendarDay(year: 2026, month: 7, day: 8),

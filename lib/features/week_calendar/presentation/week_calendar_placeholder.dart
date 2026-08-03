@@ -189,8 +189,12 @@ class _WeekCalendarPlaceholderState
               draftInteractionEnabled:
                   !_savingDraft && !_draftSubmissionAttempted,
               recenterRequest: _recenterRequest,
-              onTargetTap: (target) {
-                _createDraft(target: target, defaults: currentDefaults);
+              onTargetTap: (target, week) {
+                _createDraft(
+                  target: target,
+                  week: week,
+                  defaults: currentDefaults,
+                );
               },
               onWakePlanTap: (target) {
                 _openDetailSheet(
@@ -306,17 +310,26 @@ class _WeekCalendarPlaceholderState
 
   void _createDraft({
     required WeekCalendarTapTarget target,
+    required WeekRange week,
     required AppSettings defaults,
   }) {
     if (_draft != null) {
       return;
     }
     final now = ref.read(weekCalendarClockProvider)();
+    // Capped to the tapped page's visible range: a duration that crossed
+    // into a day beyond it would have no adjacent page built to render its
+    // continuation on, so it'd be an invisible, unverifiable commitment.
+    final cappedDuration = weekCalendarClampDraftDurationToWeek(
+      startAt: target.dateTime,
+      duration: defaults.defaultStartOffset,
+      week: week,
+    );
     setState(() {
       _draft = weekCalendarDraftFromTap(
         id: _newDraftId(),
         target: target,
-        defaultDuration: defaults.defaultStartOffset,
+        defaultDuration: cappedDuration,
         createdAt: now,
       );
       _draftSubmissionAttempted = false;

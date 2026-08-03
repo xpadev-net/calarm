@@ -306,6 +306,10 @@ void main() {
           day: CalendarDay(year: 2026, month: 7, day: 9),
           time: TimeOfDayMinutes.fromHourMinute(hour: 10, minute: 0),
         ),
+        WeekRange(
+          start: CalendarDay(year: 2026, month: 7, day: 9),
+          visibleDays: 2,
+        ),
       );
       await tester.pump();
       calendar = tester.widget<WeekCalendarView>(find.byType(WeekCalendarView));
@@ -413,6 +417,10 @@ void main() {
             day: CalendarDay(year: 2026, month: 7, day: 8),
             time: testCase.time,
           ),
+          WeekRange(
+            start: CalendarDay(year: 2026, month: 7, day: 8),
+            visibleDays: 2,
+          ),
         );
         await tester.pumpAndSettle();
 
@@ -490,6 +498,10 @@ void main() {
             day: CalendarDay(year: 2026, month: 7, day: 9),
             time: TimeOfDayMinutes.fromHourMinute(hour: 9, minute: 0),
           ),
+          WeekRange(
+            start: CalendarDay(year: 2026, month: 7, day: 9),
+            visibleDays: 2,
+          ),
         );
         await tester.pumpAndSettle();
 
@@ -561,6 +573,10 @@ void main() {
         day: CalendarDay(year: 2026, month: 7, day: 9),
         time: TimeOfDayMinutes.fromHourMinute(hour: 9, minute: 0),
       ),
+      WeekRange(
+        start: CalendarDay(year: 2026, month: 7, day: 9),
+        visibleDays: 2,
+      ),
     );
     await tester.pump();
     final original = _calendar(tester).draft!;
@@ -615,6 +631,10 @@ void main() {
       WeekCalendarTapTarget(
         day: CalendarDay(year: 2026, month: 7, day: 9),
         time: TimeOfDayMinutes.fromHourMinute(hour: 9, minute: 0),
+      ),
+      WeekRange(
+        start: CalendarDay(year: 2026, month: 7, day: 9),
+        visibleDays: 2,
       ),
     );
     await tester.pump();
@@ -671,6 +691,10 @@ void main() {
       WeekCalendarTapTarget(
         day: CalendarDay(year: 2026, month: 12, day: 31),
         time: TimeOfDayMinutes.fromHourMinute(hour: 23, minute: 0),
+      ),
+      WeekRange(
+        start: CalendarDay(year: 2026, month: 12, day: 31),
+        visibleDays: 2,
       ),
     );
     await tester.pump();
@@ -823,6 +847,10 @@ void main() {
           day: CalendarDay(year: 2026, month: 7, day: 8),
           time: TimeOfDayMinutes.fromHourMinute(hour: 19, minute: 0),
         ),
+        WeekRange(
+          start: CalendarDay(year: 2026, month: 7, day: 8),
+          visibleDays: 2,
+        ),
       );
       await tester.pumpAndSettle();
       expect(find.byType(InlineWakePlanEditor), findsOneWidget);
@@ -900,6 +928,10 @@ void main() {
       WeekCalendarTapTarget(
         day: CalendarDay(year: 2026, month: 7, day: 9),
         time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+      ),
+      WeekRange(
+        start: CalendarDay(year: 2026, month: 7, day: 9),
+        visibleDays: 2,
       ),
     );
     await tester.pumpAndSettle();
@@ -1019,6 +1051,10 @@ void main() {
           day: CalendarDay(year: 2026, month: 7, day: 9),
           time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
         ),
+        WeekRange(
+          start: CalendarDay(year: 2026, month: 7, day: 9),
+          visibleDays: 2,
+        ),
       );
       await tester.pump();
 
@@ -1069,6 +1105,10 @@ void main() {
         WeekCalendarTapTarget(
           day: CalendarDay(year: 2026, month: 7, day: 9),
           time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+        ),
+        WeekRange(
+          start: CalendarDay(year: 2026, month: 7, day: 9),
+          visibleDays: 2,
         ),
       );
       await tester.pumpAndSettle();
@@ -1279,9 +1319,9 @@ void main() {
       time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
     );
 
-    calendar.onTargetTap!(target);
+    calendar.onTargetTap!(target, WeekRange(start: target.day, visibleDays: 2));
     await tester.pump();
-    calendar.onTargetTap!(target);
+    calendar.onTargetTap!(target, WeekRange(start: target.day, visibleDays: 2));
     await tester.pump();
 
     expect(
@@ -1339,6 +1379,10 @@ void main() {
       WeekCalendarTapTarget(
         day: CalendarDay(year: 2026, month: 7, day: 9),
         time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+      ),
+      WeekRange(
+        start: CalendarDay(year: 2026, month: 7, day: 9),
+        visibleDays: 2,
       ),
     );
     await tester.pump();
@@ -1400,6 +1444,10 @@ void main() {
         day: CalendarDay(year: 2026, month: 7, day: 9),
         time: TimeOfDayMinutes.fromHourMinute(hour: 23, minute: 30),
       ),
+      WeekRange(
+        start: CalendarDay(year: 2026, month: 7, day: 9),
+        visibleDays: 2,
+      ),
     );
     await tester.pump();
     final draft = _calendar(tester).draft!;
@@ -1460,6 +1508,10 @@ void main() {
         day: CalendarDay(year: 2026, month: 7, day: 9),
         time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
       ),
+      WeekRange(
+        start: CalendarDay(year: 2026, month: 7, day: 9),
+        visibleDays: 2,
+      ),
     );
     await tester.pump();
 
@@ -1511,6 +1563,10 @@ void main() {
       WeekCalendarTapTarget(
         day: CalendarDay(year: 2026, month: 7, day: 9),
         time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+      ),
+      WeekRange(
+        start: CalendarDay(year: 2026, month: 7, day: 9),
+        visibleDays: 2,
       ),
     );
     await tester.pumpAndSettle();
@@ -1605,6 +1661,10 @@ void main() {
           day: CalendarDay(year: 2026, month: 7, day: 9),
           time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
         ),
+        WeekRange(
+          start: CalendarDay(year: 2026, month: 7, day: 9),
+          visibleDays: 2,
+        ),
       );
       await tester.pump();
 
@@ -1658,6 +1718,10 @@ void main() {
       WeekCalendarTapTarget(
         day: CalendarDay(year: 2026, month: 7, day: 9),
         time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+      ),
+      WeekRange(
+        start: CalendarDay(year: 2026, month: 7, day: 9),
+        visibleDays: 2,
       ),
     );
     await tester.pumpAndSettle();

@@ -495,6 +495,27 @@ WeekCalendarTapTarget weekCalendarClampTapTargetToWeek({
   );
 }
 
+/// Caps [duration] so a draft starting at [startAt] never extends past the
+/// end of [week]. A draft (or its preview) that crossed into a day beyond
+/// the visible range would have an invisible, unverifiable continuation —
+/// there is no adjacent page built to render it on — so a tap-created draft
+/// is capped to what's actually shown instead.
+///
+/// Callers that feed the result into [weekCalendarDraftFromTap] should call
+/// this last, after any other duration bounding: every [startAt] this app
+/// produces from a grid tap is already snapped to a 5-minute-or-coarser
+/// grid, so the visible room until [week] ends is always an exact multiple
+/// of 5 minutes, meaning this cap survives weekCalendarBoundedDraftDuration's
+/// 5-minute rounding without being pushed back over the limit.
+Duration weekCalendarClampDraftDurationToWeek({
+  required DateTime startAt,
+  required Duration duration,
+  required WeekRange week,
+}) {
+  final visibleRoom = week.endExclusive.startOfDay.difference(startAt);
+  return duration > visibleRoom ? visibleRoom : duration;
+}
+
 List<WeekCalendarWakePlanBlock> weekCalendarWakePlanBlocks({
   required WeekRange week,
   required Iterable<WakePlan> wakePlans,
