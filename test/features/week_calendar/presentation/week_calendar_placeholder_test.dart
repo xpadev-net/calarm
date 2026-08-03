@@ -298,10 +298,17 @@ void main() {
       var calendar = tester.widget<WeekCalendarView>(
         find.byType(WeekCalendarView),
       );
+      // The default view is 1 day wide and pages by a single day, so after
+      // one drag from July 8 the only visible day is July 9 — the draft
+      // must land there for its handles to actually be in the tree.
       calendar.onTargetTap!(
         WeekCalendarTapTarget(
-          day: CalendarDay(year: 2026, month: 7, day: 15),
+          day: CalendarDay(year: 2026, month: 7, day: 9),
           time: TimeOfDayMinutes.fromHourMinute(hour: 10, minute: 0),
+        ),
+        WeekRange(
+          start: CalendarDay(year: 2026, month: 7, day: 9),
+          visibleDays: 2,
         ),
       );
       await tester.pump();
@@ -410,6 +417,10 @@ void main() {
             day: CalendarDay(year: 2026, month: 7, day: 8),
             time: testCase.time,
           ),
+          WeekRange(
+            start: CalendarDay(year: 2026, month: 7, day: 8),
+            visibleDays: 2,
+          ),
         );
         await tester.pumpAndSettle();
 
@@ -487,6 +498,10 @@ void main() {
             day: CalendarDay(year: 2026, month: 7, day: 9),
             time: TimeOfDayMinutes.fromHourMinute(hour: 9, minute: 0),
           ),
+          WeekRange(
+            start: CalendarDay(year: 2026, month: 7, day: 9),
+            visibleDays: 2,
+          ),
         );
         await tester.pumpAndSettle();
 
@@ -558,6 +573,10 @@ void main() {
         day: CalendarDay(year: 2026, month: 7, day: 9),
         time: TimeOfDayMinutes.fromHourMinute(hour: 9, minute: 0),
       ),
+      WeekRange(
+        start: CalendarDay(year: 2026, month: 7, day: 9),
+        visibleDays: 2,
+      ),
     );
     await tester.pump();
     final original = _calendar(tester).draft!;
@@ -612,6 +631,10 @@ void main() {
       WeekCalendarTapTarget(
         day: CalendarDay(year: 2026, month: 7, day: 9),
         time: TimeOfDayMinutes.fromHourMinute(hour: 9, minute: 0),
+      ),
+      WeekRange(
+        start: CalendarDay(year: 2026, month: 7, day: 9),
+        visibleDays: 2,
       ),
     );
     await tester.pump();
@@ -668,6 +691,10 @@ void main() {
       WeekCalendarTapTarget(
         day: CalendarDay(year: 2026, month: 12, day: 31),
         time: TimeOfDayMinutes.fromHourMinute(hour: 23, minute: 0),
+      ),
+      WeekRange(
+        start: CalendarDay(year: 2026, month: 12, day: 31),
+        visibleDays: 2,
       ),
     );
     await tester.pump();
@@ -820,6 +847,10 @@ void main() {
           day: CalendarDay(year: 2026, month: 7, day: 8),
           time: TimeOfDayMinutes.fromHourMinute(hour: 19, minute: 0),
         ),
+        WeekRange(
+          start: CalendarDay(year: 2026, month: 7, day: 8),
+          visibleDays: 2,
+        ),
       );
       await tester.pumpAndSettle();
       expect(find.byType(InlineWakePlanEditor), findsOneWidget);
@@ -897,6 +928,10 @@ void main() {
       WeekCalendarTapTarget(
         day: CalendarDay(year: 2026, month: 7, day: 9),
         time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+      ),
+      WeekRange(
+        start: CalendarDay(year: 2026, month: 7, day: 9),
+        visibleDays: 2,
       ),
     );
     await tester.pumpAndSettle();
@@ -1016,6 +1051,10 @@ void main() {
           day: CalendarDay(year: 2026, month: 7, day: 9),
           time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
         ),
+        WeekRange(
+          start: CalendarDay(year: 2026, month: 7, day: 9),
+          visibleDays: 2,
+        ),
       );
       await tester.pump();
 
@@ -1067,6 +1106,10 @@ void main() {
           day: CalendarDay(year: 2026, month: 7, day: 9),
           time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
         ),
+        WeekRange(
+          start: CalendarDay(year: 2026, month: 7, day: 9),
+          visibleDays: 2,
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -1082,6 +1125,53 @@ void main() {
         tester.getRect(editor).bottom,
         lessThanOrEqualTo(tester.getRect(error).top),
       );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'defaults to the one-day view and can switch to it from other widths',
+    (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            weekCalendarRepositoryProvider.overrideWith(
+              (ref) async => repository,
+            ),
+            wakePlanDefaultsRepositoryProvider.overrideWith(
+              (ref) async => repository,
+            ),
+            weekCalendarClockProvider.overrideWith(
+              (ref) =>
+                  () => DateTime(2026, 7, 8, 5, 30),
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: SizedBox(height: 720, child: WeekCalendarPlaceholder()),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(_calendar(tester).visibleDays, 1);
+      expect(
+        find.byKey(const ValueKey('week-calendar-one-day-button')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('week-calendar-seven-day-button')),
+      );
+      await tester.pumpAndSettle();
+      expect(_calendar(tester).visibleDays, DateTime.daysPerWeek);
+
+      await tester.tap(
+        find.byKey(const ValueKey('week-calendar-one-day-button')),
+      );
+      await tester.pumpAndSettle();
+      expect(_calendar(tester).visibleDays, 1);
       expect(tester.takeException(), isNull);
     },
   );
@@ -1120,7 +1210,7 @@ void main() {
         find.byKey(const ValueKey('week-calendar-zoom-out-button')),
         findsNothing,
       );
-      expect(_calendar(tester).visibleDays, DateTime.daysPerWeek);
+      expect(_calendar(tester).visibleDays, 1);
 
       await tester.tap(
         find.byKey(const ValueKey('week-calendar-three-day-button')),
@@ -1148,7 +1238,7 @@ void main() {
           (_calendar(tester).hourHeight / 60);
 
       await _pinch(tester, surface, startDistance: 80, endDistance: 400);
-      expect(_calendar(tester).hourHeight, 92);
+      expect(_calendar(tester).hourHeight, weekCalendarMaxHourHeight);
       final afterMinute =
           (scrollController.offset + focalY) /
           (_calendar(tester).hourHeight / 60);
@@ -1229,9 +1319,9 @@ void main() {
       time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
     );
 
-    calendar.onTargetTap!(target);
+    calendar.onTargetTap!(target, WeekRange(start: target.day, visibleDays: 2));
     await tester.pump();
-    calendar.onTargetTap!(target);
+    calendar.onTargetTap!(target, WeekRange(start: target.day, visibleDays: 2));
     await tester.pump();
 
     expect(
@@ -1289,6 +1379,10 @@ void main() {
       WeekCalendarTapTarget(
         day: CalendarDay(year: 2026, month: 7, day: 9),
         time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+      ),
+      WeekRange(
+        start: CalendarDay(year: 2026, month: 7, day: 9),
+        visibleDays: 2,
       ),
     );
     await tester.pump();
@@ -1350,6 +1444,10 @@ void main() {
         day: CalendarDay(year: 2026, month: 7, day: 9),
         time: TimeOfDayMinutes.fromHourMinute(hour: 23, minute: 30),
       ),
+      WeekRange(
+        start: CalendarDay(year: 2026, month: 7, day: 9),
+        visibleDays: 2,
+      ),
     );
     await tester.pump();
     final draft = _calendar(tester).draft!;
@@ -1410,6 +1508,10 @@ void main() {
         day: CalendarDay(year: 2026, month: 7, day: 9),
         time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
       ),
+      WeekRange(
+        start: CalendarDay(year: 2026, month: 7, day: 9),
+        visibleDays: 2,
+      ),
     );
     await tester.pump();
 
@@ -1461,6 +1563,10 @@ void main() {
       WeekCalendarTapTarget(
         day: CalendarDay(year: 2026, month: 7, day: 9),
         time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+      ),
+      WeekRange(
+        start: CalendarDay(year: 2026, month: 7, day: 9),
+        visibleDays: 2,
       ),
     );
     await tester.pumpAndSettle();
@@ -1555,6 +1661,10 @@ void main() {
           day: CalendarDay(year: 2026, month: 7, day: 9),
           time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
         ),
+        WeekRange(
+          start: CalendarDay(year: 2026, month: 7, day: 9),
+          visibleDays: 2,
+        ),
       );
       await tester.pump();
 
@@ -1608,6 +1718,10 @@ void main() {
       WeekCalendarTapTarget(
         day: CalendarDay(year: 2026, month: 7, day: 9),
         time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+      ),
+      WeekRange(
+        start: CalendarDay(year: 2026, month: 7, day: 9),
+        visibleDays: 2,
       ),
     );
     await tester.pumpAndSettle();

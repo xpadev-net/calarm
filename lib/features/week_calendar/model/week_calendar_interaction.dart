@@ -8,6 +8,30 @@ const Duration weekCalendarDraftSnapInterval = Duration(minutes: 5);
 const Duration weekCalendarDraftMinimumDuration = Duration(minutes: 5);
 const Duration weekCalendarDraftMaximumDuration = Duration(hours: 3);
 
+/// Vertical zoom bounds for the calendar grid, in pixels per hour.
+const double weekCalendarMinHourHeight = 36;
+const double weekCalendarMaxHourHeight = 240;
+
+/// Hour-height thresholds at which the tap-to-create grid switches from a
+/// coarse 60-minute grid to 30 minutes, then 15 minutes, as the user zooms
+/// in. Sub-hour gridlines are drawn to match, so the grid a user sees is
+/// always the grid a tap snaps to.
+const double weekCalendarThirtyMinuteGridThreshold = 90;
+const double weekCalendarFifteenMinuteGridThreshold = 160;
+
+/// Snap interval, in minutes, used for tap-to-create targets at the given
+/// zoom level. See [weekCalendarThirtyMinuteGridThreshold] and
+/// [weekCalendarFifteenMinuteGridThreshold].
+int weekCalendarTapSnapIntervalMinutes(double hourHeight) {
+  if (hourHeight >= weekCalendarFifteenMinuteGridThreshold) {
+    return 15;
+  }
+  if (hourHeight >= weekCalendarThirtyMinuteGridThreshold) {
+    return 30;
+  }
+  return 60;
+}
+
 enum WeekCalendarDraftRangeError { notOrdered, tooShort, tooLong }
 
 class WeekCalendarDraftRangeEdit {
@@ -77,22 +101,31 @@ class WeekCalendarDraft {
   }
 }
 
-WeekCalendarDraft weekCalendarDraftFromTap({
-  required String id,
-  required WeekCalendarTapTarget target,
-  required Duration defaultDuration,
-  required DateTime createdAt,
-}) {
+/// Clamps [defaultDuration] to the allowed draft duration range and snaps it
+/// to [weekCalendarDraftSnapInterval] — the exact duration a draft created
+/// via [weekCalendarDraftFromTap] ends up with, so callers that need to
+/// preview that duration ahead of time (e.g. the tap-preview cell) show the
+/// same value the tap will actually produce.
+Duration weekCalendarBoundedDraftDuration(Duration defaultDuration) {
   final boundedDuration = defaultDuration < weekCalendarDraftMinimumDuration
       ? weekCalendarDraftMinimumDuration
       : defaultDuration > weekCalendarDraftMaximumDuration
       ? weekCalendarDraftMaximumDuration
       : defaultDuration;
   final intervalMinutes = weekCalendarDraftSnapInterval.inMinutes;
-  final snappedDuration = Duration(
+  return Duration(
     minutes:
         (boundedDuration.inMinutes / intervalMinutes).round() * intervalMinutes,
   );
+}
+
+WeekCalendarDraft weekCalendarDraftFromTap({
+  required String id,
+  required WeekCalendarTapTarget target,
+  required Duration defaultDuration,
+  required DateTime createdAt,
+}) {
+  final snappedDuration = weekCalendarBoundedDraftDuration(defaultDuration);
   final startAt = snapWeekCalendarDraftDateTime(target.dateTime);
   return WeekCalendarDraft(
     id: id,
@@ -234,21 +267,33 @@ class WeekCalendarPage {
   bool contains(CalendarDay day) => week.contains(day);
 
   WeekCalendarPage addPages(int pages) {
+    final step = weekCalendarPagingStepDays(week.visibleDays);
     return WeekCalendarPage(
       week: WeekRange(
-        start: week.start.addDays(pages * week.visibleDays),
+        start: week.start.addDays(pages * step),
         visibleDays: week.visibleDays,
       ),
     );
   }
 }
 
+/// Number of days a single page swipe moves the visible range by.
+///
+/// The full week view stays aligned to Sunday-start weeks, so it pages by a
+/// whole week. Every other width (1-day, 3-day, ...) slides by a single day
+/// so windows like 3-5, 4-6, 5-7 are reachable one swipe at a time.
+int weekCalendarPagingStepDays(int visibleDays) {
+  return visibleDays == DateTime.daysPerWeek ? DateTime.daysPerWeek : 1;
+}
+
 WeekRange currentCalendarRange(DateTime anchor, {required int visibleDays}) {
-  if (visibleDays != 3 && visibleDays != DateTime.daysPerWeek) {
+  if (visibleDays != 1 &&
+      visibleDays != 3 &&
+      visibleDays != DateTime.daysPerWeek) {
     throw ArgumentError.value(
       visibleDays,
       'visibleDays',
-      'must be 3 or ${DateTime.daysPerWeek}',
+      'must be 1, 3, or ${DateTime.daysPerWeek}',
     );
   }
 
@@ -393,6 +438,7 @@ WeekCalendarTapTarget weekCalendarTapTargetFromPosition({
   required double localY,
   required double gridWidth,
   required double gridHeight,
+  int snapIntervalMinutes = 5,
 }) {
   if (gridWidth <= 0) {
     throw ArgumentError.value(gridWidth, 'gridWidth', 'must be positive');
@@ -419,13 +465,55 @@ WeekCalendarTapTarget weekCalendarTapTargetFromPosition({
         )
       : roundMinutesSinceMidnightToNearestInterval(
           wholeMinute,
-          intervalMinutes: minimumWakePlanInterval.inMinutes,
+          intervalMinutes: snapIntervalMinutes,
         );
 
   return WeekCalendarTapTarget(
     day: week.start.addDays(dayIndex + rounded.dayOffset),
     time: rounded.time,
   );
+}
+
+/// A tap at the very bottom of the last visible day rounds to next-day
+/// midnight, one day past [week]'s end — off-grid, and not the same day the
+/// tap-preview cell shows. Clamps that case back to the last representable
+/// [snapIntervalMinutes] tick of the last visible day, so a tap that creates
+/// a draft always creates it on the day the preview showed.
+WeekCalendarTapTarget weekCalendarClampTapTargetToWeek({
+  required WeekCalendarTapTarget target,
+  required WeekRange week,
+  required int snapIntervalMinutes,
+}) {
+  if (target.day != week.endExclusive) {
+    return target;
+  }
+  return WeekCalendarTapTarget(
+    day: week.endExclusive.addDays(-1),
+    time: TimeOfDayMinutes.fromMinutesSinceMidnight(
+      TimeOfDayMinutes.minutesPerDay - snapIntervalMinutes,
+    ),
+  );
+}
+
+/// Caps [duration] so a draft starting at [startAt] never extends past the
+/// end of [week]. A draft (or its preview) that crossed into a day beyond
+/// the visible range would have an invisible, unverifiable continuation —
+/// there is no adjacent page built to render it on — so a tap-created draft
+/// is capped to what's actually shown instead.
+///
+/// Callers that feed the result into [weekCalendarDraftFromTap] should call
+/// this last, after any other duration bounding: every [startAt] this app
+/// produces from a grid tap is already snapped to a 5-minute-or-coarser
+/// grid, so the visible room until [week] ends is always an exact multiple
+/// of 5 minutes, meaning this cap survives weekCalendarBoundedDraftDuration's
+/// 5-minute rounding without being pushed back over the limit.
+Duration weekCalendarClampDraftDurationToWeek({
+  required DateTime startAt,
+  required Duration duration,
+  required WeekRange week,
+}) {
+  final visibleRoom = week.endExclusive.startOfDay.difference(startAt);
+  return duration > visibleRoom ? visibleRoom : duration;
 }
 
 List<WeekCalendarWakePlanBlock> weekCalendarWakePlanBlocks({

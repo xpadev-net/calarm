@@ -46,12 +46,12 @@ class _WeekCalendarPlaceholderState
     extends ConsumerState<WeekCalendarPlaceholder>
     with WidgetsBindingObserver {
   static final _draftRandom = Random.secure();
-  static const double _minHourHeight = 36;
-  static const double _maxHourHeight = 92;
+  static const double _minHourHeight = weekCalendarMinHourHeight;
+  static const double _maxHourHeight = weekCalendarMaxHourHeight;
 
   bool _sheetOpen = false;
   double _hourHeight = 52;
-  int _visibleDays = DateTime.daysPerWeek;
+  int _visibleDays = 1;
   WeekCalendarDraft? _draft;
   bool _savingDraft = false;
   bool _draftSubmissionAttempted = false;
@@ -139,6 +139,13 @@ class _WeekCalendarPlaceholderState
                 ),
               ),
               _CalendarControlButton(
+                key: const ValueKey('week-calendar-one-day-button'),
+                tooltip: 'Show 1 day',
+                selected: _visibleDays == 1,
+                label: '1',
+                onPressed: _draft == null ? () => _setVisibleDays(1) : null,
+              ),
+              _CalendarControlButton(
                 key: const ValueKey('week-calendar-three-day-button'),
                 tooltip: 'Show 3 days',
                 selected: _visibleDays == 3,
@@ -167,6 +174,7 @@ class _WeekCalendarPlaceholderState
               height: constraints.maxHeight,
               hourHeight: _hourHeight,
               visibleDays: _visibleDays,
+              draftDuration: currentDefaults.defaultStartOffset,
               onHourHeightChanged: _setHourHeight,
               draft: _draft,
               onDraftChanged: (draft) {
@@ -181,8 +189,12 @@ class _WeekCalendarPlaceholderState
               draftInteractionEnabled:
                   !_savingDraft && !_draftSubmissionAttempted,
               recenterRequest: _recenterRequest,
-              onTargetTap: (target) {
-                _createDraft(target: target, defaults: currentDefaults);
+              onTargetTap: (target, week) {
+                _createDraft(
+                  target: target,
+                  week: week,
+                  defaults: currentDefaults,
+                );
               },
               onWakePlanTap: (target) {
                 _openDetailSheet(
@@ -298,17 +310,26 @@ class _WeekCalendarPlaceholderState
 
   void _createDraft({
     required WeekCalendarTapTarget target,
+    required WeekRange week,
     required AppSettings defaults,
   }) {
     if (_draft != null) {
       return;
     }
     final now = ref.read(weekCalendarClockProvider)();
+    // Capped to the tapped page's visible range: a duration that crossed
+    // into a day beyond it would have no adjacent page built to render its
+    // continuation on, so it'd be an invisible, unverifiable commitment.
+    final cappedDuration = weekCalendarClampDraftDurationToWeek(
+      startAt: target.dateTime,
+      duration: defaults.defaultStartOffset,
+      week: week,
+    );
     setState(() {
       _draft = weekCalendarDraftFromTap(
         id: _newDraftId(),
         target: target,
-        defaultDuration: defaults.defaultStartOffset,
+        defaultDuration: cappedDuration,
         createdAt: now,
       );
       _draftSubmissionAttempted = false;

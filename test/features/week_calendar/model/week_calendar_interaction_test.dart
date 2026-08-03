@@ -23,7 +23,7 @@ void main() {
       );
     });
 
-    test('builds three-day periods from today and pages by three days', () {
+    test('builds three-day periods from today and pages by one day', () {
       final page = WeekCalendarPage.fromAnchor(
         DateTime(2026, 7, 8, 9),
         visibleDays: 3,
@@ -33,12 +33,63 @@ void main() {
       expect(page.week.start, CalendarDay(year: 2026, month: 7, day: 8));
       expect(
         page.addPages(1).week.start,
-        CalendarDay(year: 2026, month: 7, day: 11),
+        CalendarDay(year: 2026, month: 7, day: 9),
       );
       expect(
         page.addPages(-1).week.start,
-        CalendarDay(year: 2026, month: 7, day: 5),
+        CalendarDay(year: 2026, month: 7, day: 7),
       );
+    });
+
+    test('builds single-day periods from today and pages by one day', () {
+      final page = WeekCalendarPage.fromAnchor(
+        DateTime(2026, 7, 8, 9),
+        visibleDays: 1,
+      );
+
+      expect(page.days, hasLength(1));
+      expect(page.week.start, CalendarDay(year: 2026, month: 7, day: 8));
+      expect(
+        page.addPages(1).week.start,
+        CalendarDay(year: 2026, month: 7, day: 9),
+      );
+      expect(
+        page.addPages(-1).week.start,
+        CalendarDay(year: 2026, month: 7, day: 7),
+      );
+    });
+  });
+
+  group('weekCalendarPagingStepDays', () {
+    test('steps by a full week for the week view and by one day otherwise', () {
+      expect(weekCalendarPagingStepDays(DateTime.daysPerWeek), 7);
+      expect(weekCalendarPagingStepDays(3), 1);
+      expect(weekCalendarPagingStepDays(1), 1);
+    });
+  });
+
+  group('weekCalendarTapSnapIntervalMinutes', () {
+    test('coarsens to 60 minutes when zoomed out', () {
+      expect(weekCalendarTapSnapIntervalMinutes(weekCalendarMinHourHeight), 60);
+    });
+
+    test('refines to 30 minutes at medium zoom', () {
+      expect(
+        weekCalendarTapSnapIntervalMinutes(
+          weekCalendarThirtyMinuteGridThreshold,
+        ),
+        30,
+      );
+    });
+
+    test('refines to 15 minutes at high zoom', () {
+      expect(
+        weekCalendarTapSnapIntervalMinutes(
+          weekCalendarFifteenMinuteGridThreshold,
+        ),
+        15,
+      );
+      expect(weekCalendarTapSnapIntervalMinutes(weekCalendarMaxHourHeight), 15);
     });
   });
 
@@ -116,6 +167,19 @@ void main() {
       expect(target.time, TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0));
     });
 
+    test('snaps to the given interval instead of the five-minute default', () {
+      final target = weekCalendarTapTargetFromPosition(
+        week: week,
+        localX: 250,
+        localY: 423,
+        gridWidth: 700,
+        gridHeight: 1440,
+        snapIntervalMinutes: 30,
+      );
+
+      expect(target.time, TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0));
+    });
+
     test('keeps a 24:00 internal boundary by returning next-day midnight', () {
       final target = weekCalendarTapTargetFromPosition(
         week: week,
@@ -127,6 +191,78 @@ void main() {
 
       expect(target.day, CalendarDay(year: 2026, month: 7, day: 13));
       expect(target.time, TimeOfDayMinutes.fromHourMinute(hour: 0, minute: 0));
+    });
+  });
+
+  group('weekCalendarClampTapTargetToWeek', () {
+    test('clamps a next-day-midnight rollover to the last visible day', () {
+      final rolledOver = WeekCalendarTapTarget(
+        day: week.endExclusive,
+        time: TimeOfDayMinutes.fromHourMinute(hour: 0, minute: 0),
+      );
+
+      final clamped = weekCalendarClampTapTargetToWeek(
+        target: rolledOver,
+        week: week,
+        snapIntervalMinutes: 30,
+      );
+
+      expect(clamped.day, week.endExclusive.addDays(-1));
+      expect(
+        clamped.time,
+        TimeOfDayMinutes.fromHourMinute(hour: 23, minute: 30),
+      );
+    });
+
+    test('passes through a target already inside the visible week', () {
+      final target = WeekCalendarTapTarget(
+        day: CalendarDay(year: 2026, month: 7, day: 8),
+        time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+      );
+
+      final clamped = weekCalendarClampTapTargetToWeek(
+        target: target,
+        week: week,
+        snapIntervalMinutes: 30,
+      );
+
+      expect(clamped.day, target.day);
+      expect(clamped.time, target.time);
+    });
+  });
+
+  group('weekCalendarClampDraftDurationToWeek', () {
+    test('leaves a duration that fits inside the visible week unchanged', () {
+      final duration = weekCalendarClampDraftDurationToWeek(
+        startAt: DateTime(2026, 7, 8, 22),
+        duration: const Duration(hours: 1),
+        week: week,
+      );
+
+      expect(duration, const Duration(hours: 1));
+    });
+
+    test('caps a duration that would cross the end of the visible week', () {
+      final duration = weekCalendarClampDraftDurationToWeek(
+        startAt: DateTime(2026, 7, 12, 23),
+        duration: const Duration(hours: 1),
+        week: week,
+      );
+
+      expect(duration, const Duration(hours: 1));
+      final endAt = DateTime(2026, 7, 12, 23).add(duration);
+      expect(endAt, DateTime(2026, 7, 13));
+      expect(endAt.isAfter(week.endExclusive.startOfDay), isFalse);
+    });
+
+    test('shrinks a longer duration down to exactly the remaining room', () {
+      final duration = weekCalendarClampDraftDurationToWeek(
+        startAt: DateTime(2026, 7, 12, 22),
+        duration: const Duration(hours: 3),
+        week: week,
+      );
+
+      expect(duration, const Duration(hours: 2));
     });
   });
 

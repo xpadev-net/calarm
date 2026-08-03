@@ -671,7 +671,7 @@ class _FlowHarnessState extends State<_FlowHarness> {
       now: _now,
       initialWeek: WeekRange(start: CalendarDay(year: 2026, month: 7, day: 6)),
       wakePlans: _plans,
-      onTargetTap: (target) {
+      onTargetTap: (target, week) {
         showModalBottomSheet<WakePlanSchedulingResult>(
           context: context,
           builder: (context) {

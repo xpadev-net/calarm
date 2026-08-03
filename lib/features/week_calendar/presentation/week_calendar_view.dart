@@ -7,7 +7,8 @@ import '../../../core/time/time.dart';
 import '../../wake_plan/domain/wake_plan_domain.dart';
 import '../model/week_calendar_interaction.dart';
 
-typedef WeekCalendarTapCallback = void Function(WeekCalendarTapTarget target);
+typedef WeekCalendarTapCallback =
+    void Function(WeekCalendarTapTarget target, WeekRange week);
 typedef WeekCalendarWakePlanTapCallback =
     void Function(WeekCalendarWakePlanTapTarget target);
 typedef WeekCalendarHourHeightChanged = void Function(double hourHeight);
@@ -29,6 +30,7 @@ class WeekCalendarView extends StatefulWidget {
     this.onDraftChanged,
     this.draftInteractionEnabled = true,
     this.recenterRequest = 0,
+    this.draftDuration = defaultWakePlanStartOffset,
   });
 
   final DateTime now;
@@ -45,6 +47,12 @@ class WeekCalendarView extends StatefulWidget {
   final bool draftInteractionEnabled;
   final int recenterRequest;
 
+  /// The duration a tap-to-create draft will actually get (before snapping
+  /// to [weekCalendarDraftSnapInterval] and clamping to the allowed range).
+  /// Used only to size the tap-down preview cell so it matches the draft
+  /// that tapping up will create.
+  final Duration draftDuration;
+
   @override
   State<WeekCalendarView> createState() => _WeekCalendarViewState();
 }
@@ -55,8 +63,12 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
 
   late final WeekCalendarPage _initialCalendarPage;
   late final PageController _pageController;
+  late final ValueNotifier<double> _axisOffset;
   late int _appliedRecenterRequest;
   late int _recenterPageIndex;
+  late int _currentPageIndex;
+  final Map<int, ScrollController> _pageScrollControllers = {};
+  VoidCallback? _removeActiveScrollListener;
   bool _pinching = false;
 
   @override
@@ -67,7 +79,15 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
           widget.initialWeek ??
           currentCalendarRange(widget.now, visibleDays: widget.visibleDays),
     );
-    _pageController = PageController(initialPage: _initialPage);
+    _currentPageIndex = _initialPage;
+    _pageController = PageController(initialPage: _initialPage)
+      ..addListener(_handlePageControllerChanged);
+    final axisTarget = initialWeekCalendarScrollTarget(
+      week: _initialCalendarPage.week,
+      now: widget.now,
+      pixelsPerMinute: widget.hourHeight / TimeOfDayMinutes.minutesPerHour,
+    );
+    _axisOffset = ValueNotifier<double>(axisTarget.offset);
     _appliedRecenterRequest = widget.recenterRequest;
     _recenterPageIndex = _pageIndexForDay(CalendarDay.fromDateTime(widget.now));
   }
@@ -87,40 +107,159 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
 
   @override
   void dispose() {
+    _removeActiveScrollListener?.call();
+    _pageController.removeListener(_handlePageControllerChanged);
     _pageController.dispose();
+    _axisOffset.dispose();
     super.dispose();
+  }
+
+  void _handlePageControllerChanged() {
+    final page = _pageController.page;
+    if (page == null) {
+      return;
+    }
+    final rounded = page.round();
+    if (rounded != _currentPageIndex) {
+      _currentPageIndex = rounded;
+      _updateActiveScrollSync();
+    }
+  }
+
+  // Only the page the PageController currently reports as active drives the
+  // fixed axis: PageView.builder constructs the neighboring page as soon as
+  // a swipe starts, and that neighbor's own scroll position (e.g. "today" vs
+  // a default 05:00 target) would otherwise fight with the visible page's.
+  void _registerPageScrollController(
+    int pageIndex,
+    ScrollController? controller,
+  ) {
+    if (controller == null) {
+      _pageScrollControllers.remove(pageIndex);
+    } else {
+      _pageScrollControllers[pageIndex] = controller;
+    }
+    if (pageIndex == _currentPageIndex) {
+      _updateActiveScrollSync();
+    }
+  }
+
+  void _updateActiveScrollSync() {
+    _removeActiveScrollListener?.call();
+    _removeActiveScrollListener = null;
+    final controller = _pageScrollControllers[_currentPageIndex];
+    if (controller == null) {
+      return;
+    }
+    void listener() {
+      if (!mounted || !controller.hasClients) {
+        return;
+      }
+      _axisOffset.value = controller.offset;
+    }
+
+    controller.addListener(listener);
+    _removeActiveScrollListener = () => controller.removeListener(listener);
+    // Registration/page-index changes can happen while a descendant is
+    // still being built or laid out, so defer the initial read a frame
+    // rather than mutating the notifier synchronously.
+    WidgetsBinding.instance.addPostFrameCallback((_) => listener());
   }
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return SizedBox(
       height: widget.height,
-      child: PageView.builder(
-        controller: _pageController,
-        physics: _pinching || widget.draft != null
-            ? const NeverScrollableScrollPhysics()
-            : null,
-        itemBuilder: (context, index) {
-          final week = _initialCalendarPage.addPages(index - _initialPage).week;
-          return _WeekCalendarWeekPage(
-            key: ValueKey<CalendarDay>(week.start),
-            week: week,
-            now: widget.now,
-            wakePlans: widget.wakePlans,
-            onTargetTap: widget.onTargetTap,
-            onWakePlanTap: widget.onWakePlanTap,
-            hourHeight: widget.hourHeight,
-            timeAxisWidth: _timeAxisWidth,
-            onHourHeightChanged: widget.onHourHeightChanged,
-            onPinchStateChanged: _setPinching,
-            draft: widget.draft,
-            onDraftChanged: widget.onDraftChanged,
-            draftInteractionEnabled: widget.draftInteractionEnabled,
-            recenterRequest: index == _recenterPageIndex
-                ? widget.recenterRequest
-                : null,
-          );
-        },
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(color: colorScheme.outlineVariant),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // The time axis lives outside the horizontally paging content
+              // so it stays put while the user swipes between days/weeks;
+              // only its vertical position tracks the active page's scroll.
+              SizedBox(
+                key: const ValueKey('week-calendar-fixed-time-axis'),
+                width: _timeAxisWidth,
+                child: Column(
+                  children: [
+                    // An invisible header cell reserves exactly the space
+                    // the real (visible, paging) header takes, including
+                    // under text scaling, without hardcoding a pixel height
+                    // that could overflow or leave a gap.
+                    const Opacity(
+                      opacity: 0,
+                      child: IgnorePointer(child: _DateHeaderSizingProbe()),
+                    ),
+                    Expanded(
+                      child: ClipRect(
+                        child: ValueListenableBuilder<double>(
+                          valueListenable: _axisOffset,
+                          builder: (context, offset, _) {
+                            return Stack(
+                              children: [
+                                Positioned(
+                                  left: 0,
+                                  right: 0,
+                                  top: -offset,
+                                  height:
+                                      widget.hourHeight *
+                                      TimeOfDayMinutes.hoursPerDay,
+                                  child: _TimeAxis(
+                                    hourHeight: widget.hourHeight,
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: PageView.builder(
+                  controller: _pageController,
+                  physics: _pinching || widget.draft != null
+                      ? const NeverScrollableScrollPhysics()
+                      : null,
+                  itemBuilder: (context, index) {
+                    final week = _initialCalendarPage
+                        .addPages(index - _initialPage)
+                        .week;
+                    return _WeekCalendarWeekPage(
+                      key: ValueKey<CalendarDay>(week.start),
+                      week: week,
+                      now: widget.now,
+                      wakePlans: widget.wakePlans,
+                      onTargetTap: widget.onTargetTap,
+                      onWakePlanTap: widget.onWakePlanTap,
+                      hourHeight: widget.hourHeight,
+                      draftDuration: widget.draftDuration,
+                      onHourHeightChanged: widget.onHourHeightChanged,
+                      onPinchStateChanged: _setPinching,
+                      draft: widget.draft,
+                      onDraftChanged: widget.onDraftChanged,
+                      draftInteractionEnabled: widget.draftInteractionEnabled,
+                      recenterRequest: index == _recenterPageIndex
+                          ? widget.recenterRequest
+                          : null,
+                      pageIndex: index,
+                      onScrollControllerReady: _registerPageScrollController,
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -154,8 +293,10 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
           ),
         )
         .inDays;
-    final pageDelta = (daysFromInitial / _initialCalendarPage.week.visibleDays)
-        .floor();
+    final step = weekCalendarPagingStepDays(
+      _initialCalendarPage.week.visibleDays,
+    );
+    final pageDelta = (daysFromInitial / step).floor();
     return _initialPage + pageDelta;
   }
 }
@@ -169,13 +310,15 @@ class _WeekCalendarWeekPage extends StatefulWidget {
     required this.onTargetTap,
     required this.onWakePlanTap,
     required this.hourHeight,
-    required this.timeAxisWidth,
+    required this.draftDuration,
     required this.onHourHeightChanged,
     required this.onPinchStateChanged,
     required this.draft,
     required this.onDraftChanged,
     required this.draftInteractionEnabled,
     required this.recenterRequest,
+    required this.pageIndex,
+    required this.onScrollControllerReady,
   });
 
   final WeekRange week;
@@ -184,21 +327,24 @@ class _WeekCalendarWeekPage extends StatefulWidget {
   final WeekCalendarTapCallback? onTargetTap;
   final WeekCalendarWakePlanTapCallback? onWakePlanTap;
   final double hourHeight;
-  final double timeAxisWidth;
+  final Duration draftDuration;
   final WeekCalendarHourHeightChanged? onHourHeightChanged;
   final ValueChanged<bool> onPinchStateChanged;
   final WeekCalendarDraft? draft;
   final WeekCalendarDraftChanged? onDraftChanged;
   final bool draftInteractionEnabled;
   final int? recenterRequest;
+  final int pageIndex;
+  final void Function(int pageIndex, ScrollController? controller)
+  onScrollControllerReady;
 
   @override
   State<_WeekCalendarWeekPage> createState() => _WeekCalendarWeekPageState();
 }
 
 class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
-  static const double _minHourHeight = 36;
-  static const double _maxHourHeight = 92;
+  static const double _minHourHeight = weekCalendarMinHourHeight;
+  static const double _maxHourHeight = weekCalendarMaxHourHeight;
 
   late final ScrollController _scrollController;
   late double _displayHourHeight;
@@ -211,6 +357,7 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
   bool _pinchLayoutPending = false;
   bool _pinching = false;
   bool _manipulatingDraft = false;
+  WeekCalendarTapTarget? _tapPreviewTarget;
   final FocusNode _draftBodyFocusNode = FocusNode(
     debugLabel: 'Wake plan draft',
   );
@@ -234,6 +381,7 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
     );
     _scrollController = ScrollController(initialScrollOffset: target.offset);
     _appliedRecenterRequest = widget.recenterRequest;
+    widget.onScrollControllerReady(widget.pageIndex, _scrollController);
   }
 
   @override
@@ -355,6 +503,7 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
 
   @override
   void dispose() {
+    widget.onScrollControllerReady(widget.pageIndex, null);
     _draftBodyFocusNode.dispose();
     _draftStartFocusNode.dispose();
     _draftEndFocusNode.dispose();
@@ -383,19 +532,20 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
     final blocks = weekCalendarWakePlanBlocks(
       week: widget.week,
       wakePlans: widget.wakePlans,
     );
+    final snapIntervalMinutes = weekCalendarTapSnapIntervalMinutes(
+      _displayHourHeight,
+    );
+    final previewDuration = weekCalendarBoundedDraftDuration(
+      widget.draftDuration,
+    );
 
     return Column(
       children: [
-        _DateHeader(
-          week: widget.week,
-          now: widget.now,
-          timeAxisWidth: widget.timeAxisWidth,
-        ),
+        _DateHeader(week: widget.week, now: widget.now),
         Expanded(
           child: RawGestureDetector(
             key: const ValueKey('week-calendar-pinch-surface'),
@@ -413,107 +563,138 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
                           _manipulatingDraft;
                   }),
             },
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                border: Border.all(color: colorScheme.outlineVariant),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Scrollbar(
-                  controller: _scrollController,
-                  child: SingleChildScrollView(
-                    controller: _scrollController,
-                    physics: _pinching || _manipulatingDraft
-                        ? const NeverScrollableScrollPhysics()
-                        : const _PreserveVisibleTimeScrollPhysics(),
-                    child: SizedBox(
-                      height: _displayHourHeight * TimeOfDayMinutes.hoursPerDay,
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          SizedBox(
-                            width: widget.timeAxisWidth,
-                            child: _TimeAxis(hourHeight: _displayHourHeight),
-                          ),
-                          Expanded(
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                return GestureDetector(
-                                  behavior: HitTestBehavior.opaque,
-                                  onTapUp: (details) {
-                                    final target =
-                                        weekCalendarTapTargetFromPosition(
-                                          week: widget.week,
-                                          localX: details.localPosition.dx,
-                                          localY: details.localPosition.dy,
-                                          gridWidth: constraints.maxWidth,
-                                          gridHeight:
-                                              _displayHourHeight *
-                                              TimeOfDayMinutes.hoursPerDay,
-                                        );
-                                    widget.onTargetTap?.call(target);
-                                  },
-                                  child: Stack(
-                                    children: [
-                                      _TimeGrid(
-                                        week: widget.week,
-                                        now: widget.now,
-                                        hourHeight: _displayHourHeight,
-                                      ),
-                                      for (final block in blocks)
-                                        _WakePlanBlock(
-                                          block: block,
-                                          pixelsPerMinute: _pixelsPerMinute,
-                                          dayWidth:
-                                              constraints.maxWidth /
-                                              widget.week.visibleDays,
-                                          onTap: widget.onWakePlanTap,
-                                        ),
-                                      if (widget.draft case final draft?)
-                                        for (final segment in _draftSegments(
-                                          draft,
-                                          widget.week,
-                                        ))
-                                          _DraftBlock(
-                                            key: ValueKey(
-                                              'week-calendar-draft-block-'
-                                              '${draft.id}-'
-                                              '${_draftSegmentRole(segment)}',
-                                            ),
-                                            draft: draft,
-                                            segment: segment,
-                                            week: widget.week,
-                                            pixelsPerMinute: _pixelsPerMinute,
-                                            dayWidth:
-                                                constraints.maxWidth /
-                                                widget.week.visibleDays,
-                                            onChanged: widget.onDraftChanged,
-                                            onManipulationChanged:
-                                                _setManipulatingDraft,
-                                            interactionEnabled:
-                                                !_pinching &&
-                                                widget.draftInteractionEnabled,
-                                            bodyFocusNode: segment.containsStart
-                                                ? _draftBodyFocusNode
-                                                : null,
-                                            startFocusNode:
-                                                segment.containsStart
-                                                ? _draftStartFocusNode
-                                                : null,
-                                            endFocusNode: segment.containsEnd
-                                                ? _draftEndFocusNode
-                                                : null,
-                                          ),
-                                    ],
-                                  ),
-                                );
-                              },
+            child: Scrollbar(
+              controller: _scrollController,
+              child: SingleChildScrollView(
+                controller: _scrollController,
+                physics: _pinching || _manipulatingDraft
+                    ? const NeverScrollableScrollPhysics()
+                    : const _PreserveVisibleTimeScrollPhysics(),
+                child: SizedBox(
+                  height: _displayHourHeight * TimeOfDayMinutes.hoursPerDay,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final gridHeight =
+                          _displayHourHeight * TimeOfDayMinutes.hoursPerDay;
+                      WeekCalendarTapTarget targetFromPosition(
+                        Offset localPosition,
+                      ) {
+                        final raw = weekCalendarTapTargetFromPosition(
+                          week: widget.week,
+                          localX: localPosition.dx,
+                          localY: localPosition.dy,
+                          gridWidth: constraints.maxWidth,
+                          gridHeight: gridHeight,
+                          snapIntervalMinutes: snapIntervalMinutes,
+                        );
+                        // Used for both the tap-preview cell and the target
+                        // actually handed to onTargetTap, so a tap that
+                        // rounds past the visible range always creates its
+                        // draft where the preview showed it landing.
+                        return weekCalendarClampTapTargetToWeek(
+                          target: raw,
+                          week: widget.week,
+                          snapIntervalMinutes: snapIntervalMinutes,
+                        );
+                      }
+
+                      return GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTapDown: (details) {
+                          setState(() {
+                            _tapPreviewTarget = targetFromPosition(
+                              details.localPosition,
+                            );
+                          });
+                        },
+                        onTapCancel: () {
+                          setState(() {
+                            _tapPreviewTarget = null;
+                          });
+                        },
+                        onTapUp: (details) {
+                          final target = targetFromPosition(
+                            details.localPosition,
+                          );
+                          setState(() {
+                            _tapPreviewTarget = null;
+                          });
+                          widget.onTargetTap?.call(target, widget.week);
+                        },
+                        child: Stack(
+                          children: [
+                            _TimeGrid(
+                              week: widget.week,
+                              now: widget.now,
+                              hourHeight: _displayHourHeight,
+                              snapIntervalMinutes: snapIntervalMinutes,
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
+                            if (_tapPreviewTarget case final preview?)
+                              for (final segment in _tapPreviewSegments(
+                                target: preview,
+                                duration: previewDuration,
+                                week: widget.week,
+                              ))
+                                _TapPreviewCell(
+                                  key: ValueKey(
+                                    segment.containsStart
+                                        ? 'week-calendar-tap-preview-cell'
+                                        : 'week-calendar-tap-preview-cell-'
+                                              'continuation-'
+                                              '${segment.dayIndex}',
+                                  ),
+                                  segment: segment,
+                                  pixelsPerMinute: _pixelsPerMinute,
+                                  dayWidth:
+                                      constraints.maxWidth /
+                                      widget.week.visibleDays,
+                                ),
+                            for (final block in blocks)
+                              _WakePlanBlock(
+                                block: block,
+                                pixelsPerMinute: _pixelsPerMinute,
+                                dayWidth:
+                                    constraints.maxWidth /
+                                    widget.week.visibleDays,
+                                onTap: widget.onWakePlanTap,
+                              ),
+                            if (widget.draft case final draft?)
+                              for (final segment in _draftSegments(
+                                draft,
+                                widget.week,
+                              ))
+                                _DraftBlock(
+                                  key: ValueKey(
+                                    'week-calendar-draft-block-'
+                                    '${draft.id}-'
+                                    '${_draftSegmentRole(segment)}',
+                                  ),
+                                  draft: draft,
+                                  segment: segment,
+                                  week: widget.week,
+                                  pixelsPerMinute: _pixelsPerMinute,
+                                  dayWidth:
+                                      constraints.maxWidth /
+                                      widget.week.visibleDays,
+                                  onChanged: widget.onDraftChanged,
+                                  onManipulationChanged: _setManipulatingDraft,
+                                  interactionEnabled:
+                                      !_pinching &&
+                                      widget.draftInteractionEnabled,
+                                  bodyFocusNode: segment.containsStart
+                                      ? _draftBodyFocusNode
+                                      : null,
+                                  startFocusNode: segment.containsStart
+                                      ? _draftStartFocusNode
+                                      : null,
+                                  endFocusNode: segment.containsEnd
+                                      ? _draftEndFocusNode
+                                      : null,
+                                ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),
@@ -1239,6 +1420,73 @@ class _DraftHandleControlState extends State<_DraftHandleControl> {
   }
 }
 
+/// Builds the segments a tap-preview draft of [duration] starting at
+/// [target] would occupy, reusing the same day-splitting [_draftSegments]
+/// uses for real drafts so a preview that crosses midnight is shown as a
+/// continuation in the next visible day instead of one clipped cell — the
+/// same shape the draft created on tap-up will actually have.
+///
+/// [duration] is capped to [week] the same way the real draft created on
+/// tap-up is (see weekCalendarClampDraftDurationToWeek), so a tap on the
+/// last visible day never previews — or creates — a continuation past the
+/// edge of what's currently on screen.
+List<_DraftSegment> _tapPreviewSegments({
+  required WeekCalendarTapTarget target,
+  required Duration duration,
+  required WeekRange week,
+}) {
+  final startAt = target.dateTime;
+  final cappedDuration = weekCalendarClampDraftDurationToWeek(
+    startAt: startAt,
+    duration: duration,
+    week: week,
+  );
+  final draft = WeekCalendarDraft(
+    id: 'tap-preview',
+    startAt: startAt,
+    endAt: startAt.add(cappedDuration),
+    createdAt: startAt,
+  );
+  return _draftSegments(draft, week);
+}
+
+/// Shows the grid cell(s) a tap would create a draft in, before the tap is
+/// released, so it's obvious ahead of time where the block will land.
+class _TapPreviewCell extends StatelessWidget {
+  const _TapPreviewCell({
+    super.key,
+    required this.segment,
+    required this.pixelsPerMinute,
+    required this.dayWidth,
+  });
+
+  final _DraftSegment segment;
+  final double pixelsPerMinute;
+  final double dayWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final top = segment.topMinute * pixelsPerMinute;
+    final height = segment.durationMinutes * pixelsPerMinute;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Positioned(
+      left: segment.dayIndex * dayWidth,
+      top: top,
+      width: dayWidth,
+      height: height,
+      child: IgnorePointer(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: colorScheme.tertiary.withValues(alpha: 0.18),
+            border: Border.all(color: colorScheme.tertiary, width: 1.5),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _WakePlanBlock extends StatelessWidget {
   const _WakePlanBlock({
     required this.block,
@@ -1341,63 +1589,94 @@ class _WakePlanBlockCard extends StatelessWidget {
 }
 
 class _DateHeader extends StatelessWidget {
-  const _DateHeader({
-    required this.week,
-    required this.now,
-    required this.timeAxisWidth,
-  });
+  const _DateHeader({required this.week, required this.now});
 
   final WeekRange week;
   final DateTime now;
-  final double timeAxisWidth;
 
   @override
   Widget build(BuildContext context) {
     final today = CalendarDay.fromDateTime(now);
-    final colorScheme = Theme.of(context).colorScheme;
 
     return Row(
       children: [
-        SizedBox(width: timeAxisWidth),
         for (final day in week.days)
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      _weekdayLabel(day.weekday),
-                      style: Theme.of(context).textTheme.labelMedium,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Container(
-                    width: 32,
-                    height: 32,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: day == today
-                          ? colorScheme.primary
-                          : Colors.transparent,
-                    ),
-                    child: Text(
-                      '${day.day}',
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: day == today
-                            ? colorScheme.onPrimary
-                            : colorScheme.onSurface,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+            child: _DateHeaderCell(
+              weekdayLabel: _weekdayLabel(day.weekday),
+              dayLabel: '${day.day}',
+              highlighted: day == today,
             ),
           ),
       ],
+    );
+  }
+}
+
+/// Reserves exactly the height a real [_DateHeader] cell takes, without
+/// rendering any real weekday/day-number text, so it can size the fixed time
+/// axis's header spacer without also being matched by `find.text('Mon')`
+/// (etc.) finders in tests.
+class _DateHeaderSizingProbe extends StatelessWidget {
+  const _DateHeaderSizingProbe();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _DateHeaderCell(
+      weekdayLabel: '',
+      dayLabel: '',
+      highlighted: false,
+    );
+  }
+}
+
+class _DateHeaderCell extends StatelessWidget {
+  const _DateHeaderCell({
+    required this.weekdayLabel,
+    required this.dayLabel,
+    required this.highlighted,
+  });
+
+  final String weekdayLabel;
+  final String dayLabel;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              weekdayLabel,
+              style: Theme.of(context).textTheme.labelMedium,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Container(
+            width: 32,
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: highlighted ? colorScheme.primary : Colors.transparent,
+            ),
+            child: Text(
+              dayLabel,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: highlighted
+                    ? colorScheme.onPrimary
+                    : colorScheme.onSurface,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1435,11 +1714,13 @@ class _TimeGrid extends StatelessWidget {
     required this.week,
     required this.now,
     required this.hourHeight,
+    required this.snapIntervalMinutes,
   });
 
   final WeekRange week;
   final DateTime now;
   final double hourHeight;
+  final int snapIntervalMinutes;
 
   @override
   Widget build(BuildContext context) {
@@ -1452,10 +1733,12 @@ class _TimeGrid extends StatelessWidget {
       key: const ValueKey('week-calendar-time-grid'),
       painter: _TimeGridPainter(
         lineColor: colorScheme.outlineVariant,
+        subIntervalLineColor: colorScheme.outlineVariant.withValues(alpha: 0.4),
         dayLineColor: colorScheme.outline,
         currentTimeColor: colorScheme.error,
         hourHeight: hourHeight,
         visibleDays: week.visibleDays,
+        snapIntervalMinutes: snapIntervalMinutes,
         currentDayIndex: week.contains(today)
             ? today.differenceInDays(week.start)
             : null,
@@ -1469,19 +1752,23 @@ class _TimeGrid extends StatelessWidget {
 class _TimeGridPainter extends CustomPainter {
   const _TimeGridPainter({
     required this.lineColor,
+    required this.subIntervalLineColor,
     required this.dayLineColor,
     required this.currentTimeColor,
     required this.hourHeight,
     required this.visibleDays,
+    required this.snapIntervalMinutes,
     required this.currentDayIndex,
     required this.currentMinute,
   });
 
   final Color lineColor;
+  final Color subIntervalLineColor;
   final Color dayLineColor;
   final Color currentTimeColor;
   final double hourHeight;
   final int visibleDays;
+  final int snapIntervalMinutes;
   final int? currentDayIndex;
   final int currentMinute;
 
@@ -1493,6 +1780,24 @@ class _TimeGridPainter extends CustomPainter {
     final dayPaint = Paint()
       ..color = dayLineColor
       ..strokeWidth = 1;
+
+    if (snapIntervalMinutes < TimeOfDayMinutes.minutesPerHour) {
+      final subIntervalPaint = Paint()
+        ..color = subIntervalLineColor
+        ..strokeWidth = 1;
+      final pixelsPerMinute = hourHeight / TimeOfDayMinutes.minutesPerHour;
+      for (
+        var minute = snapIntervalMinutes;
+        minute < TimeOfDayMinutes.minutesPerDay;
+        minute += snapIntervalMinutes
+      ) {
+        if (minute % TimeOfDayMinutes.minutesPerHour == 0) {
+          continue;
+        }
+        final y = minute * pixelsPerMinute;
+        canvas.drawLine(Offset(0, y), Offset(size.width, y), subIntervalPaint);
+      }
+    }
 
     for (var hour = 0; hour <= TimeOfDayMinutes.hoursPerDay; hour++) {
       final y = hour * hourHeight;
@@ -1527,10 +1832,12 @@ class _TimeGridPainter extends CustomPainter {
   @override
   bool shouldRepaint(_TimeGridPainter oldDelegate) {
     return oldDelegate.lineColor != lineColor ||
+        oldDelegate.subIntervalLineColor != subIntervalLineColor ||
         oldDelegate.dayLineColor != dayLineColor ||
         oldDelegate.currentTimeColor != currentTimeColor ||
         oldDelegate.hourHeight != hourHeight ||
         oldDelegate.visibleDays != visibleDays ||
+        oldDelegate.snapIntervalMinutes != snapIntervalMinutes ||
         oldDelegate.currentDayIndex != currentDayIndex ||
         oldDelegate.currentMinute != currentMinute;
   }
