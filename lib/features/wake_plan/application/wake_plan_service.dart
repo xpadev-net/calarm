@@ -1945,7 +1945,11 @@ class WakePlanService {
     }
 
     final now = _clock();
-    final skipDate = nextWakePlanTargetDay(plan: currentPlan, now: now);
+    final skipDate = nextWakePlanTargetDay(
+      plan: currentPlan,
+      now: now,
+      holidays: _holidaysSnapshot(),
+    );
     if (skipDate == null) {
       return _emptyResult(
         wakePlanId: currentPlan.id,
@@ -3582,11 +3586,15 @@ WakePlanSchedulingResult _emptyResult({
 CalendarDay? nextWakePlanTargetDay({
   required WakePlan plan,
   required DateTime now,
+  Set<CalendarDay> holidays = const {},
 }) {
   final today = CalendarDay.fromDateTime(now);
   for (var offset = 0; offset <= 370; offset += 1) {
     final day = today.addDays(offset);
     if (!plan.occursOn(day)) {
+      continue;
+    }
+    if (plan.skipHolidays && holidays.contains(day)) {
       continue;
     }
     if (plan.targetAt(day).isBefore(now)) {

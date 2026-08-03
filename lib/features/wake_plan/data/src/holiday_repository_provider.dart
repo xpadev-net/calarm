@@ -10,8 +10,10 @@ final httpClientProvider = Provider<http.Client>((ref) {
   return client;
 });
 
+const _fetchIcsTimeout = Duration(seconds: 15);
+
 Future<String> _fetchIcsBody(http.Client client, Uri uri) async {
-  final response = await client.get(uri);
+  final response = await client.get(uri).timeout(_fetchIcsTimeout);
   if (response.statusCode != 200) {
     throw HttpException('unexpected status ${response.statusCode} for $uri');
   }

@@ -10,8 +10,10 @@ import 'features/alarm_ringing/presentation/alarm_ringing_placeholder.dart';
 import 'features/settings/presentation/settings_placeholder.dart';
 import 'features/settings/application/alarm_health_controller.dart';
 import 'features/settings/presentation/alarm_permission_gate.dart';
+import 'features/settings/application/wake_plan_defaults_controller.dart';
 import 'features/wake_plan/application/holiday_set_provider.dart';
 import 'features/wake_plan/application/wake_plan_service_providers.dart';
+import 'features/wake_plan/data/wake_plan_data.dart';
 import 'features/wake_plan/presentation/wake_plan_placeholder.dart';
 import 'features/week_calendar/presentation/week_calendar_placeholder.dart';
 
@@ -53,6 +55,25 @@ class _CalarmAppState extends ConsumerState<CalarmApp>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(ref.read(alarmHealthProvider.notifier).refresh());
+      unawaited(_refreshHolidaysIfStale());
+    }
+  }
+
+  /// The holiday cache is otherwise only checked for staleness once, when
+  /// activeHolidaySetProvider first subscribes — an app session kept alive
+  /// (foregrounded) for longer than the stale threshold would never
+  /// re-check it. Resume is a reasonably-timed hook to also cover that.
+  Future<void> _refreshHolidaysIfStale() async {
+    try {
+      final settings = await ref.read(wakePlanDefaultsProvider.future);
+      final region = settings.holidayRegion;
+      if (region == null) {
+        return;
+      }
+      final repository = await ref.read(holidayRepositoryProvider.future);
+      await repository.refreshIfStale(region);
+    } catch (_) {
+      // Fail open: a holiday refresh failure must never disrupt resume.
     }
   }
 
@@ -82,24 +103,34 @@ class _CalarmAppState extends ConsumerState<CalarmApp>
         _setEquals(_lastReconciledHolidays, holidays)) {
       return;
     }
-    _lastReconciledHolidays = holidays;
-    _reconciliationTail = _reconciliationTail.then((_) => _runReconciliation());
+    // Only commit the marker once reconciliation actually succeeds — if it
+    // fails, `_lastReconciledHolidays` stays at its previous value, so an
+    // unchanged (but still-not-reconciled) `holidays` set is retried on the
+    // next build instead of being silently treated as already handled.
+    _reconciliationTail = _reconciliationTail.then((_) async {
+      final succeeded = await _runReconciliation();
+      if (succeeded && !_disposed) {
+        _lastReconciledHolidays = holidays;
+      }
+    });
   }
 
-  Future<void> _runReconciliation() async {
+  Future<bool> _runReconciliation() async {
     if (_disposed) {
-      return;
+      return false;
     }
     try {
       final service = await ref.read(appWakePlanServiceProvider.future);
       if (_disposed) {
-        return;
+        return false;
       }
       await service.reconcileSchedules();
+      return true;
     } catch (error) {
       if (!_disposed) {
         debugPrint('Could not reconcile wake plans: $error');
       }
+      return false;
     }
   }
 

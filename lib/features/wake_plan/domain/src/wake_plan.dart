@@ -57,7 +57,10 @@ class WakePlan {
       isEnabled: isEnabled,
       status: status,
       skipNextDate: skipNextDate,
-      skipHolidays: skipHolidays,
+      // Holiday skip only makes sense for weekday-repeating plans — a
+      // one-time plan's date was explicitly chosen by the user, so it must
+      // never be silently dropped for landing on a holiday.
+      skipHolidays: skipHolidays && repeatRule.type == RepeatType.weekly,
       soundId: soundId,
       vibrationEnabled: vibrationEnabled,
       createdAt: createdAt,

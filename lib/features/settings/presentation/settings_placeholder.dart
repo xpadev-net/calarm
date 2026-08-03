@@ -307,6 +307,7 @@ class _SettingsDefaultsPanel extends ConsumerWidget {
               key: ValueKey(settings.holidayRegion),
               initialValue: settings.holidayRegion,
               decoration: const InputDecoration(labelText: 'Holiday calendar'),
+              hint: const Text('Off'),
               items: [
                 const DropdownMenuItem(value: null, child: Text('Off')),
                 for (final region in HolidayRegion.values)

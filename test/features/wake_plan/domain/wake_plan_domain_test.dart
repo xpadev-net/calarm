@@ -162,6 +162,40 @@ void main() {
 
       expect(plan.startOffset, const Duration(minutes: 185));
     });
+
+    test('normalizes skipHolidays to false for non-weekly plans, even via '
+        'copyWith', () {
+      final oneTimeWithSkip = WakePlan(
+        id: 'plan-1',
+        title: 'Weekday wake up',
+        targetTime: targetTime,
+        startOffset: const Duration(minutes: 60),
+        interval: const Duration(minutes: 5),
+        repeatRule: RepeatRule.oneTime(monday),
+        isEnabled: true,
+        status: WakePlanStatus.scheduled,
+        skipHolidays: true,
+        soundId: 'default',
+        vibrationEnabled: true,
+        createdAt: now,
+        updatedAt: now,
+      );
+      expect(oneTimeWithSkip.skipHolidays, isFalse);
+
+      final weekly = buildPlan(
+        repeatRule: RepeatRule.weekly({Weekday.monday}),
+      ).copyWith(skipHolidays: true);
+      expect(weekly.skipHolidays, isTrue);
+
+      // Switching a weekly plan (with skipHolidays already on) back to
+      // one-time via copyWith must not leave skipHolidays stuck at true —
+      // a one-time plan's date was explicitly chosen by the user and must
+      // never be silently dropped for landing on a holiday.
+      final switchedToOneTime = weekly.copyWith(
+        repeatRule: RepeatRule.oneTime(monday),
+      );
+      expect(switchedToOneTime.skipHolidays, isFalse);
+    });
   });
 
   group('AlarmOccurrence', () {

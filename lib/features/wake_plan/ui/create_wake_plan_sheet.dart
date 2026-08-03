@@ -209,6 +209,9 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
                               Weekday.fromDateTimeValue(_targetDay.weekday),
                             };
                           }
+                          if (value == _RepeatOption.oneTime) {
+                            _skipHolidays = false;
+                          }
                         });
                       }
                     : null,
