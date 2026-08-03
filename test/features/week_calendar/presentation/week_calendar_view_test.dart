@@ -373,6 +373,55 @@ void main() {
     },
   );
 
+  testWidgets('a tap that rounds to next-day midnight creates its draft on the '
+      'previewed (last visible) day, not the invisible next one', (
+    tester,
+  ) async {
+    WeekCalendarTapTarget? selected;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WeekCalendarView(
+            now: DateTime(2026, 7, 8, 7, 30),
+            initialWeek: WeekRange(
+              start: CalendarDay(year: 2026, month: 7, day: 6),
+            ),
+            onTargetTap: (target) => selected = target,
+          ),
+        ),
+      ),
+    );
+
+    final tapSurface = find
+        .byWidgetPredicate(
+          (widget) => widget is GestureDetector && widget.onTapUp != null,
+        )
+        .first;
+    final size = tester.getSize(tapSurface);
+    // Bottom-right corner: last visible day, bottom row (rounds to
+    // next-day midnight, which is one day past the visible week).
+    final localPosition = Offset(size.width - 1, size.height);
+
+    final gestureDetector = tester.widget<GestureDetector>(tapSurface);
+    gestureDetector.onTapDown!(TapDownDetails(localPosition: localPosition));
+    await tester.pump();
+    final previewRect = tester.getRect(
+      find.byKey(const ValueKey('week-calendar-tap-preview-cell')),
+    );
+
+    gestureDetector.onTapUp!(
+      TapUpDetails(localPosition: localPosition, kind: PointerDeviceKind.touch),
+    );
+    await tester.pump();
+
+    expect(selected, isNotNull);
+    expect(selected!.day, CalendarDay(year: 2026, month: 7, day: 12));
+    expect(selected!.time.hour, 23);
+    final surfaceRect = tester.getRect(tapSurface);
+    expect(surfaceRect.contains(previewRect.center), isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('renders a wake plan block label and hides the empty state', (
     tester,
   ) async {

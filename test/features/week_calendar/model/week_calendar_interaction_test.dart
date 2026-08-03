@@ -194,6 +194,43 @@ void main() {
     });
   });
 
+  group('weekCalendarClampTapTargetToWeek', () {
+    test('clamps a next-day-midnight rollover to the last visible day', () {
+      final rolledOver = WeekCalendarTapTarget(
+        day: week.endExclusive,
+        time: TimeOfDayMinutes.fromHourMinute(hour: 0, minute: 0),
+      );
+
+      final clamped = weekCalendarClampTapTargetToWeek(
+        target: rolledOver,
+        week: week,
+        snapIntervalMinutes: 30,
+      );
+
+      expect(clamped.day, week.endExclusive.addDays(-1));
+      expect(
+        clamped.time,
+        TimeOfDayMinutes.fromHourMinute(hour: 23, minute: 30),
+      );
+    });
+
+    test('passes through a target already inside the visible week', () {
+      final target = WeekCalendarTapTarget(
+        day: CalendarDay(year: 2026, month: 7, day: 8),
+        time: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+      );
+
+      final clamped = weekCalendarClampTapTargetToWeek(
+        target: target,
+        week: week,
+        snapIntervalMinutes: 30,
+      );
+
+      expect(clamped.day, target.day);
+      expect(clamped.time, target.time);
+    });
+  });
+
   group('WeekCalendarDraft', () {
     final target = WeekCalendarTapTarget(
       day: CalendarDay(year: 2026, month: 7, day: 8),

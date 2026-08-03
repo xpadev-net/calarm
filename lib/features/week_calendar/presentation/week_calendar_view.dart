@@ -578,12 +578,21 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
                       WeekCalendarTapTarget targetFromPosition(
                         Offset localPosition,
                       ) {
-                        return weekCalendarTapTargetFromPosition(
+                        final raw = weekCalendarTapTargetFromPosition(
                           week: widget.week,
                           localX: localPosition.dx,
                           localY: localPosition.dy,
                           gridWidth: constraints.maxWidth,
                           gridHeight: gridHeight,
+                          snapIntervalMinutes: snapIntervalMinutes,
+                        );
+                        // Used for both the tap-preview cell and the target
+                        // actually handed to onTargetTap, so a tap that
+                        // rounds past the visible range always creates its
+                        // draft where the preview showed it landing.
+                        return weekCalendarClampTapTargetToWeek(
+                          target: raw,
+                          week: widget.week,
                           snapIntervalMinutes: snapIntervalMinutes,
                         );
                       }
@@ -1419,19 +1428,15 @@ class _TapPreviewCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    var dayIndex = target.day.differenceInDays(week.start);
-    var top = target.time.minutesSinceMidnight * pixelsPerMinute;
-    final height = durationMinutes * pixelsPerMinute;
-    if (dayIndex == week.visibleDays) {
-      // A tap near the bottom of the last visible day can round up to
-      // next-day midnight, which is off-grid. Clamp to the end of the last
-      // visible day instead of hiding the preview, so a tap that will
-      // create a draft always shows one.
-      dayIndex = week.visibleDays - 1;
-      top = (TimeOfDayMinutes.minutesPerDay * pixelsPerMinute) - height;
-    } else if (dayIndex < 0 || dayIndex >= week.visibleDays) {
+    final dayIndex = target.day.differenceInDays(week.start);
+    // The target passed in is already clamped to the visible week (see
+    // weekCalendarClampTapTargetToWeek), so this only guards against a
+    // target that was never within range to begin with.
+    if (dayIndex < 0 || dayIndex >= week.visibleDays) {
       return const SizedBox.shrink();
     }
+    final top = target.time.minutesSinceMidnight * pixelsPerMinute;
+    final height = durationMinutes * pixelsPerMinute;
     final colorScheme = Theme.of(context).colorScheme;
 
     return Positioned(

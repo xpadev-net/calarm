@@ -474,6 +474,27 @@ WeekCalendarTapTarget weekCalendarTapTargetFromPosition({
   );
 }
 
+/// A tap at the very bottom of the last visible day rounds to next-day
+/// midnight, one day past [week]'s end — off-grid, and not the same day the
+/// tap-preview cell shows. Clamps that case back to the last representable
+/// [snapIntervalMinutes] tick of the last visible day, so a tap that creates
+/// a draft always creates it on the day the preview showed.
+WeekCalendarTapTarget weekCalendarClampTapTargetToWeek({
+  required WeekCalendarTapTarget target,
+  required WeekRange week,
+  required int snapIntervalMinutes,
+}) {
+  if (target.day != week.endExclusive) {
+    return target;
+  }
+  return WeekCalendarTapTarget(
+    day: week.endExclusive.addDays(-1),
+    time: TimeOfDayMinutes.fromMinutesSinceMidnight(
+      TimeOfDayMinutes.minutesPerDay - snapIntervalMinutes,
+    ),
+  );
+}
+
 List<WeekCalendarWakePlanBlock> weekCalendarWakePlanBlocks({
   required WeekRange week,
   required Iterable<WakePlan> wakePlans,
