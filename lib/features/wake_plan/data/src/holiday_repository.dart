@@ -23,14 +23,11 @@ Uri holidayIcsUriFor(HolidayRegion region) {
 /// so this repository always fails open (an empty/last-known-good set).
 class HolidayRepository {
   HolidayRepository({
-    required WakePlanDatabase database,
-    required HolidayIcsFetcher fetchIcs,
-    Duration staleAfter = defaultHolidayStaleAfter,
-    DateTime Function() now = DateTime.now,
-  }) : _database = database,
-       _fetchIcs = fetchIcs,
-       _staleAfter = staleAfter,
-       _now = now;
+    required this._database,
+    required this._fetchIcs,
+    this._staleAfter = defaultHolidayStaleAfter,
+    this._now = DateTime.now,
+  });
 
   final WakePlanDatabase _database;
   final HolidayIcsFetcher _fetchIcs;
