@@ -193,13 +193,43 @@ bool _setEquals(Set<CalendarDay>? a, Set<CalendarDay> b) {
   return a.length == b.length && a.containsAll(b);
 }
 
-class CalarmHomePage extends StatelessWidget {
+class CalarmHomePage extends StatefulWidget {
   const CalarmHomePage({super.key});
 
   @override
+  State<CalarmHomePage> createState() => _CalarmHomePageState();
+}
+
+class _CalarmHomePageState extends State<CalarmHomePage> {
+  int _visibleDays = 1;
+  bool _draftActive = false;
+
+  void _setVisibleDays(int visibleDays) {
+    if (_visibleDays == visibleDays) {
+      return;
+    }
+    setState(() {
+      _visibleDays = visibleDays;
+    });
+  }
+
+  void _setDraftActive(bool draftActive) {
+    if (_draftActive == draftActive) {
+      return;
+    }
+    setState(() {
+      _draftActive = draftActive;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final systemBottomInset = MediaQuery.of(context).padding.bottom;
     return Scaffold(
+      extendBody: true,
       appBar: AppBar(
+        toolbarHeight: 48,
+        titleSpacing: 4,
         leading: Builder(
           builder: (context) {
             return IconButton(
@@ -210,30 +240,140 @@ class CalarmHomePage extends StatelessWidget {
             );
           },
         ),
-        title: const Text(AppIdentity.defaultDisplayName),
+        title: Text(
+          AppIdentity.defaultDisplayName,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
       ),
       drawer: Drawer(
         child: SafeArea(
           child: SingleChildScrollView(
             key: _homeSectionsScrollKey,
             padding: const EdgeInsets.all(12),
-            child: const Column(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                AlarmRingingPlaceholder(),
-                SizedBox(height: _homeSectionGap),
-                SettingsPlaceholder(),
-                SizedBox(height: _homeSectionGap),
-                WakePlanPlaceholder(),
+                _CalendarViewSection(
+                  visibleDays: _visibleDays,
+                  enabled: !_draftActive,
+                  onVisibleDaysChanged: _setVisibleDays,
+                ),
+                const SizedBox(height: _homeSectionGap),
+                const AlarmRingingPlaceholder(),
+                const SizedBox(height: _homeSectionGap),
+                const SettingsPlaceholder(),
+                const SizedBox(height: _homeSectionGap),
+                const WakePlanPlaceholder(),
               ],
             ),
           ),
         ),
       ),
       body: SafeArea(
+        bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-          child: const WeekCalendarPlaceholder(),
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+          child: WeekCalendarPlaceholder(
+            visibleDays: _visibleDays,
+            onDraftActiveChanged: _setDraftActive,
+            bottomPadding: systemBottomInset,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+const _calendarViewSectionKey = ValueKey<String>('calendar-view-section');
+
+class _CalendarViewSection extends StatelessWidget {
+  const _CalendarViewSection({
+    required this.visibleDays,
+    required this.enabled,
+    required this.onVisibleDaysChanged,
+  });
+
+  final int visibleDays;
+  final bool enabled;
+  final ValueChanged<int> onVisibleDaysChanged;
+
+  static const _options = [
+    (value: 1, label: '1 day', icon: Icons.view_day_outlined),
+    (value: 3, label: '3 days', icon: Icons.view_column_outlined),
+    (
+      value: DateTime.daysPerWeek,
+      label: '7 days',
+      icon: Icons.view_week_outlined,
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      key: _calendarViewSectionKey,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final option in _options)
+          _CalendarViewOptionTile(
+            key: ValueKey('calendar-view-option-${option.value}'),
+            label: option.label,
+            icon: option.icon,
+            selected: visibleDays == option.value,
+            onTap: enabled ? () => onVisibleDaysChanged(option.value) : null,
+          ),
+      ],
+    );
+  }
+}
+
+class _CalendarViewOptionTile extends StatelessWidget {
+  const _CalendarViewOptionTile({
+    super.key,
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: Material(
+        color: selected ? colorScheme.secondaryContainer : Colors.transparent,
+        borderRadius: const BorderRadius.all(Radius.circular(20)),
+        child: InkWell(
+          borderRadius: const BorderRadius.all(Radius.circular(20)),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                Icon(
+                  icon,
+                  color: selected
+                      ? colorScheme.onSecondaryContainer
+                      : colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 24),
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: selected
+                        ? colorScheme.onSecondaryContainer
+                        : colorScheme.onSurface,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
