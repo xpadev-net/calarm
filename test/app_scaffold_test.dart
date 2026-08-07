@@ -35,7 +35,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text(AppIdentity.defaultDisplayName), findsOneWidget);
-    expect(find.text('Calendar'), findsOneWidget);
+    expect(find.byType(WeekCalendarPlaceholder), findsOneWidget);
     expect(find.text('Wake plan'), findsNothing);
     expect(find.text('Alarm ringing'), findsNothing);
     expect(find.text('Settings'), findsNothing);
@@ -86,7 +86,7 @@ void main() {
 
       expect(find.byKey(alarmPermissionGateKey), findsOneWidget);
       expect(find.text('Allow exact alarms'), findsOneWidget);
-      expect(find.text('Calendar'), findsNothing);
+      expect(find.byType(WeekCalendarPlaceholder), findsNothing);
       expect(gateway.scheduledRequests, isEmpty);
 
       await tester.tap(find.byKey(alarmPermissionActionKey));
@@ -98,7 +98,7 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pumpAndSettle();
 
-      expect(find.text('Calendar'), findsOneWidget);
+      expect(find.byType(WeekCalendarPlaceholder), findsOneWidget);
       expect(gateway.scheduledRequests, isNotEmpty);
       expect(gateway.capabilityChecks, 2);
     },
@@ -119,12 +119,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Alarm access could not be checked'), findsOneWidget);
-    expect(find.text('Calendar'), findsNothing);
+    expect(find.byType(WeekCalendarPlaceholder), findsNothing);
 
     await tester.tap(find.byKey(alarmPermissionRetryKey));
     await tester.pumpAndSettle();
 
-    expect(find.text('Calendar'), findsOneWidget);
+    expect(find.byType(WeekCalendarPlaceholder), findsOneWidget);
     expect(gateway.capabilityChecks, 2);
   });
 
@@ -141,14 +141,14 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Calendar'), findsOneWidget);
+    expect(find.byType(WeekCalendarPlaceholder), findsOneWidget);
 
     gateway.capability = _missingExactAlarmCapability;
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
 
     expect(find.text('Allow exact alarms'), findsOneWidget);
-    expect(find.text('Calendar'), findsNothing);
+    expect(find.byType(WeekCalendarPlaceholder), findsNothing);
     expect(gateway.capabilityChecks, 2);
   });
 
@@ -552,7 +552,7 @@ Future<void> _pumpLoadedHome(WidgetTester tester, Size size) async {
 }
 
 Future<void> _expectHomeSurfacesReachable(WidgetTester tester) async {
-  final calendar = find.text('Calendar');
+  final calendar = find.byType(WeekCalendarPlaceholder);
   expect(calendar, findsOneWidget);
   final calendarRect = tester.getRect(calendar);
   expect(calendarRect.top, greaterThanOrEqualTo(0));

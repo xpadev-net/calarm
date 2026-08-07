@@ -78,6 +78,7 @@ class _WeekCalendarPlaceholderState
   bool _isActive = false;
   bool _enteredBackground = false;
   int _recenterRequest = 0;
+  bool? _lastNotifiedDraftActive;
 
   @override
   void initState() {
@@ -130,11 +131,14 @@ class _WeekCalendarPlaceholderState
     final onDraftActiveChanged = widget.onDraftActiveChanged;
     if (onDraftActiveChanged != null) {
       final draftActive = _draft != null;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          onDraftActiveChanged(draftActive);
-        }
-      });
+      if (draftActive != _lastNotifiedDraftActive) {
+        _lastNotifiedDraftActive = draftActive;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            onDraftActiveChanged(draftActive);
+          }
+        });
+      }
     }
     final clock = ref.watch(weekCalendarClockProvider);
     final wakePlans = ref.watch(weekCalendarWakePlansProvider);

@@ -122,7 +122,7 @@ void main() {
 
   group('weekCalendarTapTargetFromPosition', () {
     test(
-      'maps x position to day and y position to nearest five-minute time',
+      'maps x position to day and y position to its containing five-minute grid cell',
       () {
         final target = weekCalendarTapTargetFromPosition(
           week: week,
@@ -135,7 +135,7 @@ void main() {
         expect(target.day, CalendarDay(year: 2026, month: 7, day: 8));
         expect(
           target.time,
-          TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 5),
+          TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
         );
       },
     );

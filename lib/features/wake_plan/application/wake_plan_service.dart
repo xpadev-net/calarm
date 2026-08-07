@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import '../../../core/platform/native_alarm_gateway.dart';
 import '../../../core/time/time.dart';
@@ -324,6 +325,9 @@ class WakePlanService {
     ScheduleResult scheduleResult;
     try {
       scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(requests);
+      if (!scheduleResult.isSuccess) {
+        _logScheduleFailure(scheduleResult);
+      }
     } catch (_) {
       final uncertain = pending.copyWith(
         status: AlarmOccurrenceStatus.userEnablePending,
@@ -2052,6 +2056,9 @@ class WakePlanService {
     final scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(
       pendingRequests,
     );
+    if (!scheduleResult.isSuccess) {
+      _logScheduleFailure(scheduleResult);
+    }
     final completedOccurrences = _applyScheduleResult(
       occurrences: pendingOccurrences,
       scheduleResult: scheduleResult,
@@ -2100,6 +2107,31 @@ class WakePlanService {
           : !hasScheduleFailure
           ? null
           : WakePlanSchedulingWarning.scheduleFailed(scheduleResult),
+    );
+  }
+
+  /// Logs the per-occurrence reason behind a failed or partially failed
+  /// [scheduleOccurrences] call. This is the only place that failure detail
+  /// (native error text, which occurrences succeeded vs. failed) is
+  /// available — without it, a schedule failure only ever reaches the user
+  /// as the generic "some alarms could not be scheduled" message, with
+  /// nothing in the logs to diagnose it by.
+  void _logScheduleFailure(ScheduleResult result) {
+    final failures = result.occurrences
+        .where(
+          (occurrence) => occurrence.status == ScheduleOccurrenceStatus.failure,
+        )
+        .map(
+          (occurrence) =>
+              '${occurrence.occurrenceId}: ${occurrence.failureReason}'
+              '${occurrence.failureMessage != null ? ' (${occurrence.failureMessage})' : ''}',
+        )
+        .join('; ');
+    developer.log(
+      'WakePlanService: scheduleOccurrences failed, '
+      'status=${result.status}, failures=[$failures]',
+      name: 'WakePlanService',
+      level: 900,
     );
   }
 
@@ -2241,6 +2273,9 @@ class WakePlanService {
     final scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(
       pendingRequests,
     );
+    if (!scheduleResult.isSuccess) {
+      _logScheduleFailure(scheduleResult);
+    }
     final completedOccurrences = _applyScheduleResult(
       occurrences: pendingOccurrences,
       scheduleResult: scheduleResult,
@@ -3335,6 +3370,9 @@ class WakePlanService {
       scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(
         restorationRequests,
       );
+      if (!scheduleResult.isSuccess) {
+        _logScheduleFailure(scheduleResult);
+      }
     } catch (error) {
       scheduleResult = ScheduleResult.fromOccurrences([
         for (final occurrence in pendingOccurrences)

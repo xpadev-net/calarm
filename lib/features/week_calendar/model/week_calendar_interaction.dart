@@ -458,14 +458,20 @@ WeekCalendarTapTarget weekCalendarTapTargetFromPosition({
     weekCalendarStartMinute,
     weekCalendarEndMinute,
   );
+  // Floored (not nearest-rounded) so a tap anywhere inside a displayed grid
+  // cell resolves to that cell's start time, matching what the user sees —
+  // rounding to the nearest interval could snap a tap near the top of a
+  // cell into the cell above it, selecting a block the tap never touched.
   final rounded = wholeMinute == TimeOfDayMinutes.minutesPerDay
       ? RoundedTimeOfDayMinutes(
           time: TimeOfDayMinutes.fromMinutesSinceMidnight(0),
           dayOffset: 1,
         )
-      : roundMinutesSinceMidnightToNearestInterval(
-          wholeMinute,
-          intervalMinutes: snapIntervalMinutes,
+      : RoundedTimeOfDayMinutes(
+          time: TimeOfDayMinutes.fromMinutesSinceMidnight(
+            (wholeMinute ~/ snapIntervalMinutes) * snapIntervalMinutes,
+          ),
+          dayOffset: 0,
         );
 
   return WeekCalendarTapTarget(
@@ -574,6 +580,73 @@ List<WeekCalendarWakePlanBlock> weekCalendarWakePlanBlocks({
           ),
         );
       }
+    }
+  }
+
+  return _withOverlapLanes(blocks);
+}
+
+/// Like [weekCalendarWakePlanBlocks], but for a single continuous vertical
+/// timeline (the 1-day infinite scroller) rather than a horizontal row of
+/// day columns: an occurrence is returned as ONE block spanning its full,
+/// unclipped duration — `topMinute` counted continuously from [anchorDay]'s
+/// midnight rather than reset to 0 at each day boundary — instead of being
+/// cut into one block per calendar day it touches. [window] only bounds
+/// which occurrences are considered (matching [weekCalendarWakePlanBlocks]'s
+/// visibility check); it does not clip the returned blocks themselves.
+List<WeekCalendarWakePlanBlock> weekCalendarWakePlanOverlayBlocks({
+  required CalendarDay anchorDay,
+  required WeekRange window,
+  required Iterable<WakePlan> wakePlans,
+}) {
+  final visibleStart = window.start.startOfDay;
+  final visibleEnd = window.endExclusive.startOfDay;
+  final blocks = <WeekCalendarWakePlanBlock>[];
+
+  for (final wakePlan in wakePlans) {
+    final lookbackDays =
+        (wakePlan.startOffset.inMinutes / TimeOfDayMinutes.minutesPerDay)
+            .ceil();
+    final firstTargetDay = window.start.addDays(-lookbackDays);
+    final lastTargetDayExclusive = window.endExclusive.addDays(lookbackDays);
+
+    for (
+      var day = firstTargetDay;
+      day.compareTo(lastTargetDayExclusive) < 0;
+      day = day.addDays(1)
+    ) {
+      if (!wakePlan.occursOn(day)) {
+        continue;
+      }
+
+      final targetAt = wakePlan.targetAt(day);
+      final startAt = wakePlan.startAt(day);
+      if (!startAt.isBefore(visibleEnd) || !targetAt.isAfter(visibleStart)) {
+        continue;
+      }
+
+      final occurrenceCount = wakePlanOccurrenceCount(wakePlan);
+      final startDay = CalendarDay.fromDateTime(startAt);
+      final dayOffset = startDay.differenceInDays(anchorDay);
+
+      blocks.add(
+        WeekCalendarWakePlanBlock(
+          wakePlan: wakePlan,
+          targetDay: day,
+          day: startDay,
+          startAt: startAt,
+          endAt: targetAt,
+          targetAt: targetAt,
+          topMinute:
+              (dayOffset * TimeOfDayMinutes.minutesPerDay) +
+              _minuteOfDay(startAt),
+          durationMinutes: targetAt.difference(startAt).inMinutes,
+          dayIndex: 0,
+          laneIndex: 0,
+          laneCount: 1,
+          occurrenceCount: occurrenceCount,
+        ),
+      );
     }
   }
 

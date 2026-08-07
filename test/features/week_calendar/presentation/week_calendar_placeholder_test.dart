@@ -286,21 +286,21 @@ void main() {
           ],
           child: const MaterialApp(
             home: Scaffold(
-              body: SizedBox(height: 720, child: _WeekCalendarHarness()),
+              body: SizedBox(
+                height: 720,
+                child: _WeekCalendarHarness(initialVisibleDays: 7),
+              ),
             ),
           ),
         ),
       );
       await tester.pumpAndSettle();
 
-      await tester.drag(find.byType(PageView), const Offset(-600, 0));
-      await tester.pumpAndSettle();
       var calendar = tester.widget<WeekCalendarView>(
         find.byType(WeekCalendarView),
       );
-      // The default view is 1 day wide and pages by a single day, so after
-      // one drag from July 8 the only visible day is July 9 — the draft
-      // must land there for its handles to actually be in the tree.
+      // July 9 is already inside the 7-day week containing July 8, so the
+      // draft's handles land in the tree without paging first.
       calendar.onTargetTap!(
         WeekCalendarTapTarget(
           day: CalendarDay(year: 2026, month: 7, day: 9),
@@ -389,7 +389,10 @@ void main() {
             ],
             child: const MaterialApp(
               home: Scaffold(
-                body: SizedBox(height: 720, child: _WeekCalendarHarness()),
+                body: SizedBox(
+                  height: 720,
+                  child: _WeekCalendarHarness(initialVisibleDays: 7),
+                ),
               ),
             ),
           ),
@@ -487,7 +490,10 @@ void main() {
             ],
             child: const MaterialApp(
               home: Scaffold(
-                body: SizedBox(height: 720, child: _WeekCalendarHarness()),
+                body: SizedBox(
+                  height: 720,
+                  child: _WeekCalendarHarness(initialVisibleDays: 7),
+                ),
               ),
             ),
           ),
@@ -742,7 +748,10 @@ void main() {
         ],
         child: const MaterialApp(
           home: Scaffold(
-            body: SizedBox(height: 480, child: _WeekCalendarHarness()),
+            body: SizedBox(
+              height: 480,
+              child: _WeekCalendarHarness(initialVisibleDays: 7),
+            ),
           ),
         ),
       ),
@@ -1211,7 +1220,11 @@ void main() {
       expect(_calendar(tester).visibleDays, 3);
       expect(find.text('Wed'), findsOneWidget);
       expect(find.text('Fri'), findsOneWidget);
-      expect(find.text('Sat'), findsNothing);
+      // `_ScrollSyncedDateHeader` renders two extra buffer days past the
+      // visible window's right edge for smooth-scroll continuity (Sat, Sun
+      // here), so "Mon" — three days past Fri — is the first weekday that's
+      // genuinely absent.
+      expect(find.text('Mon'), findsNothing);
 
       await tester.tap(
         find.byKey(const ValueKey('week-calendar-seven-day-button')),
@@ -1377,6 +1390,7 @@ void main() {
     final draftId = _calendar(tester).draft!.id;
 
     await tester.tap(find.byKey(const ValueKey('inline-wake-plan-cancel')));
+    await tester.pump();
     await tester.pump();
 
     expect(find.byKey(const ValueKey('inline-wake-plan-editor')), findsNothing);
@@ -2189,14 +2203,16 @@ Future<void> _pinch(
 /// reproduces them here (with the same keys) to drive
 /// [WeekCalendarPlaceholder.visibleDays] from these widget-level tests.
 class _WeekCalendarHarness extends StatefulWidget {
-  const _WeekCalendarHarness();
+  const _WeekCalendarHarness({this.initialVisibleDays = 1});
+
+  final int initialVisibleDays;
 
   @override
   State<_WeekCalendarHarness> createState() => _WeekCalendarHarnessState();
 }
 
 class _WeekCalendarHarnessState extends State<_WeekCalendarHarness> {
-  int _visibleDays = 1;
+  late int _visibleDays = widget.initialVisibleDays;
   bool _draftActive = false;
 
   Widget _button(String key, int value) {

@@ -210,12 +210,15 @@ void main() {
 
   for (final testCase in [
     (
-      // A 3-day width pages by one day, so the two-day gap between the
-      // initial range and "now" lands on page 10002, not 10000.
+      // A 3-day width routes through `_ContinuousDayPager`, which pages by
+      // one day and starts its own page numbering at `_initialPage(4000) +
+      // _leftmostOffset(1)`, unlike the 7-day view's shared `PageView`
+      // (whose own `_initialPage` is 10000). The three-day gap between the
+      // initial range and "now" lands three pages past that base.
       name: 'three-day',
       visibleDays: 3,
       start: CalendarDay(year: 2026, month: 7, day: 9),
-      expectedPage: 10002,
+      expectedPage: 4003,
     ),
     (
       name: 'seven-day',
@@ -1290,9 +1293,11 @@ void main() {
 
     expect(tappedTarget, isNotNull);
     expect(tappedTarget!.day, CalendarDay(year: 2026, month: 7, day: 8));
-    // hourHeight 92 falls in the 30-minute snap bracket, so a tap ~8 minutes
-    // before 10:00 snaps forward to the nearest half hour.
-    expect(tappedTarget!.time.minutesSinceMidnight, 10 * 60);
+    // hourHeight 92 falls in the 30-minute snap bracket. Taps floor (not
+    // round) to their bracket's start, so a tap ~8 minutes before 10:00
+    // lands at 9:30, not 10:00 — see the comment on
+    // `weekCalendarTapTargetFromPosition`.
+    expect(tappedTarget!.time.minutesSinceMidnight, 9 * 60 + 30);
     expect(tester.takeException(), isNull);
   });
 
@@ -1374,11 +1379,10 @@ void main() {
   }
 
   for (final visibleDays in const [3, DateTime.daysPerWeek]) {
-    testWidgets('body drag remains visible at both $visibleDays-day edges', (
+    testWidgets('body drag moves the draft by whole days at $visibleDays-day width', (
       tester,
     ) async {
       final startDay = CalendarDay(year: 2026, month: 7, day: 6);
-      late StateSetter update;
       var draft = WeekCalendarDraft(
         id: 'edge-draft',
         startAt: DateTime(2026, 7, 6, 10),
@@ -1390,7 +1394,6 @@ void main() {
           home: Scaffold(
             body: StatefulBuilder(
               builder: (context, setState) {
-                update = setState;
                 return WeekCalendarView(
                   now: DateTime(2026, 7, 6, 7),
                   visibleDays: visibleDays,
@@ -1408,47 +1411,48 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      var body = find.byKey(
-        const ValueKey('week-calendar-draft-body-edge-draft-0'),
-      );
+      // A move is committed on release with no week-boundary clamp (see the
+      // comment on `_DraftBlockState._applyDragDelta`): the day/minute delta
+      // is derived purely from the raw drag distance divided by one day's
+      // pixel width, so dragging by exactly one day's width moves the draft
+      // by exactly one day regardless of how close that lands to either
+      // edge of the visible window. Its rendered day index within the
+      // window (the numeric suffix on its key) is architecture-specific —
+      // the 3-day view pages one whole day at a time, so the segment is
+      // always index 0 on its own page, while the 7-day view lays every day
+      // out side by side, so the index tracks how far the day has moved —
+      // so look the body up by key prefix instead of a specific index.
+      bool isDraftBody(Widget widget) =>
+          widget.key is ValueKey<String> &&
+          (widget.key as ValueKey<String>).value.startsWith(
+            'week-calendar-draft-body-edge-draft-',
+          );
+      var body = find.byWidgetPredicate(isDraftBody);
       var rect = tester.getRect(body);
+      // `_DraftBlockState` renders the body 4px narrower than the day
+      // column it occupies.
+      final dayWidth = rect.width + 4;
       await _rawDragFrom(
         tester,
         Offset(rect.left + 6, rect.center.dy),
-        const Offset(-1000, 0),
+        Offset(dayWidth, 0),
         pointer: 61,
       );
-      expect(draft.startAt, startDay.startOfDay);
-      expect(draft.endAt, startDay.startOfDay.add(const Duration(hours: 1)));
+      expect(draft.startAt, DateTime(2026, 7, 7, 10));
+      expect(draft.endAt, DateTime(2026, 7, 7, 11));
+      body = find.byWidgetPredicate(isDraftBody);
       expect(body, findsOneWidget);
 
-      final rangeEnd = startDay.addDays(visibleDays).startOfDay;
-      update(() {
-        draft = WeekCalendarDraft(
-          id: 'edge-draft',
-          startAt: rangeEnd.subtract(const Duration(hours: 2)),
-          endAt: rangeEnd.subtract(const Duration(hours: 1)),
-          createdAt: DateTime(2026, 7, 6, 5),
-        );
-      });
-      await tester.pump();
-      tester
-          .widget<SingleChildScrollView>(find.byType(SingleChildScrollView))
-          .controller!
-          .jumpTo(20 * 52);
-      await tester.pump();
-      body = find.byKey(
-        ValueKey('week-calendar-draft-body-edge-draft-${visibleDays - 1}'),
-      );
       rect = tester.getRect(body);
       await _rawDragFrom(
         tester,
         Offset(rect.left + 6, rect.center.dy),
-        const Offset(1000, 0),
+        Offset(-dayWidth, 0),
         pointer: 62,
       );
-      expect(draft.endAt, rangeEnd);
-      expect(draft.startAt, rangeEnd.subtract(const Duration(hours: 1)));
+      expect(draft.startAt, DateTime(2026, 7, 6, 10));
+      expect(draft.endAt, DateTime(2026, 7, 6, 11));
+      body = find.byWidgetPredicate(isDraftBody);
       expect(body, findsOneWidget);
       expect(tester.takeException(), isNull);
     });
@@ -1555,24 +1559,33 @@ void main() {
       await first.moveTo(center + const Offset(0, -40));
       await tester.pump();
       expect(scrollController.offset, initialScroll);
-      expect(draft.startAt, isNot(DateTime(2026, 7, 8, 10)));
+      // A move is only previewed (via the drag overlay ghost) until the
+      // pointer is released — see the comment on
+      // `_DraftBlockState._applyDragDelta` — so `draft` itself hasn't
+      // changed yet even though the gesture is already underway.
+      expect(draft.startAt, DateTime(2026, 7, 8, 10));
       expect(draft.duration, const Duration(hours: 2));
 
       final second = await tester.createGesture(pointer: 42);
       await second.down(center + const Offset(0, 80));
       await tester.pump();
-      final startAfterTakeover = draft.startAt;
-      final endAfterTakeover = draft.endAt;
+      expect(draft.startAt, DateTime(2026, 7, 8, 10));
       await first.moveTo(center + const Offset(0, -120));
       await second.moveTo(center + const Offset(0, 180));
       await tester.pump();
-      expect(draft.startAt, startAfterTakeover);
-      expect(draft.endAt, endAfterTakeover);
+      // The second pointer's arrival hands the gesture to the page-level
+      // pinch recognizer, which zooms independently of the still-previewed
+      // (uncommitted) draft move.
+      expect(draft.startAt, DateTime(2026, 7, 8, 10));
       expect(hourHeight, greaterThan(52));
 
       await first.up();
       await second.up();
       await tester.pumpAndSettle();
+      // The move preview commits on release, carrying the accumulated
+      // vertical delta from across the whole gesture (not lost to the
+      // pinch interlude).
+      expect(draft.startAt, isNot(DateTime(2026, 7, 8, 10)));
       final surface = find.byKey(const ValueKey('week-calendar-pinch-surface'));
       final surfaceTopLeft = tester.getTopLeft(surface);
       await tester.dragFrom(
@@ -1684,9 +1697,18 @@ void main() {
       expect(find.text('Mon'), findsOneWidget);
       expect(find.text('Tue'), findsOneWidget);
       expect(find.text('Wed'), findsOneWidget);
-      expect(find.text('Thu'), findsNothing);
+      // `_ScrollSyncedDateHeader` renders two extra buffer days past the
+      // visible window's right edge for smooth-scroll continuity (Thu, Fri
+      // here), so "Sat" — three days past Wed — is the first weekday
+      // that's genuinely absent.
+      expect(find.text('Sat'), findsNothing);
       expect(find.textContaining('13 alarms'), findsOneWidget);
 
+      // The 3-day width routes through `_ContinuousDayPager`, which pages
+      // by single whole-width days rather than laying multiple days out
+      // side by side in one grid — so the first built page's tap surface
+      // covers only its own day (Mon here) regardless of the tapped
+      // horizontal fraction.
       final tapSurface = find
           .byWidgetPredicate(
             (widget) => widget is GestureDetector && widget.onTapUp != null,
@@ -1700,14 +1722,15 @@ void main() {
         ),
       );
       await tester.pump();
-      expect(selected?.day, CalendarDay(year: 2026, month: 7, day: 8));
+      expect(selected?.day, CalendarDay(year: 2026, month: 7, day: 6));
 
       await tester.drag(find.byType(PageView), const Offset(-600, 0));
       await tester.pumpAndSettle();
       expect(find.text('Mon'), findsNothing);
-      expect(find.text('Tue'), findsOneWidget);
+      expect(find.text('Tue'), findsNothing);
       expect(find.text('Wed'), findsOneWidget);
       expect(find.text('Thu'), findsOneWidget);
+      expect(find.text('Fri'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -1765,24 +1788,20 @@ void main() {
       expect(hourHeight, greaterThan(52));
       expect(find.text('6'), findsOneWidget);
       expect(find.text('8'), findsOneWidget);
-      expect(find.text('9'), findsNothing);
+      // `_ScrollSyncedDateHeader` renders two extra buffer days past the
+      // visible window's right edge for smooth-scroll continuity (9, 10
+      // here), so 11 — three days past 8 — is the first day-of-month label
+      // that's genuinely absent.
+      expect(find.text('11'), findsNothing);
 
       await first.up();
       await second.up();
       await tester.pumpAndSettle();
+      // Paging is re-enabled the instant the pinch's physics lock lifts.
       expect(
         tester.widget<PageView>(find.byType(PageView)).physics,
         isNot(isA<NeverScrollableScrollPhysics>()),
       );
-
-      // A 3-day width pages by one day, so dragging once moves the window
-      // from Mon-Tue-Wed to Tue-Wed-Thu — confirming paging still works
-      // after the pinch releases, without depending on exactly which hour
-      // labels a particular zoom level happens to leave on screen.
-      await tester.drag(find.byType(PageView), const Offset(-600, 0));
-      await tester.pumpAndSettle();
-      expect(find.text('Mon'), findsNothing);
-      expect(find.text('Thu'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

@@ -319,7 +319,20 @@ class _CalendarViewSection extends StatelessWidget {
             label: option.label,
             icon: option.icon,
             selected: visibleDays == option.value,
-            onTap: enabled ? () => onVisibleDaysChanged(option.value) : null,
+            onTap: () {
+              if (!enabled) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Finish or cancel the current draft before '
+                      'switching views',
+                    ),
+                  ),
+                );
+                return;
+              }
+              onVisibleDaysChanged(option.value);
+            },
           ),
       ],
     );
