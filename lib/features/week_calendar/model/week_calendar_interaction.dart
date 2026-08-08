@@ -525,6 +525,7 @@ Duration weekCalendarClampDraftDurationToWeek({
 List<WeekCalendarWakePlanBlock> weekCalendarWakePlanBlocks({
   required WeekRange week,
   required Iterable<WakePlan> wakePlans,
+  Set<CalendarDay> holidays = const {},
 }) {
   final visibleStart = week.start.startOfDay;
   final visibleEnd = week.endExclusive.startOfDay;
@@ -542,7 +543,7 @@ List<WeekCalendarWakePlanBlock> weekCalendarWakePlanBlocks({
       day.compareTo(lastTargetDayExclusive) < 0;
       day = day.addDays(1)
     ) {
-      if (!wakePlan.occursOn(day)) {
+      if (!wakePlan.occursOnConsideringHolidays(day, holidays)) {
         continue;
       }
 
@@ -598,6 +599,7 @@ List<WeekCalendarWakePlanBlock> weekCalendarWakePlanOverlayBlocks({
   required CalendarDay anchorDay,
   required WeekRange window,
   required Iterable<WakePlan> wakePlans,
+  Set<CalendarDay> holidays = const {},
 }) {
   final visibleStart = window.start.startOfDay;
   final visibleEnd = window.endExclusive.startOfDay;
@@ -615,7 +617,7 @@ List<WeekCalendarWakePlanBlock> weekCalendarWakePlanOverlayBlocks({
       day.compareTo(lastTargetDayExclusive) < 0;
       day = day.addDays(1)
     ) {
-      if (!wakePlan.occursOn(day)) {
+      if (!wakePlan.occursOnConsideringHolidays(day, holidays)) {
         continue;
       }
 

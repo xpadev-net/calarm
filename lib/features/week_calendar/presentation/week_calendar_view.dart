@@ -21,6 +21,7 @@ class WeekCalendarView extends StatefulWidget {
     required this.now,
     this.initialWeek,
     this.wakePlans = const [],
+    this.holidays = const {},
     this.onTargetTap,
     this.onWakePlanTap,
     this.height = 420,
@@ -38,6 +39,11 @@ class WeekCalendarView extends StatefulWidget {
   final DateTime now;
   final WeekRange? initialWeek;
   final List<WakePlan> wakePlans;
+
+  /// Public holiday dates for the region(s) configured in Settings. A wake
+  /// plan with `skipHolidays` enabled excludes these from both its rendered
+  /// blocks and its actual scheduling — see [WakePlan.occursOnConsideringHolidays].
+  final Set<CalendarDay> holidays;
   final WeekCalendarTapCallback? onTargetTap;
   final WeekCalendarWakePlanTapCallback? onWakePlanTap;
   final double height;
@@ -204,6 +210,7 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
                 anchorDay: _initialCalendarPage.week.start,
                 now: widget.now,
                 wakePlans: widget.wakePlans,
+                holidays: widget.holidays,
                 onTargetTap: widget.onTargetTap,
                 onWakePlanTap: widget.onWakePlanTap,
                 hourHeight: widget.hourHeight,
@@ -220,6 +227,7 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
                 visibleDays: widget.visibleDays,
                 now: widget.now,
                 wakePlans: widget.wakePlans,
+                holidays: widget.holidays,
                 onTargetTap: widget.onTargetTap,
                 onWakePlanTap: widget.onWakePlanTap,
                 hourHeight: widget.hourHeight,
@@ -293,6 +301,7 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
                           week: week,
                           now: widget.now,
                           wakePlans: widget.wakePlans,
+                          holidays: widget.holidays,
                           onTargetTap: widget.onTargetTap,
                           onWakePlanTap: widget.onWakePlanTap,
                           hourHeight: widget.hourHeight,
@@ -381,6 +390,7 @@ class _InfiniteDayScroller extends StatefulWidget {
     required this.anchorDay,
     required this.now,
     required this.wakePlans,
+    this.holidays = const {},
     required this.onTargetTap,
     required this.onWakePlanTap,
     required this.hourHeight,
@@ -395,6 +405,7 @@ class _InfiniteDayScroller extends StatefulWidget {
   final CalendarDay anchorDay;
   final DateTime now;
   final List<WakePlan> wakePlans;
+  final Set<CalendarDay> holidays;
   final WeekCalendarTapCallback? onTargetTap;
   final WeekCalendarWakePlanTapCallback? onWakePlanTap;
   final double hourHeight;
@@ -625,7 +636,11 @@ class _InfiniteDayScrollerState extends State<_InfiniteDayScroller> {
                   day == today
                       ? 'Today, ${_weekdayLabel(day.weekday)} ${day.day}'
                       : '${_weekdayLabel(day.weekday)} ${day.day}',
-                  style: Theme.of(context).textTheme.labelLarge,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: _dateHeaderDayKindColor(
+                      _dateHeaderDayKind(day, widget.holidays),
+                    ),
+                  ),
                 ),
               );
             },
@@ -842,6 +857,7 @@ class _InfiniteDayScrollerState extends State<_InfiniteDayScroller> {
                   anchorDay: window.start,
                   window: window,
                   wakePlans: widget.wakePlans,
+                  holidays: widget.holidays,
                 );
                 final previewDuration = weekCalendarBoundedDraftDuration(
                   widget.draftDuration,
@@ -974,6 +990,7 @@ class _ContinuousDayPager extends StatefulWidget {
     required this.visibleDays,
     required this.now,
     required this.wakePlans,
+    this.holidays = const {},
     required this.onTargetTap,
     required this.onWakePlanTap,
     required this.hourHeight,
@@ -990,6 +1007,7 @@ class _ContinuousDayPager extends StatefulWidget {
   final int visibleDays;
   final DateTime now;
   final List<WakePlan> wakePlans;
+  final Set<CalendarDay> holidays;
   final WeekCalendarTapCallback? onTargetTap;
   final WeekCalendarWakePlanTapCallback? onWakePlanTap;
   final double hourHeight;
@@ -1280,6 +1298,7 @@ class _ContinuousDayPagerState extends State<_ContinuousDayPager> {
                       anchorDay: widget.anchorDay,
                       visibleDays: widget.visibleDays,
                       now: widget.now,
+                      holidays: widget.holidays,
                     ),
                   ),
                 ],
@@ -1377,6 +1396,7 @@ class _ContinuousDayPagerState extends State<_ContinuousDayPager> {
     final blocks = weekCalendarWakePlanBlocks(
       week: week,
       wakePlans: widget.wakePlans,
+      holidays: widget.holidays,
     );
     final snapIntervalMinutes = weekCalendarTapSnapIntervalMinutes(
       _displayHourHeight,
@@ -1506,12 +1526,14 @@ class _ScrollSyncedDateHeader extends StatelessWidget {
     required this.anchorDay,
     required this.visibleDays,
     required this.now,
+    this.holidays = const {},
   });
 
   final ValueListenable<double> pageListenable;
   final CalendarDay anchorDay;
   final int visibleDays;
   final DateTime now;
+  final Set<CalendarDay> holidays;
 
   @override
   Widget build(BuildContext context) {
@@ -1545,6 +1567,7 @@ class _ScrollSyncedDateHeader extends StatelessWidget {
                             weekdayLabel: _weekdayLabel(day.weekday),
                             dayLabel: '${day.day}',
                             highlighted: day == today,
+                            dayKind: _dateHeaderDayKind(day, holidays),
                           );
                         },
                       ),
@@ -1565,6 +1588,7 @@ class _WeekCalendarWeekPage extends StatefulWidget {
     required this.week,
     required this.now,
     required this.wakePlans,
+    this.holidays = const {},
     required this.onTargetTap,
     required this.onWakePlanTap,
     required this.hourHeight,
@@ -1585,6 +1609,7 @@ class _WeekCalendarWeekPage extends StatefulWidget {
   final WeekRange week;
   final DateTime now;
   final List<WakePlan> wakePlans;
+  final Set<CalendarDay> holidays;
   final WeekCalendarTapCallback? onTargetTap;
   final WeekCalendarWakePlanTapCallback? onWakePlanTap;
   final double hourHeight;
@@ -1835,6 +1860,7 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
     final blocks = weekCalendarWakePlanBlocks(
       week: widget.week,
       wakePlans: widget.wakePlans,
+      holidays: widget.holidays,
     );
     final snapIntervalMinutes = weekCalendarTapSnapIntervalMinutes(
       _displayHourHeight,
@@ -1845,7 +1871,11 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
 
     return Column(
       children: [
-        _DateHeader(week: widget.week, now: widget.now),
+        _DateHeader(
+          week: widget.week,
+          now: widget.now,
+          holidays: widget.holidays,
+        ),
         Expanded(
           child: RawGestureDetector(
             key: const ValueKey('week-calendar-pinch-surface'),
@@ -3188,10 +3218,15 @@ class _WakePlanBlockCard extends StatelessWidget {
 }
 
 class _DateHeader extends StatelessWidget {
-  const _DateHeader({required this.week, required this.now});
+  const _DateHeader({
+    required this.week,
+    required this.now,
+    this.holidays = const {},
+  });
 
   final WeekRange week;
   final DateTime now;
+  final Set<CalendarDay> holidays;
 
   @override
   Widget build(BuildContext context) {
@@ -3205,6 +3240,7 @@ class _DateHeader extends StatelessWidget {
               weekdayLabel: _weekdayLabel(day.weekday),
               dayLabel: '${day.day}',
               highlighted: day == today,
+              dayKind: _dateHeaderDayKind(day, holidays),
             ),
           ),
       ],
@@ -3234,15 +3270,18 @@ class _DateHeaderCell extends StatelessWidget {
     required this.weekdayLabel,
     required this.dayLabel,
     required this.highlighted,
+    this.dayKind = _DateHeaderDayKind.normal,
   });
 
   final String weekdayLabel;
   final String dayLabel;
   final bool highlighted;
+  final _DateHeaderDayKind dayKind;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final dayKindColor = _dateHeaderDayKindColor(dayKind);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -3253,7 +3292,9 @@ class _DateHeaderCell extends StatelessWidget {
             fit: BoxFit.scaleDown,
             child: Text(
               weekdayLabel,
-              style: Theme.of(context).textTheme.labelMedium,
+              style: Theme.of(
+                context,
+              ).textTheme.labelMedium?.copyWith(color: dayKindColor),
             ),
           ),
           const SizedBox(height: 2),
@@ -3270,7 +3311,7 @@ class _DateHeaderCell extends StatelessWidget {
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
                 color: highlighted
                     ? colorScheme.onPrimary
-                    : colorScheme.onSurface,
+                    : (dayKindColor ?? colorScheme.onSurface),
               ),
             ),
           ),
@@ -3452,6 +3493,33 @@ String _weekdayLabel(int weekday) {
     DateTime.saturday => 'Sat',
     DateTime.sunday => 'Sun',
     _ => throw RangeError.range(weekday, DateTime.monday, DateTime.sunday),
+  };
+}
+
+/// Saturdays get a blue accent, Sundays and public holidays a red one —
+/// matching the convention most Japanese calendars use. [holidays] should
+/// come from [activeHolidaySetProvider]/[WakePlan.occursOnConsideringHolidays]'s
+/// same source so this always agrees with what's actually skipped.
+enum _DateHeaderDayKind { normal, saturday, sundayOrHoliday }
+
+_DateHeaderDayKind _dateHeaderDayKind(
+  CalendarDay day,
+  Set<CalendarDay> holidays,
+) {
+  if (day.weekday == DateTime.sunday || holidays.contains(day)) {
+    return _DateHeaderDayKind.sundayOrHoliday;
+  }
+  if (day.weekday == DateTime.saturday) {
+    return _DateHeaderDayKind.saturday;
+  }
+  return _DateHeaderDayKind.normal;
+}
+
+Color? _dateHeaderDayKindColor(_DateHeaderDayKind kind) {
+  return switch (kind) {
+    _DateHeaderDayKind.saturday => Colors.blue.shade600,
+    _DateHeaderDayKind.sundayOrHoliday => Colors.red.shade600,
+    _DateHeaderDayKind.normal => null,
   };
 }
 

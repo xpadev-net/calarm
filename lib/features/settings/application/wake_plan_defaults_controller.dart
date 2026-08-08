@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../wake_plan/data/wake_plan_data.dart';
 import '../../wake_plan/domain/wake_plan_domain.dart';
+import 'holiday_region_locale_detector.dart';
 
 final wakePlanDefaultsRepositoryProvider = FutureProvider<WakePlanRepository>((
   ref,
@@ -22,7 +23,17 @@ class WakePlanDefaultsController extends AsyncNotifier<AppSettings> {
     final repository = await ref.watch(
       wakePlanDefaultsRepositoryProvider.future,
     );
-    return repository.fetchEffectiveAppSettings();
+    final existing = await repository.fetchAppSettings();
+    if (existing != null) {
+      return existing;
+    }
+    // No settings have ever been saved: seed the holiday region from the
+    // device's locale so a first-time user in a supported region gets
+    // holiday-skipping working out of the box, without persisting it until
+    // they actually change something.
+    return AppSettings.initial().copyWith(
+      holidayRegions: detectDefaultHolidayRegions(),
+    );
   }
 
   Future<void> setWakeWindow(Duration value) {
@@ -34,7 +45,7 @@ class WakePlanDefaultsController extends AsyncNotifier<AppSettings> {
         defaultVibrationEnabled: current.defaultVibrationEnabled,
         defaultRepeatType: current.defaultRepeatType,
         defaultTargetTime: current.defaultTargetTime,
-        holidayRegion: current.holidayRegion,
+        holidayRegions: current.holidayRegions,
       ),
     );
   }
@@ -48,7 +59,7 @@ class WakePlanDefaultsController extends AsyncNotifier<AppSettings> {
         defaultVibrationEnabled: current.defaultVibrationEnabled,
         defaultRepeatType: current.defaultRepeatType,
         defaultTargetTime: current.defaultTargetTime,
-        holidayRegion: current.holidayRegion,
+        holidayRegions: current.holidayRegions,
       ),
     );
   }
@@ -62,7 +73,7 @@ class WakePlanDefaultsController extends AsyncNotifier<AppSettings> {
         defaultVibrationEnabled: current.defaultVibrationEnabled,
         defaultRepeatType: current.defaultRepeatType,
         defaultTargetTime: current.defaultTargetTime,
-        holidayRegion: current.holidayRegion,
+        holidayRegions: current.holidayRegions,
       ),
     );
   }
@@ -79,8 +90,8 @@ class WakePlanDefaultsController extends AsyncNotifier<AppSettings> {
     );
   }
 
-  Future<void> setHolidayRegion(HolidayRegion? value) {
-    return _enqueueSave((current) => current.copyWith(holidayRegion: value));
+  Future<void> setHolidayRegions(Set<HolidayRegion> value) {
+    return _enqueueSave((current) => current.copyWith(holidayRegions: value));
   }
 
   AppSettings get _current => state.value ?? AppSettings.initial();
@@ -100,7 +111,7 @@ class WakePlanDefaultsController extends AsyncNotifier<AppSettings> {
       defaultVibrationEnabled: settings.defaultVibrationEnabled,
       defaultRepeatType: settings.defaultRepeatType,
       defaultTargetTime: settings.defaultTargetTime,
-      holidayRegion: settings.holidayRegion,
+      holidayRegions: settings.holidayRegions,
     );
 
     final repository = await ref.read(

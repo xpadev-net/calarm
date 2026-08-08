@@ -1508,6 +1508,60 @@ void main() {
       );
       expect(gateway.scheduledRequests, isEmpty);
     });
+
+    test('cancels a native occurrence whose day is a confirmed holiday it was '
+        'reserved before knowing about', () async {
+      final plan = buildPlan(
+        repeatRule: RepeatRule.weekly({Weekday.monday}),
+        skipHolidays: true,
+      );
+      final staleOccurrence = buildOccurrence(
+        id: 'plan-1:${monday.daysSinceUnixEpoch}:${targetTime.minutesSinceMidnight}',
+        day: monday,
+        time: targetTime,
+        platformAlarmId: 'native-monday',
+      );
+      final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+        ..wakePlans = [plan]
+        ..storedOccurrences = [staleOccurrence]
+        ..reservedOccurrences = [staleOccurrence];
+      final gateway = FakeNativeAlarmGateway()
+        ..inventoryRows.add(
+          inventoryRow(staleOccurrence, platformAlarmId: 'native-monday'),
+        );
+
+      final results = await service(
+        store: store,
+        gateway: gateway,
+        rollingScheduleDays: 2,
+        // The occurrence was reserved before holiday data confirmed
+        // `monday` as a holiday — this is what background reconciliation
+        // observes once that data catches up. `_prepareWholeInventory`
+        // recomputes the desired bundle (holiday-aware) and retires any
+        // native reservation that falls outside it, so this covers the
+        // holiday case without any holiday-specific reconciliation logic.
+        holidaysSnapshot: () => {monday},
+      ).reconcileSchedules();
+
+      expect(gateway.cancelledOccurrences.map((request) => request.idLabel), [
+        '${staleOccurrence.id}/${staleOccurrence.platformAlarmId}',
+      ]);
+      final persistedStale = store.storedOccurrences.singleWhere(
+        (occurrence) => occurrence.id == staleOccurrence.id,
+      );
+      expect(persistedStale.status, AlarmOccurrenceStatus.cancelled);
+      expect(persistedStale.platformAlarmId, isNull);
+      // The plan is still weekly and enabled, so a replacement occurrence
+      // gets scheduled on the next non-holiday Monday instead of the
+      // plan silently going unscheduled.
+      expect(results.single.status, WakePlanSchedulingStatus.scheduled);
+      expect(
+        results.single.occurrences.every(
+          (occurrence) => occurrence.scheduledAt.day != monday,
+        ),
+        isTrue,
+      );
+    });
   });
 
   group('WakePlanService whole-inventory reconciliation', () {

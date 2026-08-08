@@ -9,6 +9,7 @@ import '../../../core/platform/native_alarm_gateway.dart';
 import '../../../core/time/time.dart';
 import '../../settings/application/wake_plan_defaults_controller.dart';
 import '../../settings/application/alarm_health_controller.dart';
+import '../../wake_plan/application/holiday_set_provider.dart';
 import '../../wake_plan/application/wake_plan_service.dart';
 import '../../wake_plan/application/wake_plan_service_providers.dart';
 import '../../wake_plan/data/wake_plan_data.dart';
@@ -143,6 +144,7 @@ class _WeekCalendarPlaceholderState
     final clock = ref.watch(weekCalendarClockProvider);
     final wakePlans = ref.watch(weekCalendarWakePlansProvider);
     final defaults = ref.watch(wakePlanDefaultsProvider);
+    final holidays = ref.watch(activeHolidaySetProvider);
     _logProviderError('Wake plans', wakePlans);
     _logProviderError('Wake plan defaults', defaults);
     final currentWakePlans = wakePlans.hasValue
@@ -151,6 +153,9 @@ class _WeekCalendarPlaceholderState
     final currentDefaults = defaults.hasValue
         ? defaults.requireValue
         : AppSettings.initial();
+    final currentHolidays = holidays.hasValue
+        ? holidays.requireValue
+        : const <CalendarDay>{};
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -161,6 +166,7 @@ class _WeekCalendarPlaceholderState
               key: ValueKey<int>(widget.visibleDays),
               now: _now,
               wakePlans: currentWakePlans,
+              holidays: currentHolidays,
               height: constraints.maxHeight,
               hourHeight: _hourHeight,
               visibleDays: widget.visibleDays,

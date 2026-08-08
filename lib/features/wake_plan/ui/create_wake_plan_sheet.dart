@@ -231,7 +231,7 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Skip public holidays'),
-                  subtitle: widget.defaults.holidayRegion == null
+                  subtitle: widget.defaults.holidayRegions.isEmpty
                       ? const Text(
                           'Set a holiday calendar in Settings to use this.',
                         )

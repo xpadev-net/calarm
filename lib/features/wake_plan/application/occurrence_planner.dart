@@ -130,8 +130,7 @@ class OccurrencePlanner {
     CalendarDay day,
     Set<CalendarDay> holidays,
   ) {
-    return wakePlan.occursOn(day) &&
-        !(wakePlan.skipHolidays && holidays.contains(day));
+    return wakePlan.occursOnConsideringHolidays(day, holidays);
   }
 }
 

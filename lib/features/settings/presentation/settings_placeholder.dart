@@ -303,28 +303,149 @@ class _SettingsDefaultsPanel extends ConsumerWidget {
               },
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<HolidayRegion?>(
-              key: ValueKey(settings.holidayRegion),
-              initialValue: settings.holidayRegion,
-              decoration: const InputDecoration(labelText: 'Holiday calendar'),
-              hint: const Text('Off'),
-              items: [
-                const DropdownMenuItem(value: null, child: Text('Off')),
-                for (final region in HolidayRegion.values)
-                  DropdownMenuItem(
-                    value: region,
-                    child: Text(region.displayName),
-                  ),
-              ],
-              onChanged: (value) {
-                _handleSave(context, controller.setHolidayRegion(value));
-              },
+            _HolidayRegionMultiSelect(
+              selected: settings.holidayRegions,
+              onSave: controller.setHolidayRegions,
             ),
           ],
         ),
       ),
     );
   }
+}
+
+class _HolidayRegionMultiSelect extends StatefulWidget {
+  const _HolidayRegionMultiSelect({
+    required this.selected,
+    required this.onSave,
+  });
+
+  final Set<HolidayRegion> selected;
+  final Future<void> Function(Set<HolidayRegion>) onSave;
+
+  @override
+  State<_HolidayRegionMultiSelect> createState() =>
+      _HolidayRegionMultiSelectState();
+}
+
+class _HolidayRegionMultiSelectState extends State<_HolidayRegionMultiSelect> {
+  // The save round-trip through WakePlanDefaultsController isn't optimistic
+  // (state only updates once persistence completes), so driving the
+  // checkboxes straight off `widget.selected` would leave a tap looking
+  // unresponsive until the write lands. Track the tapped-toward value here
+  // instead and let it get overwritten once the real persisted value
+  // catches up (see didUpdateWidget) — including snapping back if a save
+  // actually failed.
+  late Set<HolidayRegion> _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = widget.selected;
+  }
+
+  @override
+  void didUpdateWidget(covariant _HolidayRegionMultiSelect oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_setEquals(oldWidget.selected, widget.selected)) {
+      _selected = widget.selected;
+    }
+  }
+
+  String get _summary {
+    if (_selected.isEmpty) {
+      return 'Off';
+    }
+    return _selected.map((region) => region.displayName).join(', ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // MenuAnchor sizes its builder content to its own intrinsic width
+    // rather than the width offered by the parent (unlike DropdownButton,
+    // which fills available width by default) — LayoutBuilder pins it to
+    // the actual available width so the field doesn't shrink to fit its
+    // label/icon.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return MenuAnchor(
+          builder: (context, controller, child) {
+            return SizedBox(
+              width: constraints.maxWidth,
+              child: InputDecorator(
+                decoration: const InputDecoration(
+                  labelText: 'Holiday calendars',
+                  border: OutlineInputBorder(),
+                ),
+                child: InkWell(
+                  onTap: () {
+                    if (controller.isOpen) {
+                      controller.close();
+                    } else {
+                      controller.open();
+                    }
+                  },
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(_summary, overflow: TextOverflow.ellipsis),
+                      ),
+                      const Icon(Icons.arrow_drop_down),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+          menuChildren: [
+            for (final region in HolidayRegion.values)
+              SizedBox(
+                width: constraints.maxWidth,
+                child: CheckboxListTile(
+                  dense: true,
+                  value: _selected.contains(region),
+                  title: Text(region.displayName),
+                  onChanged: (checked) {
+                    final next = Set<HolidayRegion>.from(_selected);
+                    if (checked ?? false) {
+                      next.add(region);
+                    } else {
+                      next.remove(region);
+                    }
+                    setState(() => _selected = next);
+                    final save = widget.onSave(next);
+                    _handleSave(context, save);
+                    // `_save`'s revert-on-failure doesn't produce a
+                    // WakePlanDefaultsController listener notification when
+                    // it restores an equal previous value (a no-op
+                    // reassignment), so didUpdateWidget alone can't be
+                    // relied on to snap this back — revert locally instead.
+                    // Reverting to `widget.selected` (rather than a value
+                    // captured per-tap) matters when taps overlap: since a
+                    // failed save never actually changes the controller's
+                    // state, `widget.selected` stays pinned at the last
+                    // *successfully* persisted value across the whole
+                    // overlapping sequence, so it's correct regardless of
+                    // which of several in-flight saves fails first.
+                    unawaited(
+                      save.catchError((Object _) {
+                        if (mounted) {
+                          setState(() => _selected = widget.selected);
+                        }
+                      }),
+                    );
+                  },
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+bool _setEquals<T>(Set<T> a, Set<T> b) {
+  return a.length == b.length && a.containsAll(b);
 }
 
 class _DurationChoice extends StatelessWidget {

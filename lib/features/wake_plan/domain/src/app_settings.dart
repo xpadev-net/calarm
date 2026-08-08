@@ -21,7 +21,7 @@ class AppSettings {
     required bool defaultVibrationEnabled,
     required RepeatType defaultRepeatType,
     TimeOfDayMinutes? defaultTargetTime,
-    HolidayRegion? holidayRegion,
+    Set<HolidayRegion> holidayRegions = const {},
   }) {
     validateWakePlanTiming(
       startOffset: defaultStartOffset,
@@ -50,7 +50,7 @@ class AppSettings {
       defaultVibrationEnabled: defaultVibrationEnabled,
       defaultRepeatType: defaultRepeatType,
       defaultTargetTime: defaultTargetTime,
-      holidayRegion: holidayRegion,
+      holidayRegions: Set.unmodifiable(holidayRegions),
     );
   }
 
@@ -61,7 +61,7 @@ class AppSettings {
     required this.defaultVibrationEnabled,
     required this.defaultRepeatType,
     required this.defaultTargetTime,
-    required this.holidayRegion,
+    required this.holidayRegions,
   });
 
   final Duration defaultStartOffset;
@@ -70,7 +70,13 @@ class AppSettings {
   final bool defaultVibrationEnabled;
   final RepeatType defaultRepeatType;
   final TimeOfDayMinutes? defaultTargetTime;
-  final HolidayRegion? holidayRegion;
+
+  /// The set of regions whose public holidays are treated as skippable by
+  /// wake plans with `skipHolidays` enabled. Empty means no region is
+  /// configured. Deliberately a set (not a single nullable region) so more
+  /// regions can be added to [HolidayRegion] and selected together without
+  /// another schema/API change.
+  final Set<HolidayRegion> holidayRegions;
 
   RepeatRule repeatRuleForDate(CalendarDay date) {
     return switch (defaultRepeatType) {
@@ -88,14 +94,11 @@ class AppSettings {
     bool? defaultVibrationEnabled,
     RepeatType? defaultRepeatType,
     Object? defaultTargetTime = _unchanged,
-    Object? holidayRegion = _unchanged,
+    Set<HolidayRegion>? holidayRegions,
   }) {
     final nextDefaultTargetTime = defaultTargetTime == _unchanged
         ? this.defaultTargetTime
         : defaultTargetTime as TimeOfDayMinutes?;
-    final nextHolidayRegion = holidayRegion == _unchanged
-        ? this.holidayRegion
-        : holidayRegion as HolidayRegion?;
 
     return AppSettings(
       defaultStartOffset: defaultStartOffset ?? this.defaultStartOffset,
@@ -105,7 +108,7 @@ class AppSettings {
           defaultVibrationEnabled ?? this.defaultVibrationEnabled,
       defaultRepeatType: defaultRepeatType ?? this.defaultRepeatType,
       defaultTargetTime: nextDefaultTargetTime,
-      holidayRegion: nextHolidayRegion,
+      holidayRegions: holidayRegions ?? this.holidayRegions,
     );
   }
 }
@@ -119,7 +122,7 @@ AppSettings sanitizeAppSettings({
   bool? defaultVibrationEnabled,
   RepeatType? defaultRepeatType,
   TimeOfDayMinutes? defaultTargetTime,
-  HolidayRegion? holidayRegion,
+  Set<HolidayRegion>? holidayRegions,
 }) {
   final fallback = AppSettings.initial();
   return AppSettings(
@@ -140,7 +143,7 @@ AppSettings sanitizeAppSettings({
         defaultVibrationEnabled ?? fallback.defaultVibrationEnabled,
     defaultRepeatType: defaultRepeatType ?? fallback.defaultRepeatType,
     defaultTargetTime: defaultTargetTime ?? fallback.defaultTargetTime,
-    holidayRegion: holidayRegion ?? fallback.holidayRegion,
+    holidayRegions: holidayRegions ?? fallback.holidayRegions,
   );
 }
 

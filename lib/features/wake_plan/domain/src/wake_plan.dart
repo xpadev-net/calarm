@@ -120,6 +120,16 @@ class WakePlan {
         repeatRule.includes(day);
   }
 
+  /// Like [occursOn], but also honors [skipHolidays]: a day this plan would
+  /// otherwise occur on is excluded when it's in [holidays] and the plan has
+  /// holiday-skipping enabled. Anything that decides whether an occurrence
+  /// should exist for a day — scheduling, preview, or calendar rendering —
+  /// should use this rather than [occursOn] alone, or it'll disagree with
+  /// what's actually scheduled once holiday data is known.
+  bool occursOnConsideringHolidays(CalendarDay day, Set<CalendarDay> holidays) {
+    return occursOn(day) && !(skipHolidays && holidays.contains(day));
+  }
+
   WakePlan copyWith({
     String? id,
     String? title,

@@ -149,7 +149,7 @@ void main() {
         expect(plan!.skipHolidays, isFalse);
 
         final settings = await migratedRepository.fetchEffectiveAppSettings();
-        expect(settings.holidayRegion, isNull);
+        expect(settings.holidayRegions, isEmpty);
 
         await migratedDatabase
             .into(migratedDatabase.holidayCacheRows)
