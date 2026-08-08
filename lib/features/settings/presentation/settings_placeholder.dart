@@ -406,7 +406,6 @@ class _HolidayRegionMultiSelectState extends State<_HolidayRegionMultiSelect> {
                   value: _selected.contains(region),
                   title: Text(region.displayName),
                   onChanged: (checked) {
-                    final previous = _selected;
                     final next = Set<HolidayRegion>.from(_selected);
                     if (checked ?? false) {
                       next.add(region);
@@ -421,10 +420,17 @@ class _HolidayRegionMultiSelectState extends State<_HolidayRegionMultiSelect> {
                     // it restores an equal previous value (a no-op
                     // reassignment), so didUpdateWidget alone can't be
                     // relied on to snap this back — revert locally instead.
+                    // Reverting to `widget.selected` (rather than a value
+                    // captured per-tap) matters when taps overlap: since a
+                    // failed save never actually changes the controller's
+                    // state, `widget.selected` stays pinned at the last
+                    // *successfully* persisted value across the whole
+                    // overlapping sequence, so it's correct regardless of
+                    // which of several in-flight saves fails first.
                     unawaited(
                       save.catchError((Object _) {
                         if (mounted) {
-                          setState(() => _selected = previous);
+                          setState(() => _selected = widget.selected);
                         }
                       }),
                     );
