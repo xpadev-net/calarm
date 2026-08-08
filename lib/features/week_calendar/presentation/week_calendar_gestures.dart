@@ -26,9 +26,9 @@ class WeekCalendarPreserveVisibleTimeScrollPhysics extends ScrollPhysics {
   }
 }
 
-typedef _TwoPointerScaleStart =
+typedef WeekCalendarTwoPointerScaleStart =
     void Function(Offset focalPoint, double distance);
-typedef _TwoPointerScaleUpdate =
+typedef WeekCalendarTwoPointerScaleUpdate =
     void Function(Offset focalPoint, double distance);
 
 /// Gives a second touch a chance to join the first touch before a nested
@@ -38,8 +38,8 @@ typedef _TwoPointerScaleUpdate =
 /// scrolling and paging retain their normal drag behavior.
 class WeekCalendarTwoPointerScaleGestureRecognizer
     extends OneSequenceGestureRecognizer {
-  _TwoPointerScaleStart? onStart;
-  _TwoPointerScaleUpdate? onUpdate;
+  WeekCalendarTwoPointerScaleStart? onStart;
+  WeekCalendarTwoPointerScaleUpdate? onUpdate;
   VoidCallback? onEnd;
   bool Function()? shouldContinueWaitingForSecondPointer;
 

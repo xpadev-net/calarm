@@ -7,6 +7,7 @@ import 'week_calendar_view.dart';
 
 class WeekCalendarWakePlanBlockView extends StatelessWidget {
   const WeekCalendarWakePlanBlockView({
+    super.key,
     required this.block,
     required this.pixelsPerMinute,
     required this.dayWidth,
@@ -108,6 +109,7 @@ class _WakePlanBlockCard extends StatelessWidget {
 
 class WeekCalendarDateHeader extends StatelessWidget {
   const WeekCalendarDateHeader({
+    super.key,
     required this.week,
     required this.now,
     this.holidays = const {},
@@ -142,7 +144,7 @@ class WeekCalendarDateHeader extends StatelessWidget {
 /// axis's header spacer without also being matched by `find.text('Mon')`
 /// (etc.) finders in tests.
 class WeekCalendarDateHeaderSizingProbe extends StatelessWidget {
-  const WeekCalendarDateHeaderSizingProbe();
+  const WeekCalendarDateHeaderSizingProbe({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -156,6 +158,7 @@ class WeekCalendarDateHeaderSizingProbe extends StatelessWidget {
 
 class WeekCalendarDateHeaderCell extends StatelessWidget {
   const WeekCalendarDateHeaderCell({
+    super.key,
     required this.weekdayLabel,
     required this.dayLabel,
     required this.highlighted,
@@ -211,7 +214,7 @@ class WeekCalendarDateHeaderCell extends StatelessWidget {
 }
 
 class WeekCalendarTimeAxis extends StatelessWidget {
-  const WeekCalendarTimeAxis({required this.hourHeight});
+  const WeekCalendarTimeAxis({super.key, required this.hourHeight});
 
   final double hourHeight;
 
@@ -240,6 +243,7 @@ class WeekCalendarTimeAxis extends StatelessWidget {
 
 class WeekCalendarTimeGrid extends StatelessWidget {
   const WeekCalendarTimeGrid({
+    super.key,
     required this.week,
     required this.now,
     required this.hourHeight,

@@ -20,6 +20,7 @@ import 'week_calendar_view.dart';
 /// in Google Calendar.
 class WeekCalendarContinuousDayPager extends StatefulWidget {
   const WeekCalendarContinuousDayPager({
+    super.key,
     required this.anchorDay,
     required this.visibleDays,
     required this.now,

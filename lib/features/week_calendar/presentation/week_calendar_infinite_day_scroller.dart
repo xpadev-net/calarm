@@ -16,6 +16,7 @@ import 'week_calendar_view.dart';
 /// of the previous day) with no page boundary.
 class WeekCalendarInfiniteDayScroller extends StatefulWidget {
   const WeekCalendarInfiniteDayScroller({
+    super.key,
     required this.anchorDay,
     required this.now,
     required this.wakePlans,
