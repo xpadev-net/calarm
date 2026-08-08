@@ -113,6 +113,22 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
       _recenterPageIndex = _pageIndexForDay(
         CalendarDay.fromDateTime(widget.now),
       );
+      // Computed synchronously, before this build, so the target page
+      // (rebuilt with the new recenterRequest this same frame) and the
+      // fixed axis both see the fresh target instead of the previous
+      // recenter's — the actual scroll jump still has to wait a frame (the
+      // target page's ScrollController may not exist yet), but the value
+      // it jumps to must not.
+      final target = initialWeekCalendarScrollTarget(
+        week: currentCalendarRange(
+          widget.now,
+          visibleDays: widget.visibleDays,
+        ),
+        now: widget.now,
+        pixelsPerMinute: widget.hourHeight / TimeOfDayMinutes.minutesPerHour,
+      );
+      _recenterTargetOffset = target.offset;
+      _axisOffset.value = target.offset;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _applyRecenterRequest();
       });
@@ -336,18 +352,6 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
         !_pageController.hasClients) {
       return;
     }
-    final target = initialWeekCalendarScrollTarget(
-      week: currentCalendarRange(widget.now, visibleDays: widget.visibleDays),
-      now: widget.now,
-      pixelsPerMinute: widget.hourHeight / TimeOfDayMinutes.minutesPerHour,
-    );
-    _recenterTargetOffset = target.offset;
-    // Set the fixed axis to its final position up front instead of waiting
-    // for the recentered page's own scroll controller to register and relay
-    // its offset back — that relay is what let the axis visibly lag behind
-    // (or briefly show a stale position from whatever page was previously
-    // active) on a recenter.
-    _axisOffset.value = target.offset;
     _pageController.jumpToPage(_recenterPageIndex);
     _appliedRecenterRequest = widget.recenterRequest;
   }
