@@ -470,7 +470,7 @@ extension AlarmKitBridge {
       normalizedMirror[normalizedKey] = AlarmMirrorRecord(
         reservationId: record.reservationId,
         occurrenceId: record.occurrenceId,
-        reservationGeneration: record.generation,
+        reservationGeneration: record.reservationGeneration,
         wakePlanId: record.wakePlanId,
         platformAlarmId: normalizedKey,
         scheduledAt: record.scheduledAt,

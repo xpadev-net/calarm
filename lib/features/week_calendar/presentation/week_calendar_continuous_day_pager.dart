@@ -54,7 +54,8 @@ class WeekCalendarContinuousDayPager extends StatefulWidget {
   final double bottomPadding;
 
   @override
-  State<WeekCalendarContinuousDayPager> createState() => _ContinuousDayPagerState();
+  State<WeekCalendarContinuousDayPager> createState() =>
+      _ContinuousDayPagerState();
 }
 
 class _ContinuousDayPagerState extends State<WeekCalendarContinuousDayPager> {
@@ -267,7 +268,7 @@ class _ContinuousDayPagerState extends State<WeekCalendarContinuousDayPager> {
     _pinchStartHourHeight = null;
     _pinchStartScrollOffset = null;
     _zoomFocalY = null;
-    if (_pinching) {
+    if (mounted && _pinching) {
       setState(() {
         _pinching = false;
       });
@@ -360,7 +361,9 @@ class _ContinuousDayPagerState extends State<WeekCalendarContinuousDayPager> {
                             right: 0,
                             top: -offset,
                             height: _gridHeight,
-                            child: WeekCalendarTimeAxis(hourHeight: _displayHourHeight),
+                            child: WeekCalendarTimeAxis(
+                              hourHeight: _displayHourHeight,
+                            ),
                           ),
                         ],
                       );
@@ -376,7 +379,9 @@ class _ContinuousDayPagerState extends State<WeekCalendarContinuousDayPager> {
                     WeekCalendarTwoPointerScaleGestureRecognizer:
                         GestureRecognizerFactoryWithHandlers<
                           WeekCalendarTwoPointerScaleGestureRecognizer
-                        >(WeekCalendarTwoPointerScaleGestureRecognizer.new, (recognizer) {
+                        >(WeekCalendarTwoPointerScaleGestureRecognizer.new, (
+                          recognizer,
+                        ) {
                           recognizer
                             ..onStart = _handlePinchStart
                             ..onUpdate = _handlePinchUpdate
@@ -530,7 +535,8 @@ class _ContinuousDayPagerState extends State<WeekCalendarContinuousDayPager> {
                     interactionEnabled:
                         !_pinching && widget.draftInteractionEnabled,
                     hideForActiveMove:
-                        _manipulatingDraftMode == WeekCalendarDraftDragMode.move,
+                        _manipulatingDraftMode ==
+                        WeekCalendarDraftDragMode.move,
                     bodyFocusNode: segment.containsStart
                         ? _draftBodyFocusNode
                         : null,
@@ -601,7 +607,10 @@ class _ScrollSyncedDateHeader extends StatelessWidget {
                             weekdayLabel: weekCalendarWeekdayLabel(day.weekday),
                             dayLabel: '${day.day}',
                             highlighted: day == today,
-                            dayKind: weekCalendarDateHeaderDayKind(day, holidays),
+                            dayKind: weekCalendarDateHeaderDayKind(
+                              day,
+                              holidays,
+                            ),
                           );
                         },
                       ),

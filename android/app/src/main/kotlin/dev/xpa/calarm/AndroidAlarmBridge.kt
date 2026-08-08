@@ -1338,7 +1338,7 @@ class AndroidAlarmBridge(private val context: Context) : MethodChannel.MethodCal
                         "occurrenceId" to request.occurrenceId,
                         "wakePlanId" to request.wakePlanId,
                         "platformAlarmId" to request.platformAlarmId,
-                        "status" to snapshot.status(request),
+                        "status" to snapshot.status(appContext, request),
                     )
                 },
             ),

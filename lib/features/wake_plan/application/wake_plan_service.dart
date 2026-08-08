@@ -1703,7 +1703,10 @@ class WakePlanService {
     );
     if (!cancelResult.isSuccess) {
       final restoration = previousPlan == null
-          ? const WakePlanRestorationResult(scheduleResult: null, occurrences: [])
+          ? const WakePlanRestorationResult(
+              scheduleResult: null,
+              occurrences: [],
+            )
           : await _restoreCancelledOccurrences(
               plan: previousPlan,
               occurrences: cancelResult.successfullyCancelledOccurrences,
@@ -1853,7 +1856,10 @@ class WakePlanService {
     );
     if (!cancelResult.isSuccess) {
       final restoration = previousPlan == null
-          ? const WakePlanRestorationResult(scheduleResult: null, occurrences: [])
+          ? const WakePlanRestorationResult(
+              scheduleResult: null,
+              occurrences: [],
+            )
           : await _restoreCancelledOccurrences(
               plan: previousPlan,
               occurrences: cancelResult.successfullyCancelledOccurrences,
@@ -1899,7 +1905,10 @@ class WakePlanService {
       await _store.softDeleteWakePlan(id: wakePlanId, updatedAt: now);
     } catch (error) {
       final restoration = previousPlan == null
-          ? const WakePlanRestorationResult(scheduleResult: null, occurrences: [])
+          ? const WakePlanRestorationResult(
+              scheduleResult: null,
+              occurrences: [],
+            )
           : await _restoreCancelledOccurrences(
               plan: previousPlan,
               occurrences: cancelResult.successfullyCancelledOccurrences,
@@ -3321,7 +3330,10 @@ class WakePlanService {
     List<AlarmOccurrence> generationFloors = const [],
   }) async {
     if (occurrences.isEmpty) {
-      return const WakePlanRestorationResult(scheduleResult: null, occurrences: []);
+      return const WakePlanRestorationResult(
+        scheduleResult: null,
+        occurrences: [],
+      );
     }
 
     final preservedSuppressions = occurrences
@@ -3708,7 +3720,6 @@ CalendarDay? nextWakePlanTargetDay({
   return null;
 }
 
-
 DateMinute _targetAtFor(
   DateMinute scheduledAt,
   List<WakeInstanceDraft> instances,
@@ -3746,4 +3757,3 @@ String _cancelRequestKey({
 }) {
   return '$occurrenceId\u0000$platformAlarmId';
 }
-

@@ -2,6 +2,7 @@ package dev.xpa.calarm
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.media.AudioAttributes
 import android.media.RingtoneManager
 
 object AlarmNotificationChannel {
@@ -14,7 +15,12 @@ object AlarmNotificationChannel {
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
             description = "Calarm wake alarm alerts"
-            setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), null)
+            setSound(
+                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .build(),
+            )
         }
     }
 }

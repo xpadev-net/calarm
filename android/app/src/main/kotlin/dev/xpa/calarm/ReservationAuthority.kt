@@ -18,10 +18,10 @@ internal data class ReservationAuthority(
     val state: ReservationAuthorityState,
 ) {
     init {
-        require(reservationId.isNotBlank())
-        require(wakePlanId.isNotBlank())
-        require(reservationGeneration >= 0L)
-        require(occurrenceId.isNotBlank())
+        require(reservationId.isNotBlank()) { "reservationId must not be blank" }
+        require(wakePlanId.isNotBlank()) { "wakePlanId must not be blank" }
+        require(reservationGeneration >= 0L) { "reservationGeneration must not be negative" }
+        require(occurrenceId.isNotBlank()) { "occurrenceId must not be blank" }
     }
 
     fun toJson(): JSONObject = JSONObject()
@@ -34,9 +34,11 @@ internal data class ReservationAuthority(
     companion object {
         fun fromJson(json: JSONObject): ReservationAuthority {
             val generation = json.opt("reservationGeneration")
-            require(generation is Long || generation is Int)
+            require(generation is Long || generation is Int) {
+                "reservationGeneration must be an integral number"
+            }
             val exactGeneration = (generation as Number).toLong()
-            require(exactGeneration >= 0L)
+            require(exactGeneration >= 0L) { "reservationGeneration must not be negative" }
             return ReservationAuthority(
                 reservationId = json.getString("reservationId"),
                 wakePlanId = json.getString("wakePlanId"),
@@ -106,6 +108,13 @@ internal class ReservationAuthorityStore(context: Context) {
                 authority.wakePlanId == request.wakePlanId &&
                 request.reservationGeneration > authority.reservationGeneration
             ) {
+                if (
+                    authority.occurrenceId != request.occurrenceId &&
+                    occurrenceOwners[authority.occurrenceId] ==
+                        (request.reservationId to request.wakePlanId)
+                ) {
+                    occurrenceOwners.remove(authority.occurrenceId)
+                }
                 reservations[request.reservationId] = request.activeAuthority()
                 occurrenceOwners[request.occurrenceId] =
                     request.reservationId to request.wakePlanId
@@ -201,6 +210,14 @@ internal class ReservationAuthorityStore(context: Context) {
         }
         val reservations = snapshot.reservations.toMutableMap()
         val occurrenceOwners = snapshot.occurrenceOwners.toMutableMap()
+        if (
+            current != null &&
+            current.occurrenceId != request.occurrenceId &&
+            occurrenceOwners[current.occurrenceId] ==
+                (request.reservationId to request.wakePlanId)
+        ) {
+            occurrenceOwners.remove(current.occurrenceId)
+        }
         reservations[request.reservationId] = request.activeAuthority()
         occurrenceOwners[request.occurrenceId] = request.reservationId to request.wakePlanId
         saveUnlocked(ReservationAuthoritySnapshot(reservations, occurrenceOwners))
@@ -220,11 +237,19 @@ internal class ReservationAuthorityStore(context: Context) {
             if (owner != null && owner != (request.reservationId to request.wakePlanId)) {
                 return@synchronized false
             }
-            occurrenceOwners[request.occurrenceId] = request.reservationId to request.wakePlanId
             val current = reservations[request.reservationId]
             if (current != null && current.wakePlanId != request.wakePlanId) {
                 return@synchronized false
             }
+            if (
+                current != null &&
+                current.occurrenceId != request.occurrenceId &&
+                occurrenceOwners[current.occurrenceId] ==
+                    (request.reservationId to request.wakePlanId)
+            ) {
+                occurrenceOwners.remove(current.occurrenceId)
+            }
+            occurrenceOwners[request.occurrenceId] = request.reservationId to request.wakePlanId
             if (current == null || request.reservationGeneration >= current.reservationGeneration) {
                 reservations[request.reservationId] = ReservationAuthority(
                     reservationId = request.reservationId,
@@ -242,33 +267,45 @@ internal class ReservationAuthorityStore(context: Context) {
         val encoded = preferences.getString(AUTHORITY_KEY, null)
             ?: return ReservationAuthoritySnapshot()
         val json = JSONObject(encoded)
-        require(json.getInt("schemaVersion") == STORAGE_SCHEMA_VERSION)
+        require(json.getInt("schemaVersion") == STORAGE_SCHEMA_VERSION) {
+            "unsupported native reservation authority schema version"
+        }
         val reservationsJson = json.getJSONObject("reservations")
         val reservations = linkedMapOf<String, ReservationAuthority>()
         val reservationKeys = reservationsJson.keys()
         while (reservationKeys.hasNext()) {
             val key = reservationKeys.next()
             val authority = ReservationAuthority.fromJson(reservationsJson.getJSONObject(key))
-            require(authority.reservationId == key)
-            require(reservations.put(key, authority) == null)
+            require(authority.reservationId == key) {
+                "reservation authority key does not match its reservationId"
+            }
+            require(reservations.put(key, authority) == null) {
+                "duplicate reservation authority key: $key"
+            }
         }
         val ownersJson = json.getJSONObject("occurrenceOwners")
         val occurrenceOwners = linkedMapOf<String, Pair<String, String>>()
         val ownerKeys = ownersJson.keys()
         while (ownerKeys.hasNext()) {
             val occurrenceId = ownerKeys.next()
-            require(occurrenceId.isNotBlank())
+            require(occurrenceId.isNotBlank()) { "occurrenceId key must not be blank" }
             val ownerJson = ownersJson.getJSONObject(occurrenceId)
             val owner = ownerJson.getString("reservationId") to
                 ownerJson.getString("wakePlanId")
-            require(owner.first.isNotBlank() && owner.second.isNotBlank())
-            require(occurrenceOwners.put(occurrenceId, owner) == null)
+            require(owner.first.isNotBlank() && owner.second.isNotBlank()) {
+                "occurrence owner reservationId/wakePlanId must not be blank"
+            }
+            require(occurrenceOwners.put(occurrenceId, owner) == null) {
+                "duplicate occurrence owner key: $occurrenceId"
+            }
         }
         reservations.values.forEach { authority ->
             require(
                 occurrenceOwners[authority.occurrenceId] ==
                     (authority.reservationId to authority.wakePlanId),
-            )
+            ) {
+                "occurrence owner does not match reservation authority for ${authority.reservationId}"
+            }
         }
         return ReservationAuthoritySnapshot(reservations, occurrenceOwners)
     }

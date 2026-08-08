@@ -46,7 +46,8 @@ class WeekCalendarInfiniteDayScroller extends StatefulWidget {
   final int recenterRequest;
 
   @override
-  State<WeekCalendarInfiniteDayScroller> createState() => _InfiniteDayScrollerState();
+  State<WeekCalendarInfiniteDayScroller> createState() =>
+      _InfiniteDayScrollerState();
 }
 
 class _InfiniteDayScrollerState extends State<WeekCalendarInfiniteDayScroller> {
@@ -216,7 +217,7 @@ class _InfiniteDayScrollerState extends State<WeekCalendarInfiniteDayScroller> {
     _pinchStartHourHeight = null;
     _pinchStartScrollOffset = null;
     _zoomFocalY = null;
-    if (_pinching) {
+    if (mounted && _pinching) {
       setState(() {
         _pinching = false;
       });
@@ -296,14 +297,18 @@ class _InfiniteDayScrollerState extends State<WeekCalendarInfiniteDayScroller> {
                             right: 0,
                             top: -withinDay,
                             height: _dayHeight,
-                            child: WeekCalendarTimeAxis(hourHeight: _displayHourHeight),
+                            child: WeekCalendarTimeAxis(
+                              hourHeight: _displayHourHeight,
+                            ),
                           ),
                           Positioned(
                             left: 0,
                             right: 0,
                             top: _dayHeight - withinDay,
                             height: _dayHeight,
-                            child: WeekCalendarTimeAxis(hourHeight: _displayHourHeight),
+                            child: WeekCalendarTimeAxis(
+                              hourHeight: _displayHourHeight,
+                            ),
                           ),
                         ],
                       );
@@ -322,16 +327,18 @@ class _InfiniteDayScrollerState extends State<WeekCalendarInfiniteDayScroller> {
                             WeekCalendarTwoPointerScaleGestureRecognizer:
                                 GestureRecognizerFactoryWithHandlers<
                                   WeekCalendarTwoPointerScaleGestureRecognizer
-                                >(WeekCalendarTwoPointerScaleGestureRecognizer.new, (
-                                  recognizer,
-                                ) {
-                                  recognizer
-                                    ..onStart = _handlePinchStart
-                                    ..onUpdate = _handlePinchUpdate
-                                    ..onEnd = _handlePinchEnd
-                                    ..shouldContinueWaitingForSecondPointer =
-                                        () => _manipulatingDraft;
-                                }),
+                                >(
+                                  WeekCalendarTwoPointerScaleGestureRecognizer
+                                      .new,
+                                  (recognizer) {
+                                    recognizer
+                                      ..onStart = _handlePinchStart
+                                      ..onUpdate = _handlePinchUpdate
+                                      ..onEnd = _handlePinchEnd
+                                      ..shouldContinueWaitingForSecondPointer =
+                                          () => _manipulatingDraft;
+                                  },
+                                ),
                           },
                           child: CustomScrollView(
                             controller: _scrollController,
@@ -537,7 +544,8 @@ class _InfiniteDayScrollerState extends State<WeekCalendarInfiniteDayScroller> {
                           interactionEnabled:
                               !_pinching && widget.draftInteractionEnabled,
                           hideForActiveMove:
-                              _manipulatingDraftMode == WeekCalendarDraftDragMode.move,
+                              _manipulatingDraftMode ==
+                              WeekCalendarDraftDragMode.move,
                           gridHeightOverrideMinutes:
                               windowDays * TimeOfDayMinutes.minutesPerDay,
                           disableHorizontalDayChange: true,
@@ -572,7 +580,7 @@ class _InfiniteDayScrollerState extends State<WeekCalendarInfiniteDayScroller> {
     );
   }
 
-  WeekCalendarDraftSegment _overlaySegmentForDraft(
+  WeekCalendarDraftSegment? _overlaySegmentForDraft(
     WeekCalendarDraft draft,
     WeekRange window,
   ) {
@@ -583,7 +591,10 @@ class _InfiniteDayScrollerState extends State<WeekCalendarInfiniteDayScroller> {
     );
   }
 
-  WeekCalendarDraftSegment _overlaySegmentFor({
+  // Returns null when the requested [startAt]/[durationMinutes] span doesn't
+  // overlap [window] at all, instead of a segment positioned off-screen —
+  // callers rely on null to skip building an overlay widget entirely.
+  WeekCalendarDraftSegment? _overlaySegmentFor({
     required DateTime startAt,
     required int durationMinutes,
     required WeekRange window,
@@ -595,6 +606,10 @@ class _InfiniteDayScrollerState extends State<WeekCalendarInfiniteDayScroller> {
         (dayOffset * TimeOfDayMinutes.minutesPerDay) +
         (startAt.hour * TimeOfDayMinutes.minutesPerHour) +
         startAt.minute;
+    final windowMinutes = window.visibleDays * TimeOfDayMinutes.minutesPerDay;
+    if (topMinute + durationMinutes <= 0 || topMinute >= windowMinutes) {
+      return null;
+    }
     return WeekCalendarDraftSegment(
       dayIndex: 0,
       topMinute: topMinute,

@@ -8,7 +8,6 @@ import 'week_calendar_grid_widgets.dart';
 import 'week_calendar_infinite_day_scroller.dart';
 import 'week_calendar_week_page.dart';
 
-
 typedef WeekCalendarTapCallback =
     void Function(WeekCalendarTapTarget target, WeekRange week);
 typedef WeekCalendarWakePlanTapCallback =
@@ -258,7 +257,9 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
                         // pixel height that could overflow or leave a gap.
                         const Opacity(
                           opacity: 0,
-                          child: IgnorePointer(child: WeekCalendarDateHeaderSizingProbe()),
+                          child: IgnorePointer(
+                            child: WeekCalendarDateHeaderSizingProbe(),
+                          ),
                         ),
                         Expanded(
                           child: ClipRect(

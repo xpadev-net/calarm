@@ -11,7 +11,7 @@ final class AlarmKitBridge {
   private var alarmObservationTask: Task<Void, Never>?
   private let scheduleCoordinator = AlarmScheduleCoordinator()
   let mirrorCoordinator = AlarmMirrorCoordinator.shared
-  var pendingNativeAlarmIds = Set<String>()
+  private(set) var pendingNativeAlarmIds = Set<String>()
   private let nativeClient: (any AlarmKitNativeClient)?
   private let replacementBeforeCommit: (() throws -> Void)?
   private let replacementAfterRetireBeforeCommit: (() throws -> Void)?
@@ -265,32 +265,12 @@ final class AlarmKitBridge {
         )
       }
 
-      // AlarmKit removes one-shot alarms after they fire or stop. Pruning
-      // the mirror makes that removal observable as an absent row on the
-      // next inventory read, including after the app was not running.
-      let prunedMirror = reconciledMirror.filter {
-        currentIds.contains($0.key) || pendingNativeAlarmIds.contains($0.key)
-      }
-      let prunedPendingMirror = reconciledPendingMirror.filter {
-        currentIds.contains($0.key)
-          || pendingNativeAlarmIds.contains($0.key)
-          || $0.value.requiresNativeRestoration == true
-      }
-      for (platformAlarmId, record) in reconciledMirror
-      where prunedMirror[platformAlarmId] == nil {
-        try persistRetirement(record)
-      }
-      if !mirrorSnapshot.isEnvelope
-        || mirrorSnapshot.needsProjectionRewrite
-        || mirrorSnapshot.needsTransactionMarkerRewrite
-        || mirrorSnapshot.legacyPendingPresent
-        || prunedMirror != mirrorSnapshot.normalized
-        || prunedPendingMirror != mirrorSnapshot.pendingNormalized
-        || prunedMirror != mirrorSnapshot.stored
-        || prunedPendingMirror != mirrorSnapshot.pendingStored
-      {
-        try saveMirrorState(prunedMirror, pending: prunedPendingMirror)
-      }
+      try persistReconciledMirror(
+        reconciledMirror: reconciledMirror,
+        reconciledPendingMirror: reconciledPendingMirror,
+        currentIds: currentIds,
+        mirrorSnapshot: mirrorSnapshot
+      )
 
       var response = baseResponse()
       response["reservations"] = rows
@@ -1205,5 +1185,42 @@ final class AlarmKitBridge {
   @available(iOS 26.0, *)
   func nativeClientForAlarmKit() -> any AlarmKitNativeClient {
     nativeClient ?? SystemAlarmKitClient()
+  }
+
+  // AlarmKit removes one-shot alarms after they fire or stop. Pruning
+  // the mirror makes that removal observable as an absent row on the
+  // next inventory read, including after the app was not running. Shared
+  // by both the inventory read path and journal-recovery reconciliation
+  // so the pruning conditions, retirement bookkeeping, and save decision
+  // stay in exactly one place.
+  func persistReconciledMirror(
+    reconciledMirror: [String: AlarmMirrorRecord],
+    reconciledPendingMirror: [String: AlarmMirrorRecord],
+    currentIds: Set<String>,
+    mirrorSnapshot: MirrorSnapshot
+  ) throws {
+    let prunedMirror = reconciledMirror.filter {
+      currentIds.contains($0.key) || pendingNativeAlarmIds.contains($0.key)
+    }
+    let prunedPendingMirror = reconciledPendingMirror.filter {
+      currentIds.contains($0.key)
+        || pendingNativeAlarmIds.contains($0.key)
+        || $0.value.requiresNativeRestoration == true
+    }
+    for (platformAlarmId, record) in reconciledMirror
+    where prunedMirror[platformAlarmId] == nil {
+      try persistRetirement(record)
+    }
+    if !mirrorSnapshot.isEnvelope
+      || mirrorSnapshot.needsProjectionRewrite
+      || mirrorSnapshot.needsTransactionMarkerRewrite
+      || mirrorSnapshot.legacyPendingPresent
+      || prunedMirror != mirrorSnapshot.normalized
+      || prunedPendingMirror != mirrorSnapshot.pendingNormalized
+      || prunedMirror != mirrorSnapshot.stored
+      || prunedPendingMirror != mirrorSnapshot.pendingStored
+    {
+      try saveMirrorState(prunedMirror, pending: prunedPendingMirror)
+    }
   }
 }

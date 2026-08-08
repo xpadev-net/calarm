@@ -101,29 +101,12 @@ extension AlarmKitBridge {
         reconciledMirror[platformAlarmId] = record
         reconciledPendingMirror.removeValue(forKey: platformAlarmId)
       }
-      let prunedMirror = reconciledMirror.filter {
-        currentIds.contains($0.key) || pendingNativeAlarmIds.contains($0.key)
-      }
-      let prunedPendingMirror = reconciledPendingMirror.filter {
-        currentIds.contains($0.key)
-          || pendingNativeAlarmIds.contains($0.key)
-          || $0.value.requiresNativeRestoration == true
-      }
-      for (platformAlarmId, record) in reconciledMirror
-      where prunedMirror[platformAlarmId] == nil {
-        try persistRetirement(record)
-      }
-      if !mirrorSnapshot.isEnvelope
-        || mirrorSnapshot.needsProjectionRewrite
-        || mirrorSnapshot.needsTransactionMarkerRewrite
-        || mirrorSnapshot.legacyPendingPresent
-        || prunedMirror != mirrorSnapshot.normalized
-        || prunedPendingMirror != mirrorSnapshot.pendingNormalized
-        || prunedMirror != mirrorSnapshot.stored
-        || prunedPendingMirror != mirrorSnapshot.pendingStored
-      {
-        try saveMirrorState(prunedMirror, pending: prunedPendingMirror)
-      }
+      try persistReconciledMirror(
+        reconciledMirror: reconciledMirror,
+        reconciledPendingMirror: reconciledPendingMirror,
+        currentIds: currentIds,
+        mirrorSnapshot: mirrorSnapshot
+      )
     } catch {
       // Inventory read/validation, journal recovery, and persistence failures
       // all fail closed. Retain mirror and journal evidence for a later wake.

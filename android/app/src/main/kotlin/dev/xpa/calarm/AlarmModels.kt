@@ -5,6 +5,13 @@ import java.security.MessageDigest
 import java.time.Instant
 import org.json.JSONObject
 
+/**
+ * Bound on how long after its scheduled time a missed alarm (device off, app killed, or a
+ * broadcast lost to Doze) is still delivered as a catch-up. Beyond this the row is discarded
+ * silently, since redelivering an alarm from days ago would surprise rather than help the user.
+ */
+internal const val MISSED_ALARM_CATCH_UP_WINDOW_MILLIS = 24L * 60 * 60 * 1000
+
 data class AlarmRequest(
     val occurrenceId: String,
     val reservationId: String = occurrenceId,
@@ -300,9 +307,8 @@ data class AlarmInventorySnapshot(
     val requests: List<AlarmRequest>,
     val corruptKeys: List<String> = emptyList(),
     val duplicateIdentity: String? = null,
-    private val context: Context,
 ) {
-    fun status(request: AlarmRequest): String {
+    fun status(context: Context, request: AlarmRequest): String {
         if (request.state == AlarmState.RINGING) return AlarmState.RINGING.value
         return if (AlarmIntents.existingReceiver(context, request.platformAlarmId) == null) {
             "unknown"

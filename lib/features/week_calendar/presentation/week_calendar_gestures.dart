@@ -5,8 +5,12 @@ class WeekCalendarPreserveVisibleTimeScrollPhysics extends ScrollPhysics {
   const WeekCalendarPreserveVisibleTimeScrollPhysics({super.parent});
 
   @override
-  WeekCalendarPreserveVisibleTimeScrollPhysics applyTo(ScrollPhysics? ancestor) {
-    return WeekCalendarPreserveVisibleTimeScrollPhysics(parent: buildParent(ancestor));
+  WeekCalendarPreserveVisibleTimeScrollPhysics applyTo(
+    ScrollPhysics? ancestor,
+  ) {
+    return WeekCalendarPreserveVisibleTimeScrollPhysics(
+      parent: buildParent(ancestor),
+    );
   }
 
   @override
@@ -32,7 +36,8 @@ typedef _TwoPointerScaleUpdate =
 ///
 /// A single touch is released as soon as it moves beyond pan slop, so ordinary
 /// scrolling and paging retain their normal drag behavior.
-class WeekCalendarTwoPointerScaleGestureRecognizer extends OneSequenceGestureRecognizer {
+class WeekCalendarTwoPointerScaleGestureRecognizer
+    extends OneSequenceGestureRecognizer {
   _TwoPointerScaleStart? onStart;
   _TwoPointerScaleUpdate? onUpdate;
   VoidCallback? onEnd;

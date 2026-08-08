@@ -21,24 +21,36 @@ internal data class AlarmReplacementJournal(
     ) 2 else 1,
 ) {
     init {
-        require(old.reservationId == new.reservationId)
-        require(old.wakePlanId == new.wakePlanId)
+        require(old.reservationId == new.reservationId) {
+            "old and new reservation ids must match"
+        }
+        require(old.wakePlanId == new.wakePlanId) {
+            "old and new wake plan ids must match"
+        }
         require(
             old.occurrenceId != new.occurrenceId ||
-                schemaVersion == 2 &&
-                new.reservationGeneration > old.reservationGeneration,
-        )
-        require(old.platformAlarmId != new.platformAlarmId)
-        require(old.hasCanonicalPlatformAlarmId())
+                (schemaVersion == 2 &&
+                    new.reservationGeneration > old.reservationGeneration),
+        ) {
+            "occurrence id must change unless this is a generation-2 advance"
+        }
+        require(old.platformAlarmId != new.platformAlarmId) {
+            "old and new platform alarm ids must differ"
+        }
+        require(old.hasCanonicalPlatformAlarmId()) {
+            "old platform alarm id must be canonical"
+        }
         require(
-            schemaVersion == 1 &&
+            (schemaVersion == 1 &&
                 old.reservationGeneration == 0L &&
                 new.reservationGeneration == 0L &&
-                new.platformAlarmId == AlarmRequest.legacyReplacementPlatformAlarmId(new) ||
-                schemaVersion == 2 &&
-                new.reservationGeneration > old.reservationGeneration &&
-                new.platformAlarmId == AlarmRequest.replacementPlatformAlarmId(new),
-        )
+                new.platformAlarmId == AlarmRequest.legacyReplacementPlatformAlarmId(new)) ||
+                (schemaVersion == 2 &&
+                    new.reservationGeneration > old.reservationGeneration &&
+                    new.platformAlarmId == AlarmRequest.replacementPlatformAlarmId(new)),
+        ) {
+            "schema version and platform alarm id must be consistent with reservation generation"
+        }
     }
 
     fun toJson(): JSONObject {
@@ -58,17 +70,21 @@ internal data class AlarmReplacementJournal(
     companion object {
         fun fromJson(json: JSONObject): AlarmReplacementJournal {
             val schemaVersion = json.getInt("schemaVersion")
-            require(schemaVersion == 1 || schemaVersion == 2)
+            require(schemaVersion == 1 || schemaVersion == 2) {
+                "unsupported native alarm replacement journal schema version: $schemaVersion"
+            }
             val oldJson = json.getJSONObject("old")
             val newJson = json.getJSONObject("new")
             require(
-                schemaVersion == 1 &&
+                (schemaVersion == 1 &&
                     !oldJson.has("reservationGeneration") &&
-                    !newJson.has("reservationGeneration") ||
-                    schemaVersion == 2 &&
-                    oldJson.has("reservationGeneration") &&
-                    newJson.has("reservationGeneration"),
-            )
+                    !newJson.has("reservationGeneration")) ||
+                    (schemaVersion == 2 &&
+                        oldJson.has("reservationGeneration") &&
+                        newJson.has("reservationGeneration")),
+            ) {
+                "reservationGeneration presence does not match schema version"
+            }
             return AlarmReplacementJournal(
                 old = AlarmRequest.fromJson(oldJson),
                 new = AlarmRequest.fromJson(newJson),

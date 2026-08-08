@@ -339,7 +339,7 @@ class AndroidInventoryTest {
 
         val snapshot = AlarmStore(context).inventory(context, System.currentTimeMillis())
 
-        assertEquals(AlarmState.RINGING.value, snapshot.status(snapshot.requests.single()))
+        assertEquals(AlarmState.RINGING.value, snapshot.status(context, snapshot.requests.single()))
         assertNotNull(AlarmStore(context).get("android:reservation:ringing-pending-reservation"))
     }
 

@@ -155,7 +155,9 @@ class _WeekCalendarWeekPageState extends State<WeekCalendarWeekPage> {
   void _handlePinchStart(Offset focalPoint, double distance) {
     _pinchStartDistance = distance;
     _pinchStartHourHeight = _displayHourHeight;
-    _pinchStartScrollOffset = _scrollController.offset;
+    _pinchStartScrollOffset = _scrollController.hasClients
+        ? _scrollController.offset
+        : 0;
     _zoomFocalY = focalPoint.dy;
     setState(() {
       _pinching = true;
@@ -233,7 +235,7 @@ class _WeekCalendarWeekPageState extends State<WeekCalendarWeekPage> {
     _pinchStartHourHeight = null;
     _pinchStartScrollOffset = null;
     _zoomFocalY = null;
-    if (_pinching) {
+    if (mounted && _pinching) {
       setState(() {
         _pinching = false;
       });
@@ -310,7 +312,9 @@ class _WeekCalendarWeekPageState extends State<WeekCalendarWeekPage> {
               WeekCalendarTwoPointerScaleGestureRecognizer:
                   GestureRecognizerFactoryWithHandlers<
                     WeekCalendarTwoPointerScaleGestureRecognizer
-                  >(WeekCalendarTwoPointerScaleGestureRecognizer.new, (recognizer) {
+                  >(WeekCalendarTwoPointerScaleGestureRecognizer.new, (
+                    recognizer,
+                  ) {
                     recognizer
                       ..onStart = _handlePinchStart
                       ..onUpdate = _handlePinchUpdate
@@ -388,11 +392,12 @@ class _WeekCalendarWeekPageState extends State<WeekCalendarWeekPage> {
                                 snapIntervalMinutes: snapIntervalMinutes,
                               ),
                               if (_tapPreviewTarget case final preview?)
-                                for (final segment in weekCalendarTapPreviewSegments(
-                                  target: preview,
-                                  duration: previewDuration,
-                                  week: widget.week,
-                                ))
+                                for (final segment
+                                    in weekCalendarTapPreviewSegments(
+                                      target: preview,
+                                      duration: previewDuration,
+                                      week: widget.week,
+                                    ))
                                   WeekCalendarTapPreviewCell(
                                     key: ValueKey(
                                       segment.containsStart

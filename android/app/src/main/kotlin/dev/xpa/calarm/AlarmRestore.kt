@@ -5,13 +5,6 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 
-/**
- * Bound on how long after its scheduled time a missed alarm (device off, app killed, or a
- * broadcast lost to Doze) is still delivered as a catch-up. Beyond this the row is discarded
- * silently, since redelivering an alarm from days ago would surprise rather than help the user.
- */
-internal const val MISSED_ALARM_CATCH_UP_WINDOW_MILLIS = 24L * 60 * 60 * 1000
-
 object AlarmRestore {
     fun restore(context: Context) {
         restore(context, context.applicationContext)
@@ -52,6 +45,11 @@ object AlarmRestore {
                 appContext,
             )
             if (!replacementRecovery.isSuccess) {
+                Log.e(
+                    TAG,
+                    "Skipping native alarm restore because replacement recovery failed: " +
+                        replacementRecovery.message,
+                )
                 return@restore
             }
             val now = System.currentTimeMillis()

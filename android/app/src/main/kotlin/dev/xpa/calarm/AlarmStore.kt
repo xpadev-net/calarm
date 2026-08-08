@@ -131,7 +131,6 @@ class AlarmStore(context: Context) {
                 requests = emptyList(),
                 corruptKeys = corruptKeys,
                 duplicateIdentity = "Duplicate native reservation identity: ${duplicateReservation.first().reservationId}.",
-                context = context,
             )
         }
         val duplicateOccurrence = candidateRequests.groupBy { it.occurrenceId }
@@ -141,7 +140,6 @@ class AlarmStore(context: Context) {
                 requests = emptyList(),
                 corruptKeys = corruptKeys,
                 duplicateIdentity = "Duplicate native occurrence identity: ${duplicateOccurrence.first().occurrenceId}.",
-                context = context,
             )
         }
         val cleanupKeys = corruptKeys + staleKeys
@@ -154,7 +152,6 @@ class AlarmStore(context: Context) {
                     requests = emptyList(),
                     corruptKeys = cleanupKeys,
                     duplicateIdentity = "Failed to persist expired native alarm generation retirement.",
-                    context = context,
                 )
             }
             try {
@@ -168,7 +165,6 @@ class AlarmStore(context: Context) {
                     corruptKeys = cleanupKeys,
                     duplicateIdentity = error.message
                         ?: "Failed to cancel expired native alarm rows.",
-                    context = context,
                 )
             }
             if (cleanupKeys.isNotEmpty()) {
@@ -179,7 +175,6 @@ class AlarmStore(context: Context) {
                         requests = emptyList(),
                         corruptKeys = cleanupKeys,
                         duplicateIdentity = "Failed to clean native alarm mirror rows.",
-                        context = context,
                     )
                 }
             }
@@ -231,7 +226,6 @@ class AlarmStore(context: Context) {
         return AlarmInventorySnapshot(
             requests = requests,
             corruptKeys = corruptKeys,
-            context = context,
         )
     }
 
@@ -272,7 +266,6 @@ class AlarmStore(context: Context) {
                     "Duplicate native occurrence identity: ${duplicateOccurrence.first().occurrenceId}."
                 else -> null
             },
-            context = context,
         )
     }
 

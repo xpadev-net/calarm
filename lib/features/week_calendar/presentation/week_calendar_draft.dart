@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
@@ -42,7 +44,10 @@ String weekCalendarDraftSegmentRole(WeekCalendarDraftSegment segment) {
   return 'middle-${segment.dayIndex}';
 }
 
-List<WeekCalendarDraftSegment> weekCalendarDraftSegments(WeekCalendarDraft draft, WeekRange week) {
+List<WeekCalendarDraftSegment> weekCalendarDraftSegments(
+  WeekCalendarDraft draft,
+  WeekRange week,
+) {
   final segments = <WeekCalendarDraftSegment>[];
   for (var index = 0; index < week.visibleDays; index++) {
     final day = week.start.addDays(index);
@@ -298,6 +303,7 @@ class _DraftBlockState extends State<WeekCalendarDraftBlock> {
 
   void _removeDragOverlay() {
     _dragOverlayEntry?.remove();
+    _dragOverlayEntry?.dispose();
     _dragOverlayEntry = null;
     _dragOverlayBaseRect = null;
     _dragGridBoundsRect = null;
@@ -456,14 +462,23 @@ class _DraftBlockState extends State<WeekCalendarDraftBlock> {
         weekCalendarDraftSnapInterval.inMinutes;
   }
 
-  void _adjustDraft(WeekCalendarDraftDragMode mode, {int minutes = 0, int days = 0}) {
+  void _adjustDraft(
+    WeekCalendarDraftDragMode mode, {
+    int minutes = 0,
+    int days = 0,
+  }) {
     if (!widget.interactionEnabled) {
       return;
     }
     final delta = Duration(minutes: minutes);
     final next = switch (mode) {
-      WeekCalendarDraftDragMode.move => widget.draft.moveBy(days: days, minutes: minutes),
-      WeekCalendarDraftDragMode.resizeStart => widget.draft.resizeStartBy(delta),
+      WeekCalendarDraftDragMode.move => widget.draft.moveBy(
+        days: days,
+        minutes: minutes,
+      ),
+      WeekCalendarDraftDragMode.resizeStart => widget.draft.resizeStartBy(
+        delta,
+      ),
       WeekCalendarDraftDragMode.resizeEnd => widget.draft.resizeEndBy(delta),
     };
     widget.onChanged?.call(next);
@@ -513,10 +528,10 @@ class _DraftBlockState extends State<WeekCalendarDraftBlock> {
     );
     Rect handleRect(Offset center) {
       final left = (center.dx - _draftHandleOverflow)
-          .clamp(0, gridWidth - _draftHandleHitWidth)
+          .clamp(0, math.max(0, gridWidth - _draftHandleHitWidth))
           .toDouble();
       final top = (center.dy - _draftHandleOverflow)
-          .clamp(0, gridHeight - _draftHandleHitHeight)
+          .clamp(0, math.max(0, gridHeight - _draftHandleHitHeight))
           .toDouble();
       return Rect.fromLTWH(
         left,
@@ -580,15 +595,21 @@ class _DraftBlockState extends State<WeekCalendarDraftBlock> {
               increasedValue: 'Start and end 5 minutes later',
               decreasedValue: 'Start and end 5 minutes earlier',
               onIncrease: widget.interactionEnabled
-                  ? () => _adjustDraft(WeekCalendarDraftDragMode.move, minutes: 5)
+                  ? () =>
+                        _adjustDraft(WeekCalendarDraftDragMode.move, minutes: 5)
                   : null,
               onDecrease: widget.interactionEnabled
-                  ? () => _adjustDraft(WeekCalendarDraftDragMode.move, minutes: -5)
+                  ? () => _adjustDraft(
+                      WeekCalendarDraftDragMode.move,
+                      minutes: -5,
+                    )
                   : null,
               customSemanticsActions: widget.interactionEnabled
                   ? {
-                      _movePreviousDayAction: () =>
-                          _adjustDraft(WeekCalendarDraftDragMode.move, days: -1),
+                      _movePreviousDayAction: () => _adjustDraft(
+                        WeekCalendarDraftDragMode.move,
+                        days: -1,
+                      ),
                       _moveNextDayAction: () =>
                           _adjustDraft(WeekCalendarDraftDragMode.move, days: 1),
                     }
@@ -852,10 +873,12 @@ List<WeekCalendarDraftSegment> weekCalendarTapPreviewSegments({
   required WeekRange week,
 }) {
   final startAt = target.dateTime;
-  final cappedDuration = weekCalendarClampDraftDurationToWeek(
-    startAt: startAt,
-    duration: duration,
-    week: week,
+  final cappedDuration = weekCalendarBoundedDraftDuration(
+    weekCalendarClampDraftDurationToWeek(
+      startAt: startAt,
+      duration: duration,
+      week: week,
+    ),
   );
   final draft = WeekCalendarDraft(
     id: 'tap-preview',
