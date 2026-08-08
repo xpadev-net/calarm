@@ -162,6 +162,60 @@ void main() {
     },
   );
 
+  testWidgets(
+    'consecutive recenters to an already-mounted page each land on their '
+    'own fresh target, not the previous request\'s',
+    (tester) async {
+      var now = DateTime(2026, 7, 8, 5, 30);
+      var recenterRequest = 0;
+      late StateSetter updateHarness;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                updateHarness = setState;
+                return WeekCalendarView(
+                  now: now,
+                  recenterRequest: recenterRequest,
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final scrollController = tester
+          .widget<SingleChildScrollView>(
+            find.byType(SingleChildScrollView).hitTestable(),
+          )
+          .controller!;
+
+      // Same calendar day both times, so both recenters target the same,
+      // already-mounted week page rather than creating a fresh one.
+      now = DateTime(2026, 7, 8, 9, 0);
+      updateHarness(() {
+        recenterRequest += 1;
+      });
+      await tester.pumpAndSettle();
+
+      scrollController.jumpTo(0);
+      now = DateTime(2026, 7, 8, 15, 0);
+      updateHarness(() {
+        recenterRequest += 1;
+      });
+      await tester.pumpAndSettle();
+
+      final expectedOffset = initialWeekCalendarScrollTarget(
+        week: currentCalendarRange(now, visibleDays: DateTime.daysPerWeek),
+        now: now,
+        pixelsPerMinute: 56 / TimeOfDayMinutes.minutesPerHour,
+      ).offset;
+      expect(scrollController.offset, expectedOffset);
+    },
+  );
+
   testWidgets('resume page uses the one-day stride for a 3-day width', (
     tester,
   ) async {
