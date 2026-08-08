@@ -193,6 +193,7 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
                 onDraftChanged: widget.onDraftChanged,
                 draftInteractionEnabled: widget.draftInteractionEnabled,
                 recenterRequest: widget.recenterRequest,
+                bottomPadding: widget.bottomPadding,
               )
             : widget.visibleDays != DateTime.daysPerWeek
             ? _ContinuousDayPager(
@@ -356,6 +357,7 @@ class _InfiniteDayScroller extends StatefulWidget {
     required this.onDraftChanged,
     required this.draftInteractionEnabled,
     required this.recenterRequest,
+    this.bottomPadding = 0,
   });
 
   final CalendarDay anchorDay;
@@ -370,6 +372,7 @@ class _InfiniteDayScroller extends StatefulWidget {
   final WeekCalendarDraftChanged? onDraftChanged;
   final bool draftInteractionEnabled;
   final int recenterRequest;
+  final double bottomPadding;
 
   @override
   State<_InfiniteDayScroller> createState() => _InfiniteDayScrollerState();
@@ -679,6 +682,10 @@ class _InfiniteDayScrollerState extends State<_InfiniteDayScroller> {
                                   ),
                                 ),
                               ),
+                              if (widget.bottomPadding > 0)
+                                SliverToBoxAdapter(
+                                  child: SizedBox(height: widget.bottomPadding),
+                                ),
                             ],
                           ),
                         ),
@@ -855,11 +862,13 @@ class _InfiniteDayScrollerState extends State<_InfiniteDayScroller> {
                           dayWidth: constraints.maxWidth,
                           onChanged: widget.onDraftChanged,
                           onManipulationChanged: _setManipulatingDraft,
-                          interactionEnabled: widget.draftInteractionEnabled,
+                          interactionEnabled:
+                              !_pinching && widget.draftInteractionEnabled,
                           hideForActiveMove:
                               _manipulatingDraftMode == _DraftDragMode.move,
                           gridHeightOverrideMinutes:
                               windowDays * TimeOfDayMinutes.minutesPerDay,
+                          disableHorizontalDayChange: true,
                           bodyFocusNode: _draftBodyFocusNode,
                           startFocusNode: _draftStartFocusNode,
                           endFocusNode: _draftEndFocusNode,
@@ -1437,7 +1446,8 @@ class _ContinuousDayPagerState extends State<_ContinuousDayPager> {
                     dayWidth: constraints.maxWidth,
                     onChanged: widget.onDraftChanged,
                     onManipulationChanged: _setManipulatingDraft,
-                    interactionEnabled: widget.draftInteractionEnabled,
+                    interactionEnabled:
+                        !_pinching && widget.draftInteractionEnabled,
                     hideForActiveMove:
                         _manipulatingDraftMode == _DraftDragMode.move,
                     bodyFocusNode: segment.containsStart
@@ -2212,6 +2222,7 @@ class _DraftBlock extends StatefulWidget {
     required this.endFocusNode,
     required this.hideForActiveMove,
     this.gridHeightOverrideMinutes,
+    this.disableHorizontalDayChange = false,
   });
 
   final WeekCalendarDraft draft;
@@ -2240,6 +2251,11 @@ class _DraftBlock extends StatefulWidget {
   // run well past one day's minutes — the default bound would otherwise
   // clamp its handles back to a wrong, near-the-top position.
   final int? gridHeightOverrideMinutes;
+  // The 1-day view renders exactly one day wide, so a horizontal drag delta
+  // can never land on a different, visible day the way it does in the 3/7-
+  // day views — forcing the day delta to zero there keeps a move drag from
+  // silently trying to jump the draft to an off-screen day.
+  final bool disableHorizontalDayChange;
 
   @override
   State<_DraftBlock> createState() => _DraftBlockState();
@@ -2503,7 +2519,9 @@ class _DraftBlockState extends State<_DraftBlock> {
         // pixel offset) so the ghost always shows one of the discrete grid
         // positions the drag can actually land on — otherwise where it will
         // stop is ambiguous until the finger lifts.
-        final dayDelta = (_dragDelta.dx / widget.dayWidth).round();
+        final dayDelta = widget.disableHorizontalDayChange
+            ? 0
+            : (_dragDelta.dx / widget.dayWidth).round();
         final minuteDelta = _snappedMinuteDelta(_dragDelta.dy);
         if (dayDelta != _previewDayDelta ||
             minuteDelta != _previewMinuteDelta) {

@@ -552,14 +552,7 @@ Future<void> _pumpLoadedHome(WidgetTester tester, Size size) async {
 }
 
 Future<void> _expectHomeSurfacesReachable(WidgetTester tester) async {
-  final calendar = find.byType(WeekCalendarPlaceholder);
-  expect(calendar, findsOneWidget);
-  final calendarRect = tester.getRect(calendar);
-  expect(calendarRect.top, greaterThanOrEqualTo(0));
-  expect(
-    calendarRect.bottom,
-    lessThanOrEqualTo(tester.view.physicalSize.height),
-  );
+  expect(find.byType(WeekCalendarPlaceholder), findsOneWidget);
 
   final calendarSurface = tester.getRect(find.byType(WeekCalendarPlaceholder));
   expect(calendarSurface.top, greaterThanOrEqualTo(0));

@@ -736,6 +736,147 @@ void main() {
       expect(blocks.map((block) => block.laneIndex), [0, 1, 0]);
     });
   });
+
+  group('weekCalendarWakePlanOverlayBlocks', () {
+    test('keeps a cross-midnight plan as one unsplit, continuous block', () {
+      final anchorDay = CalendarDay(year: 2026, month: 7, day: 8);
+      final window = WeekRange(start: anchorDay, visibleDays: 1);
+
+      final blocks = weekCalendarWakePlanOverlayBlocks(
+        anchorDay: anchorDay,
+        window: window,
+        wakePlans: [
+          buildPlan(
+            id: 'plan-1',
+            targetDay: anchorDay,
+            targetTime: TimeOfDayMinutes.fromHourMinute(hour: 0, minute: 30),
+            startOffset: const Duration(minutes: 90),
+            interval: const Duration(minutes: 15),
+          ),
+        ],
+      );
+
+      // Unlike weekCalendarWakePlanBlocks, the overlay never splits a
+      // midnight-crossing occurrence into per-day segments.
+      expect(blocks, hasLength(1));
+      final block = blocks.single;
+      expect(block.day, CalendarDay(year: 2026, month: 7, day: 7));
+      // topMinute is counted continuously from anchorDay's midnight, so a
+      // block that starts the day before anchorDay is negative rather than
+      // wrapping/resetting at the day boundary.
+      expect(block.topMinute, -60);
+      expect(block.durationMinutes, 90);
+    });
+
+    test(
+      'counts topMinute past 1440 for a block on a day after the anchor',
+      () {
+        final anchorDay = CalendarDay(year: 2026, month: 7, day: 8);
+        final targetDay = anchorDay.addDays(1);
+        final window = WeekRange(start: anchorDay, visibleDays: 3);
+
+        final blocks = weekCalendarWakePlanOverlayBlocks(
+          anchorDay: anchorDay,
+          window: window,
+          wakePlans: [
+            buildPlan(
+              id: 'plan-1',
+              targetDay: targetDay,
+              targetTime: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+              startOffset: const Duration(minutes: 60),
+              interval: const Duration(minutes: 5),
+            ),
+          ],
+        );
+
+        expect(blocks, hasLength(1));
+        final block = blocks.single;
+        expect(block.day, targetDay);
+        // One full day (1440 minutes) plus the 06:00 start-of-window offset,
+        // continuing past 1440 rather than resetting to 0 for the next day.
+        expect(block.topMinute, TimeOfDayMinutes.minutesPerDay + (6 * 60));
+        expect(block.durationMinutes, 60);
+      },
+    );
+
+    test('lookbackDays reaches a target day outside the window whose '
+        'occurrence still overlaps it', () {
+      final anchorDay = CalendarDay(year: 2026, month: 7, day: 8);
+      final window = WeekRange(start: anchorDay, visibleDays: 1);
+      // The target day is two days past the single-day window, so without
+      // the startOffset-derived lookback the day-iteration loop would
+      // never visit it at all — yet the occurrence itself (running from
+      // two days before target) already overlaps the window.
+      final targetDay = anchorDay.addDays(2);
+
+      final blocks = weekCalendarWakePlanOverlayBlocks(
+        anchorDay: anchorDay,
+        window: window,
+        wakePlans: [
+          buildPlan(
+            id: 'plan-1',
+            targetDay: targetDay,
+            targetTime: TimeOfDayMinutes.fromHourMinute(hour: 0, minute: 30),
+            startOffset: const Duration(days: 2),
+            interval: const Duration(minutes: 30),
+          ),
+        ],
+      );
+
+      expect(blocks, hasLength(1));
+      expect(blocks.single.wakePlan.id, 'plan-1');
+      expect(blocks.single.targetDay, targetDay);
+    });
+
+    test('excludes an occurrence that does not intersect the window', () {
+      final anchorDay = CalendarDay(year: 2026, month: 7, day: 8);
+      final window = WeekRange(start: anchorDay, visibleDays: 1);
+
+      final blocks = weekCalendarWakePlanOverlayBlocks(
+        anchorDay: anchorDay,
+        window: window,
+        wakePlans: [
+          buildPlan(
+            id: 'plan-1',
+            targetDay: anchorDay.addDays(5),
+            targetTime: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+            startOffset: const Duration(minutes: 30),
+            interval: const Duration(minutes: 5),
+          ),
+        ],
+      );
+
+      expect(blocks, isEmpty);
+    });
+
+    test('assigns lane index and lane count for overlapping blocks', () {
+      final anchorDay = CalendarDay(year: 2026, month: 7, day: 8);
+      final window = WeekRange(start: anchorDay, visibleDays: 1);
+
+      final blocks = weekCalendarWakePlanOverlayBlocks(
+        anchorDay: anchorDay,
+        window: window,
+        wakePlans: [
+          buildPlan(
+            id: 'plan-1',
+            targetDay: anchorDay,
+            targetTime: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 0),
+            startOffset: const Duration(minutes: 60),
+          ),
+          buildPlan(
+            id: 'plan-2',
+            targetDay: anchorDay,
+            targetTime: TimeOfDayMinutes.fromHourMinute(hour: 7, minute: 30),
+            startOffset: const Duration(minutes: 60),
+          ),
+        ],
+      );
+
+      expect(blocks, hasLength(2));
+      expect(blocks.map((block) => block.laneCount), everyElement(2));
+      expect(blocks.map((block) => block.laneIndex).toSet(), {0, 1});
+    });
+  });
 }
 
 WakePlan buildPlan({

@@ -328,7 +328,19 @@ class WakePlanService {
       if (!scheduleResult.isSuccess) {
         _logScheduleFailure(scheduleResult);
       }
-    } catch (_) {
+    } catch (error) {
+      final request = requests.single;
+      final failedResult = ScheduleResult.fromOccurrences([
+        ScheduleOccurrenceResult.failure(
+          occurrenceId: request.occurrenceId,
+          wakePlanId: request.wakePlanId,
+          reason: ScheduleFailureReason.nativeError,
+          message: error.toString(),
+          reservationId: request.reservationId,
+          reservationGeneration: request.reservationGeneration,
+        ),
+      ]);
+      _logScheduleFailure(failedResult);
       final uncertain = pending.copyWith(
         status: AlarmOccurrenceStatus.userEnablePending,
         updatedAt: now,
@@ -337,6 +349,7 @@ class WakePlanService {
       return AlarmOccurrenceToggleResult.failure(
         status: AlarmOccurrenceToggleStatus.recoveryRequired,
         occurrence: uncertain,
+        scheduleResult: failedResult,
         databaseState: persistenceError == null
             ? WakePlanDatabaseState.persisted
             : WakePlanDatabaseState.unknown,

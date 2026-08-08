@@ -2151,6 +2151,51 @@ void main() {
     expect(saved!.occursOn(skippedDay), isFalse);
     expect(saved.occursOn(followingDay), isTrue);
   });
+
+  for (final visibleDays in [3, DateTime.daysPerWeek]) {
+    testWidgets(
+      '$visibleDays-day view grows maxScrollExtent by bottomPadding',
+      (tester) async {
+        Future<double> maxScrollExtentFor(double bottomPadding) async {
+          await tester.pumpWidget(
+            ProviderScope(
+              overrides: [
+                weekCalendarRepositoryProvider.overrideWith(
+                  (ref) async => repository,
+                ),
+                weekCalendarClockProvider.overrideWith(
+                  (ref) =>
+                      () => DateTime(2026, 7, 8, 5, 30),
+                ),
+              ],
+              child: MaterialApp(
+                home: Scaffold(
+                  body: SizedBox(
+                    height: 480,
+                    child: _WeekCalendarHarness(
+                      initialVisibleDays: visibleDays,
+                      bottomPadding: bottomPadding,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final scrollController = tester
+              .widget<SingleChildScrollView>(
+                find.byType(SingleChildScrollView).hitTestable().first,
+              )
+              .controller!;
+          return scrollController.position.maxScrollExtent;
+        }
+
+        final withoutPadding = await maxScrollExtentFor(0);
+        final withPadding = await maxScrollExtentFor(40);
+        expect(withPadding, withoutPadding + 40);
+      },
+    );
+  }
 }
 
 WakePlan _plan({
@@ -2203,9 +2248,13 @@ Future<void> _pinch(
 /// reproduces them here (with the same keys) to drive
 /// [WeekCalendarPlaceholder.visibleDays] from these widget-level tests.
 class _WeekCalendarHarness extends StatefulWidget {
-  const _WeekCalendarHarness({this.initialVisibleDays = 1});
+  const _WeekCalendarHarness({
+    this.initialVisibleDays = 1,
+    this.bottomPadding = 0,
+  });
 
   final int initialVisibleDays;
+  final double bottomPadding;
 
   @override
   State<_WeekCalendarHarness> createState() => _WeekCalendarHarnessState();
@@ -2243,6 +2292,7 @@ class _WeekCalendarHarnessState extends State<_WeekCalendarHarness> {
         Expanded(
           child: WeekCalendarPlaceholder(
             visibleDays: _visibleDays,
+            bottomPadding: widget.bottomPadding,
             onDraftActiveChanged: (draftActive) =>
                 setState(() => _draftActive = draftActive),
           ),

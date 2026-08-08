@@ -1379,83 +1379,84 @@ void main() {
   }
 
   for (final visibleDays in const [3, DateTime.daysPerWeek]) {
-    testWidgets('body drag moves the draft by whole days at $visibleDays-day width', (
-      tester,
-    ) async {
-      final startDay = CalendarDay(year: 2026, month: 7, day: 6);
-      var draft = WeekCalendarDraft(
-        id: 'edge-draft',
-        startAt: DateTime(2026, 7, 6, 10),
-        endAt: DateTime(2026, 7, 6, 11),
-        createdAt: DateTime(2026, 7, 6, 5),
-      );
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: StatefulBuilder(
-              builder: (context, setState) {
-                return WeekCalendarView(
-                  now: DateTime(2026, 7, 6, 7),
-                  visibleDays: visibleDays,
-                  initialWeek: WeekRange(
-                    start: startDay,
+    testWidgets(
+      'body drag moves the draft by whole days at $visibleDays-day width',
+      (tester) async {
+        final startDay = CalendarDay(year: 2026, month: 7, day: 6);
+        var draft = WeekCalendarDraft(
+          id: 'edge-draft',
+          startAt: DateTime(2026, 7, 6, 10),
+          endAt: DateTime(2026, 7, 6, 11),
+          createdAt: DateTime(2026, 7, 6, 5),
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: StatefulBuilder(
+                builder: (context, setState) {
+                  return WeekCalendarView(
+                    now: DateTime(2026, 7, 6, 7),
                     visibleDays: visibleDays,
-                  ),
-                  draft: draft,
-                  onDraftChanged: (value) => setState(() => draft = value),
-                );
-              },
+                    initialWeek: WeekRange(
+                      start: startDay,
+                      visibleDays: visibleDays,
+                    ),
+                    draft: draft,
+                    onDraftChanged: (value) => setState(() => draft = value),
+                  );
+                },
+              ),
             ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      // A move is committed on release with no week-boundary clamp (see the
-      // comment on `_DraftBlockState._applyDragDelta`): the day/minute delta
-      // is derived purely from the raw drag distance divided by one day's
-      // pixel width, so dragging by exactly one day's width moves the draft
-      // by exactly one day regardless of how close that lands to either
-      // edge of the visible window. Its rendered day index within the
-      // window (the numeric suffix on its key) is architecture-specific —
-      // the 3-day view pages one whole day at a time, so the segment is
-      // always index 0 on its own page, while the 7-day view lays every day
-      // out side by side, so the index tracks how far the day has moved —
-      // so look the body up by key prefix instead of a specific index.
-      bool isDraftBody(Widget widget) =>
-          widget.key is ValueKey<String> &&
-          (widget.key as ValueKey<String>).value.startsWith(
-            'week-calendar-draft-body-edge-draft-',
-          );
-      var body = find.byWidgetPredicate(isDraftBody);
-      var rect = tester.getRect(body);
-      // `_DraftBlockState` renders the body 4px narrower than the day
-      // column it occupies.
-      final dayWidth = rect.width + 4;
-      await _rawDragFrom(
-        tester,
-        Offset(rect.left + 6, rect.center.dy),
-        Offset(dayWidth, 0),
-        pointer: 61,
-      );
-      expect(draft.startAt, DateTime(2026, 7, 7, 10));
-      expect(draft.endAt, DateTime(2026, 7, 7, 11));
-      body = find.byWidgetPredicate(isDraftBody);
-      expect(body, findsOneWidget);
+        // A move is committed on release with no week-boundary clamp (see the
+        // comment on `_DraftBlockState._applyDragDelta`): the day/minute delta
+        // is derived purely from the raw drag distance divided by one day's
+        // pixel width, so dragging by exactly one day's width moves the draft
+        // by exactly one day regardless of how close that lands to either
+        // edge of the visible window. Its rendered day index within the
+        // window (the numeric suffix on its key) is architecture-specific —
+        // the 3-day view pages one whole day at a time, so the segment is
+        // always index 0 on its own page, while the 7-day view lays every day
+        // out side by side, so the index tracks how far the day has moved —
+        // so look the body up by key prefix instead of a specific index.
+        bool isDraftBody(Widget widget) =>
+            widget.key is ValueKey<String> &&
+            (widget.key as ValueKey<String>).value.startsWith(
+              'week-calendar-draft-body-edge-draft-',
+            );
+        var body = find.byWidgetPredicate(isDraftBody);
+        var rect = tester.getRect(body);
+        // `_DraftBlockState` renders the body 4px narrower than the day
+        // column it occupies.
+        final dayWidth = rect.width + 4;
+        await _rawDragFrom(
+          tester,
+          Offset(rect.left + 6, rect.center.dy),
+          Offset(dayWidth, 0),
+          pointer: 61,
+        );
+        expect(draft.startAt, DateTime(2026, 7, 7, 10));
+        expect(draft.endAt, DateTime(2026, 7, 7, 11));
+        body = find.byWidgetPredicate(isDraftBody);
+        expect(body, findsOneWidget);
 
-      rect = tester.getRect(body);
-      await _rawDragFrom(
-        tester,
-        Offset(rect.left + 6, rect.center.dy),
-        Offset(-dayWidth, 0),
-        pointer: 62,
-      );
-      expect(draft.startAt, DateTime(2026, 7, 6, 10));
-      expect(draft.endAt, DateTime(2026, 7, 6, 11));
-      body = find.byWidgetPredicate(isDraftBody);
-      expect(body, findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
+        rect = tester.getRect(body);
+        await _rawDragFrom(
+          tester,
+          Offset(rect.left + 6, rect.center.dy),
+          Offset(-dayWidth, 0),
+          pointer: 62,
+        );
+        expect(draft.startAt, DateTime(2026, 7, 6, 10));
+        expect(draft.endAt, DateTime(2026, 7, 6, 11));
+        body = find.byWidgetPredicate(isDraftBody);
+        expect(body, findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
   testWidgets('a draft disables paging while leaving pinch zoom available', (
@@ -1585,7 +1586,7 @@ void main() {
       // The move preview commits on release, carrying the accumulated
       // vertical delta from across the whole gesture (not lost to the
       // pinch interlude).
-      expect(draft.startAt, isNot(DateTime(2026, 7, 8, 10)));
+      expect(draft.startAt.isBefore(DateTime(2026, 7, 8, 10)), isTrue);
       final surface = find.byKey(const ValueKey('week-calendar-pinch-surface'));
       final surfaceTopLeft = tester.getTopLeft(surface);
       await tester.dragFrom(

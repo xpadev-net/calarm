@@ -2,7 +2,7 @@
 
 - status: open
 - generated: 2026-07-23
-- source_csv: /Users/xpadev/Downloads/codex-security-findings-2026-07-23T09-17-25.088Z.csv
+- source_csv: docs/coding-agent/plans/active/codex-security-findings-2026-07-23.csv (not tracked in repo; obtain from the original Codex security findings export for this run)
 - work_type: plan
 - repository: xpadev-net/calarm
 
@@ -59,7 +59,7 @@ The plan covers security findings, release gate integrity, and local persistence
   - `lib/features/week_calendar/model/week_calendar_interaction.dart`
   - `lib/features/week_calendar/presentation/week_calendar_placeholder.dart`
   - `lib/features/wake_plan/application/wake_plan_service.dart`
-- depends_on: [Task_04, Task_25]
+- depends_on: [Task_28, Task_25]
 - acceptance:
   - Inline/one-time drafts cannot succeed as scheduled unless at least one future occurrence is generated.
   - In create/edit flow, `WakePlanSchedulingResult.isSuccess` is false when `_buildOccurrenceBundle` has no native-schedulable occurrences.
@@ -97,8 +97,8 @@ The plan covers security findings, release gate integrity, and local persistence
 - commit_hash: 3e509891b80af5b31e07aa876e4fac449853ea0a
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AndroidAlarmBridge.kt`
-- `lib/features/wake_plan/application/wake_plan_service.dart`
-- depends_on: [Task_02, Task_13, Task_25]
+  - `lib/features/wake_plan/application/wake_plan_service.dart`
+- depends_on: [Task_28, Task_13, Task_25]
 - acceptance:
   - One-time targets beyond planning horizon return a user-visible validation error.
   - Schedule result is not success when no native occurrence can be produced.
@@ -155,7 +155,11 @@ The plan covers security findings, release gate integrity, and local persistence
   - `lib/features/wake_plan/domain/src/app_settings.dart`
   - `lib/features/wake_plan/data/src/wake_plan_repository.dart`
   - `lib/features/settings/presentation/settings_placeholder.dart`
-- depends_on: [Task_08, Task_19]
+- depends_on: [Task_19]
+  (Note: an earlier draft of this task also listed a `Task_08` dependency, but no such task
+  exists in this plan or in `docs/coding-agent/plans/active/codebase-review-remediation-plan.md`;
+  it has been dropped as an invalid reference. If a genuine settings-domain prerequisite is
+  identified later, add it here explicitly with its owning plan file.)
 - acceptance:
   - Repository mapping trims and normalizes `defaultSoundId` before persistence and when loading settings.
   - Settings dropdown receives only values present in menu items.
@@ -175,6 +179,8 @@ The plan covers security findings, release gate integrity, and local persistence
   - `lib/features/week_calendar/presentation/week_calendar_view.dart`
   - `lib/features/wake_plan/domain/src/wake_plan.dart`
 - depends_on: [Task_12, Task_20, Task_24, Task_25]
+  (Task_12 is defined and tracked in `docs/coding-agent/plans/active/codebase-review-remediation-plan.md`
+  — "Implement AlarmKit inventory and stop-state observation on iOS"; status there: complete, PR #48.)
 - acceptance:
   - Rendering path uses bounded loop windows with validated maximum offset span.
   - Excessive `startOffset` values are rejected or saturated before build-time loops.
@@ -192,6 +198,8 @@ The plan covers security findings, release gate integrity, and local persistence
 - owns:
   - `integration_test/native_alarm_smoke_test.dart`
 - depends_on: [Task_11]
+  (Task_11 is defined and tracked in `docs/coding-agent/plans/active/codebase-review-remediation-plan.md`
+  — "Implement native inventory/stable identity on Android"; status there: complete.)
 - acceptance:
   - `CALARM_NATIVE_SMOKE_OUTCOME` failure for schedule/cancel/test alarm in `NEAR_DEVICE` expected path fails CI check.
   - `integration_test/native_alarm_smoke_test.dart` emits an explicit non-zero outcome signal for timeout (exit 124) and native operation failures that the workflow can read.
@@ -287,6 +295,7 @@ The plan covers security findings, release gate integrity, and local persistence
 - owns:
   - `lib/features/week_calendar/presentation/week_calendar_view.dart`
 - depends_on: [Task_12, Task_16, Task_24]
+  (Task_12: see `docs/coding-agent/plans/active/codebase-review-remediation-plan.md`; status there: complete, PR #48.)
 - acceptance:
   - Clamp range arguments are always valid under all widths.
   - Narrow-width draft UI no longer throws from geometry math.
