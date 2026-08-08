@@ -91,9 +91,7 @@ class WakePlanDefaultsController extends AsyncNotifier<AppSettings> {
   }
 
   Future<void> setHolidayRegions(Set<HolidayRegion> value) {
-    return _enqueueSave(
-      (current) => current.copyWith(holidayRegions: value),
-    );
+    return _enqueueSave((current) => current.copyWith(holidayRegions: value));
   }
 
   AppSettings get _current => state.value ?? AppSettings.initial();

@@ -2215,7 +2215,7 @@ class WakePlanService {
       inventory: inventory,
     );
     final existingOccurrences = pendingDisableReconciliation.occurrences;
-    var existingById = {
+    final existingById = {
       for (final occurrence in existingOccurrences) occurrence.id: occurrence,
     };
     final desiredBundle = _buildOccurrenceBundle(plan: plan, now: now);
@@ -2238,43 +2238,6 @@ class WakePlanService {
         );
       }
       return _emptyScheduleFailureResult(wakePlanId: plan.id);
-    }
-
-    // An occurrence can be stuck scheduled on the *native* side for a day
-    // that's no longer desired — most commonly because holiday data (or a
-    // skipHolidays toggle) only became known after the occurrence was
-    // already created and reserved. Nothing else here regenerates or drops
-    // native reservations that fall outside `desiredBundle`, so without this
-    // an alarm already scheduled on a day later confirmed a holiday would
-    // keep ringing indefinitely.
-    final desiredOccurrenceIds = desiredBundle.occurrences
-        .map((occurrence) => occurrence.id)
-        .toSet();
-    final staleOccurrenceIds = existingOccurrences
-        .where((occurrence) {
-          return !desiredOccurrenceIds.contains(occurrence.id) &&
-              occurrence.scheduledAt.toDateTime().isAfter(now) &&
-              occurrence.status != AlarmOccurrenceStatus.cancelled &&
-              occurrence.status != AlarmOccurrenceStatus.userDisabled;
-        })
-        .map((occurrence) => occurrence.id)
-        .toSet();
-    final staleCancellation = staleOccurrenceIds.isEmpty
-        ? null
-        : await _cancelFutureReservedOccurrences(
-            wakePlanId: plan.id,
-            now: now,
-            usePlanCancel: false,
-            onlyOccurrenceIds: staleOccurrenceIds,
-          );
-    if (staleCancellation != null) {
-      existingById = {
-        for (final occurrence in _mergeOccurrenceStates(
-          existingOccurrences,
-          staleCancellation.persistedOccurrences,
-        ))
-          occurrence.id: occurrence,
-      };
     }
 
     final pendingOccurrences = desiredBundle.occurrences
@@ -2332,8 +2295,7 @@ class WakePlanService {
 
     if (pendingOccurrences.isEmpty) {
       if (pendingEnableReconciliation.hasUnresolved ||
-          pendingDisableReconciliation.hasUnresolved ||
-          (staleCancellation?.hasUnresolvedNativeState ?? false)) {
+          pendingDisableReconciliation.hasUnresolved) {
         return _pendingDisableRecoveryResult(
           plan: plan,
           occurrences: desiredBundle.occurrences
@@ -2342,7 +2304,6 @@ class WakePlanService {
           persistenceError: _firstPersistenceError([
             pendingEnableReconciliation.persistenceError,
             pendingDisableReconciliation.persistenceError,
-            staleCancellation?.persistenceError,
           ]),
         );
       }
@@ -2381,7 +2342,6 @@ class WakePlanService {
     final persistenceError = _firstPersistenceError([
       pendingEnableReconciliation.persistenceError,
       pendingDisableReconciliation.persistenceError,
-      staleCancellation?.persistenceError,
       schedulePersistenceError,
     ]);
 
@@ -2402,8 +2362,7 @@ class WakePlanService {
     final needsRecovery =
         persistenceError != null ||
         pendingEnableReconciliation.hasUnresolved ||
-        pendingDisableReconciliation.hasUnresolved ||
-        (staleCancellation?.hasUnresolvedNativeState ?? false);
+        pendingDisableReconciliation.hasUnresolved;
     return WakePlanSchedulingResult(
       wakePlanId: plan.id,
       status: needsRecovery
@@ -3024,14 +2983,11 @@ class WakePlanService {
     required String wakePlanId,
     required DateTime now,
     required bool usePlanCancel,
-    Set<String>? onlyOccurrenceIds,
   }) async {
     final reserved = await _store.fetchReservedOccurrencesForPlan(wakePlanId);
     final futureReserved = reserved
         .where((occurrence) {
-          return !occurrence.scheduledAt.toDateTime().isBefore(now) &&
-              (onlyOccurrenceIds == null ||
-                  onlyOccurrenceIds.contains(occurrence.id));
+          return !occurrence.scheduledAt.toDateTime().isBefore(now);
         })
         .toList(growable: false);
     final inventory = futureReserved.isEmpty

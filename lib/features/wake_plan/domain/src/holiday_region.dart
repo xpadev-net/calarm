@@ -33,7 +33,9 @@ String? encodeHolidayRegions(Set<HolidayRegion> regions) {
   if (regions.isEmpty) {
     return null;
   }
-  return regions.map((region) => region.code).join(_holidayRegionCodesSeparator);
+  return regions
+      .map((region) => region.code)
+      .join(_holidayRegionCodesSeparator);
 }
 
 /// Inverse of [encodeHolidayRegions]. Unknown/stale codes are dropped rather

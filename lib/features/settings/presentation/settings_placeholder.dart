@@ -316,7 +316,7 @@ class _SettingsDefaultsPanel extends ConsumerWidget {
   }
 }
 
-class _HolidayRegionMultiSelect extends StatelessWidget {
+class _HolidayRegionMultiSelect extends StatefulWidget {
   const _HolidayRegionMultiSelect({
     required this.selected,
     required this.onChanged,
@@ -325,11 +325,40 @@ class _HolidayRegionMultiSelect extends StatelessWidget {
   final Set<HolidayRegion> selected;
   final ValueChanged<Set<HolidayRegion>> onChanged;
 
+  @override
+  State<_HolidayRegionMultiSelect> createState() =>
+      _HolidayRegionMultiSelectState();
+}
+
+class _HolidayRegionMultiSelectState extends State<_HolidayRegionMultiSelect> {
+  // The save round-trip through WakePlanDefaultsController isn't optimistic
+  // (state only updates once persistence completes), so driving the
+  // checkboxes straight off `widget.selected` would leave a tap looking
+  // unresponsive until the write lands. Track the tapped-toward value here
+  // instead and let it get overwritten once the real persisted value
+  // catches up (see didUpdateWidget) — including snapping back if a save
+  // actually failed.
+  late Set<HolidayRegion> _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = widget.selected;
+  }
+
+  @override
+  void didUpdateWidget(covariant _HolidayRegionMultiSelect oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_setEquals(oldWidget.selected, widget.selected)) {
+      _selected = widget.selected;
+    }
+  }
+
   String get _summary {
-    if (selected.isEmpty) {
+    if (_selected.isEmpty) {
       return 'Off';
     }
-    return selected.map((region) => region.displayName).join(', ');
+    return _selected.map((region) => region.displayName).join(', ');
   }
 
   @override
@@ -361,10 +390,7 @@ class _HolidayRegionMultiSelect extends StatelessWidget {
                   child: Row(
                     children: [
                       Expanded(
-                        child: Text(
-                          _summary,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                        child: Text(_summary, overflow: TextOverflow.ellipsis),
                       ),
                       const Icon(Icons.arrow_drop_down),
                     ],
@@ -375,33 +401,33 @@ class _HolidayRegionMultiSelect extends StatelessWidget {
           },
           menuChildren: [
             for (final region in HolidayRegion.values)
-              StatefulBuilder(
-                builder: (context, setMenuState) {
-                  return SizedBox(
-                    width: constraints.maxWidth,
-                    child: CheckboxListTile(
-                      dense: true,
-                      value: selected.contains(region),
-                      title: Text(region.displayName),
-                      onChanged: (checked) {
-                        final next = Set<HolidayRegion>.from(selected);
-                        if (checked ?? false) {
-                          next.add(region);
-                        } else {
-                          next.remove(region);
-                        }
-                        setMenuState(() {});
-                        onChanged(next);
-                      },
-                    ),
-                  );
-                },
+              SizedBox(
+                width: constraints.maxWidth,
+                child: CheckboxListTile(
+                  dense: true,
+                  value: _selected.contains(region),
+                  title: Text(region.displayName),
+                  onChanged: (checked) {
+                    final next = Set<HolidayRegion>.from(_selected);
+                    if (checked ?? false) {
+                      next.add(region);
+                    } else {
+                      next.remove(region);
+                    }
+                    setState(() => _selected = next);
+                    widget.onChanged(next);
+                  },
+                ),
               ),
           ],
         );
       },
     );
   }
+}
+
+bool _setEquals<T>(Set<T> a, Set<T> b) {
+  return a.length == b.length && a.containsAll(b);
 }
 
 class _DurationChoice extends StatelessWidget {

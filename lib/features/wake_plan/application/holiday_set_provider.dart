@@ -38,18 +38,24 @@ Stream<Set<CalendarDay>> _unionHolidays(
   Set<HolidayRegion> regions,
 ) {
   late final StreamController<Set<CalendarDay>> controller;
-  final latestByRegion = <HolidayRegion, Set<CalendarDay>>{};
+  // Seeded with an empty set per region up front (rather than only once
+  // that region's first event arrives): `watchHolidays` swallows query
+  // errors on its long-lived subscription instead of propagating them, so a
+  // region whose Drift query never successfully completes would otherwise
+  // never contribute a `latestByRegion` entry — silently blocking the union
+  // from ever emitting at all, for every region, not just the stalled one.
+  final latestByRegion = <HolidayRegion, Set<CalendarDay>>{
+    for (final region in regions) region: const {},
+  };
   final subscriptions = <StreamSubscription<Set<CalendarDay>>>[];
 
   void emitUnion() {
-    if (latestByRegion.length != regions.length) {
-      return;
-    }
     controller.add(latestByRegion.values.expand((days) => days).toSet());
   }
 
   controller = StreamController<Set<CalendarDay>>(
     onListen: () {
+      emitUnion();
       for (final region in regions) {
         subscriptions.add(
           repository.watchHolidays(region).listen((days) {

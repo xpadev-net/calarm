@@ -328,10 +328,7 @@ class _CalendarViewToggle extends StatelessWidget {
       showSelectedIcon: false,
       segments: [
         for (final option in _options)
-          ButtonSegment<int>(
-            value: option.value,
-            label: Text(option.label),
-          ),
+          ButtonSegment<int>(value: option.value, label: Text(option.label)),
       ],
       selected: {visibleDays},
       onSelectionChanged: (selection) {

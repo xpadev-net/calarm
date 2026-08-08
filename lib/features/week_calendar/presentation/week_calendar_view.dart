@@ -1872,10 +1872,10 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
     return Column(
       children: [
         _DateHeader(
-                  week: widget.week,
-                  now: widget.now,
-                  holidays: widget.holidays,
-                ),
+          week: widget.week,
+          now: widget.now,
+          holidays: widget.holidays,
+        ),
         Expanded(
           child: RawGestureDetector(
             key: const ValueKey('week-calendar-pinch-surface'),
