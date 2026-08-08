@@ -11,6 +11,12 @@
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
 		6B4D5E302E1C700000000001 /* AlarmKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B4D5E2F2E1C700000000001 /* AlarmKitBridge.swift */; };
+		6B4D5E302E1C700000000002 /* AlarmKitMethodChannelSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B4D5E2F2E1C700000000002 /* AlarmKitMethodChannelSupport.swift */; };
+		6B4D5E302E1C700000000003 /* AlarmMirrorPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B4D5E2F2E1C700000000003 /* AlarmMirrorPersistence.swift */; };
+		6B4D5E302E1C700000000004 /* AlarmReservationAuthority.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B4D5E2F2E1C700000000004 /* AlarmReservationAuthority.swift */; };
+		6B4D5E302E1C700000000005 /* AlarmReplacementJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B4D5E2F2E1C700000000005 /* AlarmReplacementJournal.swift */; };
+		6B4D5E302E1C700000000006 /* AlarmMirrorReconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B4D5E2F2E1C700000000006 /* AlarmMirrorReconciliation.swift */; };
+		6B4D5E302E1C700000000007 /* AlarmKitNativeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B4D5E2F2E1C700000000007 /* AlarmKitNativeClient.swift */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
@@ -49,6 +55,12 @@
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
 		6B4D5E2F2E1C700000000001 /* AlarmKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmKitBridge.swift; sourceTree = "<group>"; };
+		6B4D5E2F2E1C700000000002 /* AlarmKitMethodChannelSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmKitMethodChannelSupport.swift; sourceTree = "<group>"; };
+		6B4D5E2F2E1C700000000003 /* AlarmMirrorPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmMirrorPersistence.swift; sourceTree = "<group>"; };
+		6B4D5E2F2E1C700000000004 /* AlarmReservationAuthority.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmReservationAuthority.swift; sourceTree = "<group>"; };
+		6B4D5E2F2E1C700000000005 /* AlarmReplacementJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmReplacementJournal.swift; sourceTree = "<group>"; };
+		6B4D5E2F2E1C700000000006 /* AlarmMirrorReconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmMirrorReconciliation.swift; sourceTree = "<group>"; };
+		6B4D5E2F2E1C700000000007 /* AlarmKitNativeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmKitNativeClient.swift; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
 		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
@@ -125,6 +137,12 @@
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				6B4D5E2F2E1C700000000001 /* AlarmKitBridge.swift */,
+				6B4D5E2F2E1C700000000002 /* AlarmKitMethodChannelSupport.swift */,
+				6B4D5E2F2E1C700000000003 /* AlarmMirrorPersistence.swift */,
+				6B4D5E2F2E1C700000000004 /* AlarmReservationAuthority.swift */,
+				6B4D5E2F2E1C700000000005 /* AlarmReplacementJournal.swift */,
+				6B4D5E2F2E1C700000000006 /* AlarmMirrorReconciliation.swift */,
+				6B4D5E2F2E1C700000000007 /* AlarmKitNativeClient.swift */,
 				7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
@@ -285,6 +303,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				6B4D5E302E1C700000000001 /* AlarmKitBridge.swift in Sources */,
+				6B4D5E302E1C700000000002 /* AlarmKitMethodChannelSupport.swift in Sources */,
+				6B4D5E302E1C700000000003 /* AlarmMirrorPersistence.swift in Sources */,
+				6B4D5E302E1C700000000004 /* AlarmReservationAuthority.swift in Sources */,
+				6B4D5E302E1C700000000005 /* AlarmReplacementJournal.swift in Sources */,
+				6B4D5E302E1C700000000006 /* AlarmMirrorReconciliation.swift in Sources */,
+				6B4D5E302E1C700000000007 /* AlarmKitNativeClient.swift in Sources */,
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
