@@ -2066,11 +2066,19 @@ class WakePlanService {
               .toList(growable: false);
     await _store.saveAlarmOccurrences(pendingOccurrences);
 
-    final scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(
-      pendingRequests,
-    );
-    if (!scheduleResult.isSuccess) {
-      _logScheduleFailure(scheduleResult);
+    ScheduleResult scheduleResult;
+    try {
+      scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(
+        pendingRequests,
+      );
+      if (!scheduleResult.isSuccess) {
+        _logScheduleFailure(scheduleResult);
+      }
+    } catch (error) {
+      scheduleResult = _scheduleFailureResultForException(
+        requests: pendingRequests,
+        error: error,
+      );
     }
     final completedOccurrences = _applyScheduleResult(
       occurrences: pendingOccurrences,
@@ -2146,6 +2154,31 @@ class WakePlanService {
       name: 'WakePlanService',
       level: 900,
     );
+  }
+
+  /// Builds a synthetic all-failed [ScheduleResult] for a native-call
+  /// exception, so a thrown error is handled exactly like a native-reported
+  /// failure: it flows into [_applyScheduleResult] and the existing
+  /// success/failure result building below the call site, and is logged
+  /// through [_logScheduleFailure] for diagnosis, instead of crashing the
+  /// caller or silently reaching the user as an unlogged generic failure.
+  ScheduleResult _scheduleFailureResultForException({
+    required List<NativeAlarmScheduleRequest> requests,
+    required Object error,
+  }) {
+    final result = ScheduleResult.fromOccurrences([
+      for (final request in requests)
+        ScheduleOccurrenceResult.failure(
+          occurrenceId: request.occurrenceId,
+          wakePlanId: request.wakePlanId,
+          reason: ScheduleFailureReason.nativeError,
+          message: error.toString(),
+          reservationId: request.reservationId,
+          reservationGeneration: request.reservationGeneration,
+        ),
+    ]);
+    _logScheduleFailure(result);
+    return result;
   }
 
   bool _hasUsableCreateReservation({
@@ -2283,6 +2316,15 @@ class WakePlanService {
     }
 
     await _store.saveAlarmOccurrences(pendingOccurrences);
+    // Deliberately left unguarded: `_reconcilePlan` only ever runs inside
+    // `reconcileSchedules`' per-plan try/catch, which already turns a thrown
+    // native-call error into an uncertain `recoveryRequired` result via
+    // `_inventoryRecoveryResult` — the correct semantics for a possibly-
+    // lost reply, since the native side effect may have actually gone
+    // through. Catching here and synthesizing a definite `scheduleFailed`
+    // result (as `_generateAndSchedule` does for create/edit, where nothing
+    // else observes the exception) would misreport that uncertainty as a
+    // hard failure and skip the outer recovery path.
     final scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(
       pendingRequests,
     );
@@ -3398,6 +3440,7 @@ class WakePlanService {
             message: 'Native alarm restoration response was uncertain: $error',
           ),
       ]);
+      _logScheduleFailure(scheduleResult);
       final mergedOccurrences = _mergeOccurrenceStates(
         preservedSuppressions,
         pendingOccurrences,

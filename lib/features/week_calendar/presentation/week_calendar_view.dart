@@ -193,7 +193,6 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
                 onDraftChanged: widget.onDraftChanged,
                 draftInteractionEnabled: widget.draftInteractionEnabled,
                 recenterRequest: widget.recenterRequest,
-                bottomPadding: widget.bottomPadding,
               )
             : widget.visibleDays != DateTime.daysPerWeek
             ? _ContinuousDayPager(
@@ -357,7 +356,6 @@ class _InfiniteDayScroller extends StatefulWidget {
     required this.onDraftChanged,
     required this.draftInteractionEnabled,
     required this.recenterRequest,
-    this.bottomPadding = 0,
   });
 
   final CalendarDay anchorDay;
@@ -372,7 +370,6 @@ class _InfiniteDayScroller extends StatefulWidget {
   final WeekCalendarDraftChanged? onDraftChanged;
   final bool draftInteractionEnabled;
   final int recenterRequest;
-  final double bottomPadding;
 
   @override
   State<_InfiniteDayScroller> createState() => _InfiniteDayScrollerState();
@@ -682,10 +679,6 @@ class _InfiniteDayScrollerState extends State<_InfiniteDayScroller> {
                                   ),
                                 ),
                               ),
-                              if (widget.bottomPadding > 0)
-                                SliverToBoxAdapter(
-                                  child: SizedBox(height: widget.bottomPadding),
-                                ),
                             ],
                           ),
                         ),
@@ -2290,10 +2283,41 @@ class _DraftBlockState extends State<_DraftBlock> {
   );
 
   @override
+  void didUpdateWidget(covariant _DraftBlock oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // `interactionEnabled` flips off mid-gesture when a second finger turns
+    // this into a pinch (see the `!_pinching` wiring at each calendar
+    // display mode's call site) — but a plain pointer `Listener` isn't part
+    // of the gesture arena, so the pointer that started this drag keeps
+    // being routed here regardless of who wins the arena. Without this, the
+    // ghost would keep following that finger until it's lifted, and the
+    // move would still commit then; cancelling as soon as interaction is
+    // disabled matches the immediate visual/interaction cutoff everywhere
+    // else pinch takes over.
+    if (_activePointer != null &&
+        oldWidget.interactionEnabled &&
+        !widget.interactionEnabled) {
+      _cancelManipulation();
+    }
+  }
+
+  @override
   void dispose() {
     _removeDragOverlay();
     _dragOverlayOffset.dispose();
     super.dispose();
+  }
+
+  void _cancelManipulation() {
+    _activePointer = null;
+    _lastPointerPosition = null;
+    _removeDragOverlay();
+    setState(() {
+      _dragDelta = Offset.zero;
+      _previewDayDelta = 0;
+      _previewMinuteDelta = 0;
+    });
+    _endManipulation();
   }
 
   void _startManipulation(_DraftDragMode mode) {
@@ -2474,6 +2498,15 @@ class _DraftBlockState extends State<_DraftBlock> {
 
   void _endPointer(PointerEvent event) {
     if (_activePointer != event.pointer) {
+      return;
+    }
+    // A `PointerCancelEvent` (or interaction already disabled — e.g. pinch
+    // took over before this arrived) means the gesture never reached a
+    // normal release, so the previewed move is discarded rather than
+    // committed — only a genuine `PointerUpEvent` while still enabled counts
+    // as the user actually letting go of the drag.
+    if (event is PointerCancelEvent || !widget.interactionEnabled) {
+      _cancelManipulation();
       return;
     }
     _activePointer = null;

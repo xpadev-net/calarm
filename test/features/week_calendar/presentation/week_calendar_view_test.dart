@@ -1576,17 +1576,20 @@ void main() {
       await tester.pump();
       // The second pointer's arrival hands the gesture to the page-level
       // pinch recognizer, which zooms independently of the still-previewed
-      // (uncommitted) draft move.
+      // (uncommitted) draft move — and cancels that move preview outright,
+      // since `interactionEnabled` on the draft block flips off as soon as
+      // pinching starts (see `_DraftBlockState.didUpdateWidget`).
       expect(draft.startAt, DateTime(2026, 7, 8, 10));
       expect(hourHeight, greaterThan(52));
 
       await first.up();
       await second.up();
       await tester.pumpAndSettle();
-      // The move preview commits on release, carrying the accumulated
-      // vertical delta from across the whole gesture (not lost to the
-      // pinch interlude).
-      expect(draft.startAt.isBefore(DateTime(2026, 7, 8, 10)), isTrue);
+      // The move preview was cancelled (not committed) once the gesture
+      // handed off to pinch, so the draft's start/end are unchanged even
+      // though the first pointer kept moving afterward.
+      expect(draft.startAt, DateTime(2026, 7, 8, 10));
+      expect(draft.duration, const Duration(hours: 2));
       final surface = find.byKey(const ValueKey('week-calendar-pinch-surface'));
       final surfaceTopLeft = tester.getTopLeft(surface);
       await tester.dragFrom(

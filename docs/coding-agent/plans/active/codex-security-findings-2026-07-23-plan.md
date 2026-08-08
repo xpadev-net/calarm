@@ -98,7 +98,13 @@ The plan covers security findings, release gate integrity, and local persistence
 - owns:
   - `android/app/src/main/kotlin/dev/xpa/calarm/AndroidAlarmBridge.kt`
   - `lib/features/wake_plan/application/wake_plan_service.dart`
-- depends_on: [Task_28, Task_13, Task_25]
+- depends_on: [Task_28, Task_02, Task_13, Task_25]
+  (Task_02 is ordered first: both tasks edit `wake_plan_service.dart`'s
+  empty-occurrence success/failure handling, so Task_02's broader inline/
+  one-time far-future rejection lands first and Task_04's narrower
+  retryable-recovery fix is implemented against that already-updated
+  logic — avoiding two tasks racing to change the same success-path
+  behavior independently.)
 - acceptance:
   - One-time targets beyond planning horizon return a user-visible validation error.
   - Schedule result is not success when no native occurrence can be produced.
