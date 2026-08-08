@@ -34,7 +34,24 @@ final weekCalendarWakePlansProvider = FutureProvider<List<WakePlan>>((
 });
 
 class WeekCalendarPlaceholder extends ConsumerStatefulWidget {
-  const WeekCalendarPlaceholder({super.key});
+  const WeekCalendarPlaceholder({
+    super.key,
+    required this.visibleDays,
+    this.onDraftActiveChanged,
+    this.bottomPadding = 0,
+  });
+
+  final int visibleDays;
+
+  /// Notified whenever an inline wake-plan draft starts or stops being
+  /// active, so a caller-owned view switcher can disable itself while the
+  /// draft is in progress the way the header switcher used to.
+  final ValueChanged<bool>? onDraftActiveChanged;
+
+  /// Extra scrollable space reserved at the bottom of the calendar's day
+  /// grid, so the last hour row can still be scrolled clear of a system bar
+  /// the calendar is otherwise drawn behind (edge-to-edge layout).
+  final double bottomPadding;
 
   @override
   ConsumerState<WeekCalendarPlaceholder> createState() {
@@ -51,7 +68,6 @@ class _WeekCalendarPlaceholderState
 
   bool _sheetOpen = false;
   double _hourHeight = 52;
-  int _visibleDays = 1;
   WeekCalendarDraft? _draft;
   bool _savingDraft = false;
   bool _draftSubmissionAttempted = false;
@@ -62,6 +78,7 @@ class _WeekCalendarPlaceholderState
   bool _isActive = false;
   bool _enteredBackground = false;
   int _recenterRequest = 0;
+  bool? _lastNotifiedDraftActive;
 
   @override
   void initState() {
@@ -111,6 +128,18 @@ class _WeekCalendarPlaceholderState
 
   @override
   Widget build(BuildContext context) {
+    final onDraftActiveChanged = widget.onDraftActiveChanged;
+    if (onDraftActiveChanged != null) {
+      final draftActive = _draft != null;
+      if (draftActive != _lastNotifiedDraftActive) {
+        _lastNotifiedDraftActive = draftActive;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            onDraftActiveChanged(draftActive);
+          }
+        });
+      }
+    }
     final clock = ref.watch(weekCalendarClockProvider);
     final wakePlans = ref.watch(weekCalendarWakePlansProvider);
     final defaults = ref.watch(wakePlanDefaultsProvider);
@@ -126,54 +155,16 @@ class _WeekCalendarPlaceholderState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
-          height: 40,
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Calendar',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-              ),
-              _CalendarControlButton(
-                key: const ValueKey('week-calendar-one-day-button'),
-                tooltip: 'Show 1 day',
-                selected: _visibleDays == 1,
-                label: '1',
-                onPressed: _draft == null ? () => _setVisibleDays(1) : null,
-              ),
-              _CalendarControlButton(
-                key: const ValueKey('week-calendar-three-day-button'),
-                tooltip: 'Show 3 days',
-                selected: _visibleDays == 3,
-                label: '3',
-                onPressed: _draft == null ? () => _setVisibleDays(3) : null,
-              ),
-              _CalendarControlButton(
-                key: const ValueKey('week-calendar-seven-day-button'),
-                tooltip: 'Show 7 days',
-                selected: _visibleDays == DateTime.daysPerWeek,
-                label: '7',
-                onPressed: _draft == null
-                    ? () => _setVisibleDays(DateTime.daysPerWeek)
-                    : null,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) => WeekCalendarView(
-              key: ValueKey<int>(_visibleDays),
+              key: ValueKey<int>(widget.visibleDays),
               now: _now,
               wakePlans: currentWakePlans,
               height: constraints.maxHeight,
               hourHeight: _hourHeight,
-              visibleDays: _visibleDays,
+              visibleDays: widget.visibleDays,
+              bottomPadding: widget.bottomPadding,
               draftDuration: currentDefaults.defaultStartOffset,
               onHourHeightChanged: _setHourHeight,
               draft: _draft,
@@ -293,18 +284,6 @@ class _WeekCalendarPlaceholderState
     }
     setState(() {
       _hourHeight = boundedHeight;
-    });
-  }
-
-  void _setVisibleDays(int visibleDays) {
-    if (_draft != null) {
-      return;
-    }
-    if (_visibleDays == visibleDays) {
-      return;
-    }
-    setState(() {
-      _visibleDays = visibleDays;
     });
   }
 
@@ -627,43 +606,3 @@ String _detailResultMessage({
 }
 
 enum _WakePlanDetailAction { edit, delete, skipNext, undoSkipNext }
-
-class _CalendarControlButton extends StatelessWidget {
-  const _CalendarControlButton({
-    super.key,
-    required this.tooltip,
-    required this.selected,
-    required this.label,
-    required this.onPressed,
-  });
-
-  final String tooltip;
-  final bool selected;
-  final String label;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: IconButton(
-        visualDensity: VisualDensity.compact,
-        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
-        padding: EdgeInsets.zero,
-        isSelected: selected,
-        onPressed: onPressed,
-        icon: Text(label),
-        selectedIcon: DecoratedBox(
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.secondaryContainer,
-            shape: BoxShape.circle,
-          ),
-          child: SizedBox.square(
-            dimension: 28,
-            child: Center(child: Text(label)),
-          ),
-        ),
-      ),
-    );
-  }
-}

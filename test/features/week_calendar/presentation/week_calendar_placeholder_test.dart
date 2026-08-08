@@ -158,7 +158,7 @@ void main() {
             ),
           ],
           child: const MaterialApp(
-            home: Scaffold(body: WeekCalendarPlaceholder()),
+            home: Scaffold(body: _WeekCalendarHarness()),
           ),
         ),
       );
@@ -236,7 +236,7 @@ void main() {
             ),
           ],
           child: const MaterialApp(
-            home: Scaffold(body: WeekCalendarPlaceholder()),
+            home: Scaffold(body: _WeekCalendarHarness()),
           ),
         ),
       );
@@ -286,21 +286,21 @@ void main() {
           ],
           child: const MaterialApp(
             home: Scaffold(
-              body: SizedBox(height: 720, child: WeekCalendarPlaceholder()),
+              body: SizedBox(
+                height: 720,
+                child: _WeekCalendarHarness(initialVisibleDays: 7),
+              ),
             ),
           ),
         ),
       );
       await tester.pumpAndSettle();
 
-      await tester.drag(find.byType(PageView), const Offset(-600, 0));
-      await tester.pumpAndSettle();
       var calendar = tester.widget<WeekCalendarView>(
         find.byType(WeekCalendarView),
       );
-      // The default view is 1 day wide and pages by a single day, so after
-      // one drag from July 8 the only visible day is July 9 — the draft
-      // must land there for its handles to actually be in the tree.
+      // July 9 is already inside the 7-day week containing July 8, so the
+      // draft's handles land in the tree without paging first.
       calendar.onTargetTap!(
         WeekCalendarTapTarget(
           day: CalendarDay(year: 2026, month: 7, day: 9),
@@ -389,7 +389,10 @@ void main() {
             ],
             child: const MaterialApp(
               home: Scaffold(
-                body: SizedBox(height: 720, child: WeekCalendarPlaceholder()),
+                body: SizedBox(
+                  height: 720,
+                  child: _WeekCalendarHarness(initialVisibleDays: 7),
+                ),
               ),
             ),
           ),
@@ -487,7 +490,10 @@ void main() {
             ],
             child: const MaterialApp(
               home: Scaffold(
-                body: SizedBox(height: 720, child: WeekCalendarPlaceholder()),
+                body: SizedBox(
+                  height: 720,
+                  child: _WeekCalendarHarness(initialVisibleDays: 7),
+                ),
               ),
             ),
           ),
@@ -562,9 +568,7 @@ void main() {
                 () => DateTime(2026, 7, 8, 18),
           ),
         ],
-        child: const MaterialApp(
-          home: Scaffold(body: WeekCalendarPlaceholder()),
-        ),
+        child: const MaterialApp(home: Scaffold(body: _WeekCalendarHarness())),
       ),
     );
     await tester.pumpAndSettle();
@@ -621,9 +625,7 @@ void main() {
                 () => DateTime(2026, 7, 8, 18),
           ),
         ],
-        child: const MaterialApp(
-          home: Scaffold(body: WeekCalendarPlaceholder()),
-        ),
+        child: const MaterialApp(home: Scaffold(body: _WeekCalendarHarness())),
       ),
     );
     await tester.pumpAndSettle();
@@ -681,9 +683,7 @@ void main() {
                 () => DateTime(2026, 12, 30, 18),
           ),
         ],
-        child: const MaterialApp(
-          home: Scaffold(body: WeekCalendarPlaceholder()),
-        ),
+        child: const MaterialApp(home: Scaffold(body: _WeekCalendarHarness())),
       ),
     );
     await tester.pumpAndSettle();
@@ -748,7 +748,10 @@ void main() {
         ],
         child: const MaterialApp(
           home: Scaffold(
-            body: SizedBox(height: 480, child: WeekCalendarPlaceholder()),
+            body: SizedBox(
+              height: 480,
+              child: _WeekCalendarHarness(initialVisibleDays: 7),
+            ),
           ),
         ),
       ),
@@ -815,7 +818,7 @@ void main() {
           ],
           child: const MaterialApp(
             home: Scaffold(
-              body: SizedBox(height: 480, child: WeekCalendarPlaceholder()),
+              body: SizedBox(height: 480, child: _WeekCalendarHarness()),
             ),
           ),
         ),
@@ -912,9 +915,7 @@ void main() {
                 () => DateTime(2026, 7, 8, 0, 30),
           ),
         ],
-        child: const MaterialApp(
-          home: Scaffold(body: WeekCalendarPlaceholder()),
-        ),
+        child: const MaterialApp(home: Scaffold(body: _WeekCalendarHarness())),
       ),
     );
     await tester.pumpAndSettle();
@@ -962,7 +963,7 @@ void main() {
         ],
         child: const MaterialApp(
           home: Scaffold(
-            body: SizedBox(height: 720, child: WeekCalendarPlaceholder()),
+            body: SizedBox(height: 720, child: _WeekCalendarHarness()),
           ),
         ),
       ),
@@ -1000,7 +1001,7 @@ void main() {
         ],
         child: const MaterialApp(
           home: Scaffold(
-            body: SizedBox(height: 960, child: WeekCalendarPlaceholder()),
+            body: SizedBox(height: 960, child: _WeekCalendarHarness()),
           ),
         ),
       ),
@@ -1035,7 +1036,7 @@ void main() {
             ),
           ],
           child: const MaterialApp(
-            home: Scaffold(body: WeekCalendarPlaceholder()),
+            home: Scaffold(body: _WeekCalendarHarness()),
           ),
         ),
       );
@@ -1094,7 +1095,7 @@ void main() {
                 padding: EdgeInsets.only(bottom: 34),
                 textScaler: TextScaler.linear(2),
               ),
-              child: const Scaffold(body: WeekCalendarPlaceholder()),
+              child: const Scaffold(body: _WeekCalendarHarness()),
             ),
           ),
         ),
@@ -1148,7 +1149,7 @@ void main() {
           ],
           child: const MaterialApp(
             home: Scaffold(
-              body: SizedBox(height: 720, child: WeekCalendarPlaceholder()),
+              body: SizedBox(height: 720, child: _WeekCalendarHarness()),
             ),
           ),
         ),
@@ -1195,7 +1196,7 @@ void main() {
           ],
           child: const MaterialApp(
             home: Scaffold(
-              body: SizedBox(height: 720, child: WeekCalendarPlaceholder()),
+              body: SizedBox(height: 720, child: _WeekCalendarHarness()),
             ),
           ),
         ),
@@ -1219,7 +1220,11 @@ void main() {
       expect(_calendar(tester).visibleDays, 3);
       expect(find.text('Wed'), findsOneWidget);
       expect(find.text('Fri'), findsOneWidget);
-      expect(find.text('Sat'), findsNothing);
+      // `_ScrollSyncedDateHeader` renders two extra buffer days past the
+      // visible window's right edge for smooth-scroll continuity (Sat, Sun
+      // here), so "Mon" — three days past Fri — is the first weekday that's
+      // genuinely absent.
+      expect(find.text('Mon'), findsNothing);
 
       await tester.tap(
         find.byKey(const ValueKey('week-calendar-seven-day-button')),
@@ -1304,9 +1309,7 @@ void main() {
                 () => DateTime(2026, 7, 8, 5, 30),
           ),
         ],
-        child: const MaterialApp(
-          home: Scaffold(body: WeekCalendarPlaceholder()),
-        ),
+        child: const MaterialApp(home: Scaffold(body: _WeekCalendarHarness())),
       ),
     );
     await tester.pumpAndSettle();
@@ -1369,9 +1372,7 @@ void main() {
                 () => DateTime(2026, 7, 8, 5, 30),
           ),
         ],
-        child: const MaterialApp(
-          home: Scaffold(body: WeekCalendarPlaceholder()),
-        ),
+        child: const MaterialApp(home: Scaffold(body: _WeekCalendarHarness())),
       ),
     );
     await tester.pumpAndSettle();
@@ -1389,6 +1390,7 @@ void main() {
     final draftId = _calendar(tester).draft!.id;
 
     await tester.tap(find.byKey(const ValueKey('inline-wake-plan-cancel')));
+    await tester.pump();
     await tester.pump();
 
     expect(find.byKey(const ValueKey('inline-wake-plan-editor')), findsNothing);
@@ -1433,9 +1435,7 @@ void main() {
                 () => DateTime(2026, 7, 8, 5, 30),
           ),
         ],
-        child: const MaterialApp(
-          home: Scaffold(body: WeekCalendarPlaceholder()),
-        ),
+        child: const MaterialApp(home: Scaffold(body: _WeekCalendarHarness())),
       ),
     );
     await tester.pumpAndSettle();
@@ -1497,9 +1497,7 @@ void main() {
                 () => DateTime(2026, 7, 8, 5, 30),
           ),
         ],
-        child: const MaterialApp(
-          home: Scaffold(body: WeekCalendarPlaceholder()),
-        ),
+        child: const MaterialApp(home: Scaffold(body: _WeekCalendarHarness())),
       ),
     );
     await tester.pumpAndSettle();
@@ -1549,9 +1547,7 @@ void main() {
                 () => DateTime(2026, 7, 8, 5, 30),
           ),
         ],
-        child: const MaterialApp(
-          home: Scaffold(body: WeekCalendarPlaceholder()),
-        ),
+        child: const MaterialApp(home: Scaffold(body: _WeekCalendarHarness())),
       ),
     );
     await tester.pumpAndSettle();
@@ -1651,7 +1647,7 @@ void main() {
         UncontrolledProviderScope(
           container: container,
           child: const MaterialApp(
-            home: Scaffold(body: WeekCalendarPlaceholder()),
+            home: Scaffold(body: _WeekCalendarHarness()),
           ),
         ),
       );
@@ -1704,9 +1700,7 @@ void main() {
           ),
           weekCalendarClockProvider.overrideWith((ref) => clock),
         ],
-        child: const MaterialApp(
-          home: Scaffold(body: WeekCalendarPlaceholder()),
-        ),
+        child: const MaterialApp(home: Scaffold(body: _WeekCalendarHarness())),
       ),
     );
     await tester.pumpAndSettle();
@@ -1786,9 +1780,7 @@ void main() {
                 () => now,
           ),
         ],
-        child: const MaterialApp(
-          home: Scaffold(body: WeekCalendarPlaceholder()),
-        ),
+        child: const MaterialApp(home: Scaffold(body: _WeekCalendarHarness())),
       ),
     );
     await tester.pumpAndSettle();
@@ -1870,7 +1862,7 @@ void main() {
               ),
             ],
             child: const MaterialApp(
-              home: Scaffold(body: WeekCalendarPlaceholder()),
+              home: Scaffold(body: _WeekCalendarHarness()),
             ),
           ),
         );
@@ -1979,9 +1971,7 @@ void main() {
                 () => now,
           ),
         ],
-        child: const MaterialApp(
-          home: Scaffold(body: WeekCalendarPlaceholder()),
-        ),
+        child: const MaterialApp(home: Scaffold(body: _WeekCalendarHarness())),
       ),
     );
     await tester.pumpAndSettle();
@@ -2059,7 +2049,7 @@ void main() {
             ),
           ],
           child: const MaterialApp(
-            home: Scaffold(body: WeekCalendarPlaceholder()),
+            home: Scaffold(body: _WeekCalendarHarness()),
           ),
         ),
       );
@@ -2137,9 +2127,7 @@ void main() {
                 () => now,
           ),
         ],
-        child: const MaterialApp(
-          home: Scaffold(body: WeekCalendarPlaceholder()),
-        ),
+        child: const MaterialApp(home: Scaffold(body: _WeekCalendarHarness())),
       ),
     );
     await tester.pumpAndSettle();
@@ -2163,6 +2151,51 @@ void main() {
     expect(saved!.occursOn(skippedDay), isFalse);
     expect(saved.occursOn(followingDay), isTrue);
   });
+
+  for (final visibleDays in [3, DateTime.daysPerWeek]) {
+    testWidgets(
+      '$visibleDays-day view grows maxScrollExtent by bottomPadding',
+      (tester) async {
+        Future<double> maxScrollExtentFor(double bottomPadding) async {
+          await tester.pumpWidget(
+            ProviderScope(
+              overrides: [
+                weekCalendarRepositoryProvider.overrideWith(
+                  (ref) async => repository,
+                ),
+                weekCalendarClockProvider.overrideWith(
+                  (ref) =>
+                      () => DateTime(2026, 7, 8, 5, 30),
+                ),
+              ],
+              child: MaterialApp(
+                home: Scaffold(
+                  body: SizedBox(
+                    height: 480,
+                    child: _WeekCalendarHarness(
+                      initialVisibleDays: visibleDays,
+                      bottomPadding: bottomPadding,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final scrollController = tester
+              .widget<SingleChildScrollView>(
+                find.byType(SingleChildScrollView).hitTestable().first,
+              )
+              .controller!;
+          return scrollController.position.maxScrollExtent;
+        }
+
+        final withoutPadding = await maxScrollExtentFor(0);
+        final withPadding = await maxScrollExtentFor(40);
+        expect(withPadding, withoutPadding + 40);
+      },
+    );
+  }
 }
 
 WakePlan _plan({
@@ -2208,6 +2241,65 @@ Future<void> _pinch(
   await first.up();
   await second.up();
   await tester.pumpAndSettle();
+}
+
+/// Test-only stand-in for the old header day-count switcher: the buttons
+/// now live in the app-level drawer ([CalarmHomePage]), so this harness
+/// reproduces them here (with the same keys) to drive
+/// [WeekCalendarPlaceholder.visibleDays] from these widget-level tests.
+class _WeekCalendarHarness extends StatefulWidget {
+  const _WeekCalendarHarness({
+    this.initialVisibleDays = 1,
+    this.bottomPadding = 0,
+  });
+
+  final int initialVisibleDays;
+  final double bottomPadding;
+
+  @override
+  State<_WeekCalendarHarness> createState() => _WeekCalendarHarnessState();
+}
+
+class _WeekCalendarHarnessState extends State<_WeekCalendarHarness> {
+  late int _visibleDays = widget.initialVisibleDays;
+  bool _draftActive = false;
+
+  Widget _button(String key, int value) {
+    return KeyedSubtree(
+      key: ValueKey<String>(key),
+      child: IconButton(
+        onPressed: _draftActive
+            ? null
+            : () => setState(() => _visibleDays = value),
+        icon: Text(value.toString()),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _button('week-calendar-one-day-button', 1),
+            _button('week-calendar-three-day-button', 3),
+            _button('week-calendar-seven-day-button', DateTime.daysPerWeek),
+          ],
+        ),
+        Expanded(
+          child: WeekCalendarPlaceholder(
+            visibleDays: _visibleDays,
+            bottomPadding: widget.bottomPadding,
+            onDraftActiveChanged: (draftActive) =>
+                setState(() => _draftActive = draftActive),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _DelayedWakePlanService extends WakePlanService {

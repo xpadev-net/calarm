@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import '../../../core/platform/native_alarm_gateway.dart';
 import '../../../core/time/time.dart';
@@ -324,7 +325,22 @@ class WakePlanService {
     ScheduleResult scheduleResult;
     try {
       scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(requests);
-    } catch (_) {
+      if (!scheduleResult.isSuccess) {
+        _logScheduleFailure(scheduleResult);
+      }
+    } catch (error) {
+      final request = requests.single;
+      final failedResult = ScheduleResult.fromOccurrences([
+        ScheduleOccurrenceResult.failure(
+          occurrenceId: request.occurrenceId,
+          wakePlanId: request.wakePlanId,
+          reason: ScheduleFailureReason.nativeError,
+          message: error.toString(),
+          reservationId: request.reservationId,
+          reservationGeneration: request.reservationGeneration,
+        ),
+      ]);
+      _logScheduleFailure(failedResult);
       final uncertain = pending.copyWith(
         status: AlarmOccurrenceStatus.userEnablePending,
         updatedAt: now,
@@ -333,6 +349,7 @@ class WakePlanService {
       return AlarmOccurrenceToggleResult.failure(
         status: AlarmOccurrenceToggleStatus.recoveryRequired,
         occurrence: uncertain,
+        scheduleResult: failedResult,
         databaseState: persistenceError == null
             ? WakePlanDatabaseState.persisted
             : WakePlanDatabaseState.unknown,
@@ -2049,9 +2066,20 @@ class WakePlanService {
               .toList(growable: false);
     await _store.saveAlarmOccurrences(pendingOccurrences);
 
-    final scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(
-      pendingRequests,
-    );
+    ScheduleResult scheduleResult;
+    try {
+      scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(
+        pendingRequests,
+      );
+      if (!scheduleResult.isSuccess) {
+        _logScheduleFailure(scheduleResult);
+      }
+    } catch (error) {
+      scheduleResult = _scheduleFailureResultForException(
+        requests: pendingRequests,
+        error: error,
+      );
+    }
     final completedOccurrences = _applyScheduleResult(
       occurrences: pendingOccurrences,
       scheduleResult: scheduleResult,
@@ -2101,6 +2129,56 @@ class WakePlanService {
           ? null
           : WakePlanSchedulingWarning.scheduleFailed(scheduleResult),
     );
+  }
+
+  /// Logs the per-occurrence reason behind a failed or partially failed
+  /// [scheduleOccurrences] call. This is the only place that failure detail
+  /// (native error text, which occurrences succeeded vs. failed) is
+  /// available — without it, a schedule failure only ever reaches the user
+  /// as the generic "some alarms could not be scheduled" message, with
+  /// nothing in the logs to diagnose it by.
+  void _logScheduleFailure(ScheduleResult result) {
+    final failures = result.occurrences
+        .where(
+          (occurrence) => occurrence.status == ScheduleOccurrenceStatus.failure,
+        )
+        .map(
+          (occurrence) =>
+              '${occurrence.occurrenceId}: ${occurrence.failureReason}'
+              '${occurrence.failureMessage != null ? ' (${occurrence.failureMessage})' : ''}',
+        )
+        .join('; ');
+    developer.log(
+      'WakePlanService: scheduleOccurrences failed, '
+      'status=${result.status}, failures=[$failures]',
+      name: 'WakePlanService',
+      level: 900,
+    );
+  }
+
+  /// Builds a synthetic all-failed [ScheduleResult] for a native-call
+  /// exception, so a thrown error is handled exactly like a native-reported
+  /// failure: it flows into [_applyScheduleResult] and the existing
+  /// success/failure result building below the call site, and is logged
+  /// through [_logScheduleFailure] for diagnosis, instead of crashing the
+  /// caller or silently reaching the user as an unlogged generic failure.
+  ScheduleResult _scheduleFailureResultForException({
+    required List<NativeAlarmScheduleRequest> requests,
+    required Object error,
+  }) {
+    final result = ScheduleResult.fromOccurrences([
+      for (final request in requests)
+        ScheduleOccurrenceResult.failure(
+          occurrenceId: request.occurrenceId,
+          wakePlanId: request.wakePlanId,
+          reason: ScheduleFailureReason.nativeError,
+          message: error.toString(),
+          reservationId: request.reservationId,
+          reservationGeneration: request.reservationGeneration,
+        ),
+    ]);
+    _logScheduleFailure(result);
+    return result;
   }
 
   bool _hasUsableCreateReservation({
@@ -2238,9 +2316,21 @@ class WakePlanService {
     }
 
     await _store.saveAlarmOccurrences(pendingOccurrences);
+    // Deliberately left unguarded: `_reconcilePlan` only ever runs inside
+    // `reconcileSchedules`' per-plan try/catch, which already turns a thrown
+    // native-call error into an uncertain `recoveryRequired` result via
+    // `_inventoryRecoveryResult` — the correct semantics for a possibly-
+    // lost reply, since the native side effect may have actually gone
+    // through. Catching here and synthesizing a definite `scheduleFailed`
+    // result (as `_generateAndSchedule` does for create/edit, where nothing
+    // else observes the exception) would misreport that uncertainty as a
+    // hard failure and skip the outer recovery path.
     final scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(
       pendingRequests,
     );
+    if (!scheduleResult.isSuccess) {
+      _logScheduleFailure(scheduleResult);
+    }
     final completedOccurrences = _applyScheduleResult(
       occurrences: pendingOccurrences,
       scheduleResult: scheduleResult,
@@ -3335,6 +3425,9 @@ class WakePlanService {
       scheduleResult = await _nativeAlarmGateway.scheduleOccurrences(
         restorationRequests,
       );
+      if (!scheduleResult.isSuccess) {
+        _logScheduleFailure(scheduleResult);
+      }
     } catch (error) {
       scheduleResult = ScheduleResult.fromOccurrences([
         for (final occurrence in pendingOccurrences)
@@ -3347,6 +3440,7 @@ class WakePlanService {
             message: 'Native alarm restoration response was uncertain: $error',
           ),
       ]);
+      _logScheduleFailure(scheduleResult);
       final mergedOccurrences = _mergeOccurrenceStates(
         preservedSuppressions,
         pendingOccurrences,
