@@ -120,10 +120,7 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
       // target page's ScrollController may not exist yet), but the value
       // it jumps to must not.
       final target = initialWeekCalendarScrollTarget(
-        week: currentCalendarRange(
-          widget.now,
-          visibleDays: widget.visibleDays,
-        ),
+        week: currentCalendarRange(widget.now, visibleDays: widget.visibleDays),
         now: widget.now,
         pixelsPerMinute: widget.hourHeight / TimeOfDayMinutes.minutesPerHour,
       );
