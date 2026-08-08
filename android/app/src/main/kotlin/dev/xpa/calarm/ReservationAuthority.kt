@@ -241,16 +241,17 @@ internal class ReservationAuthorityStore(context: Context) {
             if (current != null && current.wakePlanId != request.wakePlanId) {
                 return@synchronized false
             }
-            if (
-                current != null &&
-                current.occurrenceId != request.occurrenceId &&
-                occurrenceOwners[current.occurrenceId] ==
-                    (request.reservationId to request.wakePlanId)
-            ) {
-                occurrenceOwners.remove(current.occurrenceId)
-            }
-            occurrenceOwners[request.occurrenceId] = request.reservationId to request.wakePlanId
             if (current == null || request.reservationGeneration >= current.reservationGeneration) {
+                if (
+                    current != null &&
+                    current.occurrenceId != request.occurrenceId &&
+                    occurrenceOwners[current.occurrenceId] ==
+                        (request.reservationId to request.wakePlanId)
+                ) {
+                    occurrenceOwners.remove(current.occurrenceId)
+                }
+                occurrenceOwners[request.occurrenceId] =
+                    request.reservationId to request.wakePlanId
                 reservations[request.reservationId] = ReservationAuthority(
                     reservationId = request.reservationId,
                     wakePlanId = request.wakePlanId,
