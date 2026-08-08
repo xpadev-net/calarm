@@ -74,6 +74,13 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
   late int _appliedRecenterRequest;
   late int _recenterPageIndex;
   late int _currentPageIndex;
+  // The exact vertical offset a recenter jump targets, computed once here
+  // and handed down to the target page instead of letting it recompute its
+  // own — otherwise the fixed axis (updated from this value immediately)
+  // and the page's own scroll jump (applied a frame later, independently
+  // derived) could land on very slightly different offsets and visibly
+  // desync for a frame.
+  double? _recenterTargetOffset;
   final Map<int, ScrollController> _pageScrollControllers = {};
   VoidCallback? _removeActiveScrollListener;
   bool _pinching = false;
@@ -286,10 +293,24 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
                           recenterRequest: index == _recenterPageIndex
                               ? widget.recenterRequest
                               : null,
+                          recenterTargetOffset: index == _recenterPageIndex
+                              ? _recenterTargetOffset
+                              : null,
                           pageIndex: index,
                           onScrollControllerReady:
                               _registerPageScrollController,
                           bottomPadding: widget.bottomPadding,
+                          // A page being (re)built to satisfy a recenter
+                          // request must compute its own "now"-accurate
+                          // target; every other newly built page just
+                          // inherits wherever the calendar is currently
+                          // scrolled to, so paging never jerks the
+                          // vertical position around.
+                          initialScrollOffset:
+                              index == _initialPage ||
+                                  index == _recenterPageIndex
+                              ? null
+                              : _axisOffset.value,
                         );
                       },
                     ),
@@ -315,6 +336,18 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
         !_pageController.hasClients) {
       return;
     }
+    final target = initialWeekCalendarScrollTarget(
+      week: currentCalendarRange(widget.now, visibleDays: widget.visibleDays),
+      now: widget.now,
+      pixelsPerMinute: widget.hourHeight / TimeOfDayMinutes.minutesPerHour,
+    );
+    _recenterTargetOffset = target.offset;
+    // Set the fixed axis to its final position up front instead of waiting
+    // for the recentered page's own scroll controller to register and relay
+    // its offset back — that relay is what let the axis visibly lag behind
+    // (or briefly show a stale position from whatever page was previously
+    // active) on a recenter.
+    _axisOffset.value = target.offset;
     _pageController.jumpToPage(_recenterPageIndex);
     _appliedRecenterRequest = widget.recenterRequest;
   }
@@ -1544,6 +1577,8 @@ class _WeekCalendarWeekPage extends StatefulWidget {
     required this.pageIndex,
     required this.onScrollControllerReady,
     this.bottomPadding = 0,
+    this.initialScrollOffset,
+    this.recenterTargetOffset,
   });
 
   final WeekRange week;
@@ -1563,6 +1598,18 @@ class _WeekCalendarWeekPage extends StatefulWidget {
   final void Function(int pageIndex, ScrollController? controller)
   onScrollControllerReady;
   final double bottomPadding;
+
+  /// The vertical scroll offset every other page is currently sitting at.
+  /// Newly built pages start here instead of each computing its own
+  /// "now" vs. default-hour target, so paging horizontally never jerks
+  /// the vertical position around.
+  final double? initialScrollOffset;
+
+  /// The exact vertical offset a matching [recenterRequest] should jump to,
+  /// precomputed once by the parent (see `_axisOffset` there) so the fixed
+  /// time axis and this page's own scroll jump always land on the identical
+  /// value instead of each independently recomputing "now"'s offset.
+  final double? recenterTargetOffset;
 
   @override
   State<_WeekCalendarWeekPage> createState() => _WeekCalendarWeekPageState();
@@ -1600,12 +1647,14 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
   void initState() {
     super.initState();
     _displayHourHeight = widget.hourHeight;
-    final target = initialWeekCalendarScrollTarget(
-      week: widget.week,
-      now: widget.now,
-      pixelsPerMinute: _pixelsPerMinute,
-    );
-    _scrollController = ScrollController(initialScrollOffset: target.offset);
+    final initialOffset =
+        widget.initialScrollOffset ??
+        initialWeekCalendarScrollTarget(
+          week: widget.week,
+          now: widget.now,
+          pixelsPerMinute: _pixelsPerMinute,
+        ).offset;
+    _scrollController = ScrollController(initialScrollOffset: initialOffset);
     _appliedRecenterRequest = widget.recenterRequest;
     widget.onScrollControllerReady(widget.pageIndex, _scrollController);
   }
@@ -1765,12 +1814,14 @@ class _WeekCalendarWeekPageState extends State<_WeekCalendarWeekPage> {
         !_scrollController.hasClients) {
       return;
     }
-    final target = initialWeekCalendarScrollTarget(
-      week: widget.week,
-      now: widget.now,
-      pixelsPerMinute: _pixelsPerMinute,
-    );
-    final boundedOffset = target.offset.clamp(
+    final targetOffset =
+        widget.recenterTargetOffset ??
+        initialWeekCalendarScrollTarget(
+          week: widget.week,
+          now: widget.now,
+          pixelsPerMinute: _pixelsPerMinute,
+        ).offset;
+    final boundedOffset = targetOffset.clamp(
       _scrollController.position.minScrollExtent,
       _scrollController.position.maxScrollExtent,
     );
