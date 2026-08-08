@@ -70,12 +70,12 @@ class _CalarmAppState extends ConsumerState<CalarmApp>
   Future<void> _refreshHolidaysIfStale() async {
     try {
       final settings = await ref.read(wakePlanDefaultsProvider.future);
-      final region = settings.holidayRegion;
-      if (region == null) {
+      final regions = settings.holidayRegions;
+      if (regions.isEmpty) {
         return;
       }
       final repository = await ref.read(holidayRepositoryProvider.future);
-      await repository.refreshIfStale(region);
+      await Future.wait(regions.map(repository.refreshIfStale));
     } catch (_) {
       // Fail open: a holiday refresh failure must never disrupt resume.
     }
@@ -244,6 +244,16 @@ class _CalarmHomePageState extends State<CalarmHomePage> {
           AppIdentity.defaultDisplayName,
           style: Theme.of(context).textTheme.titleMedium,
         ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: _CalendarViewToggle(
+              visibleDays: _visibleDays,
+              enabled: !_draftActive,
+              onVisibleDaysChanged: _setVisibleDays,
+            ),
+          ),
+        ],
       ),
       drawer: Drawer(
         child: SafeArea(
@@ -280,6 +290,67 @@ class _CalarmHomePageState extends State<CalarmHomePage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+const _calendarViewToggleKey = ValueKey<String>('calendar-view-toggle');
+
+class _CalendarViewToggle extends StatelessWidget {
+  const _CalendarViewToggle({
+    required this.visibleDays,
+    required this.enabled,
+    required this.onVisibleDaysChanged,
+  });
+
+  final int visibleDays;
+  final bool enabled;
+  final ValueChanged<int> onVisibleDaysChanged;
+
+  static const _options = [
+    (value: 1, label: '1D'),
+    (value: 3, label: '3D'),
+    (value: DateTime.daysPerWeek, label: '7D'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return SegmentedButton<int>(
+      key: _calendarViewToggleKey,
+      style: SegmentedButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        selectedBackgroundColor: colorScheme.secondaryContainer,
+        selectedForegroundColor: colorScheme.onSecondaryContainer,
+      ),
+      showSelectedIcon: false,
+      segments: [
+        for (final option in _options)
+          ButtonSegment<int>(
+            value: option.value,
+            label: Text(option.label),
+          ),
+      ],
+      selected: {visibleDays},
+      onSelectionChanged: (selection) {
+        final selectedValue = selection.first;
+        if (selectedValue == visibleDays) {
+          return;
+        }
+        if (!enabled) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Finish or cancel the current draft before switching views',
+              ),
+            ),
+          );
+          return;
+        }
+        onVisibleDaysChanged(selectedValue);
+      },
     );
   }
 }

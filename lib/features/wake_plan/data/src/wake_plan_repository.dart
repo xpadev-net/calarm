@@ -883,7 +883,7 @@ class WakePlanRepository {
       defaultTargetTimeMinutes: Value(
         settings.defaultTargetTime?.minutesSinceMidnight,
       ),
-      holidayRegion: Value(settings.holidayRegion?.code),
+      holidayRegion: Value(encodeHolidayRegions(settings.holidayRegions)),
     );
   }
 
@@ -899,7 +899,7 @@ class WakePlanRepository {
           : TimeOfDayMinutes.fromMinutesSinceMidnight(
               row.defaultTargetTimeMinutes!,
             ),
-      holidayRegion: HolidayRegion.fromCode(row.holidayRegion),
+      holidayRegions: decodeHolidayRegions(row.holidayRegion),
     );
   }
 

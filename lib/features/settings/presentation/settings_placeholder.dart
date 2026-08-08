@@ -303,26 +303,103 @@ class _SettingsDefaultsPanel extends ConsumerWidget {
               },
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<HolidayRegion?>(
-              key: ValueKey(settings.holidayRegion),
-              initialValue: settings.holidayRegion,
-              decoration: const InputDecoration(labelText: 'Holiday calendar'),
-              hint: const Text('Off'),
-              items: [
-                const DropdownMenuItem(value: null, child: Text('Off')),
-                for (final region in HolidayRegion.values)
-                  DropdownMenuItem(
-                    value: region,
-                    child: Text(region.displayName),
-                  ),
-              ],
-              onChanged: (value) {
-                _handleSave(context, controller.setHolidayRegion(value));
+            _HolidayRegionMultiSelect(
+              selected: settings.holidayRegions,
+              onChanged: (regions) {
+                _handleSave(context, controller.setHolidayRegions(regions));
               },
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _HolidayRegionMultiSelect extends StatelessWidget {
+  const _HolidayRegionMultiSelect({
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final Set<HolidayRegion> selected;
+  final ValueChanged<Set<HolidayRegion>> onChanged;
+
+  String get _summary {
+    if (selected.isEmpty) {
+      return 'Off';
+    }
+    return selected.map((region) => region.displayName).join(', ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // MenuAnchor sizes its builder content to its own intrinsic width
+    // rather than the width offered by the parent (unlike DropdownButton,
+    // which fills available width by default) — LayoutBuilder pins it to
+    // the actual available width so the field doesn't shrink to fit its
+    // label/icon.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return MenuAnchor(
+          builder: (context, controller, child) {
+            return SizedBox(
+              width: constraints.maxWidth,
+              child: InputDecorator(
+                decoration: const InputDecoration(
+                  labelText: 'Holiday calendars',
+                  border: OutlineInputBorder(),
+                ),
+                child: InkWell(
+                  onTap: () {
+                    if (controller.isOpen) {
+                      controller.close();
+                    } else {
+                      controller.open();
+                    }
+                  },
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _summary,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const Icon(Icons.arrow_drop_down),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+          menuChildren: [
+            for (final region in HolidayRegion.values)
+              StatefulBuilder(
+                builder: (context, setMenuState) {
+                  return SizedBox(
+                    width: constraints.maxWidth,
+                    child: CheckboxListTile(
+                      dense: true,
+                      value: selected.contains(region),
+                      title: Text(region.displayName),
+                      onChanged: (checked) {
+                        final next = Set<HolidayRegion>.from(selected);
+                        if (checked ?? false) {
+                          next.add(region);
+                        } else {
+                          next.remove(region);
+                        }
+                        setMenuState(() {});
+                        onChanged(next);
+                      },
+                    ),
+                  );
+                },
+              ),
+          ],
+        );
+      },
     );
   }
 }
