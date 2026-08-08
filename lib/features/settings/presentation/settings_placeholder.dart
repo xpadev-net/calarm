@@ -305,9 +305,7 @@ class _SettingsDefaultsPanel extends ConsumerWidget {
             const SizedBox(height: 12),
             _HolidayRegionMultiSelect(
               selected: settings.holidayRegions,
-              onChanged: (regions) {
-                _handleSave(context, controller.setHolidayRegions(regions));
-              },
+              onSave: controller.setHolidayRegions,
             ),
           ],
         ),
@@ -319,11 +317,11 @@ class _SettingsDefaultsPanel extends ConsumerWidget {
 class _HolidayRegionMultiSelect extends StatefulWidget {
   const _HolidayRegionMultiSelect({
     required this.selected,
-    required this.onChanged,
+    required this.onSave,
   });
 
   final Set<HolidayRegion> selected;
-  final ValueChanged<Set<HolidayRegion>> onChanged;
+  final Future<void> Function(Set<HolidayRegion>) onSave;
 
   @override
   State<_HolidayRegionMultiSelect> createState() =>
@@ -408,6 +406,7 @@ class _HolidayRegionMultiSelectState extends State<_HolidayRegionMultiSelect> {
                   value: _selected.contains(region),
                   title: Text(region.displayName),
                   onChanged: (checked) {
+                    final previous = _selected;
                     final next = Set<HolidayRegion>.from(_selected);
                     if (checked ?? false) {
                       next.add(region);
@@ -415,7 +414,20 @@ class _HolidayRegionMultiSelectState extends State<_HolidayRegionMultiSelect> {
                       next.remove(region);
                     }
                     setState(() => _selected = next);
-                    widget.onChanged(next);
+                    final save = widget.onSave(next);
+                    _handleSave(context, save);
+                    // `_save`'s revert-on-failure doesn't produce a
+                    // WakePlanDefaultsController listener notification when
+                    // it restores an equal previous value (a no-op
+                    // reassignment), so didUpdateWidget alone can't be
+                    // relied on to snap this back — revert locally instead.
+                    unawaited(
+                      save.catchError((Object _) {
+                        if (mounted) {
+                          setState(() => _selected = previous);
+                        }
+                      }),
+                    );
                   },
                 ),
               ),

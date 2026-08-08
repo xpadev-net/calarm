@@ -82,6 +82,41 @@ void main() {
     database = WakePlanDatabase(NativeDatabase.memory());
   });
 
+  testWidgets(
+    'reverts an optimistic holiday region toggle when the save fails',
+    (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            wakePlanDefaultsRepositoryProvider.overrideWith(
+              (ref) async => repository,
+            ),
+            settingsNativeAlarmGatewayProvider.overrideWith((ref) => gateway),
+          ],
+          child: const MaterialApp(home: Scaffold(body: SettingsPlaceholder())),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await database.close();
+
+      expect(find.text('Off'), findsOneWidget);
+      await tester.tap(find.text('Off'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Japan'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Could not save settings.'), findsOneWidget);
+      // The optimistic UI update must not stick around once the save that
+      // drove it has actually failed.
+      expect(
+        tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
+        isFalse,
+      );
+
+      database = WakePlanDatabase(NativeDatabase.memory());
+    },
+  );
+
   testWidgets('shows health warnings and schedules a one minute test alarm', (
     tester,
   ) async {
