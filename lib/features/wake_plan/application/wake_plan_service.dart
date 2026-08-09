@@ -1818,6 +1818,10 @@ class WakePlanService {
         now: now,
       );
       if (!replacementCancellation.nativeCancellationComplete) {
+        // Native state is still unresolved here, but the exceptions table is
+        // fully ours to control — restore it now rather than leaving this
+        // edit's skip/move dropped while everything else waits on recovery.
+        await restoreExceptionsBeforeRestore();
         return _failedMutationResult(
           wakePlanId: scheduleResult.wakePlanId,
           status: WakePlanSchedulingStatus.recoveryRequired,

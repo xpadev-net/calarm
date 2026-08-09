@@ -7864,6 +7864,62 @@ void main() {
     );
 
     test(
+      'undo restores the deleted exception even when replacement '
+      'cancellation is incomplete, not just on a clean schedule failure',
+      () async {
+        final plan = buildPlan(
+          repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
+        );
+        final skippedException = WakePlanOccurrenceException(
+          wakePlanId: plan.id,
+          originalDay: monday,
+          type: WakePlanOccurrenceExceptionType.skipped,
+          createdAt: now,
+          updatedAt: now,
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..exceptionsById[skippedException.id] = skippedException
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              day: tuesday,
+              time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 45),
+              platformAlarmId: 'old-native-1',
+            ),
+          ];
+        final gateway = _SequencedFaultGateway(
+          scheduleFailuresByCall: [
+            {'plan-1:20640:405'},
+          ],
+          cancelFailuresByCall: [
+            {},
+            // Monday is newly valid again, so its other reminder ticks
+            // (410/415/420) are brand-new reservations that do get
+            // scheduled successfully even though the first tick (405)
+            // fails — failing to cancel one of them is what makes
+            // replacement cancellation incomplete.
+            {'platform-plan-1:20640:410'},
+          ],
+        );
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 2,
+        ).undoSkipOccurrence(wakePlan: plan, day: monday);
+
+        expect(result.status, WakePlanSchedulingStatus.recoveryRequired);
+        // Native cleanup is still pending, but the exceptions table is
+        // fully ours to control — the undo must not silently succeed at
+        // deleting the exception while everything else waits on recovery.
+        expect(
+          store.exceptionsById[skippedException.id]?.type,
+          WakePlanOccurrenceExceptionType.skipped,
+        );
+      },
+    );
+
+    test(
       'uses the current stored plan instead of a stale UI snapshot when skipping',
       () async {
         final staleSnapshot = buildPlan(
