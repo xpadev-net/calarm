@@ -104,6 +104,19 @@ void main() {
         throwsStateError,
       );
     });
+
+    test('truncatedBefore never extends an already-earlier truncation', () {
+      final rule = RepeatRule.weekly({
+        Weekday.monday,
+        Weekday.tuesday,
+      }, until: monday);
+
+      final extended = rule.truncatedBefore(tuesday);
+      expect(extended.until, monday);
+
+      final shortened = rule.truncatedBefore(monday.addDays(-7));
+      expect(shortened.until, monday.addDays(-7));
+    });
   });
 
   group('WakePlan', () {

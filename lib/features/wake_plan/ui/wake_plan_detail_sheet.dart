@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/platform/native_alarm_gateway.dart';
 import '../../../core/time/time.dart';
 import '../../week_calendar/week_calendar.dart';
 import '../application/wake_plan_service.dart';
@@ -539,12 +540,22 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
 
   Future<void> _moveThisOccurrence() async {
     final plan = _wakePlan;
-    final currentTargetDay = widget.target.targetDay;
+    final firstDate = widget.now.subtract(const Duration(days: 1));
+    final lastDate = widget.now.add(const Duration(days: 365));
+    final currentTargetDay = widget.target.targetDay.startOfDay;
+    // A past occurrence's own day can fall before `firstDate` — clamp so
+    // `initialDate` always satisfies showDatePicker's firstDate/lastDate
+    // bounds instead of asserting.
+    final initialDate = currentTargetDay.isBefore(firstDate)
+        ? firstDate
+        : currentTargetDay.isAfter(lastDate)
+        ? lastDate
+        : currentTargetDay;
     final toDay = await showDatePicker(
       context: context,
-      initialDate: currentTargetDay.startOfDay,
-      firstDate: widget.now.subtract(const Duration(days: 1)),
-      lastDate: widget.now.add(const Duration(days: 365)),
+      initialDate: initialDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
     );
     if (toDay == null || !mounted) {
       return;
@@ -560,16 +571,33 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
       return;
     }
 
-    await _updateOccurrenceAction(() {
-      return widget.onMoveOccurrence(
-        wakePlan: plan,
-        fromDay: _originalDay,
-        toDay: CalendarDay.fromDateTime(toDay),
-        toTime: TimeOfDayMinutes.fromHourMinute(
-          hour: toTimeOfDay.hour,
-          minute: toTimeOfDay.minute,
-        ),
-      );
+    await _updateOccurrenceAction(() async {
+      try {
+        return await widget.onMoveOccurrence(
+          wakePlan: plan,
+          fromDay: _originalDay,
+          toDay: CalendarDay.fromDateTime(toDay),
+          toTime: TimeOfDayMinutes.fromHourMinute(
+            hour: toTimeOfDay.hour,
+            minute: toTimeOfDay.minute,
+          ),
+        );
+      } on ArgumentError {
+        return WakePlanSchedulingResult(
+          wakePlanId: plan.id,
+          status: WakePlanSchedulingStatus.scheduleFailed,
+          changeState: WakePlanChangeState.failed,
+          scheduleResult: ScheduleResult(
+            status: ScheduleResultStatus.failure,
+            occurrences: const [],
+          ),
+          occurrences: const [],
+          warning: const WakePlanSchedulingWarning(
+            kind: WakePlanSchedulingWarningKind.scheduleFailed,
+            message: 'That day already has an occurrence of this alarm.',
+          ),
+        );
+      }
     });
   }
 
@@ -644,9 +672,7 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
       }
       setState(() {
         _updatingOccurrenceAction = false;
-        _warning = error is ArgumentError
-            ? 'That day already has an occurrence of this alarm.'
-            : 'Wake plan could not be updated.';
+        _warning = 'Wake plan could not be updated.';
       });
     }
   }
@@ -773,7 +799,8 @@ String _exceptionLabel(WakePlanOccurrenceException exception) {
       'Skipped on ${_dateLabel(exception.originalDay)}',
     WakePlanOccurrenceExceptionType.moved =>
       'Moved from ${_dateLabel(exception.originalDay)} '
-          'to ${_dateLabel(exception.movedToDay!)}',
+          'to ${_dateLabel(exception.movedToDay!)}'
+          '${exception.movedToTargetTime == null ? '' : ' at ${exception.movedToTargetTime}'}',
   };
 }
 

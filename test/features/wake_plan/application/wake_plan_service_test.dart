@@ -1529,6 +1529,34 @@ void main() {
       expect(gateway.scheduledRequests, isEmpty);
     });
 
+    test(
+      'a stale exception from a past day does not excuse an empty schedule',
+      () async {
+        final plan = buildPlan(repeatRule: RepeatRule.weekly({Weekday.monday}));
+        final store = _LoggingWakePlanServiceStore()
+          ..wakePlans = [plan]
+          ..exceptionsById[WakePlanOccurrenceException.idFor(
+            wakePlanId: plan.id,
+            originalDay: monday.addDays(-30),
+          )] = WakePlanOccurrenceException(
+            wakePlanId: plan.id,
+            originalDay: monday.addDays(-30),
+            type: WakePlanOccurrenceExceptionType.skipped,
+            createdAt: now,
+            updatedAt: now,
+          );
+        final gateway = FakeNativeAlarmGateway();
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+          occurrencePlanner: _EmptyOccurrencePlanner(),
+        ).reconcileSchedules();
+
+        expect(result.single.status, WakePlanSchedulingStatus.scheduleFailed);
+      },
+    );
+
     test('cancels a native occurrence whose day is a confirmed holiday it was '
         'reserved before knowing about', () async {
       final plan = buildPlan(
@@ -7791,6 +7819,49 @@ void main() {
       expect(result.status, WakePlanSchedulingStatus.scheduled);
       expect(store.exceptionsById, isEmpty);
     });
+
+    test(
+      'undo restores the exception it deleted if the reschedule fails',
+      () async {
+        final plan = buildPlan(
+          repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
+        );
+        final skippedException = WakePlanOccurrenceException(
+          wakePlanId: plan.id,
+          originalDay: monday,
+          type: WakePlanOccurrenceExceptionType.skipped,
+          createdAt: now,
+          updatedAt: now,
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..exceptionsById[skippedException.id] = skippedException
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              day: tuesday,
+              time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 45),
+              platformAlarmId: 'old-native-1',
+            ),
+          ];
+        final gateway = _SequencedFaultGateway(
+          scheduleFailuresByCall: [
+            {'plan-1:20640:405'},
+          ],
+        );
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 2,
+        ).undoSkipOccurrence(wakePlan: plan, day: monday);
+
+        expect(result.status, WakePlanSchedulingStatus.scheduleFailed);
+        expect(
+          store.exceptionsById[skippedException.id]?.type,
+          WakePlanOccurrenceExceptionType.skipped,
+        );
+      },
+    );
 
     test(
       'uses the current stored plan instead of a stale UI snapshot when skipping',

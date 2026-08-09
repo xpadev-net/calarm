@@ -38,11 +38,13 @@ final weekCalendarWakePlanExceptionsProvider =
     FutureProvider<Map<String, List<WakePlanOccurrenceException>>>((ref) async {
       final wakePlans = await ref.watch(weekCalendarWakePlansProvider.future);
       final repository = await ref.watch(weekCalendarRepositoryProvider.future);
-      final result = <String, List<WakePlanOccurrenceException>>{};
-      for (final plan in wakePlans) {
-        result[plan.id] = await repository.fetchExceptionsForPlan(plan.id);
-      }
-      return result;
+      final exceptionLists = await Future.wait(
+        wakePlans.map((plan) => repository.fetchExceptionsForPlan(plan.id)),
+      );
+      return {
+        for (var index = 0; index < wakePlans.length; index += 1)
+          wakePlans[index].id: exceptionLists[index],
+      };
     });
 
 class WeekCalendarPlaceholder extends ConsumerStatefulWidget {
@@ -159,6 +161,7 @@ class _WeekCalendarPlaceholderState
     final exceptions = ref.watch(weekCalendarWakePlanExceptionsProvider);
     _logProviderError('Wake plans', wakePlans);
     _logProviderError('Wake plan defaults', defaults);
+    _logProviderError('Wake plan exceptions', exceptions);
     final currentWakePlans = wakePlans.hasValue
         ? wakePlans.requireValue
         : const <WakePlan>[];
@@ -242,10 +245,14 @@ class _WeekCalendarPlaceholderState
             ),
             onCancel: _cancelDraft,
           ),
-        if (wakePlans.hasError || defaults.hasError) ...[
+        if (wakePlans.hasError || defaults.hasError || exceptions.hasError) ...[
           const SizedBox(height: 8),
           Text(
-            _loadErrorText(wakePlans: wakePlans, defaults: defaults),
+            _loadErrorText(
+              wakePlans: wakePlans,
+              defaults: defaults,
+              exceptions: exceptions,
+            ),
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
         ],
@@ -522,39 +529,27 @@ class _WeekCalendarPlaceholderState
             defaults: defaults,
             existingWakePlans: existingWakePlans,
             existingExceptions: existingExceptions,
-            onEdit: (plan) async {
+            onEdit: (plan) {
               action = _WakePlanDetailAction.edit;
-              final result = await service.editPlan(plan);
-              ref.invalidate(weekCalendarWakePlansProvider);
-              ref.invalidate(weekCalendarWakePlanExceptionsProvider);
-              return result;
+              return _runDetailAction(ref, () => service.editPlan(plan));
             },
-            onDelete: (id) async {
+            onDelete: (id) {
               action = _WakePlanDetailAction.delete;
-              final result = await service.deletePlan(id);
-              ref.invalidate(weekCalendarWakePlansProvider);
-              ref.invalidate(weekCalendarWakePlanExceptionsProvider);
-              return result;
+              return _runDetailAction(ref, () => service.deletePlan(id));
             },
-            onSkipOccurrence: (plan, day) async {
+            onSkipOccurrence: (plan, day) {
               action = _WakePlanDetailAction.skipOccurrence;
-              final result = await service.skipOccurrence(
-                wakePlan: plan,
-                day: day,
+              return _runDetailAction(
+                ref,
+                () => service.skipOccurrence(wakePlan: plan, day: day),
               );
-              ref.invalidate(weekCalendarWakePlansProvider);
-              ref.invalidate(weekCalendarWakePlanExceptionsProvider);
-              return result;
             },
-            onUndoSkipOccurrence: (plan, day) async {
+            onUndoSkipOccurrence: (plan, day) {
               action = _WakePlanDetailAction.undoSkipOccurrence;
-              final result = await service.undoSkipOccurrence(
-                wakePlan: plan,
-                day: day,
+              return _runDetailAction(
+                ref,
+                () => service.undoSkipOccurrence(wakePlan: plan, day: day),
               );
-              ref.invalidate(weekCalendarWakePlansProvider);
-              ref.invalidate(weekCalendarWakePlanExceptionsProvider);
-              return result;
             },
             onMoveOccurrence:
                 ({
@@ -562,27 +557,27 @@ class _WeekCalendarPlaceholderState
                   required fromDay,
                   required toDay,
                   toTime,
-                }) async {
+                }) {
                   action = _WakePlanDetailAction.moveOccurrence;
-                  final result = await service.moveOccurrence(
-                    wakePlan: wakePlan,
-                    fromDay: fromDay,
-                    toDay: toDay,
-                    toTime: toTime,
+                  return _runDetailAction(
+                    ref,
+                    () => service.moveOccurrence(
+                      wakePlan: wakePlan,
+                      fromDay: fromDay,
+                      toDay: toDay,
+                      toTime: toTime,
+                    ),
                   );
-                  ref.invalidate(weekCalendarWakePlansProvider);
-                  ref.invalidate(weekCalendarWakePlanExceptionsProvider);
-                  return result;
                 },
-            onDeleteThisAndFollowing: (plan, day) async {
+            onDeleteThisAndFollowing: (plan, day) {
               action = _WakePlanDetailAction.deleteThisAndFollowing;
-              final result = await service.deleteThisAndFollowing(
-                wakePlan: plan,
-                fromDay: day,
+              return _runDetailAction(
+                ref,
+                () => service.deleteThisAndFollowing(
+                  wakePlan: plan,
+                  fromDay: day,
+                ),
               );
-              ref.invalidate(weekCalendarWakePlansProvider);
-              ref.invalidate(weekCalendarWakePlanExceptionsProvider);
-              return result;
             },
             loadOccurrences: service.fetchOccurrencesForPlan,
             onSetOccurrenceEnabled: service.setOccurrenceEnabled,
@@ -614,6 +609,22 @@ class _WeekCalendarPlaceholderState
   }
 }
 
+/// Runs a wake-plan detail action and invalidates the calendar's wake-plan
+/// and exceptions providers afterward — even if [action] throws — so a
+/// failed mutation never leaves the calendar showing stale plan/exception
+/// state.
+Future<WakePlanSchedulingResult> _runDetailAction(
+  WidgetRef ref,
+  Future<WakePlanSchedulingResult> Function() action,
+) async {
+  try {
+    return await action();
+  } finally {
+    ref.invalidate(weekCalendarWakePlansProvider);
+    ref.invalidate(weekCalendarWakePlanExceptionsProvider);
+  }
+}
+
 bool _isAlarmReadinessFailure(WakePlanSchedulingResult result) {
   final reasons = result.warning?.scheduleFailureReasons ?? const {};
   return reasons.contains(ScheduleFailureReason.permissionMissing) ||
@@ -630,12 +641,18 @@ void _logProviderError<T>(String label, AsyncValue<T> value) {
 String _loadErrorText({
   required AsyncValue<List<WakePlan>> wakePlans,
   required AsyncValue<AppSettings> defaults,
+  required AsyncValue<Map<String, List<WakePlanOccurrenceException>>>
+  exceptions,
 }) {
   if (wakePlans.hasError && defaults.hasError) {
     return 'Could not load wake plans or defaults.';
   }
   if (wakePlans.hasError) {
     return 'Could not load wake plans.';
+  }
+  if (exceptions.hasError) {
+    return 'Could not load wake plan exceptions; the calendar may show '
+        'occurrences that were actually skipped or moved.';
   }
   return 'Could not load wake defaults.';
 }

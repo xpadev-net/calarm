@@ -83,26 +83,26 @@ class RepeatRule {
     };
   }
 
-  RepeatRule copyWith({CalendarDay? until}) {
-    return RepeatRule._(
-      type: type,
-      oneTimeDate: oneTimeDate,
-      weekdays: weekdays,
-      until: until ?? this.until,
-    );
-  }
-
   /// Truncates this rule so it no longer includes [day] or any day after it.
+  /// If the rule is already truncated earlier than [day], the existing
+  /// (earlier) truncation point wins — this can only ever shrink the series,
+  /// never extend an already-bounded one back out.
   RepeatRule truncatedBefore(CalendarDay day) {
     if (type == RepeatType.oneTime) {
       throw StateError('cannot truncate a one-time repeat rule');
     }
 
+    final existingUntil = until;
+    final resolvedUntil =
+        existingUntil != null && existingUntil.compareTo(day) < 0
+        ? existingUntil
+        : day;
+
     return RepeatRule._(
       type: type,
       oneTimeDate: oneTimeDate,
       weekdays: weekdays,
-      until: day,
+      until: resolvedUntil,
     );
   }
 

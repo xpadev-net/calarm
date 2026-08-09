@@ -237,6 +237,7 @@ class WakePlanDatabase extends _$WakePlanDatabase {
               'wake_plan_occurrence_exception_rows',
             )) {
               await migrator.createTable(wakePlanOccurrenceExceptionRows);
+              await migrator.createIndex(wakePlanOccurrenceExceptionWakePlanId);
             }
 
             if (existingWakePlanColumnNames.contains('skip_next_date_days')) {
@@ -266,6 +267,7 @@ class WakePlanDatabase extends _$WakePlanDatabase {
             'wake_plan_occurrence_exception_rows',
           )) {
             await migrator.createTable(wakePlanOccurrenceExceptionRows);
+            await migrator.createIndex(wakePlanOccurrenceExceptionWakePlanId);
           }
         }
       },

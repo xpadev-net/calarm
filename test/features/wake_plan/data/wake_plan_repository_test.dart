@@ -221,6 +221,14 @@ void main() {
             DateTime.utc(1970).add(const Duration(days: 20641)),
           ),
         );
+
+        final indexRows = await migratedDatabase
+            .customSelect(
+              "SELECT name FROM sqlite_master WHERE type = 'index' "
+              "AND name = 'wake_plan_occurrence_exception_wake_plan_id'",
+            )
+            .get();
+        expect(indexRows, hasLength(1));
       } finally {
         await migratedDatabase.close();
         await directory.delete(recursive: true);

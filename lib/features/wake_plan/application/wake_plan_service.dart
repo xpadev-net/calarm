@@ -2086,11 +2086,37 @@ class WakePlanService {
       );
     }
 
+    final previousException = await _fetchExceptionForDay(
+      wakePlanId: currentPlan.id,
+      day: day,
+    );
     await _store.deleteOccurrenceException(
       wakePlanId: currentPlan.id,
       originalDay: day,
     );
-    return _editPlan(currentPlan);
+    if (previousException == null) {
+      return _editPlan(currentPlan);
+    }
+    return _editPlan(
+      currentPlan,
+      // If the reschedule doesn't stick, put the exception this undo just
+      // deleted back — otherwise a failed undo would still permanently lose
+      // the skip/move it was trying to reverse (mirrors [_skipOccurrence]).
+      onBeforeRestore: () => _store.saveOccurrenceException(previousException),
+    );
+  }
+
+  Future<WakePlanOccurrenceException?> _fetchExceptionForDay({
+    required String wakePlanId,
+    required CalendarDay day,
+  }) async {
+    final exceptions = await _store.fetchExceptionsForPlan(wakePlanId);
+    for (final exception in exceptions) {
+      if (exception.originalDay == day) {
+        return exception;
+      }
+    }
+    return null;
   }
 
   /// Moves a single future occurrence of [wakePlan] from [fromDay] to
@@ -3060,7 +3086,16 @@ class WakePlanService {
     return WakePlanOccurrenceBundle(
       occurrences: createdOccurrences,
       requests: requests,
-      hasActiveExceptions: exceptions.isNotEmpty,
+      // Only an exception that could still affect today or a future day
+      // explains an otherwise-empty bundle — a stale exception from a day
+      // that has already passed shouldn't excuse a plan with genuinely no
+      // upcoming occurrences.
+      hasActiveExceptions: exceptions.any(
+        (exception) =>
+            exception.originalDay.compareTo(startDay) >= 0 ||
+            (exception.isMoved &&
+                exception.movedToDay!.compareTo(startDay) >= 0),
+      ),
     );
   }
 
