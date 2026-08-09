@@ -7995,6 +7995,82 @@ void main() {
       expect(result.status, WakePlanSchedulingStatus.scheduled);
       expect(store.savedPlans, isEmpty);
     });
+
+    test(
+      'cleans up a moved exception whose destination falls past the '
+      'truncation point even though its original day is still valid',
+      () async {
+        final plan = buildPlan(
+          repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..exceptionsById[WakePlanOccurrenceException.idFor(
+            wakePlanId: plan.id,
+            originalDay: monday,
+          )] = WakePlanOccurrenceException(
+            wakePlanId: plan.id,
+            originalDay: monday,
+            type: WakePlanOccurrenceExceptionType.moved,
+            movedToDay: tuesday.addDays(14),
+            createdAt: now,
+            updatedAt: now,
+          );
+        final gateway = FakeNativeAlarmGateway();
+
+        await service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 7,
+        ).deleteThisAndFollowing(wakePlan: plan, fromDay: tuesday);
+
+        // Monday is still a valid occurrence under the truncated rule, but
+        // this exception relocated it to a day past the truncation point —
+        // scheduling an alarm there would contradict "stop the series here".
+        expect(store.exceptionsById, isEmpty);
+      },
+    );
+
+    test(
+      'restores a dropped exception if the mutation has to roll back',
+      () async {
+        final plan = buildPlan(
+          repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
+        );
+        final droppedException = WakePlanOccurrenceException(
+          wakePlanId: plan.id,
+          originalDay: tuesday.addDays(7),
+          type: WakePlanOccurrenceExceptionType.skipped,
+          createdAt: now,
+          updatedAt: now,
+        );
+        final store = _LoggingWakePlanServiceStore(currentPlan: plan)
+          ..exceptionsById[droppedException.id] = droppedException
+          ..reservedOccurrences = [
+            buildOccurrence(
+              id: 'old-future-1',
+              time: TimeOfDayMinutes.fromHourMinute(hour: 6, minute: 45),
+              platformAlarmId: 'old-native-1',
+            ),
+          ];
+        final gateway = _SequencedFaultGateway(
+          scheduleFailuresByCall: [
+            {'plan-1:20640:405'},
+          ],
+        );
+
+        final result = await service(
+          store: store,
+          gateway: gateway,
+          rollingScheduleDays: 2,
+        ).deleteThisAndFollowing(wakePlan: plan, fromDay: tuesday);
+
+        expect(result.status, WakePlanSchedulingStatus.scheduleFailed);
+        expect(
+          store.exceptionsById[droppedException.id]?.originalDay,
+          droppedException.originalDay,
+        );
+      },
+    );
   });
   group('WakePlanMutationCoordinator', () {
     test('runs queued operations one at a time in submission order', () async {

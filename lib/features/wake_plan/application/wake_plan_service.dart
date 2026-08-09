@@ -1684,24 +1684,35 @@ class WakePlanService {
     return _coordinator.run(() => _editPlan(plan));
   }
 
-  /// Drops any per-occurrence exception whose original day is no longer a
-  /// valid occurrence of [repeatRule] (e.g. its weekday was removed from the
-  /// series, or the series was truncated before that day via
-  /// [deleteThisAndFollowing]) — mirroring how an edited plan drops a
-  /// skip/move that no longer applies.
-  Future<void> _resolveEditedExceptions({
+  /// Drops any per-occurrence exception that no longer applies under
+  /// [repeatRule] — either its original day is no longer a valid occurrence
+  /// (e.g. its weekday was removed from the series), or (for a moved
+  /// exception) its destination day falls at/after a new truncation point
+  /// set via [deleteThisAndFollowing], which would otherwise let a moved
+  /// alarm keep firing past a series the user asked to stop. Returns the
+  /// dropped exceptions so a caller can restore them if the surrounding
+  /// mutation ends up being rolled back.
+  Future<List<WakePlanOccurrenceException>> _resolveEditedExceptions({
     required String wakePlanId,
     required RepeatRule repeatRule,
   }) async {
     final exceptions = await _store.fetchExceptionsForPlan(wakePlanId);
+    final dropped = <WakePlanOccurrenceException>[];
     for (final exception in exceptions) {
-      if (!repeatRule.includes(exception.originalDay)) {
+      final until = repeatRule.until;
+      final movedPastTruncation =
+          exception.isMoved &&
+          until != null &&
+          exception.movedToDay!.compareTo(until) >= 0;
+      if (!repeatRule.includes(exception.originalDay) || movedPastTruncation) {
         await _store.deleteOccurrenceException(
           wakePlanId: wakePlanId,
           originalDay: exception.originalDay,
         );
+        dropped.add(exception);
       }
     }
+    return dropped;
   }
 
   Future<WakePlanSchedulingResult> _editPlan(
@@ -1712,10 +1723,23 @@ class WakePlanService {
     final previousPlan = await _store.fetchWakePlan(plan.id);
     final pendingPlan = plan.copyWith(updatedAt: now);
     await _store.saveWakePlan(pendingPlan);
-    await _resolveEditedExceptions(
+    final droppedExceptions = await _resolveEditedExceptions(
       wakePlanId: pendingPlan.id,
       repeatRule: pendingPlan.repeatRule,
     );
+
+    Future<void> restoreExceptionsBeforeRestore() async {
+      // Undo whatever this edit did to the exceptions table — both what it
+      // dropped for no longer fitting the new rule, and (via the caller's
+      // hook) whatever skipOccurrence/moveOccurrence itself just wrote —
+      // before the occurrence bundle gets rebuilt against [previousPlan],
+      // or that rebuild will look for a canonical occurrence on a day this
+      // edit's exception state still excludes/relocates.
+      for (final exception in droppedExceptions) {
+        await _store.saveOccurrenceException(exception);
+      }
+      await onBeforeRestore?.call();
+    }
 
     final cancelResult = await _cancelFutureReservedOccurrences(
       wakePlanId: pendingPlan.id,
@@ -1724,7 +1748,7 @@ class WakePlanService {
     );
     if (!cancelResult.isSuccess) {
       if (previousPlan != null) {
-        await onBeforeRestore?.call();
+        await restoreExceptionsBeforeRestore();
       }
       final restoration = previousPlan == null
           ? const WakePlanRestorationResult(
@@ -1816,7 +1840,7 @@ class WakePlanService {
           ),
         );
       }
-      await onBeforeRestore?.call();
+      await restoreExceptionsBeforeRestore();
       final restoration = await _restoreCancelledOccurrences(
         plan: previousPlan,
         occurrences: cancelResult.successfullyCancelledOccurrences,

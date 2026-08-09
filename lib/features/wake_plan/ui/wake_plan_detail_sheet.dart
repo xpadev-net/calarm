@@ -103,7 +103,11 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
   Widget build(BuildContext context) {
     final plan = _wakePlan;
     final liveNow = widget.clock();
-    final nextFire = wakePlanNextFireLabel(plan: plan, now: liveNow);
+    final nextFire = wakePlanNextFireLabel(
+      plan: plan,
+      now: liveNow,
+      exceptions: widget.existingExceptions,
+    );
     final isRepeating = plan.repeatRule.type != RepeatType.oneTime;
     final actionsDisabled =
         _deleting ||
@@ -640,7 +644,9 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
       }
       setState(() {
         _updatingOccurrenceAction = false;
-        _warning = 'Wake plan could not be updated.';
+        _warning = error is ArgumentError
+            ? 'That day already has an occurrence of this alarm.'
+            : 'Wake plan could not be updated.';
       });
     }
   }
@@ -665,7 +671,11 @@ String? wakePlanResultNextFireLabel({
   return _dateTimeLabel(futureOccurrences.first.scheduledAt.toDateTime());
 }
 
-String? wakePlanNextFireLabel({required WakePlan plan, required DateTime now}) {
+String? wakePlanNextFireLabel({
+  required WakePlan plan,
+  required DateTime now,
+  Iterable<WakePlanOccurrenceException> exceptions = const [],
+}) {
   final today = CalendarDay.fromDateTime(now);
   if (plan.repeatRule.type == RepeatType.oneTime) {
     final oneTimeDate = plan.repeatRule.oneTimeDate;
@@ -673,33 +683,64 @@ String? wakePlanNextFireLabel({required WakePlan plan, required DateTime now}) {
       return null;
     }
   }
+  final exceptionsByOriginalDay = {
+    for (final exception in exceptions) exception.originalDay: exception,
+  };
+
   DateTime? nextFire;
   for (var offset = 0; offset <= 370; offset += 1) {
     final day = today.addDays(offset);
-    if (!plan.occursOn(day)) {
+    if (!plan.occursOn(day) || exceptionsByOriginalDay.containsKey(day)) {
       continue;
     }
-    final targetAt = plan.targetAt(day);
-    for (
-      var alarmAt = plan.startAt(day);
-      alarmAt.isBefore(targetAt);
-      alarmAt = alarmAt.add(plan.interval)
-    ) {
-      if (!alarmAt.isBefore(now) &&
-          (nextFire == null || alarmAt.isBefore(nextFire))) {
-        nextFire = alarmAt;
-      }
-    }
-    if (!targetAt.isBefore(now) &&
-        (nextFire == null || targetAt.isBefore(nextFire))) {
-      nextFire = targetAt;
-    }
+    nextFire = _earliestAlarmAtOrAfter(plan, day, now);
     if (nextFire != null) {
       break;
     }
   }
 
+  for (final exception in exceptions) {
+    if (!exception.isMoved) {
+      continue;
+    }
+    final movedAlarm = _earliestAlarmAtOrAfter(
+      plan,
+      exception.movedToDay!,
+      now,
+      overrideTargetTime: exception.movedToTargetTime,
+    );
+    if (movedAlarm != null &&
+        (nextFire == null || movedAlarm.isBefore(nextFire))) {
+      nextFire = movedAlarm;
+    }
+  }
+
   return nextFire == null ? null : _dateTimeLabel(nextFire);
+}
+
+DateTime? _earliestAlarmAtOrAfter(
+  WakePlan plan,
+  CalendarDay day,
+  DateTime now, {
+  TimeOfDayMinutes? overrideTargetTime,
+}) {
+  final targetAt = overrideTargetTime == null
+      ? plan.targetAt(day)
+      : day.at(overrideTargetTime);
+  final startAt = targetStartAt(
+    targetAt: targetAt,
+    startOffset: plan.startOffset,
+  );
+  for (
+    var alarmAt = startAt;
+    alarmAt.isBefore(targetAt);
+    alarmAt = alarmAt.add(plan.interval)
+  ) {
+    if (!alarmAt.isBefore(now)) {
+      return alarmAt;
+    }
+  }
+  return targetAt.isBefore(now) ? null : targetAt;
 }
 
 String _repeatLabel(RepeatRule repeatRule) {
