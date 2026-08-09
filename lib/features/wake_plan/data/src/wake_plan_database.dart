@@ -14,8 +14,8 @@ class WakePlanRows extends Table {
   IntColumn get weekdaysMask => integer().nullable()();
   BoolColumn get isEnabled => boolean()();
   TextColumn get status => text()();
-  IntColumn get skipNextDateDays => integer().nullable()();
   BoolColumn get skipHolidays => boolean().withDefault(const Constant(false))();
+  IntColumn get repeatUntilDays => integer().nullable()();
   TextColumn get soundId => text()();
   BoolColumn get vibrationEnabled => boolean()();
   DateTimeColumn get createdAt => dateTime()();
@@ -42,6 +42,25 @@ class AlarmOccurrenceRows extends Table {
       integer().withDefault(const Constant(0))();
   DateTimeColumn get dismissalRequestedAt => dateTime().nullable()();
   TextColumn get dismissalPlatformAlarmId => text().nullable()();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+@DataClassName('WakePlanOccurrenceExceptionRow')
+@TableIndex(
+  name: 'wake_plan_occurrence_exception_wake_plan_id',
+  columns: {#wakePlanId},
+)
+class WakePlanOccurrenceExceptionRows extends Table {
+  TextColumn get id => text()();
+  TextColumn get wakePlanId => text().references(WakePlanRows, #id)();
+  IntColumn get originalDayDays => integer()();
+  TextColumn get type => text()();
+  IntColumn get movedToDayDays => integer().nullable()();
+  IntColumn get movedToTargetTimeMinutes => integer().nullable()();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 
@@ -89,6 +108,7 @@ class HolidayFetchMetadataRows extends Table {
   tables: [
     WakePlanRows,
     AlarmOccurrenceRows,
+    WakePlanOccurrenceExceptionRows,
     AppSettingsRows,
     HolidayCacheRows,
     HolidayFetchMetadataRows,
@@ -98,7 +118,7 @@ class WakePlanDatabase extends _$WakePlanDatabase {
   WakePlanDatabase(super.executor);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration {
@@ -189,6 +209,65 @@ class WakePlanDatabase extends _$WakePlanDatabase {
           }
           if (!existingTableNames.contains('holiday_fetch_metadata_rows')) {
             await migrator.createTable(holidayFetchMetadataRows);
+          }
+        }
+        if (from < 5) {
+          final existingTables = await customSelect(
+            "SELECT name FROM sqlite_master WHERE type = 'table'",
+          ).get();
+          final existingTableNames = existingTables
+              .map((row) => row.read<String>('name'))
+              .toSet();
+
+          if (existingTableNames.contains('wake_plan_rows')) {
+            final existingWakePlanColumns = await customSelect(
+              'PRAGMA table_info(wake_plan_rows)',
+            ).get();
+            final existingWakePlanColumnNames = existingWakePlanColumns
+                .map((row) => row.read<String>('name'))
+                .toSet();
+            if (!existingWakePlanColumnNames.contains('repeat_until_days')) {
+              await migrator.addColumn(
+                wakePlanRows,
+                wakePlanRows.repeatUntilDays,
+              );
+            }
+
+            if (!existingTableNames.contains(
+              'wake_plan_occurrence_exception_rows',
+            )) {
+              await migrator.createTable(wakePlanOccurrenceExceptionRows);
+              await migrator.createIndex(wakePlanOccurrenceExceptionWakePlanId);
+            }
+
+            if (existingWakePlanColumnNames.contains('skip_next_date_days')) {
+              final skippedPlans = await customSelect(
+                'SELECT id, skip_next_date_days FROM wake_plan_rows '
+                'WHERE skip_next_date_days IS NOT NULL',
+              ).get();
+              final now = DateTime.now();
+              for (final row in skippedPlans) {
+                final wakePlanId = row.read<String>('id');
+                final originalDayDays = row.read<int>('skip_next_date_days');
+                await into(
+                  wakePlanOccurrenceExceptionRows,
+                ).insertOnConflictUpdate(
+                  WakePlanOccurrenceExceptionRowsCompanion.insert(
+                    id: '$wakePlanId:$originalDayDays',
+                    wakePlanId: wakePlanId,
+                    originalDayDays: originalDayDays,
+                    type: 'skipped',
+                    createdAt: now,
+                    updatedAt: now,
+                  ),
+                );
+              }
+            }
+          } else if (!existingTableNames.contains(
+            'wake_plan_occurrence_exception_rows',
+          )) {
+            await migrator.createTable(wakePlanOccurrenceExceptionRows);
+            await migrator.createIndex(wakePlanOccurrenceExceptionWakePlanId);
           }
         }
       },

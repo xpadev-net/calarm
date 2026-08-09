@@ -25,7 +25,6 @@ class WakePlan {
     required bool vibrationEnabled,
     required DateTime createdAt,
     required DateTime updatedAt,
-    CalendarDay? skipNextDate,
     bool skipHolidays = false,
   }) {
     _validateId(id, 'id');
@@ -39,13 +38,6 @@ class WakePlan {
         'deleted plans must not be enabled',
       );
     }
-    if (status == WakePlanStatus.deleted && skipNextDate != null) {
-      throw ArgumentError.value(
-        skipNextDate,
-        'skipNextDate',
-        'deleted plans must not include skipNextDate',
-      );
-    }
 
     return WakePlan._(
       id: id,
@@ -56,7 +48,6 @@ class WakePlan {
       repeatRule: repeatRule,
       isEnabled: isEnabled,
       status: status,
-      skipNextDate: skipNextDate,
       // Holiday skip only makes sense for weekday-repeating plans — a
       // one-time plan's date was explicitly chosen by the user, so it must
       // never be silently dropped for landing on a holiday.
@@ -77,7 +68,6 @@ class WakePlan {
     required this.repeatRule,
     required this.isEnabled,
     required this.status,
-    required this.skipNextDate,
     required this.skipHolidays,
     required this.soundId,
     required this.vibrationEnabled,
@@ -93,7 +83,6 @@ class WakePlan {
   final RepeatRule repeatRule;
   final bool isEnabled;
   final WakePlanStatus status;
-  final CalendarDay? skipNextDate;
   final bool skipHolidays;
   final String soundId;
   final bool vibrationEnabled;
@@ -101,8 +90,6 @@ class WakePlan {
   final DateTime updatedAt;
 
   bool get isDeleted => status == WakePlanStatus.deleted;
-
-  bool get hasSkippedNextDate => skipNextDate != null;
 
   DateTime targetAt(CalendarDay day) {
     return day.at(targetTime);
@@ -116,7 +103,6 @@ class WakePlan {
     return !isDeleted &&
         isEnabled &&
         status != WakePlanStatus.finished &&
-        skipNextDate != day &&
         repeatRule.includes(day);
   }
 
@@ -139,17 +125,12 @@ class WakePlan {
     RepeatRule? repeatRule,
     bool? isEnabled,
     WakePlanStatus? status,
-    Object? skipNextDate = _unchanged,
     bool? skipHolidays,
     String? soundId,
     bool? vibrationEnabled,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
-    final nextSkipNextDate = skipNextDate == _unchanged
-        ? this.skipNextDate
-        : skipNextDate as CalendarDay?;
-
     return WakePlan(
       id: id ?? this.id,
       title: title ?? this.title,
@@ -159,7 +140,6 @@ class WakePlan {
       repeatRule: repeatRule ?? this.repeatRule,
       isEnabled: isEnabled ?? this.isEnabled,
       status: status ?? this.status,
-      skipNextDate: nextSkipNextDate,
       skipHolidays: skipHolidays ?? this.skipHolidays,
       soundId: soundId ?? this.soundId,
       vibrationEnabled: vibrationEnabled ?? this.vibrationEnabled,
@@ -168,8 +148,6 @@ class WakePlan {
     );
   }
 }
-
-const Object _unchanged = Object();
 
 void validateWakePlanTiming({
   required Duration startOffset,

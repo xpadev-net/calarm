@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/platform/native_alarm_gateway.dart';
 import '../../../core/time/time.dart';
 import '../../week_calendar/week_calendar.dart';
 import '../application/wake_plan_service.dart';
@@ -11,7 +12,17 @@ import 'create_wake_plan_sheet.dart';
 typedef WakePlanEditSave =
     Future<WakePlanSchedulingResult> Function(WakePlan plan);
 typedef WakePlanDelete = Future<WakePlanSchedulingResult> Function(String id);
-typedef WakePlanSkip = Future<WakePlanSchedulingResult> Function(WakePlan plan);
+typedef WakePlanOccurrenceSkip =
+    Future<WakePlanSchedulingResult> Function(WakePlan plan, CalendarDay day);
+typedef WakePlanOccurrenceMove =
+    Future<WakePlanSchedulingResult> Function({
+      required WakePlan wakePlan,
+      required CalendarDay fromDay,
+      required CalendarDay toDay,
+      TimeOfDayMinutes? toTime,
+    });
+typedef WakePlanDeleteThisAndFollowing =
+    Future<WakePlanSchedulingResult> Function(WakePlan plan, CalendarDay day);
 typedef WakePlanOccurrenceLoader =
     Future<List<AlarmOccurrence>> Function(String wakePlanId);
 typedef WakePlanOccurrenceToggle =
@@ -29,10 +40,13 @@ class WakePlanDetailSheet extends StatefulWidget {
     required this.clock,
     required this.defaults,
     required this.existingWakePlans,
+    required this.existingExceptions,
     required this.onEdit,
     required this.onDelete,
-    required this.onSkipNext,
-    required this.onUndoSkipNext,
+    required this.onSkipOccurrence,
+    required this.onUndoSkipOccurrence,
+    required this.onMoveOccurrence,
+    required this.onDeleteThisAndFollowing,
     required this.loadOccurrences,
     required this.onSetOccurrenceEnabled,
   });
@@ -42,10 +56,15 @@ class WakePlanDetailSheet extends StatefulWidget {
   final DateTime Function() clock;
   final AppSettings defaults;
   final List<WakePlan> existingWakePlans;
+
+  /// Per-occurrence skip/move exceptions currently recorded for this plan.
+  final List<WakePlanOccurrenceException> existingExceptions;
   final WakePlanEditSave onEdit;
   final WakePlanDelete onDelete;
-  final WakePlanSkip onSkipNext;
-  final WakePlanSkip onUndoSkipNext;
+  final WakePlanOccurrenceSkip onSkipOccurrence;
+  final WakePlanOccurrenceSkip onUndoSkipOccurrence;
+  final WakePlanOccurrenceMove onMoveOccurrence;
+  final WakePlanDeleteThisAndFollowing onDeleteThisAndFollowing;
   final WakePlanOccurrenceLoader loadOccurrences;
   final WakePlanOccurrenceToggle onSetOccurrenceEnabled;
 
@@ -53,17 +72,21 @@ class WakePlanDetailSheet extends StatefulWidget {
   State<WakePlanDetailSheet> createState() => _WakePlanDetailSheetState();
 }
 
+enum _OccurrenceDeleteScope { thisOccurrence, thisAndFollowing }
+
 class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
   bool _deleting = false;
-  bool _updatingSkip = false;
+  bool _updatingOccurrenceAction = false;
   bool _loadingOccurrences = true;
   List<AlarmOccurrence> _occurrences = const [];
   final Set<String> _updatingOccurrenceIds = {};
+  final Set<String> _updatingExceptionIds = {};
   Timer? _eligibilityTimer;
   String? _occurrenceLoadError;
   String? _warning;
 
   WakePlan get _wakePlan => widget.target.wakePlan;
+  CalendarDay get _originalDay => widget.target.originalDay;
 
   @override
   void initState() {
@@ -81,11 +104,17 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
   Widget build(BuildContext context) {
     final plan = _wakePlan;
     final liveNow = widget.clock();
-    final nextFire = wakePlanNextFireLabel(plan: plan, now: liveNow);
-    final nextTargetDay = nextWakePlanTargetDay(plan: plan, now: liveNow);
-    final hasSkip = plan.skipNextDate != null;
+    final nextFire = wakePlanNextFireLabel(
+      plan: plan,
+      now: liveNow,
+      exceptions: widget.existingExceptions,
+    );
+    final isRepeating = plan.repeatRule.type != RepeatType.oneTime;
     final actionsDisabled =
-        _deleting || _updatingSkip || _updatingOccurrenceIds.isNotEmpty;
+        _deleting ||
+        _updatingOccurrenceAction ||
+        _updatingOccurrenceIds.isNotEmpty ||
+        _updatingExceptionIds.isNotEmpty;
     final toggleableOccurrences =
         _occurrences
             .where((occurrence) => occurrence.isUserToggleEligibleAt(liveNow))
@@ -134,7 +163,6 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
                 value: nextFire ?? 'No future alarm',
               ),
               _InfoRow(label: 'Repeat', value: _repeatLabel(plan.repeatRule)),
-              _InfoRow(label: 'Skip state', value: _skipLabel(plan)),
               _InfoRow(
                 label: 'Window',
                 value:
@@ -145,29 +173,49 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
                 _InlineWarning(text: _warning!),
               ],
               const SizedBox(height: 16),
-              if (plan.repeatRule.type != RepeatType.oneTime || hasSkip) ...[
-                OutlinedButton.icon(
-                  onPressed: actionsDisabled
-                      ? null
-                      : hasSkip
-                      ? _undoSkipNext
-                      : nextTargetDay == null
-                      ? null
-                      : _skipNext,
-                  icon: _updatingSkip
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Icon(hasSkip ? Icons.undo : Icons.skip_next),
-                  label: Text(
-                    hasSkip
-                        ? 'Undo skip'
-                        : nextTargetDay == null
-                        ? 'No next target to skip'
-                        : 'Skip next target',
-                  ),
+              if (isRepeating) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: actionsDisabled
+                            ? null
+                            : _deleteThisOccurrence,
+                        icon: _updatingOccurrenceAction
+                            ? const SizedBox.square(
+                                dimension: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.event_busy),
+                        label: const Text('Delete this occurrence…'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: actionsDisabled ? null : _moveThisOccurrence,
+                        icon: const Icon(Icons.event_repeat),
+                        label: const Text('Move this occurrence…'),
+                      ),
+                    ),
+                  ],
                 ),
+                if (widget.existingExceptions.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'Exceptions',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  for (final exception in widget.existingExceptions)
+                    _ExceptionRow(
+                      exception: exception,
+                      updating: _updatingExceptionIds.contains(exception.id),
+                      disabled: actionsDisabled,
+                      onUndo: () => _undoException(exception),
+                    ),
+                ],
                 const SizedBox(height: 12),
               ],
               Row(
@@ -443,23 +491,163 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
     }
   }
 
-  Future<void> _skipNext() {
-    return _updateSkip(() => widget.onSkipNext(_wakePlan));
+  Future<void> _deleteThisOccurrence() async {
+    final scope = await showDialog<_OccurrenceDeleteScope>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Delete this occurrence?'),
+          content: const Text(
+            'Choose whether to delete just this occurrence or this and every '
+            'later occurrence of this wake plan.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () =>
+                  Navigator.pop(context, _OccurrenceDeleteScope.thisOccurrence),
+              child: const Text('This event only'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(
+                context,
+                _OccurrenceDeleteScope.thisAndFollowing,
+              ),
+              child: const Text('This and following events'),
+            ),
+          ],
+        );
+      },
+    );
+    if (scope == null || !mounted) {
+      return;
+    }
+
+    await _updateOccurrenceAction(() {
+      return switch (scope) {
+        _OccurrenceDeleteScope.thisOccurrence => widget.onSkipOccurrence(
+          _wakePlan,
+          _originalDay,
+        ),
+        _OccurrenceDeleteScope.thisAndFollowing =>
+          widget.onDeleteThisAndFollowing(_wakePlan, _originalDay),
+      };
+    });
   }
 
-  Future<void> _undoSkipNext() {
-    return _updateSkip(() => widget.onUndoSkipNext(_wakePlan));
+  Future<void> _moveThisOccurrence() async {
+    final plan = _wakePlan;
+    final firstDate = widget.now.subtract(const Duration(days: 1));
+    final lastDate = widget.now.add(const Duration(days: 365));
+    final currentTargetDay = widget.target.targetDay.startOfDay;
+    // A past occurrence's own day can fall before `firstDate` — clamp so
+    // `initialDate` always satisfies showDatePicker's firstDate/lastDate
+    // bounds instead of asserting.
+    final initialDate = currentTargetDay.isBefore(firstDate)
+        ? firstDate
+        : currentTargetDay.isAfter(lastDate)
+        ? lastDate
+        : currentTargetDay;
+    final toDay = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
+    );
+    if (toDay == null || !mounted) {
+      return;
+    }
+    final toTimeOfDay = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: plan.targetTime.hour,
+        minute: plan.targetTime.minute,
+      ),
+    );
+    if (toTimeOfDay == null || !mounted) {
+      return;
+    }
+
+    await _updateOccurrenceAction(() async {
+      try {
+        return await widget.onMoveOccurrence(
+          wakePlan: plan,
+          fromDay: _originalDay,
+          toDay: CalendarDay.fromDateTime(toDay),
+          toTime: TimeOfDayMinutes.fromHourMinute(
+            hour: toTimeOfDay.hour,
+            minute: toTimeOfDay.minute,
+          ),
+        );
+      } on ArgumentError {
+        return WakePlanSchedulingResult(
+          wakePlanId: plan.id,
+          status: WakePlanSchedulingStatus.scheduleFailed,
+          changeState: WakePlanChangeState.failed,
+          scheduleResult: ScheduleResult(
+            status: ScheduleResultStatus.failure,
+            occurrences: const [],
+          ),
+          occurrences: const [],
+          warning: const WakePlanSchedulingWarning(
+            kind: WakePlanSchedulingWarningKind.scheduleFailed,
+            message: 'That day already has an occurrence of this alarm.',
+          ),
+        );
+      }
+    });
   }
 
-  Future<void> _updateSkip(
+  Future<void> _undoException(WakePlanOccurrenceException exception) async {
+    if (_updatingExceptionIds.contains(exception.id) || _deleting) {
+      return;
+    }
+    setState(() {
+      _updatingExceptionIds.add(exception.id);
+      _warning = null;
+    });
+    try {
+      final result = await widget.onUndoSkipOccurrence(
+        _wakePlan,
+        exception.originalDay,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (result.isSuccess) {
+        Navigator.pop(context, result);
+        return;
+      }
+      setState(() {
+        _updatingExceptionIds.remove(exception.id);
+        _warning = result.warning?.message ?? 'Wake plan could not be updated.';
+      });
+    } catch (error, stackTrace) {
+      debugPrint(
+        'WakePlanDetailSheet undo exception failed: $error\n$stackTrace',
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _updatingExceptionIds.remove(exception.id);
+        _warning = 'Wake plan could not be updated.';
+      });
+    }
+  }
+
+  Future<void> _updateOccurrenceAction(
     Future<WakePlanSchedulingResult> Function() action,
   ) async {
-    if (_updatingSkip || _deleting) {
+    if (_updatingOccurrenceAction || _deleting) {
       return;
     }
 
     setState(() {
-      _updatingSkip = true;
+      _updatingOccurrenceAction = true;
       _warning = null;
     });
     try {
@@ -472,16 +660,18 @@ class _WakePlanDetailSheetState extends State<WakePlanDetailSheet> {
         return;
       }
       setState(() {
-        _updatingSkip = false;
+        _updatingOccurrenceAction = false;
         _warning = result.warning?.message ?? 'Wake plan could not be updated.';
       });
     } catch (error, stackTrace) {
-      debugPrint('WakePlanDetailSheet skip update failed: $error\n$stackTrace');
+      debugPrint(
+        'WakePlanDetailSheet occurrence action failed: $error\n$stackTrace',
+      );
       if (!mounted) {
         return;
       }
       setState(() {
-        _updatingSkip = false;
+        _updatingOccurrenceAction = false;
         _warning = 'Wake plan could not be updated.';
       });
     }
@@ -507,7 +697,11 @@ String? wakePlanResultNextFireLabel({
   return _dateTimeLabel(futureOccurrences.first.scheduledAt.toDateTime());
 }
 
-String? wakePlanNextFireLabel({required WakePlan plan, required DateTime now}) {
+String? wakePlanNextFireLabel({
+  required WakePlan plan,
+  required DateTime now,
+  Iterable<WakePlanOccurrenceException> exceptions = const [],
+}) {
   final today = CalendarDay.fromDateTime(now);
   if (plan.repeatRule.type == RepeatType.oneTime) {
     final oneTimeDate = plan.repeatRule.oneTimeDate;
@@ -515,33 +709,64 @@ String? wakePlanNextFireLabel({required WakePlan plan, required DateTime now}) {
       return null;
     }
   }
+  final exceptionsByOriginalDay = {
+    for (final exception in exceptions) exception.originalDay: exception,
+  };
+
   DateTime? nextFire;
   for (var offset = 0; offset <= 370; offset += 1) {
     final day = today.addDays(offset);
-    if (!plan.occursOn(day)) {
+    if (!plan.occursOn(day) || exceptionsByOriginalDay.containsKey(day)) {
       continue;
     }
-    final targetAt = plan.targetAt(day);
-    for (
-      var alarmAt = plan.startAt(day);
-      alarmAt.isBefore(targetAt);
-      alarmAt = alarmAt.add(plan.interval)
-    ) {
-      if (!alarmAt.isBefore(now) &&
-          (nextFire == null || alarmAt.isBefore(nextFire))) {
-        nextFire = alarmAt;
-      }
-    }
-    if (!targetAt.isBefore(now) &&
-        (nextFire == null || targetAt.isBefore(nextFire))) {
-      nextFire = targetAt;
-    }
+    nextFire = _earliestAlarmAtOrAfter(plan, day, now);
     if (nextFire != null) {
       break;
     }
   }
 
+  for (final exception in exceptions) {
+    if (!exception.isMoved) {
+      continue;
+    }
+    final movedAlarm = _earliestAlarmAtOrAfter(
+      plan,
+      exception.movedToDay!,
+      now,
+      overrideTargetTime: exception.movedToTargetTime,
+    );
+    if (movedAlarm != null &&
+        (nextFire == null || movedAlarm.isBefore(nextFire))) {
+      nextFire = movedAlarm;
+    }
+  }
+
   return nextFire == null ? null : _dateTimeLabel(nextFire);
+}
+
+DateTime? _earliestAlarmAtOrAfter(
+  WakePlan plan,
+  CalendarDay day,
+  DateTime now, {
+  TimeOfDayMinutes? overrideTargetTime,
+}) {
+  final targetAt = overrideTargetTime == null
+      ? plan.targetAt(day)
+      : day.at(overrideTargetTime);
+  final startAt = targetStartAt(
+    targetAt: targetAt,
+    startOffset: plan.startOffset,
+  );
+  for (
+    var alarmAt = startAt;
+    alarmAt.isBefore(targetAt);
+    alarmAt = alarmAt.add(plan.interval)
+  ) {
+    if (!alarmAt.isBefore(now)) {
+      return alarmAt;
+    }
+  }
+  return targetAt.isBefore(now) ? null : targetAt;
 }
 
 String _repeatLabel(RepeatRule repeatRule) {
@@ -568,12 +793,15 @@ String _weekdayLabels(Set<Weekday> weekdays) {
       .join(', ');
 }
 
-String _skipLabel(WakePlan plan) {
-  final skipNextDate = plan.skipNextDate;
-  if (skipNextDate == null) {
-    return 'None';
-  }
-  return 'Skipping next target on ${_dateLabel(skipNextDate)}';
+String _exceptionLabel(WakePlanOccurrenceException exception) {
+  return switch (exception.type) {
+    WakePlanOccurrenceExceptionType.skipped =>
+      'Skipped on ${_dateLabel(exception.originalDay)}',
+    WakePlanOccurrenceExceptionType.moved =>
+      'Moved from ${_dateLabel(exception.originalDay)} '
+          'to ${_dateLabel(exception.movedToDay!)}'
+          '${exception.movedToTargetTime == null ? '' : ' at ${exception.movedToTargetTime}'}',
+  };
 }
 
 String _dateLabel(CalendarDay day) {
@@ -598,6 +826,41 @@ String _dateTimeLabel(DateTime dateTime) {
       '${dateTime.day.toString().padLeft(2, '0')} '
       '${dateTime.hour.toString().padLeft(2, '0')}:'
       '${dateTime.minute.toString().padLeft(2, '0')}';
+}
+
+class _ExceptionRow extends StatelessWidget {
+  const _ExceptionRow({
+    required this.exception,
+    required this.updating,
+    required this.disabled,
+    required this.onUndo,
+  });
+
+  final WakePlanOccurrenceException exception;
+  final bool updating;
+  final bool disabled;
+  final VoidCallback onUndo;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(child: Text(_exceptionLabel(exception))),
+          TextButton(
+            onPressed: disabled ? null : onUndo,
+            child: updating
+                ? const SizedBox.square(
+                    dimension: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Undo'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _InfoRow extends StatelessWidget {

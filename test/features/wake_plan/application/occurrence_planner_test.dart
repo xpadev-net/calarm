@@ -19,7 +19,6 @@ void main() {
     RepeatRule? repeatRule,
     WakePlanStatus status = WakePlanStatus.scheduled,
     bool isEnabled = true,
-    CalendarDay? skipNextDate,
     bool skipHolidays = false,
   }) {
     return WakePlan(
@@ -32,7 +31,6 @@ void main() {
       repeatRule: repeatRule ?? RepeatRule.oneTime(monday),
       isEnabled: isEnabled,
       status: status,
-      skipNextDate: skipNextDate,
       skipHolidays: skipHolidays,
       soundId: 'default',
       vibrationEnabled: true,
@@ -192,15 +190,24 @@ void main() {
       },
     );
 
-    test('excludes the skip-next wake instance', () {
+    test('excludes a skipped occurrence', () {
+      final plan = buildPlan(
+        repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
+      );
       final result = planner.plan(
-        wakePlan: buildPlan(
-          repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
-          skipNextDate: monday,
-        ),
+        wakePlan: plan,
         startDay: monday,
         endExclusive: wednesday,
         now: DateTime(2026, 7, 6, 5),
+        exceptions: [
+          WakePlanOccurrenceException(
+            wakePlanId: plan.id,
+            originalDay: monday,
+            type: WakePlanOccurrenceExceptionType.skipped,
+            createdAt: createdAt,
+            updatedAt: createdAt,
+          ),
+        ],
       );
 
       expect(result.wakeInstances.map((instance) => instance.targetDay), [
@@ -208,6 +215,61 @@ void main() {
       ]);
       expect(result.previewCount, 13);
       expect(result.schedulingCandidateCount, 13);
+    });
+
+    test('injects a moved occurrence at its new day and suppresses the '
+        'original slot', () {
+      final plan = buildPlan(
+        repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
+      );
+      final result = planner.plan(
+        wakePlan: plan,
+        startDay: monday,
+        endExclusive: wednesday,
+        now: DateTime(2026, 7, 6, 5),
+        exceptions: [
+          WakePlanOccurrenceException(
+            wakePlanId: plan.id,
+            originalDay: monday,
+            type: WakePlanOccurrenceExceptionType.moved,
+            movedToDay: saturday,
+            createdAt: createdAt,
+            updatedAt: createdAt,
+          ),
+        ],
+      );
+
+      expect(
+        result.wakeInstances.map((instance) => instance.targetDay).toSet(),
+        {tuesday, saturday},
+      );
+    });
+
+    test('moved occurrence can override the target time', () {
+      final plan = buildPlan(repeatRule: RepeatRule.weekly({Weekday.monday}));
+      final overrideTime = TimeOfDayMinutes.fromHourMinute(hour: 9, minute: 30);
+      final result = planner.plan(
+        wakePlan: plan,
+        startDay: monday,
+        endExclusive: tuesday,
+        now: DateTime(2026, 7, 6, 5),
+        exceptions: [
+          WakePlanOccurrenceException(
+            wakePlanId: plan.id,
+            originalDay: monday,
+            type: WakePlanOccurrenceExceptionType.moved,
+            movedToDay: saturday,
+            movedToTargetTime: overrideTime,
+            createdAt: createdAt,
+            updatedAt: createdAt,
+          ),
+        ],
+      );
+
+      final movedInstance = result.wakeInstances.singleWhere(
+        (instance) => instance.targetDay == saturday,
+      );
+      expect(movedInstance.targetAt.time, overrideTime);
     });
 
     test('rolls a same-weekday target into the next valid week', () {

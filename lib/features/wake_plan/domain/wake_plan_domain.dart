@@ -4,3 +4,4 @@ export 'src/holiday.dart';
 export 'src/holiday_region.dart';
 export 'src/repeat_rule.dart';
 export 'src/wake_plan.dart';
+export 'src/wake_plan_occurrence_exception.dart';
