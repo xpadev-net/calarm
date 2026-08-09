@@ -22,6 +22,7 @@ class WeekCalendarView extends StatefulWidget {
     this.initialWeek,
     this.wakePlans = const [],
     this.holidays = const {},
+    this.exceptionsByWakePlanId = const {},
     this.onTargetTap,
     this.onWakePlanTap,
     this.height = 420,
@@ -44,6 +45,12 @@ class WeekCalendarView extends StatefulWidget {
   /// plan with `skipHolidays` enabled excludes these from both its rendered
   /// blocks and its actual scheduling — see [WakePlan.occursOnConsideringHolidays].
   final Set<CalendarDay> holidays;
+
+  /// Per-occurrence skip/move exceptions, keyed by wake plan id — see
+  /// [WakePlanOccurrenceException]. Suppresses the natural block for an
+  /// excepted day and, for a moved occurrence, renders its block at the new
+  /// day/time instead.
+  final Map<String, List<WakePlanOccurrenceException>> exceptionsByWakePlanId;
   final WeekCalendarTapCallback? onTargetTap;
   final WeekCalendarWakePlanTapCallback? onWakePlanTap;
   final double height;
@@ -211,6 +218,7 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
                 now: widget.now,
                 wakePlans: widget.wakePlans,
                 holidays: widget.holidays,
+                exceptionsByWakePlanId: widget.exceptionsByWakePlanId,
                 onTargetTap: widget.onTargetTap,
                 onWakePlanTap: widget.onWakePlanTap,
                 hourHeight: widget.hourHeight,
@@ -228,6 +236,7 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
                 now: widget.now,
                 wakePlans: widget.wakePlans,
                 holidays: widget.holidays,
+                exceptionsByWakePlanId: widget.exceptionsByWakePlanId,
                 onTargetTap: widget.onTargetTap,
                 onWakePlanTap: widget.onWakePlanTap,
                 hourHeight: widget.hourHeight,
@@ -304,6 +313,7 @@ class _WeekCalendarViewState extends State<WeekCalendarView> {
                           now: widget.now,
                           wakePlans: widget.wakePlans,
                           holidays: widget.holidays,
+                          exceptionsByWakePlanId: widget.exceptionsByWakePlanId,
                           onTargetTap: widget.onTargetTap,
                           onWakePlanTap: widget.onWakePlanTap,
                           hourHeight: widget.hourHeight,

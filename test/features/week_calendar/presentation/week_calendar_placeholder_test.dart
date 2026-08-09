@@ -1799,7 +1799,6 @@ void main() {
     expect(find.text('Wake plan detail'), findsOneWidget);
     expect(find.text('Next fire'), findsOneWidget);
     expect(find.text('Repeat'), findsOneWidget);
-    expect(find.text('Skip state'), findsOneWidget);
 
     await tester.tap(find.text('Edit'));
     await tester.pumpAndSettle();
@@ -2090,67 +2089,77 @@ void main() {
     },
   );
 
-  testWidgets('skips next target from detail and keeps following repeats', (
-    tester,
-  ) async {
-    final gateway = FakeNativeAlarmGateway();
-    final now = DateTime(2026, 7, 8, 5, 30);
-    final skippedDay = CalendarDay(year: 2026, month: 7, day: 8);
-    final followingDay = CalendarDay(year: 2026, month: 7, day: 9);
-    final plan = _plan(
-      id: 'weekly-skip',
-      targetDay: skippedDay,
-      repeatRule: RepeatRule.weekly({Weekday.wednesday, Weekday.thursday}),
-    );
-    final service = WakePlanService(
-      repository: repository,
-      nativeAlarmGateway: gateway,
-      coordinator: WakePlanMutationCoordinator(),
-      clock: () => now,
-    );
-    await service.createPlan(plan);
-    gateway.cancelledOccurrences.clear();
-    gateway.scheduledRequests.clear();
+  testWidgets(
+    'skips a single occurrence from detail and keeps following repeats',
+    (tester) async {
+      final gateway = FakeNativeAlarmGateway();
+      final now = DateTime(2026, 7, 8, 5, 30);
+      final skippedDay = CalendarDay(year: 2026, month: 7, day: 8);
+      final followingDay = CalendarDay(year: 2026, month: 7, day: 9);
+      final plan = _plan(
+        id: 'weekly-skip',
+        targetDay: skippedDay,
+        repeatRule: RepeatRule.weekly({Weekday.wednesday, Weekday.thursday}),
+      );
+      final service = WakePlanService(
+        repository: repository,
+        nativeAlarmGateway: gateway,
+        coordinator: WakePlanMutationCoordinator(),
+        clock: () => now,
+      );
+      await service.createPlan(plan);
+      gateway.cancelledOccurrences.clear();
+      gateway.scheduledRequests.clear();
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          weekCalendarRepositoryProvider.overrideWith(
-            (ref) async => repository,
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            weekCalendarRepositoryProvider.overrideWith(
+              (ref) async => repository,
+            ),
+            wakePlanDefaultsRepositoryProvider.overrideWith(
+              (ref) async => repository,
+            ),
+            weekCalendarNativeAlarmGatewayProvider.overrideWith(
+              (ref) => gateway,
+            ),
+            weekCalendarClockProvider.overrideWith(
+              (ref) =>
+                  () => now,
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: _WeekCalendarHarness()),
           ),
-          wakePlanDefaultsRepositoryProvider.overrideWith(
-            (ref) async => repository,
-          ),
-          weekCalendarNativeAlarmGatewayProvider.overrideWith((ref) => gateway),
-          weekCalendarClockProvider.overrideWith(
-            (ref) =>
-                () => now,
-          ),
-        ],
-        child: const MaterialApp(home: Scaffold(body: _WeekCalendarHarness())),
-      ),
-    );
-    await tester.pumpAndSettle();
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    final calendar = tester.widget<WeekCalendarView>(
-      find.byType(WeekCalendarView),
-    );
-    calendar.onWakePlanTap!(
-      WeekCalendarWakePlanTapTarget(wakePlan: plan, targetDay: skippedDay),
-    );
-    await tester.pumpAndSettle();
+      final calendar = tester.widget<WeekCalendarView>(
+        find.byType(WeekCalendarView),
+      );
+      calendar.onWakePlanTap!(
+        WeekCalendarWakePlanTapTarget(wakePlan: plan, targetDay: skippedDay),
+      );
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Skip next target'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete this occurrence…'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('This event only'));
+      await tester.pumpAndSettle();
 
-    final saved = await repository.fetchWakePlan('weekly-skip');
-    expect(saved?.skipNextDate, skippedDay);
-    expect(gateway.cancelledOccurrences, isNotEmpty);
-    expect(gateway.scheduledRequests, isNotEmpty);
-    expect(find.text('Next wake target skipped.'), findsOneWidget);
-    expect(saved!.occursOn(skippedDay), isFalse);
-    expect(saved.occursOn(followingDay), isTrue);
-  });
+      final exceptions = await repository.fetchExceptionsForPlan('weekly-skip');
+      expect(exceptions, hasLength(1));
+      expect(exceptions.single.originalDay, skippedDay);
+      expect(exceptions.single.type, WakePlanOccurrenceExceptionType.skipped);
+      expect(gateway.cancelledOccurrences, isNotEmpty);
+      expect(gateway.scheduledRequests, isNotEmpty);
+      expect(find.text('Occurrence skipped.'), findsOneWidget);
+      final saved = await repository.fetchWakePlan('weekly-skip');
+      expect(saved!.occursOn(skippedDay), isTrue);
+      expect(saved.occursOn(followingDay), isTrue);
+    },
+  );
 
   for (final visibleDays in [3, DateTime.daysPerWeek]) {
     testWidgets(

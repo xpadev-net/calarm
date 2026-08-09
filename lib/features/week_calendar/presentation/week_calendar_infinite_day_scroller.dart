@@ -21,6 +21,7 @@ class WeekCalendarInfiniteDayScroller extends StatefulWidget {
     required this.now,
     required this.wakePlans,
     this.holidays = const {},
+    this.exceptionsByWakePlanId = const {},
     required this.onTargetTap,
     required this.onWakePlanTap,
     required this.hourHeight,
@@ -36,6 +37,7 @@ class WeekCalendarInfiniteDayScroller extends StatefulWidget {
   final DateTime now;
   final List<WakePlan> wakePlans;
   final Set<CalendarDay> holidays;
+  final Map<String, List<WakePlanOccurrenceException>> exceptionsByWakePlanId;
   final WeekCalendarTapCallback? onTargetTap;
   final WeekCalendarWakePlanTapCallback? onWakePlanTap;
   final double hourHeight;
@@ -495,6 +497,7 @@ class _InfiniteDayScrollerState extends State<WeekCalendarInfiniteDayScroller> {
                   window: window,
                   wakePlans: widget.wakePlans,
                   holidays: widget.holidays,
+                  exceptionsByWakePlanId: widget.exceptionsByWakePlanId,
                 );
                 final previewDuration = weekCalendarBoundedDraftDuration(
                   widget.draftDuration,

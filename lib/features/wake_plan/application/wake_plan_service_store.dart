@@ -1,3 +1,4 @@
+import '../../../core/time/time.dart';
 import '../data/wake_plan_data.dart';
 import '../domain/wake_plan_domain.dart';
 
@@ -25,6 +26,17 @@ abstract class WakePlanServiceStore {
   Future<List<AlarmOccurrence>> fetchReservedOccurrencesForPlan(
     String wakePlanId,
   );
+
+  Future<List<WakePlanOccurrenceException>> fetchExceptionsForPlan(
+    String wakePlanId,
+  );
+
+  Future<void> saveOccurrenceException(WakePlanOccurrenceException exception);
+
+  Future<void> deleteOccurrenceException({
+    required String wakePlanId,
+    required CalendarDay originalDay,
+  });
 }
 
 class WakePlanRepositoryServiceStore implements WakePlanServiceStore {
@@ -80,5 +92,28 @@ class WakePlanRepositoryServiceStore implements WakePlanServiceStore {
     String wakePlanId,
   ) {
     return _repository.fetchReservedOccurrencesForPlan(wakePlanId);
+  }
+
+  @override
+  Future<List<WakePlanOccurrenceException>> fetchExceptionsForPlan(
+    String wakePlanId,
+  ) {
+    return _repository.fetchExceptionsForPlan(wakePlanId);
+  }
+
+  @override
+  Future<void> saveOccurrenceException(WakePlanOccurrenceException exception) {
+    return _repository.saveOccurrenceException(exception);
+  }
+
+  @override
+  Future<void> deleteOccurrenceException({
+    required String wakePlanId,
+    required CalendarDay originalDay,
+  }) {
+    return _repository.deleteOccurrenceException(
+      wakePlanId: wakePlanId,
+      originalDay: originalDay,
+    );
   }
 }

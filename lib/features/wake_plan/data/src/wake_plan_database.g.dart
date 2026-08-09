@@ -115,17 +115,6 @@ class $WakePlanRowsTable extends WakePlanRows
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
-  static const VerificationMeta _skipNextDateDaysMeta = const VerificationMeta(
-    'skipNextDateDays',
-  );
-  @override
-  late final GeneratedColumn<int> skipNextDateDays = GeneratedColumn<int>(
-    'skip_next_date_days',
-    aliasedName,
-    true,
-    type: DriftSqlType.int,
-    requiredDuringInsert: false,
-  );
   static const VerificationMeta _skipHolidaysMeta = const VerificationMeta(
     'skipHolidays',
   );
@@ -140,6 +129,17 @@ class $WakePlanRowsTable extends WakePlanRows
       'CHECK ("skip_holidays" IN (0, 1))',
     ),
     defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _repeatUntilDaysMeta = const VerificationMeta(
+    'repeatUntilDays',
+  );
+  @override
+  late final GeneratedColumn<int> repeatUntilDays = GeneratedColumn<int>(
+    'repeat_until_days',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _soundIdMeta = const VerificationMeta(
     'soundId',
@@ -200,8 +200,8 @@ class $WakePlanRowsTable extends WakePlanRows
     weekdaysMask,
     isEnabled,
     status,
-    skipNextDateDays,
     skipHolidays,
+    repeatUntilDays,
     soundId,
     vibrationEnabled,
     createdAt,
@@ -307,21 +307,21 @@ class $WakePlanRowsTable extends WakePlanRows
     } else if (isInserting) {
       context.missing(_statusMeta);
     }
-    if (data.containsKey('skip_next_date_days')) {
-      context.handle(
-        _skipNextDateDaysMeta,
-        skipNextDateDays.isAcceptableOrUnknown(
-          data['skip_next_date_days']!,
-          _skipNextDateDaysMeta,
-        ),
-      );
-    }
     if (data.containsKey('skip_holidays')) {
       context.handle(
         _skipHolidaysMeta,
         skipHolidays.isAcceptableOrUnknown(
           data['skip_holidays']!,
           _skipHolidaysMeta,
+        ),
+      );
+    }
+    if (data.containsKey('repeat_until_days')) {
+      context.handle(
+        _repeatUntilDaysMeta,
+        repeatUntilDays.isAcceptableOrUnknown(
+          data['repeat_until_days']!,
+          _repeatUntilDaysMeta,
         ),
       );
     }
@@ -409,14 +409,14 @@ class $WakePlanRowsTable extends WakePlanRows
         DriftSqlType.string,
         data['${effectivePrefix}status'],
       )!,
-      skipNextDateDays: attachedDatabase.typeMapping.read(
-        DriftSqlType.int,
-        data['${effectivePrefix}skip_next_date_days'],
-      ),
       skipHolidays: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}skip_holidays'],
       )!,
+      repeatUntilDays: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}repeat_until_days'],
+      ),
       soundId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}sound_id'],
@@ -453,8 +453,8 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
   final int? weekdaysMask;
   final bool isEnabled;
   final String status;
-  final int? skipNextDateDays;
   final bool skipHolidays;
+  final int? repeatUntilDays;
   final String soundId;
   final bool vibrationEnabled;
   final DateTime createdAt;
@@ -470,8 +470,8 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
     this.weekdaysMask,
     required this.isEnabled,
     required this.status,
-    this.skipNextDateDays,
     required this.skipHolidays,
+    this.repeatUntilDays,
     required this.soundId,
     required this.vibrationEnabled,
     required this.createdAt,
@@ -494,10 +494,10 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
     }
     map['is_enabled'] = Variable<bool>(isEnabled);
     map['status'] = Variable<String>(status);
-    if (!nullToAbsent || skipNextDateDays != null) {
-      map['skip_next_date_days'] = Variable<int>(skipNextDateDays);
-    }
     map['skip_holidays'] = Variable<bool>(skipHolidays);
+    if (!nullToAbsent || repeatUntilDays != null) {
+      map['repeat_until_days'] = Variable<int>(repeatUntilDays);
+    }
     map['sound_id'] = Variable<String>(soundId);
     map['vibration_enabled'] = Variable<bool>(vibrationEnabled);
     map['created_at'] = Variable<DateTime>(createdAt);
@@ -521,10 +521,10 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
           : Value(weekdaysMask),
       isEnabled: Value(isEnabled),
       status: Value(status),
-      skipNextDateDays: skipNextDateDays == null && nullToAbsent
-          ? const Value.absent()
-          : Value(skipNextDateDays),
       skipHolidays: Value(skipHolidays),
+      repeatUntilDays: repeatUntilDays == null && nullToAbsent
+          ? const Value.absent()
+          : Value(repeatUntilDays),
       soundId: Value(soundId),
       vibrationEnabled: Value(vibrationEnabled),
       createdAt: Value(createdAt),
@@ -548,8 +548,8 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
       weekdaysMask: serializer.fromJson<int?>(json['weekdaysMask']),
       isEnabled: serializer.fromJson<bool>(json['isEnabled']),
       status: serializer.fromJson<String>(json['status']),
-      skipNextDateDays: serializer.fromJson<int?>(json['skipNextDateDays']),
       skipHolidays: serializer.fromJson<bool>(json['skipHolidays']),
+      repeatUntilDays: serializer.fromJson<int?>(json['repeatUntilDays']),
       soundId: serializer.fromJson<String>(json['soundId']),
       vibrationEnabled: serializer.fromJson<bool>(json['vibrationEnabled']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
@@ -570,8 +570,8 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
       'weekdaysMask': serializer.toJson<int?>(weekdaysMask),
       'isEnabled': serializer.toJson<bool>(isEnabled),
       'status': serializer.toJson<String>(status),
-      'skipNextDateDays': serializer.toJson<int?>(skipNextDateDays),
       'skipHolidays': serializer.toJson<bool>(skipHolidays),
+      'repeatUntilDays': serializer.toJson<int?>(repeatUntilDays),
       'soundId': serializer.toJson<String>(soundId),
       'vibrationEnabled': serializer.toJson<bool>(vibrationEnabled),
       'createdAt': serializer.toJson<DateTime>(createdAt),
@@ -590,8 +590,8 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
     Value<int?> weekdaysMask = const Value.absent(),
     bool? isEnabled,
     String? status,
-    Value<int?> skipNextDateDays = const Value.absent(),
     bool? skipHolidays,
+    Value<int?> repeatUntilDays = const Value.absent(),
     String? soundId,
     bool? vibrationEnabled,
     DateTime? createdAt,
@@ -609,10 +609,10 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
     weekdaysMask: weekdaysMask.present ? weekdaysMask.value : this.weekdaysMask,
     isEnabled: isEnabled ?? this.isEnabled,
     status: status ?? this.status,
-    skipNextDateDays: skipNextDateDays.present
-        ? skipNextDateDays.value
-        : this.skipNextDateDays,
     skipHolidays: skipHolidays ?? this.skipHolidays,
+    repeatUntilDays: repeatUntilDays.present
+        ? repeatUntilDays.value
+        : this.repeatUntilDays,
     soundId: soundId ?? this.soundId,
     vibrationEnabled: vibrationEnabled ?? this.vibrationEnabled,
     createdAt: createdAt ?? this.createdAt,
@@ -642,12 +642,12 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
           : this.weekdaysMask,
       isEnabled: data.isEnabled.present ? data.isEnabled.value : this.isEnabled,
       status: data.status.present ? data.status.value : this.status,
-      skipNextDateDays: data.skipNextDateDays.present
-          ? data.skipNextDateDays.value
-          : this.skipNextDateDays,
       skipHolidays: data.skipHolidays.present
           ? data.skipHolidays.value
           : this.skipHolidays,
+      repeatUntilDays: data.repeatUntilDays.present
+          ? data.repeatUntilDays.value
+          : this.repeatUntilDays,
       soundId: data.soundId.present ? data.soundId.value : this.soundId,
       vibrationEnabled: data.vibrationEnabled.present
           ? data.vibrationEnabled.value
@@ -670,8 +670,8 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
           ..write('weekdaysMask: $weekdaysMask, ')
           ..write('isEnabled: $isEnabled, ')
           ..write('status: $status, ')
-          ..write('skipNextDateDays: $skipNextDateDays, ')
           ..write('skipHolidays: $skipHolidays, ')
+          ..write('repeatUntilDays: $repeatUntilDays, ')
           ..write('soundId: $soundId, ')
           ..write('vibrationEnabled: $vibrationEnabled, ')
           ..write('createdAt: $createdAt, ')
@@ -692,8 +692,8 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
     weekdaysMask,
     isEnabled,
     status,
-    skipNextDateDays,
     skipHolidays,
+    repeatUntilDays,
     soundId,
     vibrationEnabled,
     createdAt,
@@ -713,8 +713,8 @@ class WakePlanRow extends DataClass implements Insertable<WakePlanRow> {
           other.weekdaysMask == this.weekdaysMask &&
           other.isEnabled == this.isEnabled &&
           other.status == this.status &&
-          other.skipNextDateDays == this.skipNextDateDays &&
           other.skipHolidays == this.skipHolidays &&
+          other.repeatUntilDays == this.repeatUntilDays &&
           other.soundId == this.soundId &&
           other.vibrationEnabled == this.vibrationEnabled &&
           other.createdAt == this.createdAt &&
@@ -732,8 +732,8 @@ class WakePlanRowsCompanion extends UpdateCompanion<WakePlanRow> {
   final Value<int?> weekdaysMask;
   final Value<bool> isEnabled;
   final Value<String> status;
-  final Value<int?> skipNextDateDays;
   final Value<bool> skipHolidays;
+  final Value<int?> repeatUntilDays;
   final Value<String> soundId;
   final Value<bool> vibrationEnabled;
   final Value<DateTime> createdAt;
@@ -750,8 +750,8 @@ class WakePlanRowsCompanion extends UpdateCompanion<WakePlanRow> {
     this.weekdaysMask = const Value.absent(),
     this.isEnabled = const Value.absent(),
     this.status = const Value.absent(),
-    this.skipNextDateDays = const Value.absent(),
     this.skipHolidays = const Value.absent(),
+    this.repeatUntilDays = const Value.absent(),
     this.soundId = const Value.absent(),
     this.vibrationEnabled = const Value.absent(),
     this.createdAt = const Value.absent(),
@@ -769,8 +769,8 @@ class WakePlanRowsCompanion extends UpdateCompanion<WakePlanRow> {
     this.weekdaysMask = const Value.absent(),
     required bool isEnabled,
     required String status,
-    this.skipNextDateDays = const Value.absent(),
     this.skipHolidays = const Value.absent(),
+    this.repeatUntilDays = const Value.absent(),
     required String soundId,
     required bool vibrationEnabled,
     required DateTime createdAt,
@@ -799,8 +799,8 @@ class WakePlanRowsCompanion extends UpdateCompanion<WakePlanRow> {
     Expression<int>? weekdaysMask,
     Expression<bool>? isEnabled,
     Expression<String>? status,
-    Expression<int>? skipNextDateDays,
     Expression<bool>? skipHolidays,
+    Expression<int>? repeatUntilDays,
     Expression<String>? soundId,
     Expression<bool>? vibrationEnabled,
     Expression<DateTime>? createdAt,
@@ -819,8 +819,8 @@ class WakePlanRowsCompanion extends UpdateCompanion<WakePlanRow> {
       if (weekdaysMask != null) 'weekdays_mask': weekdaysMask,
       if (isEnabled != null) 'is_enabled': isEnabled,
       if (status != null) 'status': status,
-      if (skipNextDateDays != null) 'skip_next_date_days': skipNextDateDays,
       if (skipHolidays != null) 'skip_holidays': skipHolidays,
+      if (repeatUntilDays != null) 'repeat_until_days': repeatUntilDays,
       if (soundId != null) 'sound_id': soundId,
       if (vibrationEnabled != null) 'vibration_enabled': vibrationEnabled,
       if (createdAt != null) 'created_at': createdAt,
@@ -840,8 +840,8 @@ class WakePlanRowsCompanion extends UpdateCompanion<WakePlanRow> {
     Value<int?>? weekdaysMask,
     Value<bool>? isEnabled,
     Value<String>? status,
-    Value<int?>? skipNextDateDays,
     Value<bool>? skipHolidays,
+    Value<int?>? repeatUntilDays,
     Value<String>? soundId,
     Value<bool>? vibrationEnabled,
     Value<DateTime>? createdAt,
@@ -859,8 +859,8 @@ class WakePlanRowsCompanion extends UpdateCompanion<WakePlanRow> {
       weekdaysMask: weekdaysMask ?? this.weekdaysMask,
       isEnabled: isEnabled ?? this.isEnabled,
       status: status ?? this.status,
-      skipNextDateDays: skipNextDateDays ?? this.skipNextDateDays,
       skipHolidays: skipHolidays ?? this.skipHolidays,
+      repeatUntilDays: repeatUntilDays ?? this.repeatUntilDays,
       soundId: soundId ?? this.soundId,
       vibrationEnabled: vibrationEnabled ?? this.vibrationEnabled,
       createdAt: createdAt ?? this.createdAt,
@@ -902,11 +902,11 @@ class WakePlanRowsCompanion extends UpdateCompanion<WakePlanRow> {
     if (status.present) {
       map['status'] = Variable<String>(status.value);
     }
-    if (skipNextDateDays.present) {
-      map['skip_next_date_days'] = Variable<int>(skipNextDateDays.value);
-    }
     if (skipHolidays.present) {
       map['skip_holidays'] = Variable<bool>(skipHolidays.value);
+    }
+    if (repeatUntilDays.present) {
+      map['repeat_until_days'] = Variable<int>(repeatUntilDays.value);
     }
     if (soundId.present) {
       map['sound_id'] = Variable<String>(soundId.value);
@@ -939,8 +939,8 @@ class WakePlanRowsCompanion extends UpdateCompanion<WakePlanRow> {
           ..write('weekdaysMask: $weekdaysMask, ')
           ..write('isEnabled: $isEnabled, ')
           ..write('status: $status, ')
-          ..write('skipNextDateDays: $skipNextDateDays, ')
           ..write('skipHolidays: $skipHolidays, ')
+          ..write('repeatUntilDays: $repeatUntilDays, ')
           ..write('soundId: $soundId, ')
           ..write('vibrationEnabled: $vibrationEnabled, ')
           ..write('createdAt: $createdAt, ')
@@ -1880,6 +1880,567 @@ class AlarmOccurrenceRowsCompanion extends UpdateCompanion<AlarmOccurrenceRow> {
           ..write('reservationGeneration: $reservationGeneration, ')
           ..write('dismissalRequestedAt: $dismissalRequestedAt, ')
           ..write('dismissalPlatformAlarmId: $dismissalPlatformAlarmId, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $WakePlanOccurrenceExceptionRowsTable
+    extends WakePlanOccurrenceExceptionRows
+    with
+        TableInfo<
+          $WakePlanOccurrenceExceptionRowsTable,
+          WakePlanOccurrenceExceptionRow
+        > {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $WakePlanOccurrenceExceptionRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _wakePlanIdMeta = const VerificationMeta(
+    'wakePlanId',
+  );
+  @override
+  late final GeneratedColumn<String> wakePlanId = GeneratedColumn<String>(
+    'wake_plan_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES wake_plan_rows (id)',
+    ),
+  );
+  static const VerificationMeta _originalDayDaysMeta = const VerificationMeta(
+    'originalDayDays',
+  );
+  @override
+  late final GeneratedColumn<int> originalDayDays = GeneratedColumn<int>(
+    'original_day_days',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _typeMeta = const VerificationMeta('type');
+  @override
+  late final GeneratedColumn<String> type = GeneratedColumn<String>(
+    'type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _movedToDayDaysMeta = const VerificationMeta(
+    'movedToDayDays',
+  );
+  @override
+  late final GeneratedColumn<int> movedToDayDays = GeneratedColumn<int>(
+    'moved_to_day_days',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _movedToTargetTimeMinutesMeta =
+      const VerificationMeta('movedToTargetTimeMinutes');
+  @override
+  late final GeneratedColumn<int> movedToTargetTimeMinutes =
+      GeneratedColumn<int>(
+        'moved_to_target_time_minutes',
+        aliasedName,
+        true,
+        type: DriftSqlType.int,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    wakePlanId,
+    originalDayDays,
+    type,
+    movedToDayDays,
+    movedToTargetTimeMinutes,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'wake_plan_occurrence_exception_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<WakePlanOccurrenceExceptionRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('wake_plan_id')) {
+      context.handle(
+        _wakePlanIdMeta,
+        wakePlanId.isAcceptableOrUnknown(
+          data['wake_plan_id']!,
+          _wakePlanIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_wakePlanIdMeta);
+    }
+    if (data.containsKey('original_day_days')) {
+      context.handle(
+        _originalDayDaysMeta,
+        originalDayDays.isAcceptableOrUnknown(
+          data['original_day_days']!,
+          _originalDayDaysMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_originalDayDaysMeta);
+    }
+    if (data.containsKey('type')) {
+      context.handle(
+        _typeMeta,
+        type.isAcceptableOrUnknown(data['type']!, _typeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_typeMeta);
+    }
+    if (data.containsKey('moved_to_day_days')) {
+      context.handle(
+        _movedToDayDaysMeta,
+        movedToDayDays.isAcceptableOrUnknown(
+          data['moved_to_day_days']!,
+          _movedToDayDaysMeta,
+        ),
+      );
+    }
+    if (data.containsKey('moved_to_target_time_minutes')) {
+      context.handle(
+        _movedToTargetTimeMinutesMeta,
+        movedToTargetTimeMinutes.isAcceptableOrUnknown(
+          data['moved_to_target_time_minutes']!,
+          _movedToTargetTimeMinutesMeta,
+        ),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  WakePlanOccurrenceExceptionRow map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return WakePlanOccurrenceExceptionRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      wakePlanId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}wake_plan_id'],
+      )!,
+      originalDayDays: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}original_day_days'],
+      )!,
+      type: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}type'],
+      )!,
+      movedToDayDays: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}moved_to_day_days'],
+      ),
+      movedToTargetTimeMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}moved_to_target_time_minutes'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $WakePlanOccurrenceExceptionRowsTable createAlias(String alias) {
+    return $WakePlanOccurrenceExceptionRowsTable(attachedDatabase, alias);
+  }
+}
+
+class WakePlanOccurrenceExceptionRow extends DataClass
+    implements Insertable<WakePlanOccurrenceExceptionRow> {
+  final String id;
+  final String wakePlanId;
+  final int originalDayDays;
+  final String type;
+  final int? movedToDayDays;
+  final int? movedToTargetTimeMinutes;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const WakePlanOccurrenceExceptionRow({
+    required this.id,
+    required this.wakePlanId,
+    required this.originalDayDays,
+    required this.type,
+    this.movedToDayDays,
+    this.movedToTargetTimeMinutes,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['wake_plan_id'] = Variable<String>(wakePlanId);
+    map['original_day_days'] = Variable<int>(originalDayDays);
+    map['type'] = Variable<String>(type);
+    if (!nullToAbsent || movedToDayDays != null) {
+      map['moved_to_day_days'] = Variable<int>(movedToDayDays);
+    }
+    if (!nullToAbsent || movedToTargetTimeMinutes != null) {
+      map['moved_to_target_time_minutes'] = Variable<int>(
+        movedToTargetTimeMinutes,
+      );
+    }
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  WakePlanOccurrenceExceptionRowsCompanion toCompanion(bool nullToAbsent) {
+    return WakePlanOccurrenceExceptionRowsCompanion(
+      id: Value(id),
+      wakePlanId: Value(wakePlanId),
+      originalDayDays: Value(originalDayDays),
+      type: Value(type),
+      movedToDayDays: movedToDayDays == null && nullToAbsent
+          ? const Value.absent()
+          : Value(movedToDayDays),
+      movedToTargetTimeMinutes: movedToTargetTimeMinutes == null && nullToAbsent
+          ? const Value.absent()
+          : Value(movedToTargetTimeMinutes),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory WakePlanOccurrenceExceptionRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return WakePlanOccurrenceExceptionRow(
+      id: serializer.fromJson<String>(json['id']),
+      wakePlanId: serializer.fromJson<String>(json['wakePlanId']),
+      originalDayDays: serializer.fromJson<int>(json['originalDayDays']),
+      type: serializer.fromJson<String>(json['type']),
+      movedToDayDays: serializer.fromJson<int?>(json['movedToDayDays']),
+      movedToTargetTimeMinutes: serializer.fromJson<int?>(
+        json['movedToTargetTimeMinutes'],
+      ),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'wakePlanId': serializer.toJson<String>(wakePlanId),
+      'originalDayDays': serializer.toJson<int>(originalDayDays),
+      'type': serializer.toJson<String>(type),
+      'movedToDayDays': serializer.toJson<int?>(movedToDayDays),
+      'movedToTargetTimeMinutes': serializer.toJson<int?>(
+        movedToTargetTimeMinutes,
+      ),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  WakePlanOccurrenceExceptionRow copyWith({
+    String? id,
+    String? wakePlanId,
+    int? originalDayDays,
+    String? type,
+    Value<int?> movedToDayDays = const Value.absent(),
+    Value<int?> movedToTargetTimeMinutes = const Value.absent(),
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) => WakePlanOccurrenceExceptionRow(
+    id: id ?? this.id,
+    wakePlanId: wakePlanId ?? this.wakePlanId,
+    originalDayDays: originalDayDays ?? this.originalDayDays,
+    type: type ?? this.type,
+    movedToDayDays: movedToDayDays.present
+        ? movedToDayDays.value
+        : this.movedToDayDays,
+    movedToTargetTimeMinutes: movedToTargetTimeMinutes.present
+        ? movedToTargetTimeMinutes.value
+        : this.movedToTargetTimeMinutes,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  WakePlanOccurrenceExceptionRow copyWithCompanion(
+    WakePlanOccurrenceExceptionRowsCompanion data,
+  ) {
+    return WakePlanOccurrenceExceptionRow(
+      id: data.id.present ? data.id.value : this.id,
+      wakePlanId: data.wakePlanId.present
+          ? data.wakePlanId.value
+          : this.wakePlanId,
+      originalDayDays: data.originalDayDays.present
+          ? data.originalDayDays.value
+          : this.originalDayDays,
+      type: data.type.present ? data.type.value : this.type,
+      movedToDayDays: data.movedToDayDays.present
+          ? data.movedToDayDays.value
+          : this.movedToDayDays,
+      movedToTargetTimeMinutes: data.movedToTargetTimeMinutes.present
+          ? data.movedToTargetTimeMinutes.value
+          : this.movedToTargetTimeMinutes,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('WakePlanOccurrenceExceptionRow(')
+          ..write('id: $id, ')
+          ..write('wakePlanId: $wakePlanId, ')
+          ..write('originalDayDays: $originalDayDays, ')
+          ..write('type: $type, ')
+          ..write('movedToDayDays: $movedToDayDays, ')
+          ..write('movedToTargetTimeMinutes: $movedToTargetTimeMinutes, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    wakePlanId,
+    originalDayDays,
+    type,
+    movedToDayDays,
+    movedToTargetTimeMinutes,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is WakePlanOccurrenceExceptionRow &&
+          other.id == this.id &&
+          other.wakePlanId == this.wakePlanId &&
+          other.originalDayDays == this.originalDayDays &&
+          other.type == this.type &&
+          other.movedToDayDays == this.movedToDayDays &&
+          other.movedToTargetTimeMinutes == this.movedToTargetTimeMinutes &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class WakePlanOccurrenceExceptionRowsCompanion
+    extends UpdateCompanion<WakePlanOccurrenceExceptionRow> {
+  final Value<String> id;
+  final Value<String> wakePlanId;
+  final Value<int> originalDayDays;
+  final Value<String> type;
+  final Value<int?> movedToDayDays;
+  final Value<int?> movedToTargetTimeMinutes;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const WakePlanOccurrenceExceptionRowsCompanion({
+    this.id = const Value.absent(),
+    this.wakePlanId = const Value.absent(),
+    this.originalDayDays = const Value.absent(),
+    this.type = const Value.absent(),
+    this.movedToDayDays = const Value.absent(),
+    this.movedToTargetTimeMinutes = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  WakePlanOccurrenceExceptionRowsCompanion.insert({
+    required String id,
+    required String wakePlanId,
+    required int originalDayDays,
+    required String type,
+    this.movedToDayDays = const Value.absent(),
+    this.movedToTargetTimeMinutes = const Value.absent(),
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       wakePlanId = Value(wakePlanId),
+       originalDayDays = Value(originalDayDays),
+       type = Value(type),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<WakePlanOccurrenceExceptionRow> custom({
+    Expression<String>? id,
+    Expression<String>? wakePlanId,
+    Expression<int>? originalDayDays,
+    Expression<String>? type,
+    Expression<int>? movedToDayDays,
+    Expression<int>? movedToTargetTimeMinutes,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (wakePlanId != null) 'wake_plan_id': wakePlanId,
+      if (originalDayDays != null) 'original_day_days': originalDayDays,
+      if (type != null) 'type': type,
+      if (movedToDayDays != null) 'moved_to_day_days': movedToDayDays,
+      if (movedToTargetTimeMinutes != null)
+        'moved_to_target_time_minutes': movedToTargetTimeMinutes,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  WakePlanOccurrenceExceptionRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? wakePlanId,
+    Value<int>? originalDayDays,
+    Value<String>? type,
+    Value<int?>? movedToDayDays,
+    Value<int?>? movedToTargetTimeMinutes,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return WakePlanOccurrenceExceptionRowsCompanion(
+      id: id ?? this.id,
+      wakePlanId: wakePlanId ?? this.wakePlanId,
+      originalDayDays: originalDayDays ?? this.originalDayDays,
+      type: type ?? this.type,
+      movedToDayDays: movedToDayDays ?? this.movedToDayDays,
+      movedToTargetTimeMinutes:
+          movedToTargetTimeMinutes ?? this.movedToTargetTimeMinutes,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (wakePlanId.present) {
+      map['wake_plan_id'] = Variable<String>(wakePlanId.value);
+    }
+    if (originalDayDays.present) {
+      map['original_day_days'] = Variable<int>(originalDayDays.value);
+    }
+    if (type.present) {
+      map['type'] = Variable<String>(type.value);
+    }
+    if (movedToDayDays.present) {
+      map['moved_to_day_days'] = Variable<int>(movedToDayDays.value);
+    }
+    if (movedToTargetTimeMinutes.present) {
+      map['moved_to_target_time_minutes'] = Variable<int>(
+        movedToTargetTimeMinutes.value,
+      );
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('WakePlanOccurrenceExceptionRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('wakePlanId: $wakePlanId, ')
+          ..write('originalDayDays: $originalDayDays, ')
+          ..write('type: $type, ')
+          ..write('movedToDayDays: $movedToDayDays, ')
+          ..write('movedToTargetTimeMinutes: $movedToTargetTimeMinutes, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
@@ -3080,6 +3641,8 @@ abstract class _$WakePlanDatabase extends GeneratedDatabase {
   late final $WakePlanRowsTable wakePlanRows = $WakePlanRowsTable(this);
   late final $AlarmOccurrenceRowsTable alarmOccurrenceRows =
       $AlarmOccurrenceRowsTable(this);
+  late final $WakePlanOccurrenceExceptionRowsTable
+  wakePlanOccurrenceExceptionRows = $WakePlanOccurrenceExceptionRowsTable(this);
   late final $AppSettingsRowsTable appSettingsRows = $AppSettingsRowsTable(
     this,
   );
@@ -3092,6 +3655,10 @@ abstract class _$WakePlanDatabase extends GeneratedDatabase {
     'alarm_occurrence_wake_plan_id',
     'CREATE INDEX alarm_occurrence_wake_plan_id ON alarm_occurrence_rows (wake_plan_id)',
   );
+  late final Index wakePlanOccurrenceExceptionWakePlanId = Index(
+    'wake_plan_occurrence_exception_wake_plan_id',
+    'CREATE INDEX wake_plan_occurrence_exception_wake_plan_id ON wake_plan_occurrence_exception_rows (wake_plan_id)',
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -3099,10 +3666,12 @@ abstract class _$WakePlanDatabase extends GeneratedDatabase {
   List<DatabaseSchemaEntity> get allSchemaEntities => [
     wakePlanRows,
     alarmOccurrenceRows,
+    wakePlanOccurrenceExceptionRows,
     appSettingsRows,
     holidayCacheRows,
     holidayFetchMetadataRows,
     alarmOccurrenceWakePlanId,
+    wakePlanOccurrenceExceptionWakePlanId,
   ];
 }
 
@@ -3118,8 +3687,8 @@ typedef $$WakePlanRowsTableCreateCompanionBuilder =
       Value<int?> weekdaysMask,
       required bool isEnabled,
       required String status,
-      Value<int?> skipNextDateDays,
       Value<bool> skipHolidays,
+      Value<int?> repeatUntilDays,
       required String soundId,
       required bool vibrationEnabled,
       required DateTime createdAt,
@@ -3138,8 +3707,8 @@ typedef $$WakePlanRowsTableUpdateCompanionBuilder =
       Value<int?> weekdaysMask,
       Value<bool> isEnabled,
       Value<String> status,
-      Value<int?> skipNextDateDays,
       Value<bool> skipHolidays,
+      Value<int?> repeatUntilDays,
       Value<String> soundId,
       Value<bool> vibrationEnabled,
       Value<DateTime> createdAt,
@@ -3173,6 +3742,34 @@ final class $$WakePlanRowsTableReferences
 
     final cache = $_typedResult.readTableOrNull(
       _alarmOccurrenceRowsRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<
+    $WakePlanOccurrenceExceptionRowsTable,
+    List<WakePlanOccurrenceExceptionRow>
+  >
+  _wakePlanOccurrenceExceptionRowsRefsTable(_$WakePlanDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.wakePlanOccurrenceExceptionRows,
+        aliasName: $_aliasNameGenerator(
+          db.wakePlanRows.id,
+          db.wakePlanOccurrenceExceptionRows.wakePlanId,
+        ),
+      );
+
+  $$WakePlanOccurrenceExceptionRowsTableProcessedTableManager
+  get wakePlanOccurrenceExceptionRowsRefs {
+    final manager = $$WakePlanOccurrenceExceptionRowsTableTableManager(
+      $_db,
+      $_db.wakePlanOccurrenceExceptionRows,
+    ).filter((f) => f.wakePlanId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _wakePlanOccurrenceExceptionRowsRefsTable($_db),
     );
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
@@ -3239,13 +3836,13 @@ class $$WakePlanRowsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<int> get skipNextDateDays => $composableBuilder(
-    column: $table.skipNextDateDays,
+  ColumnFilters<bool> get skipHolidays => $composableBuilder(
+    column: $table.skipHolidays,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<bool> get skipHolidays => $composableBuilder(
-    column: $table.skipHolidays,
+  ColumnFilters<int> get repeatUntilDays => $composableBuilder(
+    column: $table.repeatUntilDays,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -3291,6 +3888,35 @@ class $$WakePlanRowsTableFilterComposer
                 $removeJoinBuilderFromRootComposer,
           ),
     );
+    return f(composer);
+  }
+
+  Expression<bool> wakePlanOccurrenceExceptionRowsRefs(
+    Expression<bool> Function(
+      $$WakePlanOccurrenceExceptionRowsTableFilterComposer f,
+    )
+    f,
+  ) {
+    final $$WakePlanOccurrenceExceptionRowsTableFilterComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.wakePlanOccurrenceExceptionRows,
+          getReferencedColumn: (t) => t.wakePlanId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$WakePlanOccurrenceExceptionRowsTableFilterComposer(
+                $db: $db,
+                $table: $db.wakePlanOccurrenceExceptionRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
     return f(composer);
   }
 }
@@ -3354,13 +3980,13 @@ class $$WakePlanRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<int> get skipNextDateDays => $composableBuilder(
-    column: $table.skipNextDateDays,
+  ColumnOrderings<bool> get skipHolidays => $composableBuilder(
+    column: $table.skipHolidays,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<bool> get skipHolidays => $composableBuilder(
-    column: $table.skipHolidays,
+  ColumnOrderings<int> get repeatUntilDays => $composableBuilder(
+    column: $table.repeatUntilDays,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -3436,13 +4062,13 @@ class $$WakePlanRowsTableAnnotationComposer
   GeneratedColumn<String> get status =>
       $composableBuilder(column: $table.status, builder: (column) => column);
 
-  GeneratedColumn<int> get skipNextDateDays => $composableBuilder(
-    column: $table.skipNextDateDays,
+  GeneratedColumn<bool> get skipHolidays => $composableBuilder(
+    column: $table.skipHolidays,
     builder: (column) => column,
   );
 
-  GeneratedColumn<bool> get skipHolidays => $composableBuilder(
-    column: $table.skipHolidays,
+  GeneratedColumn<int> get repeatUntilDays => $composableBuilder(
+    column: $table.repeatUntilDays,
     builder: (column) => column,
   );
 
@@ -3485,6 +4111,35 @@ class $$WakePlanRowsTableAnnotationComposer
         );
     return f(composer);
   }
+
+  Expression<T> wakePlanOccurrenceExceptionRowsRefs<T extends Object>(
+    Expression<T> Function(
+      $$WakePlanOccurrenceExceptionRowsTableAnnotationComposer a,
+    )
+    f,
+  ) {
+    final $$WakePlanOccurrenceExceptionRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.wakePlanOccurrenceExceptionRows,
+          getReferencedColumn: (t) => t.wakePlanId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$WakePlanOccurrenceExceptionRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.wakePlanOccurrenceExceptionRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
 }
 
 class $$WakePlanRowsTableTableManager
@@ -3500,7 +4155,10 @@ class $$WakePlanRowsTableTableManager
           $$WakePlanRowsTableUpdateCompanionBuilder,
           (WakePlanRow, $$WakePlanRowsTableReferences),
           WakePlanRow,
-          PrefetchHooks Function({bool alarmOccurrenceRowsRefs})
+          PrefetchHooks Function({
+            bool alarmOccurrenceRowsRefs,
+            bool wakePlanOccurrenceExceptionRowsRefs,
+          })
         > {
   $$WakePlanRowsTableTableManager(
     _$WakePlanDatabase db,
@@ -3527,8 +4185,8 @@ class $$WakePlanRowsTableTableManager
                 Value<int?> weekdaysMask = const Value.absent(),
                 Value<bool> isEnabled = const Value.absent(),
                 Value<String> status = const Value.absent(),
-                Value<int?> skipNextDateDays = const Value.absent(),
                 Value<bool> skipHolidays = const Value.absent(),
+                Value<int?> repeatUntilDays = const Value.absent(),
                 Value<String> soundId = const Value.absent(),
                 Value<bool> vibrationEnabled = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
@@ -3545,8 +4203,8 @@ class $$WakePlanRowsTableTableManager
                 weekdaysMask: weekdaysMask,
                 isEnabled: isEnabled,
                 status: status,
-                skipNextDateDays: skipNextDateDays,
                 skipHolidays: skipHolidays,
+                repeatUntilDays: repeatUntilDays,
                 soundId: soundId,
                 vibrationEnabled: vibrationEnabled,
                 createdAt: createdAt,
@@ -3565,8 +4223,8 @@ class $$WakePlanRowsTableTableManager
                 Value<int?> weekdaysMask = const Value.absent(),
                 required bool isEnabled,
                 required String status,
-                Value<int?> skipNextDateDays = const Value.absent(),
                 Value<bool> skipHolidays = const Value.absent(),
+                Value<int?> repeatUntilDays = const Value.absent(),
                 required String soundId,
                 required bool vibrationEnabled,
                 required DateTime createdAt,
@@ -3583,8 +4241,8 @@ class $$WakePlanRowsTableTableManager
                 weekdaysMask: weekdaysMask,
                 isEnabled: isEnabled,
                 status: status,
-                skipNextDateDays: skipNextDateDays,
                 skipHolidays: skipHolidays,
+                repeatUntilDays: repeatUntilDays,
                 soundId: soundId,
                 vibrationEnabled: vibrationEnabled,
                 createdAt: createdAt,
@@ -3599,38 +4257,67 @@ class $$WakePlanRowsTableTableManager
                 ),
               )
               .toList(),
-          prefetchHooksCallback: ({alarmOccurrenceRowsRefs = false}) {
-            return PrefetchHooks(
-              db: db,
-              explicitlyWatchedTables: [
-                if (alarmOccurrenceRowsRefs) db.alarmOccurrenceRows,
-              ],
-              addJoins: null,
-              getPrefetchedDataCallback: (items) async {
-                return [
-                  if (alarmOccurrenceRowsRefs)
-                    await $_getPrefetchedData<
-                      WakePlanRow,
-                      $WakePlanRowsTable,
-                      AlarmOccurrenceRow
-                    >(
-                      currentTable: table,
-                      referencedTable: $$WakePlanRowsTableReferences
-                          ._alarmOccurrenceRowsRefsTable(db),
-                      managerFromTypedResult: (p0) =>
-                          $$WakePlanRowsTableReferences(
-                            db,
-                            table,
-                            p0,
-                          ).alarmOccurrenceRowsRefs,
-                      referencedItemsForCurrentItem: (item, referencedItems) =>
-                          referencedItems.where((e) => e.wakePlanId == item.id),
-                      typedResults: items,
-                    ),
-                ];
+          prefetchHooksCallback:
+              ({
+                alarmOccurrenceRowsRefs = false,
+                wakePlanOccurrenceExceptionRowsRefs = false,
+              }) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (alarmOccurrenceRowsRefs) db.alarmOccurrenceRows,
+                    if (wakePlanOccurrenceExceptionRowsRefs)
+                      db.wakePlanOccurrenceExceptionRows,
+                  ],
+                  addJoins: null,
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (alarmOccurrenceRowsRefs)
+                        await $_getPrefetchedData<
+                          WakePlanRow,
+                          $WakePlanRowsTable,
+                          AlarmOccurrenceRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$WakePlanRowsTableReferences
+                              ._alarmOccurrenceRowsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$WakePlanRowsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).alarmOccurrenceRowsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.wakePlanId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (wakePlanOccurrenceExceptionRowsRefs)
+                        await $_getPrefetchedData<
+                          WakePlanRow,
+                          $WakePlanRowsTable,
+                          WakePlanOccurrenceExceptionRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$WakePlanRowsTableReferences
+                              ._wakePlanOccurrenceExceptionRowsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$WakePlanRowsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).wakePlanOccurrenceExceptionRowsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.wakePlanId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
+                  },
+                );
               },
-            );
-          },
         ),
       );
 }
@@ -3647,7 +4334,10 @@ typedef $$WakePlanRowsTableProcessedTableManager =
       $$WakePlanRowsTableUpdateCompanionBuilder,
       (WakePlanRow, $$WakePlanRowsTableReferences),
       WakePlanRow,
-      PrefetchHooks Function({bool alarmOccurrenceRowsRefs})
+      PrefetchHooks Function({
+        bool alarmOccurrenceRowsRefs,
+        bool wakePlanOccurrenceExceptionRowsRefs,
+      })
     >;
 typedef $$AlarmOccurrenceRowsTableCreateCompanionBuilder =
     AlarmOccurrenceRowsCompanion Function({
@@ -4196,6 +4886,426 @@ typedef $$AlarmOccurrenceRowsTableProcessedTableManager =
       $$AlarmOccurrenceRowsTableUpdateCompanionBuilder,
       (AlarmOccurrenceRow, $$AlarmOccurrenceRowsTableReferences),
       AlarmOccurrenceRow,
+      PrefetchHooks Function({bool wakePlanId})
+    >;
+typedef $$WakePlanOccurrenceExceptionRowsTableCreateCompanionBuilder =
+    WakePlanOccurrenceExceptionRowsCompanion Function({
+      required String id,
+      required String wakePlanId,
+      required int originalDayDays,
+      required String type,
+      Value<int?> movedToDayDays,
+      Value<int?> movedToTargetTimeMinutes,
+      required DateTime createdAt,
+      required DateTime updatedAt,
+      Value<int> rowid,
+    });
+typedef $$WakePlanOccurrenceExceptionRowsTableUpdateCompanionBuilder =
+    WakePlanOccurrenceExceptionRowsCompanion Function({
+      Value<String> id,
+      Value<String> wakePlanId,
+      Value<int> originalDayDays,
+      Value<String> type,
+      Value<int?> movedToDayDays,
+      Value<int?> movedToTargetTimeMinutes,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<int> rowid,
+    });
+
+final class $$WakePlanOccurrenceExceptionRowsTableReferences
+    extends
+        BaseReferences<
+          _$WakePlanDatabase,
+          $WakePlanOccurrenceExceptionRowsTable,
+          WakePlanOccurrenceExceptionRow
+        > {
+  $$WakePlanOccurrenceExceptionRowsTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $WakePlanRowsTable _wakePlanIdTable(_$WakePlanDatabase db) =>
+      db.wakePlanRows.createAlias(
+        $_aliasNameGenerator(
+          db.wakePlanOccurrenceExceptionRows.wakePlanId,
+          db.wakePlanRows.id,
+        ),
+      );
+
+  $$WakePlanRowsTableProcessedTableManager get wakePlanId {
+    final $_column = $_itemColumn<String>('wake_plan_id')!;
+
+    final manager = $$WakePlanRowsTableTableManager(
+      $_db,
+      $_db.wakePlanRows,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_wakePlanIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$WakePlanOccurrenceExceptionRowsTableFilterComposer
+    extends
+        Composer<_$WakePlanDatabase, $WakePlanOccurrenceExceptionRowsTable> {
+  $$WakePlanOccurrenceExceptionRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get originalDayDays => $composableBuilder(
+    column: $table.originalDayDays,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get type => $composableBuilder(
+    column: $table.type,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get movedToDayDays => $composableBuilder(
+    column: $table.movedToDayDays,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get movedToTargetTimeMinutes => $composableBuilder(
+    column: $table.movedToTargetTimeMinutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$WakePlanRowsTableFilterComposer get wakePlanId {
+    final $$WakePlanRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.wakePlanId,
+      referencedTable: $db.wakePlanRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$WakePlanRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.wakePlanRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$WakePlanOccurrenceExceptionRowsTableOrderingComposer
+    extends
+        Composer<_$WakePlanDatabase, $WakePlanOccurrenceExceptionRowsTable> {
+  $$WakePlanOccurrenceExceptionRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get originalDayDays => $composableBuilder(
+    column: $table.originalDayDays,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get type => $composableBuilder(
+    column: $table.type,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get movedToDayDays => $composableBuilder(
+    column: $table.movedToDayDays,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get movedToTargetTimeMinutes => $composableBuilder(
+    column: $table.movedToTargetTimeMinutes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$WakePlanRowsTableOrderingComposer get wakePlanId {
+    final $$WakePlanRowsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.wakePlanId,
+      referencedTable: $db.wakePlanRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$WakePlanRowsTableOrderingComposer(
+            $db: $db,
+            $table: $db.wakePlanRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$WakePlanOccurrenceExceptionRowsTableAnnotationComposer
+    extends
+        Composer<_$WakePlanDatabase, $WakePlanOccurrenceExceptionRowsTable> {
+  $$WakePlanOccurrenceExceptionRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get originalDayDays => $composableBuilder(
+    column: $table.originalDayDays,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get type =>
+      $composableBuilder(column: $table.type, builder: (column) => column);
+
+  GeneratedColumn<int> get movedToDayDays => $composableBuilder(
+    column: $table.movedToDayDays,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get movedToTargetTimeMinutes => $composableBuilder(
+    column: $table.movedToTargetTimeMinutes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  $$WakePlanRowsTableAnnotationComposer get wakePlanId {
+    final $$WakePlanRowsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.wakePlanId,
+      referencedTable: $db.wakePlanRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$WakePlanRowsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.wakePlanRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$WakePlanOccurrenceExceptionRowsTableTableManager
+    extends
+        RootTableManager<
+          _$WakePlanDatabase,
+          $WakePlanOccurrenceExceptionRowsTable,
+          WakePlanOccurrenceExceptionRow,
+          $$WakePlanOccurrenceExceptionRowsTableFilterComposer,
+          $$WakePlanOccurrenceExceptionRowsTableOrderingComposer,
+          $$WakePlanOccurrenceExceptionRowsTableAnnotationComposer,
+          $$WakePlanOccurrenceExceptionRowsTableCreateCompanionBuilder,
+          $$WakePlanOccurrenceExceptionRowsTableUpdateCompanionBuilder,
+          (
+            WakePlanOccurrenceExceptionRow,
+            $$WakePlanOccurrenceExceptionRowsTableReferences,
+          ),
+          WakePlanOccurrenceExceptionRow,
+          PrefetchHooks Function({bool wakePlanId})
+        > {
+  $$WakePlanOccurrenceExceptionRowsTableTableManager(
+    _$WakePlanDatabase db,
+    $WakePlanOccurrenceExceptionRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$WakePlanOccurrenceExceptionRowsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$WakePlanOccurrenceExceptionRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$WakePlanOccurrenceExceptionRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> wakePlanId = const Value.absent(),
+                Value<int> originalDayDays = const Value.absent(),
+                Value<String> type = const Value.absent(),
+                Value<int?> movedToDayDays = const Value.absent(),
+                Value<int?> movedToTargetTimeMinutes = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => WakePlanOccurrenceExceptionRowsCompanion(
+                id: id,
+                wakePlanId: wakePlanId,
+                originalDayDays: originalDayDays,
+                type: type,
+                movedToDayDays: movedToDayDays,
+                movedToTargetTimeMinutes: movedToTargetTimeMinutes,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String wakePlanId,
+                required int originalDayDays,
+                required String type,
+                Value<int?> movedToDayDays = const Value.absent(),
+                Value<int?> movedToTargetTimeMinutes = const Value.absent(),
+                required DateTime createdAt,
+                required DateTime updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => WakePlanOccurrenceExceptionRowsCompanion.insert(
+                id: id,
+                wakePlanId: wakePlanId,
+                originalDayDays: originalDayDays,
+                type: type,
+                movedToDayDays: movedToDayDays,
+                movedToTargetTimeMinutes: movedToTargetTimeMinutes,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$WakePlanOccurrenceExceptionRowsTableReferences(
+                    db,
+                    table,
+                    e,
+                  ),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({wakePlanId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (wakePlanId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.wakePlanId,
+                                referencedTable:
+                                    $$WakePlanOccurrenceExceptionRowsTableReferences
+                                        ._wakePlanIdTable(db),
+                                referencedColumn:
+                                    $$WakePlanOccurrenceExceptionRowsTableReferences
+                                        ._wakePlanIdTable(db)
+                                        .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$WakePlanOccurrenceExceptionRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$WakePlanDatabase,
+      $WakePlanOccurrenceExceptionRowsTable,
+      WakePlanOccurrenceExceptionRow,
+      $$WakePlanOccurrenceExceptionRowsTableFilterComposer,
+      $$WakePlanOccurrenceExceptionRowsTableOrderingComposer,
+      $$WakePlanOccurrenceExceptionRowsTableAnnotationComposer,
+      $$WakePlanOccurrenceExceptionRowsTableCreateCompanionBuilder,
+      $$WakePlanOccurrenceExceptionRowsTableUpdateCompanionBuilder,
+      (
+        WakePlanOccurrenceExceptionRow,
+        $$WakePlanOccurrenceExceptionRowsTableReferences,
+      ),
+      WakePlanOccurrenceExceptionRow,
       PrefetchHooks Function({bool wakePlanId})
     >;
 typedef $$AppSettingsRowsTableCreateCompanionBuilder =
@@ -4857,6 +5967,12 @@ class $WakePlanDatabaseManager {
       $$WakePlanRowsTableTableManager(_db, _db.wakePlanRows);
   $$AlarmOccurrenceRowsTableTableManager get alarmOccurrenceRows =>
       $$AlarmOccurrenceRowsTableTableManager(_db, _db.alarmOccurrenceRows);
+  $$WakePlanOccurrenceExceptionRowsTableTableManager
+  get wakePlanOccurrenceExceptionRows =>
+      $$WakePlanOccurrenceExceptionRowsTableTableManager(
+        _db,
+        _db.wakePlanOccurrenceExceptionRows,
+      );
   $$AppSettingsRowsTableTableManager get appSettingsRows =>
       $$AppSettingsRowsTableTableManager(_db, _db.appSettingsRows);
   $$HolidayCacheRowsTableTableManager get holidayCacheRows =>

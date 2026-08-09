@@ -331,10 +331,17 @@ class WeekCalendarWakePlanTapTarget {
   const WeekCalendarWakePlanTapTarget({
     required this.wakePlan,
     required this.targetDay,
-  });
+    CalendarDay? originalDay,
+  }) : originalDay = originalDay ?? targetDay;
 
   final WakePlan wakePlan;
   final CalendarDay targetDay;
+
+  /// The natural occurrence day this tap resolves to for per-occurrence
+  /// actions (skip/move/delete-this-and-following) — equal to [targetDay]
+  /// unless this occurrence was moved here from a different day via
+  /// [WakePlanOccurrenceException].
+  final CalendarDay originalDay;
 
   DateTime get targetAt => wakePlan.targetAt(targetDay);
 }
@@ -353,7 +360,8 @@ class WeekCalendarWakePlanBlock {
     required this.laneIndex,
     required this.laneCount,
     required this.occurrenceCount,
-  });
+    CalendarDay? originalDay,
+  }) : originalDay = originalDay ?? targetDay;
 
   final WakePlan wakePlan;
   final CalendarDay targetDay;
@@ -368,6 +376,11 @@ class WeekCalendarWakePlanBlock {
   final int laneCount;
   final int occurrenceCount;
 
+  /// See [WeekCalendarWakePlanTapTarget.originalDay].
+  final CalendarDay originalDay;
+
+  bool get isMovedOccurrence => originalDay != targetDay;
+
   bool get containsTarget {
     return !targetAt.isBefore(startAt) && !targetAt.isAfter(endAt);
   }
@@ -376,6 +389,7 @@ class WeekCalendarWakePlanBlock {
     return WeekCalendarWakePlanTapTarget(
       wakePlan: wakePlan,
       targetDay: targetDay,
+      originalDay: originalDay,
     );
   }
 
@@ -393,6 +407,7 @@ class WeekCalendarWakePlanBlock {
       laneIndex: laneIndex ?? this.laneIndex,
       laneCount: laneCount ?? this.laneCount,
       occurrenceCount: occurrenceCount,
+      originalDay: originalDay,
     );
   }
 }
@@ -526,12 +541,18 @@ List<WeekCalendarWakePlanBlock> weekCalendarWakePlanBlocks({
   required WeekRange week,
   required Iterable<WakePlan> wakePlans,
   Set<CalendarDay> holidays = const {},
+  Map<String, List<WakePlanOccurrenceException>> exceptionsByWakePlanId =
+      const {},
 }) {
   final visibleStart = week.start.startOfDay;
   final visibleEnd = week.endExclusive.startOfDay;
   final blocks = <WeekCalendarWakePlanBlock>[];
 
   for (final wakePlan in wakePlans) {
+    final exceptions = exceptionsByWakePlanId[wakePlan.id] ?? const [];
+    final exceptionsByOriginalDay = {
+      for (final exception in exceptions) exception.originalDay: exception,
+    };
     final lookbackDays =
         (wakePlan.startOffset.inMinutes / TimeOfDayMinutes.minutesPerDay)
             .ceil();
@@ -543,48 +564,92 @@ List<WeekCalendarWakePlanBlock> weekCalendarWakePlanBlocks({
       day.compareTo(lastTargetDayExclusive) < 0;
       day = day.addDays(1)
     ) {
-      if (!wakePlan.occursOnConsideringHolidays(day, holidays)) {
+      if (!wakePlan.occursOnConsideringHolidays(day, holidays) ||
+          exceptionsByOriginalDay.containsKey(day)) {
         continue;
       }
 
-      final targetAt = wakePlan.targetAt(day);
-      final startAt = wakePlan.startAt(day);
-      if (!startAt.isBefore(visibleEnd) || !targetAt.isAfter(visibleStart)) {
+      _addWakePlanDayBlocks(
+        blocks: blocks,
+        wakePlan: wakePlan,
+        targetDay: day,
+        originalDay: day,
+        week: week,
+        visibleStart: visibleStart,
+        visibleEnd: visibleEnd,
+      );
+    }
+
+    for (final exception in exceptions) {
+      if (!exception.isMoved) {
         continue;
       }
-
-      final occurrenceCount = wakePlanOccurrenceCount(wakePlan);
-
-      for (final visibleDay in week.days) {
-        final dayStart = visibleDay.startOfDay;
-        final dayEnd = visibleDay.addDays(1).startOfDay;
-        final segmentStart = _latestDateTime(startAt, dayStart);
-        final segmentEnd = _earliestDateTime(targetAt, dayEnd);
-        if (!segmentStart.isBefore(segmentEnd)) {
-          continue;
-        }
-
-        blocks.add(
-          WeekCalendarWakePlanBlock(
-            wakePlan: wakePlan,
-            targetDay: day,
-            day: visibleDay,
-            startAt: segmentStart,
-            endAt: segmentEnd,
-            targetAt: targetAt,
-            topMinute: _minuteOfDay(segmentStart),
-            durationMinutes: segmentEnd.difference(segmentStart).inMinutes,
-            dayIndex: visibleDay.differenceInDays(week.start),
-            laneIndex: 0,
-            laneCount: 1,
-            occurrenceCount: occurrenceCount,
-          ),
-        );
-      }
+      _addWakePlanDayBlocks(
+        blocks: blocks,
+        wakePlan: wakePlan,
+        targetDay: exception.movedToDay!,
+        originalDay: exception.originalDay,
+        week: week,
+        visibleStart: visibleStart,
+        visibleEnd: visibleEnd,
+        overrideTargetTime: exception.movedToTargetTime,
+      );
     }
   }
 
   return _withOverlapLanes(blocks);
+}
+
+void _addWakePlanDayBlocks({
+  required List<WeekCalendarWakePlanBlock> blocks,
+  required WakePlan wakePlan,
+  required CalendarDay targetDay,
+  required CalendarDay originalDay,
+  required WeekRange week,
+  required DateTime visibleStart,
+  required DateTime visibleEnd,
+  TimeOfDayMinutes? overrideTargetTime,
+}) {
+  final targetAt = overrideTargetTime == null
+      ? wakePlan.targetAt(targetDay)
+      : targetDay.at(overrideTargetTime);
+  final startAt = targetStartAt(
+    targetAt: targetAt,
+    startOffset: wakePlan.startOffset,
+  );
+  if (!startAt.isBefore(visibleEnd) || !targetAt.isAfter(visibleStart)) {
+    return;
+  }
+
+  final occurrenceCount = wakePlanOccurrenceCount(wakePlan);
+
+  for (final visibleDay in week.days) {
+    final dayStart = visibleDay.startOfDay;
+    final dayEnd = visibleDay.addDays(1).startOfDay;
+    final segmentStart = _latestDateTime(startAt, dayStart);
+    final segmentEnd = _earliestDateTime(targetAt, dayEnd);
+    if (!segmentStart.isBefore(segmentEnd)) {
+      continue;
+    }
+
+    blocks.add(
+      WeekCalendarWakePlanBlock(
+        wakePlan: wakePlan,
+        targetDay: targetDay,
+        originalDay: originalDay,
+        day: visibleDay,
+        startAt: segmentStart,
+        endAt: segmentEnd,
+        targetAt: targetAt,
+        topMinute: _minuteOfDay(segmentStart),
+        durationMinutes: segmentEnd.difference(segmentStart).inMinutes,
+        dayIndex: visibleDay.differenceInDays(week.start),
+        laneIndex: 0,
+        laneCount: 1,
+        occurrenceCount: occurrenceCount,
+      ),
+    );
+  }
 }
 
 /// Like [weekCalendarWakePlanBlocks], but for a single continuous vertical
@@ -600,12 +665,18 @@ List<WeekCalendarWakePlanBlock> weekCalendarWakePlanOverlayBlocks({
   required WeekRange window,
   required Iterable<WakePlan> wakePlans,
   Set<CalendarDay> holidays = const {},
+  Map<String, List<WakePlanOccurrenceException>> exceptionsByWakePlanId =
+      const {},
 }) {
   final visibleStart = window.start.startOfDay;
   final visibleEnd = window.endExclusive.startOfDay;
   final blocks = <WeekCalendarWakePlanBlock>[];
 
   for (final wakePlan in wakePlans) {
+    final exceptions = exceptionsByWakePlanId[wakePlan.id] ?? const [];
+    final exceptionsByOriginalDay = {
+      for (final exception in exceptions) exception.originalDay: exception,
+    };
     final lookbackDays =
         (wakePlan.startOffset.inMinutes / TimeOfDayMinutes.minutesPerDay)
             .ceil();
@@ -617,42 +688,85 @@ List<WeekCalendarWakePlanBlock> weekCalendarWakePlanOverlayBlocks({
       day.compareTo(lastTargetDayExclusive) < 0;
       day = day.addDays(1)
     ) {
-      if (!wakePlan.occursOnConsideringHolidays(day, holidays)) {
+      if (!wakePlan.occursOnConsideringHolidays(day, holidays) ||
+          exceptionsByOriginalDay.containsKey(day)) {
         continue;
       }
 
-      final targetAt = wakePlan.targetAt(day);
-      final startAt = wakePlan.startAt(day);
-      if (!startAt.isBefore(visibleEnd) || !targetAt.isAfter(visibleStart)) {
+      _addWakePlanOverlayBlock(
+        blocks: blocks,
+        wakePlan: wakePlan,
+        targetDay: day,
+        originalDay: day,
+        anchorDay: anchorDay,
+        visibleStart: visibleStart,
+        visibleEnd: visibleEnd,
+      );
+    }
+
+    for (final exception in exceptions) {
+      if (!exception.isMoved) {
         continue;
       }
-
-      final occurrenceCount = wakePlanOccurrenceCount(wakePlan);
-      final startDay = CalendarDay.fromDateTime(startAt);
-      final dayOffset = startDay.differenceInDays(anchorDay);
-
-      blocks.add(
-        WeekCalendarWakePlanBlock(
-          wakePlan: wakePlan,
-          targetDay: day,
-          day: startDay,
-          startAt: startAt,
-          endAt: targetAt,
-          targetAt: targetAt,
-          topMinute:
-              (dayOffset * TimeOfDayMinutes.minutesPerDay) +
-              _minuteOfDay(startAt),
-          durationMinutes: targetAt.difference(startAt).inMinutes,
-          dayIndex: 0,
-          laneIndex: 0,
-          laneCount: 1,
-          occurrenceCount: occurrenceCount,
-        ),
+      _addWakePlanOverlayBlock(
+        blocks: blocks,
+        wakePlan: wakePlan,
+        targetDay: exception.movedToDay!,
+        originalDay: exception.originalDay,
+        anchorDay: anchorDay,
+        visibleStart: visibleStart,
+        visibleEnd: visibleEnd,
+        overrideTargetTime: exception.movedToTargetTime,
       );
     }
   }
 
   return _withOverlapLanes(blocks);
+}
+
+void _addWakePlanOverlayBlock({
+  required List<WeekCalendarWakePlanBlock> blocks,
+  required WakePlan wakePlan,
+  required CalendarDay targetDay,
+  required CalendarDay originalDay,
+  required CalendarDay anchorDay,
+  required DateTime visibleStart,
+  required DateTime visibleEnd,
+  TimeOfDayMinutes? overrideTargetTime,
+}) {
+  final targetAt = overrideTargetTime == null
+      ? wakePlan.targetAt(targetDay)
+      : targetDay.at(overrideTargetTime);
+  final startAt = targetStartAt(
+    targetAt: targetAt,
+    startOffset: wakePlan.startOffset,
+  );
+  if (!startAt.isBefore(visibleEnd) || !targetAt.isAfter(visibleStart)) {
+    return;
+  }
+
+  final occurrenceCount = wakePlanOccurrenceCount(wakePlan);
+  final startDay = CalendarDay.fromDateTime(startAt);
+  final dayOffset = startDay.differenceInDays(anchorDay);
+
+  blocks.add(
+    WeekCalendarWakePlanBlock(
+      wakePlan: wakePlan,
+      targetDay: targetDay,
+      originalDay: originalDay,
+      day: startDay,
+      startAt: startAt,
+      endAt: targetAt,
+      targetAt: targetAt,
+      topMinute:
+          (dayOffset * TimeOfDayMinutes.minutesPerDay) + _minuteOfDay(startAt),
+      durationMinutes: targetAt.difference(startAt).inMinutes,
+      dayIndex: 0,
+      laneIndex: 0,
+      laneCount: 1,
+      occurrenceCount: occurrenceCount,
+    ),
+  );
 }
 
 int wakePlanOccurrenceCount(WakePlan wakePlan) {

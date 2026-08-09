@@ -14,28 +14,14 @@ void main() {
     var deleted = false;
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: WakePlanDetailSheet(
-            target: WeekCalendarWakePlanTapTarget(
-              wakePlan: _plan(repeatRule: RepeatRule.oneTime(_targetDay)),
-              targetDay: _targetDay,
-            ),
-            now: DateTime(2026, 7, 8, 5, 30),
-            clock: () => DateTime(2026, 7, 8, 5, 30),
-            defaults: AppSettings.initial(),
-            existingWakePlans: const [],
-            onEdit: (_) async => _successResult(),
-            onDelete: (_) async {
-              deleted = true;
-              return _successResult();
-            },
-            onSkipNext: (_) async => _successResult(),
-            onUndoSkipNext: (_) async => _successResult(),
-            loadOccurrences: _emptyOccurrences,
-            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
-          ),
+      _harness(
+        target: _target(
+          wakePlan: _plan(repeatRule: RepeatRule.oneTime(_targetDay)),
         ),
+        onDelete: (_) async {
+          deleted = true;
+          return _successResult();
+        },
       ),
     );
 
@@ -66,28 +52,7 @@ void main() {
   testWidgets('preserves repeating wake plan delete confirmation copy', (
     tester,
   ) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: WakePlanDetailSheet(
-            target: WeekCalendarWakePlanTapTarget(
-              wakePlan: _plan(),
-              targetDay: _targetDay,
-            ),
-            now: DateTime(2026, 7, 8, 5, 30),
-            clock: () => DateTime(2026, 7, 8, 5, 30),
-            defaults: AppSettings.initial(),
-            existingWakePlans: const [],
-            onEdit: (_) async => _successResult(),
-            onDelete: (_) async => _successResult(),
-            onSkipNext: (_) async => _successResult(),
-            onUndoSkipNext: (_) async => _successResult(),
-            loadOccurrences: _emptyOccurrences,
-            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
-          ),
-        ),
-      ),
-    );
+    await tester.pumpWidget(_harness(target: _target(wakePlan: _plan())));
 
     await tester.tap(find.text('Delete'));
     await tester.pumpAndSettle();
@@ -101,154 +66,114 @@ void main() {
     );
   });
 
-  testWidgets('does not offer skip next for an unskipped one-time plan', (
+  testWidgets('does not offer occurrence actions for a one-time plan', (
     tester,
   ) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: WakePlanDetailSheet(
-            target: WeekCalendarWakePlanTapTarget(
-              wakePlan: _plan(repeatRule: RepeatRule.oneTime(_targetDay)),
-              targetDay: _targetDay,
-            ),
-            now: DateTime(2026, 7, 8, 5, 30),
-            clock: () => DateTime(2026, 7, 8, 5, 30),
-            defaults: AppSettings.initial(),
-            existingWakePlans: const [],
-            onEdit: (_) async => _successResult(),
-            onDelete: (_) async => _successResult(),
-            onSkipNext: (_) async => _successResult(),
-            onUndoSkipNext: (_) async => _successResult(),
-            loadOccurrences: _emptyOccurrences,
-            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
-          ),
+      _harness(
+        target: _target(
+          wakePlan: _plan(repeatRule: RepeatRule.oneTime(_targetDay)),
         ),
       ),
     );
 
-    expect(find.text('Skip next target'), findsNothing);
-    expect(find.text('Undo skip'), findsNothing);
+    expect(find.text('Delete this occurrence…'), findsNothing);
+    expect(find.text('Move this occurrence…'), findsNothing);
   });
 
-  testWidgets('offers undo for already skipped one-time plans', (tester) async {
-    WakePlan? restored;
-    final plan = _plan(
-      repeatRule: RepeatRule.oneTime(_targetDay),
-    ).copyWith(skipNextDate: _targetDay);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: WakePlanDetailSheet(
-            target: WeekCalendarWakePlanTapTarget(
-              wakePlan: plan,
-              targetDay: _targetDay,
-            ),
-            now: DateTime(2026, 7, 8, 5, 30),
-            clock: () => DateTime(2026, 7, 8, 5, 30),
-            defaults: AppSettings.initial(),
-            existingWakePlans: const [],
-            onEdit: (_) async => _successResult(),
-            onDelete: (_) async => _successResult(),
-            onSkipNext: (_) async => _successResult(),
-            onUndoSkipNext: (plan) async {
-              restored = plan;
-              return _successResult();
-            },
-            loadOccurrences: _emptyOccurrences,
-            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
-          ),
-        ),
-      ),
-    );
-
-    expect(find.text('Undo skip'), findsOneWidget);
-
-    await tester.tap(find.text('Undo skip'));
-    await tester.pumpAndSettle();
-
-    expect(restored?.id, 'plan-1');
-  });
-
-  testWidgets('shows skip state and triggers skip next', (tester) async {
-    WakePlan? skipped;
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: WakePlanDetailSheet(
-            target: WeekCalendarWakePlanTapTarget(
-              wakePlan: _plan(),
-              targetDay: CalendarDay(year: 2026, month: 7, day: 8),
-            ),
-            now: DateTime(2026, 7, 8, 5, 30),
-            clock: () => DateTime(2026, 7, 8, 5, 30),
-            defaults: AppSettings.initial(),
-            existingWakePlans: const [],
-            onEdit: (_) async => _successResult(),
-            onDelete: (_) async => _successResult(),
-            onSkipNext: (plan) async {
-              skipped = plan;
-              return _successResult();
-            },
-            onUndoSkipNext: (_) async => _successResult(),
-            loadOccurrences: _emptyOccurrences,
-            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
-          ),
-        ),
-      ),
-    );
-
-    expect(find.text('Skip state'), findsOneWidget);
-    expect(find.text('None'), findsOneWidget);
-
-    await tester.tap(find.text('Skip next target'));
-    await tester.pumpAndSettle();
-
-    expect(skipped?.id, 'plan-1');
-  });
-
-  testWidgets('shows skipped target date and triggers undo skip', (
+  testWidgets('skips this occurrence only when choosing "This event only"', (
     tester,
   ) async {
-    WakePlan? restored;
-    final plan = _plan().copyWith(
-      skipNextDate: CalendarDay(year: 2026, month: 7, day: 8),
-    );
+    WakePlan? skippedPlan;
+    CalendarDay? skippedDay;
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: WakePlanDetailSheet(
-            target: WeekCalendarWakePlanTapTarget(
-              wakePlan: plan,
-              targetDay: CalendarDay(year: 2026, month: 7, day: 9),
-            ),
-            now: DateTime(2026, 7, 8, 5, 30),
-            clock: () => DateTime(2026, 7, 8, 5, 30),
-            defaults: AppSettings.initial(),
-            existingWakePlans: const [],
-            onEdit: (_) async => _successResult(),
-            onDelete: (_) async => _successResult(),
-            onSkipNext: (_) async => _successResult(),
-            onUndoSkipNext: (plan) async {
-              restored = plan;
-              return _successResult();
-            },
-            loadOccurrences: _emptyOccurrences,
-            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
-          ),
+      _harness(
+        target: _target(
+          wakePlan: _plan(),
+          targetDay: CalendarDay(year: 2026, month: 7, day: 8),
         ),
+        onSkipOccurrence: (plan, day) async {
+          skippedPlan = plan;
+          skippedDay = day;
+          return _successResult();
+        },
       ),
     );
 
-    expect(find.text('Skipping next target on 2026-07-08'), findsOneWidget);
-
-    await tester.tap(find.text('Undo skip'));
+    await tester.tap(find.text('Delete this occurrence…'));
     await tester.pumpAndSettle();
 
-    expect(restored?.id, 'plan-1');
+    expect(find.text('Delete this occurrence?'), findsOneWidget);
+    await tester.tap(find.text('This event only'));
+    await tester.pumpAndSettle();
+
+    expect(skippedPlan?.id, 'plan-1');
+    expect(skippedDay, CalendarDay(year: 2026, month: 7, day: 8));
+  });
+
+  testWidgets(
+    'deletes this and following occurrences when choosing that scope',
+    (tester) async {
+      WakePlan? truncatedPlan;
+      CalendarDay? fromDay;
+
+      await tester.pumpWidget(
+        _harness(
+          target: _target(
+            wakePlan: _plan(),
+            targetDay: CalendarDay(year: 2026, month: 7, day: 8),
+          ),
+          onDeleteThisAndFollowing: (plan, day) async {
+            truncatedPlan = plan;
+            fromDay = day;
+            return _successResult();
+          },
+        ),
+      );
+
+      await tester.tap(find.text('Delete this occurrence…'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('This and following events'));
+      await tester.pumpAndSettle();
+
+      expect(truncatedPlan?.id, 'plan-1');
+      expect(fromDay, CalendarDay(year: 2026, month: 7, day: 8));
+    },
+  );
+
+  testWidgets('lists existing exceptions and undoes them', (tester) async {
+    WakePlan? undonePlan;
+    CalendarDay? undoneDay;
+    final skippedDay = CalendarDay(year: 2026, month: 7, day: 8);
+    final exception = WakePlanOccurrenceException(
+      wakePlanId: 'plan-1',
+      originalDay: skippedDay,
+      type: WakePlanOccurrenceExceptionType.skipped,
+      createdAt: DateTime(2026, 7, 1),
+      updatedAt: DateTime(2026, 7, 1),
+    );
+
+    await tester.pumpWidget(
+      _harness(
+        target: _target(wakePlan: _plan()),
+        existingExceptions: [exception],
+        onUndoSkipOccurrence: (plan, day) async {
+          undonePlan = plan;
+          undoneDay = day;
+          return _successResult();
+        },
+      ),
+    );
+
+    expect(find.text('Exceptions'), findsOneWidget);
+    expect(find.text('Skipped on 2026-07-08'), findsOneWidget);
+
+    await tester.tap(find.text('Undo'));
+    await tester.pumpAndSettle();
+
+    expect(undonePlan?.id, 'plan-1');
+    expect(undoneDay, skippedDay);
   });
 
   testWidgets('uses the injected clock for one-time edit eligibility', (
@@ -259,28 +184,17 @@ void main() {
     final targetDay = CalendarDay(year: 2026, month: 7, day: 9);
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: WakePlanDetailSheet(
-            target: WeekCalendarWakePlanTapTarget(
-              wakePlan: _plan(repeatRule: RepeatRule.oneTime(targetDay)),
-              targetDay: targetDay,
-            ),
-            now: now,
-            clock: () => now,
-            defaults: AppSettings.initial(),
-            existingWakePlans: const [],
-            onEdit: (_) async {
-              edited = true;
-              return _successResult();
-            },
-            onDelete: (_) async => _successResult(),
-            onSkipNext: (_) async => _successResult(),
-            onUndoSkipNext: (_) async => _successResult(),
-            loadOccurrences: _emptyOccurrences,
-            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
-          ),
+      _harness(
+        target: _target(
+          wakePlan: _plan(repeatRule: RepeatRule.oneTime(targetDay)),
+          targetDay: targetDay,
         ),
+        now: now,
+        clock: () => now,
+        onEdit: (_) async {
+          edited = true;
+          return _successResult();
+        },
       ),
     );
 
@@ -317,28 +231,17 @@ void main() {
     final targetDay = CalendarDay(year: 2026, month: 7, day: 9);
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: WakePlanDetailSheet(
-            target: WeekCalendarWakePlanTapTarget(
-              wakePlan: _plan(repeatRule: RepeatRule.oneTime(targetDay)),
-              targetDay: targetDay,
-            ),
-            now: initialNow,
-            clock: clock,
-            defaults: AppSettings.initial(),
-            existingWakePlans: const [],
-            onEdit: (_) async {
-              edited = true;
-              return _successResult();
-            },
-            onDelete: (_) async => _successResult(),
-            onSkipNext: (_) async => _successResult(),
-            onUndoSkipNext: (_) async => _successResult(),
-            loadOccurrences: _emptyOccurrences,
-            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
-          ),
+      _harness(
+        target: _target(
+          wakePlan: _plan(repeatRule: RepeatRule.oneTime(targetDay)),
+          targetDay: targetDay,
         ),
+        now: initialNow,
+        clock: clock,
+        onEdit: (_) async {
+          edited = true;
+          return _successResult();
+        },
       ),
     );
 
@@ -368,25 +271,12 @@ void main() {
     final liveNow = DateTime(2026, 7, 8, 8);
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: WakePlanDetailSheet(
-            target: WeekCalendarWakePlanTapTarget(
-              wakePlan: _plan(repeatRule: RepeatRule.oneTime(_targetDay)),
-              targetDay: _targetDay,
-            ),
-            now: initialNow,
-            clock: () => liveNow,
-            defaults: AppSettings.initial(),
-            existingWakePlans: const [],
-            onEdit: (_) async => _successResult(),
-            onDelete: (_) async => _successResult(),
-            onSkipNext: (_) async => _successResult(),
-            onUndoSkipNext: (_) async => _successResult(),
-            loadOccurrences: _emptyOccurrences,
-            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
-          ),
+      _harness(
+        target: _target(
+          wakePlan: _plan(repeatRule: RepeatRule.oneTime(_targetDay)),
         ),
+        now: initialNow,
+        clock: () => liveNow,
       ),
     );
     await tester.pumpAndSettle();
@@ -402,28 +292,17 @@ void main() {
     final targetDay = CalendarDay(year: 2026, month: 7, day: 9);
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: WakePlanDetailSheet(
-            target: WeekCalendarWakePlanTapTarget(
-              wakePlan: _plan(repeatRule: RepeatRule.oneTime(targetDay)),
-              targetDay: targetDay,
-            ),
-            now: now,
-            clock: () => now,
-            defaults: AppSettings.initial(),
-            existingWakePlans: const [],
-            onEdit: (_) async {
-              edited = true;
-              return _successResult();
-            },
-            onDelete: (_) async => _successResult(),
-            onSkipNext: (_) async => _successResult(),
-            onUndoSkipNext: (_) async => _successResult(),
-            loadOccurrences: _emptyOccurrences,
-            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
-          ),
+      _harness(
+        target: _target(
+          wakePlan: _plan(repeatRule: RepeatRule.oneTime(targetDay)),
+          targetDay: targetDay,
         ),
+        now: now,
+        clock: () => now,
+        onEdit: (_) async {
+          edited = true;
+          return _successResult();
+        },
       ),
     );
 
@@ -456,60 +335,47 @@ void main() {
       AlarmOccurrence? toggled;
 
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: WakePlanDetailSheet(
-              target: WeekCalendarWakePlanTapTarget(
-                wakePlan: plan,
-                targetDay: _targetDay,
-              ),
-              now: now,
-              clock: () => now,
-              defaults: AppSettings.initial(),
-              existingWakePlans: const [],
-              onEdit: (_) async => _successResult(),
-              onDelete: (_) async => _successResult(),
-              onSkipNext: (_) async => _successResult(),
-              onUndoSkipNext: (_) async => _successResult(),
-              loadOccurrences: (_) async => [
-                _occurrence(id: 'past', scheduledAt: DateTime(2026, 7, 8, 5)),
-                _occurrence(id: 'future', scheduledAt: DateTime(2026, 7, 8, 6)),
-                finalOccurrence,
-                _occurrence(
-                  id: 'ringing',
-                  scheduledAt: DateTime(2026, 7, 8, 6, 30),
-                  status: AlarmOccurrenceStatus.ringing,
-                  firedAt: now,
-                ),
-                _occurrence(
-                  id: 'dismissed',
-                  scheduledAt: DateTime(2026, 7, 8, 6, 45),
-                  status: AlarmOccurrenceStatus.dismissed,
-                  firedAt: now,
-                  dismissedAt: now,
-                ),
-              ],
-              onSetOccurrenceEnabled:
-                  ({
-                    required wakePlanId,
-                    required occurrenceId,
-                    required enabled,
-                  }) async {
-                    expect(wakePlanId, plan.id);
-                    expect(occurrenceId, finalOccurrence.id);
-                    expect(enabled, isFalse);
-                    toggled = finalOccurrence.copyWith(
-                      status: AlarmOccurrenceStatus.userDisabled,
-                      platformAlarmId: null,
-                      updatedAt: now,
-                    );
-                    return AlarmOccurrenceToggleResult.success(
-                      status: AlarmOccurrenceToggleStatus.disabled,
-                      occurrence: toggled!,
-                    );
-                  },
+        _harness(
+          target: _target(wakePlan: plan),
+          now: now,
+          clock: () => now,
+          loadOccurrences: (_) async => [
+            _occurrence(id: 'past', scheduledAt: DateTime(2026, 7, 8, 5)),
+            _occurrence(id: 'future', scheduledAt: DateTime(2026, 7, 8, 6)),
+            finalOccurrence,
+            _occurrence(
+              id: 'ringing',
+              scheduledAt: DateTime(2026, 7, 8, 6, 30),
+              status: AlarmOccurrenceStatus.ringing,
+              firedAt: now,
             ),
-          ),
+            _occurrence(
+              id: 'dismissed',
+              scheduledAt: DateTime(2026, 7, 8, 6, 45),
+              status: AlarmOccurrenceStatus.dismissed,
+              firedAt: now,
+              dismissedAt: now,
+            ),
+          ],
+          onSetOccurrenceEnabled:
+              ({
+                required wakePlanId,
+                required occurrenceId,
+                required enabled,
+              }) async {
+                expect(wakePlanId, plan.id);
+                expect(occurrenceId, finalOccurrence.id);
+                expect(enabled, isFalse);
+                toggled = finalOccurrence.copyWith(
+                  status: AlarmOccurrenceStatus.userDisabled,
+                  platformAlarmId: null,
+                  updatedAt: now,
+                );
+                return AlarmOccurrenceToggleResult.success(
+                  status: AlarmOccurrenceToggleStatus.disabled,
+                  occurrence: toggled!,
+                );
+              },
         ),
       );
       await tester.pumpAndSettle();
@@ -556,25 +422,11 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: WakePlanDetailSheet(
-            target: WeekCalendarWakePlanTapTarget(
-              wakePlan: _plan(),
-              targetDay: _targetDay,
-            ),
-            now: liveNow,
-            clock: () => liveNow,
-            defaults: AppSettings.initial(),
-            existingWakePlans: const [],
-            onEdit: (_) async => _successResult(),
-            onDelete: (_) async => _successResult(),
-            onSkipNext: (_) async => _successResult(),
-            onUndoSkipNext: (_) async => _successResult(),
-            loadOccurrences: (_) async => [occurrence],
-            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
-          ),
-        ),
+      _harness(
+        target: _target(wakePlan: _plan()),
+        now: liveNow,
+        clock: () => liveNow,
+        loadOccurrences: (_) async => [occurrence],
       ),
     );
     await tester.pump();
@@ -609,25 +461,11 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: WakePlanDetailSheet(
-            target: WeekCalendarWakePlanTapTarget(
-              wakePlan: _plan(),
-              targetDay: _targetDay,
-            ),
-            now: liveNow,
-            clock: () => liveNow,
-            defaults: AppSettings.initial(),
-            existingWakePlans: const [],
-            onEdit: (_) async => _successResult(),
-            onDelete: (_) async => _successResult(),
-            onSkipNext: (_) async => _successResult(),
-            onUndoSkipNext: (_) async => _successResult(),
-            loadOccurrences: (_) async => [first, second],
-            onSetOccurrenceEnabled: _unexpectedOccurrenceToggle,
-          ),
-        ),
+      _harness(
+        target: _target(wakePlan: _plan()),
+        now: liveNow,
+        clock: () => liveNow,
+        loadOccurrences: (_) async => [first, second],
       ),
     );
     await tester.pump();
@@ -662,36 +500,23 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: WakePlanDetailSheet(
-            target: WeekCalendarWakePlanTapTarget(
-              wakePlan: _plan(),
-              targetDay: _targetDay,
-            ),
-            now: now,
-            clock: () => now,
-            defaults: AppSettings.initial(),
-            existingWakePlans: const [],
-            onEdit: (_) async => _successResult(),
-            onDelete: (_) async => _successResult(),
-            onSkipNext: (_) async => _successResult(),
-            onUndoSkipNext: (_) async => _successResult(),
-            loadOccurrences: (_) async => [occurrence],
-            onSetOccurrenceEnabled:
-                ({
-                  required wakePlanId,
-                  required occurrenceId,
-                  required enabled,
-                }) async {
-                  return AlarmOccurrenceToggleResult.failure(
-                    status: AlarmOccurrenceToggleStatus.cancelFailed,
-                    occurrence: occurrence,
-                    warning: 'The native alarm could not be turned off.',
-                  );
-                },
-          ),
-        ),
+      _harness(
+        target: _target(wakePlan: _plan()),
+        now: now,
+        clock: () => now,
+        loadOccurrences: (_) async => [occurrence],
+        onSetOccurrenceEnabled:
+            ({
+              required wakePlanId,
+              required occurrenceId,
+              required enabled,
+            }) async {
+              return AlarmOccurrenceToggleResult.failure(
+                status: AlarmOccurrenceToggleStatus.cancelFailed,
+                occurrence: occurrence,
+                warning: 'The native alarm could not be turned off.',
+              );
+            },
       ),
     );
     await tester.pumpAndSettle();
@@ -720,49 +545,36 @@ void main() {
       var attempts = 0;
 
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: WakePlanDetailSheet(
-              target: WeekCalendarWakePlanTapTarget(
-                wakePlan: _plan(),
-                targetDay: _targetDay,
-              ),
-              now: now,
-              clock: () => now,
-              defaults: AppSettings.initial(),
-              existingWakePlans: const [],
-              onEdit: (_) async => _successResult(),
-              onDelete: (_) async => _successResult(),
-              onSkipNext: (_) async => _successResult(),
-              onUndoSkipNext: (_) async => _successResult(),
-              loadOccurrences: (_) async => [disabled],
-              onSetOccurrenceEnabled:
-                  ({
-                    required wakePlanId,
-                    required occurrenceId,
-                    required enabled,
-                  }) async {
-                    attempts += 1;
-                    expect(occurrenceId, disabled.id);
-                    expect(enabled, isTrue);
-                    if (attempts == 1) {
-                      return AlarmOccurrenceToggleResult.failure(
-                        status: AlarmOccurrenceToggleStatus.scheduleFailed,
-                        occurrence: disabled,
-                        warning: 'The native alarm could not be turned on.',
-                      );
-                    }
-                    return AlarmOccurrenceToggleResult.success(
-                      status: AlarmOccurrenceToggleStatus.enabled,
-                      occurrence: disabled.copyWith(
-                        status: AlarmOccurrenceStatus.scheduled,
-                        platformAlarmId: 'native-retryable',
-                        updatedAt: now,
-                      ),
-                    );
-                  },
-            ),
-          ),
+        _harness(
+          target: _target(wakePlan: _plan()),
+          now: now,
+          clock: () => now,
+          loadOccurrences: (_) async => [disabled],
+          onSetOccurrenceEnabled:
+              ({
+                required wakePlanId,
+                required occurrenceId,
+                required enabled,
+              }) async {
+                attempts += 1;
+                expect(occurrenceId, disabled.id);
+                expect(enabled, isTrue);
+                if (attempts == 1) {
+                  return AlarmOccurrenceToggleResult.failure(
+                    status: AlarmOccurrenceToggleStatus.scheduleFailed,
+                    occurrence: disabled,
+                    warning: 'The native alarm could not be turned on.',
+                  );
+                }
+                return AlarmOccurrenceToggleResult.success(
+                  status: AlarmOccurrenceToggleStatus.enabled,
+                  occurrence: disabled.copyWith(
+                    status: AlarmOccurrenceStatus.scheduled,
+                    platformAlarmId: 'native-retryable',
+                    updatedAt: now,
+                  ),
+                );
+              },
         ),
       );
       await tester.pumpAndSettle();
@@ -791,6 +603,63 @@ void main() {
 }
 
 final _targetDay = CalendarDay(year: 2026, month: 7, day: 8);
+
+WeekCalendarWakePlanTapTarget _target({
+  required WakePlan wakePlan,
+  CalendarDay? targetDay,
+}) {
+  return WeekCalendarWakePlanTapTarget(
+    wakePlan: wakePlan,
+    targetDay: targetDay ?? _targetDay,
+  );
+}
+
+Widget _harness({
+  required WeekCalendarWakePlanTapTarget target,
+  DateTime? now,
+  DateTime Function()? clock,
+  List<WakePlanOccurrenceException> existingExceptions = const [],
+  WakePlanEditSave? onEdit,
+  WakePlanDelete? onDelete,
+  WakePlanOccurrenceSkip? onSkipOccurrence,
+  WakePlanOccurrenceSkip? onUndoSkipOccurrence,
+  WakePlanOccurrenceMove? onMoveOccurrence,
+  WakePlanDeleteThisAndFollowing? onDeleteThisAndFollowing,
+  WakePlanOccurrenceLoader? loadOccurrences,
+  WakePlanOccurrenceToggle? onSetOccurrenceEnabled,
+}) {
+  final resolvedNow = now ?? DateTime(2026, 7, 8, 5, 30);
+  return MaterialApp(
+    home: Scaffold(
+      body: WakePlanDetailSheet(
+        target: target,
+        now: resolvedNow,
+        clock: clock ?? (() => resolvedNow),
+        defaults: AppSettings.initial(),
+        existingWakePlans: const [],
+        existingExceptions: existingExceptions,
+        onEdit: onEdit ?? (_) async => _successResult(),
+        onDelete: onDelete ?? (_) async => _successResult(),
+        onSkipOccurrence: onSkipOccurrence ?? (_, _) async => _successResult(),
+        onUndoSkipOccurrence:
+            onUndoSkipOccurrence ?? (_, _) async => _successResult(),
+        onMoveOccurrence:
+            onMoveOccurrence ??
+            ({
+              required wakePlan,
+              required fromDay,
+              required toDay,
+              toTime,
+            }) async => _successResult(),
+        onDeleteThisAndFollowing:
+            onDeleteThisAndFollowing ?? (_, _) async => _successResult(),
+        loadOccurrences: loadOccurrences ?? _emptyOccurrences,
+        onSetOccurrenceEnabled:
+            onSetOccurrenceEnabled ?? _unexpectedOccurrenceToggle,
+      ),
+    ),
+  );
+}
 
 WakePlan _plan({RepeatRule? repeatRule}) {
   final now = DateTime(2026, 7, 8, 5, 30);

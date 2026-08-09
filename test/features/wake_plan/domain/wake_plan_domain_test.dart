@@ -12,7 +12,6 @@ void main() {
     RepeatRule? repeatRule,
     WakePlanStatus status = WakePlanStatus.scheduled,
     bool isEnabled = true,
-    CalendarDay? skipNextDate,
   }) {
     return WakePlan(
       id: 'plan-1',
@@ -23,7 +22,6 @@ void main() {
       repeatRule: repeatRule ?? RepeatRule.oneTime(monday),
       isEnabled: isEnabled,
       status: status,
-      skipNextDate: skipNextDate,
       soundId: 'default',
       vibrationEnabled: true,
       createdAt: now,
@@ -81,24 +79,46 @@ void main() {
       expect(mondayFirst, tuesdayFirst);
       expect(mondayFirst.hashCode, tuesdayFirst.hashCode);
     });
+
+    test('truncates occurrences at and after until', () {
+      final rule = RepeatRule.weekly({
+        Weekday.monday,
+        Weekday.tuesday,
+      }, until: tuesday);
+
+      expect(rule.includes(monday), isTrue);
+      expect(rule.includes(tuesday), isFalse);
+      expect(rule.includes(tuesday.addDays(7)), isFalse);
+    });
+
+    test('truncatedBefore sets until and rejects one-time rules', () {
+      final rule = RepeatRule.weekly({Weekday.monday, Weekday.tuesday});
+      final truncated = rule.truncatedBefore(tuesday);
+
+      expect(truncated.until, tuesday);
+      expect(truncated.includes(monday), isTrue);
+      expect(truncated.includes(tuesday), isFalse);
+
+      expect(
+        () => RepeatRule.oneTime(monday).truncatedBefore(monday),
+        throwsStateError,
+      );
+    });
   });
 
   group('WakePlan', () {
-    test('represents enabled, deleted, and skip-next-date semantics', () {
+    test('represents enabled and deleted semantics', () {
       final weekly = buildPlan(
         repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
-        skipNextDate: monday,
       );
       final deleted = weekly.copyWith(
         status: WakePlanStatus.deleted,
         isEnabled: false,
-        skipNextDate: null,
       );
 
       expect(weekly.isEnabled, isTrue);
       expect(weekly.status, WakePlanStatus.scheduled);
-      expect(weekly.hasSkippedNextDate, isTrue);
-      expect(weekly.occursOn(monday), isFalse);
+      expect(weekly.occursOn(monday), isTrue);
       expect(weekly.occursOn(tuesday), isTrue);
 
       expect(deleted.isDeleted, isTrue);
@@ -127,18 +147,6 @@ void main() {
         expect(buildPlan().vibrationEnabled, isTrue);
       },
     );
-
-    test('allows skip-next-date on scheduled plans only while not deleted', () {
-      expect(buildPlan(skipNextDate: monday).skipNextDate, monday);
-      expect(
-        () => buildPlan(
-          status: WakePlanStatus.deleted,
-          isEnabled: false,
-          skipNextDate: monday,
-        ),
-        throwsArgumentError,
-      );
-    });
 
     test('requires deleted plans to be disabled', () {
       expect(
@@ -195,6 +203,98 @@ void main() {
         repeatRule: RepeatRule.oneTime(monday),
       );
       expect(switchedToOneTime.skipHolidays, isFalse);
+    });
+  });
+
+  group('WakePlanOccurrenceException', () {
+    test('generates a deterministic id from wakePlanId and originalDay', () {
+      final exception = WakePlanOccurrenceException(
+        wakePlanId: 'plan-1',
+        originalDay: monday,
+        type: WakePlanOccurrenceExceptionType.skipped,
+        createdAt: now,
+        updatedAt: now,
+      );
+
+      expect(
+        exception.id,
+        WakePlanOccurrenceException.idFor(
+          wakePlanId: 'plan-1',
+          originalDay: monday,
+        ),
+      );
+      expect(exception.isSkipped, isTrue);
+      expect(exception.isMoved, isFalse);
+    });
+
+    test('rejects movedToDay on a skipped exception', () {
+      expect(
+        () => WakePlanOccurrenceException(
+          wakePlanId: 'plan-1',
+          originalDay: monday,
+          type: WakePlanOccurrenceExceptionType.skipped,
+          movedToDay: tuesday,
+          createdAt: now,
+          updatedAt: now,
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('requires movedToDay on a moved exception', () {
+      expect(
+        () => WakePlanOccurrenceException(
+          wakePlanId: 'plan-1',
+          originalDay: monday,
+          type: WakePlanOccurrenceExceptionType.moved,
+          createdAt: now,
+          updatedAt: now,
+        ),
+        throwsArgumentError,
+      );
+
+      final moved = WakePlanOccurrenceException(
+        wakePlanId: 'plan-1',
+        originalDay: monday,
+        type: WakePlanOccurrenceExceptionType.moved,
+        movedToDay: tuesday,
+        createdAt: now,
+        updatedAt: now,
+      );
+      expect(moved.isMoved, isTrue);
+      expect(moved.movedToDay, tuesday);
+    });
+
+    test('occursOnConsideringExceptions suppresses excepted days', () {
+      final plan = buildPlan(
+        repeatRule: RepeatRule.weekly({Weekday.monday, Weekday.tuesday}),
+      );
+      final exception = WakePlanOccurrenceException(
+        wakePlanId: plan.id,
+        originalDay: monday,
+        type: WakePlanOccurrenceExceptionType.skipped,
+        createdAt: now,
+        updatedAt: now,
+      );
+
+      expect(
+        occursOnConsideringExceptions(
+          wakePlan: plan,
+          day: monday,
+          holidays: const {},
+          exceptionsByOriginalDay: {monday: exception},
+        ),
+        isFalse,
+      );
+      expect(
+        occursOnConsideringExceptions(
+          wakePlan: plan,
+          day: tuesday,
+          holidays: const {},
+          exceptionsByOriginalDay: {monday: exception},
+        ),
+        isTrue,
+      );
     });
   });
 

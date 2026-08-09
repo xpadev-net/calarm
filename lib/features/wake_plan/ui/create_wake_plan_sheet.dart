@@ -424,7 +424,6 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
       repeatRule: repeatRule,
       isEnabled: existingWakePlan?.isEnabled ?? true,
       status: _statusForEditedPlan(existingWakePlan),
-      skipNextDate: _skipDateForEditedPlan(existingWakePlan, repeatRule),
       skipHolidays: _skipHolidays,
       soundId: _soundId,
       vibrationEnabled: _vibrationEnabled,
@@ -454,17 +453,6 @@ class _CreateWakePlanSheetState extends State<CreateWakePlanSheet> {
       return WakePlanStatus.scheduled;
     }
     return existingWakePlan.status;
-  }
-
-  CalendarDay? _skipDateForEditedPlan(
-    WakePlan? existingWakePlan,
-    RepeatRule repeatRule,
-  ) {
-    final skipNextDate = existingWakePlan?.skipNextDate;
-    if (skipNextDate == null || !repeatRule.includes(skipNextDate)) {
-      return null;
-    }
-    return skipNextDate;
   }
 
   Future<void> _pickTargetTime() async {

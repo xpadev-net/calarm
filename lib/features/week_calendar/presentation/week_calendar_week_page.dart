@@ -15,6 +15,7 @@ class WeekCalendarWeekPage extends StatefulWidget {
     required this.now,
     required this.wakePlans,
     this.holidays = const {},
+    this.exceptionsByWakePlanId = const {},
     required this.onTargetTap,
     required this.onWakePlanTap,
     required this.hourHeight,
@@ -36,6 +37,7 @@ class WeekCalendarWeekPage extends StatefulWidget {
   final DateTime now;
   final List<WakePlan> wakePlans;
   final Set<CalendarDay> holidays;
+  final Map<String, List<WakePlanOccurrenceException>> exceptionsByWakePlanId;
   final WeekCalendarTapCallback? onTargetTap;
   final WeekCalendarWakePlanTapCallback? onWakePlanTap;
   final double hourHeight;
@@ -289,6 +291,7 @@ class _WeekCalendarWeekPageState extends State<WeekCalendarWeekPage> {
       week: widget.week,
       wakePlans: widget.wakePlans,
       holidays: widget.holidays,
+      exceptionsByWakePlanId: widget.exceptionsByWakePlanId,
     );
     final snapIntervalMinutes = weekCalendarTapSnapIntervalMinutes(
       _displayHourHeight,

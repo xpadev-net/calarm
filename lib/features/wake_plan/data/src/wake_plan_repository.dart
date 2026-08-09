@@ -201,13 +201,45 @@ class WakePlanRepository {
           WakePlanRowsCompanion(
             isEnabled: const Value(false),
             status: Value(WakePlanStatus.deleted.name),
-            skipNextDateDays: const Value(null),
             updatedAt: Value(updatedAt),
           ),
         );
     if (rowsUpdated == 0) {
       throw StateError('WakePlan not found: $id');
     }
+  }
+
+  Future<List<WakePlanOccurrenceException>> fetchExceptionsForPlan(
+    String wakePlanId,
+  ) async {
+    final query = _database.select(_database.wakePlanOccurrenceExceptionRows)
+      ..where((row) => row.wakePlanId.equals(wakePlanId));
+    final rows = await query.get();
+    return rows
+        .map(_tryOccurrenceExceptionFromRow)
+        .whereType<WakePlanOccurrenceException>()
+        .toList(growable: false);
+  }
+
+  Future<void> saveOccurrenceException(WakePlanOccurrenceException exception) {
+    return _database
+        .into(_database.wakePlanOccurrenceExceptionRows)
+        .insertOnConflictUpdate(_occurrenceExceptionCompanion(exception));
+  }
+
+  Future<void> deleteOccurrenceException({
+    required String wakePlanId,
+    required CalendarDay originalDay,
+  }) {
+    return (_database.delete(_database.wakePlanOccurrenceExceptionRows)..where(
+          (row) => row.id.equals(
+            WakePlanOccurrenceException.idFor(
+              wakePlanId: wakePlanId,
+              originalDay: originalDay,
+            ),
+          ),
+        ))
+        .go();
   }
 
   Future<void> saveAlarmOccurrences(Iterable<AlarmOccurrence> occurrences) {
@@ -738,8 +770,8 @@ class WakePlanRepository {
       weekdaysMask: Value(_encodeWeekdays(plan.repeatRule.weekdays)),
       isEnabled: plan.isEnabled,
       status: plan.status.name,
-      skipNextDateDays: Value(plan.skipNextDate?.daysSinceUnixEpoch),
       skipHolidays: Value(plan.skipHolidays),
+      repeatUntilDays: Value(plan.repeatRule.until?.daysSinceUnixEpoch),
       soundId: plan.soundId,
       vibrationEnabled: plan.vibrationEnabled,
       createdAt: plan.createdAt,
@@ -759,7 +791,6 @@ class WakePlanRepository {
       repeatRule: _repeatRuleFromRow(row),
       isEnabled: row.isEnabled,
       status: WakePlanStatus.values.byName(row.status),
-      skipNextDate: _calendarDayFromEpochDays(row.skipNextDateDays),
       skipHolidays: row.skipHolidays,
       soundId: row.soundId,
       vibrationEnabled: row.vibrationEnabled,
@@ -792,6 +823,7 @@ class WakePlanRepository {
       ),
       RepeatType.weekly => RepeatRule.weekly(
         _requiredWeekdaysFromMask(row.weekdaysMask, row.id),
+        until: _calendarDayFromEpochDays(row.repeatUntilDays),
       ),
     };
   }
@@ -870,6 +902,59 @@ class WakePlanRepository {
       }
     }
     return AlarmOccurrenceStatus.unknownPersisted;
+  }
+
+  WakePlanOccurrenceExceptionRowsCompanion _occurrenceExceptionCompanion(
+    WakePlanOccurrenceException exception,
+  ) {
+    return WakePlanOccurrenceExceptionRowsCompanion.insert(
+      id: exception.id,
+      wakePlanId: exception.wakePlanId,
+      originalDayDays: exception.originalDay.daysSinceUnixEpoch,
+      type: exception.type.name,
+      movedToDayDays: Value(exception.movedToDay?.daysSinceUnixEpoch),
+      movedToTargetTimeMinutes: Value(
+        exception.movedToTargetTime?.minutesSinceMidnight,
+      ),
+      createdAt: exception.createdAt,
+      updatedAt: exception.updatedAt,
+    );
+  }
+
+  WakePlanOccurrenceException _occurrenceExceptionFromRow(
+    WakePlanOccurrenceExceptionRow row,
+  ) {
+    return WakePlanOccurrenceException(
+      wakePlanId: row.wakePlanId,
+      originalDay: _requiredCalendarDayFromEpochDays(
+        row.originalDayDays,
+        row.wakePlanId,
+        'originalDayDays',
+      ),
+      type: WakePlanOccurrenceExceptionType.values.byName(row.type),
+      movedToDay: _calendarDayFromEpochDays(row.movedToDayDays),
+      movedToTargetTime: row.movedToTargetTimeMinutes == null
+          ? null
+          : TimeOfDayMinutes.fromMinutesSinceMidnight(
+              row.movedToTargetTimeMinutes!,
+            ),
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    );
+  }
+
+  WakePlanOccurrenceException? _tryOccurrenceExceptionFromRow(
+    WakePlanOccurrenceExceptionRow row,
+  ) {
+    try {
+      return _occurrenceExceptionFromRow(row);
+    } on StateError {
+      return null;
+    } on RangeError {
+      return null;
+    } on ArgumentError {
+      return null;
+    }
   }
 
   AppSettingsRowsCompanion _appSettingsCompanion(AppSettings settings) {

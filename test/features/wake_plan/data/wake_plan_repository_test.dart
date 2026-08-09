@@ -32,7 +32,6 @@ void main() {
     RepeatRule? repeatRule,
     bool isEnabled = true,
     WakePlanStatus status = WakePlanStatus.scheduled,
-    CalendarDay? skipNextDate,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -45,7 +44,6 @@ void main() {
       repeatRule: repeatRule ?? RepeatRule.oneTime(monday),
       isEnabled: isEnabled,
       status: status,
-      skipNextDate: skipNextDate,
       soundId: 'default',
       vibrationEnabled: true,
       createdAt: createdAt ?? now,
@@ -80,8 +78,8 @@ void main() {
   }
 
   group('schema', () {
-    test('starts at migration version 4', () {
-      expect(database.schemaVersion, 4);
+    test('starts at migration version 5', () {
+      expect(database.schemaVersion, 5);
       expect(database.migration, isNotNull);
     });
 
@@ -159,6 +157,70 @@ void main() {
             .get();
         expect(cached, hasLength(1));
         expect(cached.single.name, '元日');
+      } finally {
+        await migratedDatabase.close();
+        await directory.delete(recursive: true);
+      }
+    });
+
+    test('migrates version 4 rows, backfilling skip_next_date_days into a '
+        'skipped exception', () async {
+      await database.close();
+      final directory = await Directory.systemTemp.createTemp(
+        'calarm-exception-migration-',
+      );
+      final file = File('${directory.path}/wake-plan.sqlite');
+      final legacy = sqlite.sqlite3.open(file.path);
+      legacy.execute('''
+        CREATE TABLE wake_plan_rows (
+          id TEXT NOT NULL PRIMARY KEY,
+          title TEXT NOT NULL,
+          target_time_minutes INTEGER NOT NULL,
+          start_offset_minutes INTEGER NOT NULL,
+          interval_minutes INTEGER NOT NULL,
+          repeat_type TEXT NOT NULL,
+          one_time_date_days INTEGER,
+          weekdays_mask INTEGER,
+          is_enabled INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          skip_next_date_days INTEGER,
+          skip_holidays INTEGER NOT NULL DEFAULT 0,
+          sound_id TEXT NOT NULL,
+          vibration_enabled INTEGER NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      ''');
+      legacy.execute(
+        'INSERT INTO wake_plan_rows '
+        '(id, title, target_time_minutes, start_offset_minutes, '
+        'interval_minutes, repeat_type, one_time_date_days, weekdays_mask, '
+        'is_enabled, status, skip_next_date_days, skip_holidays, sound_id, '
+        'vibration_enabled, created_at, updated_at) '
+        "VALUES ('v4-plan', 'Weekday wake up', 420, 60, 5, 'weekly', "
+        "NULL, 62, 1, 'scheduled', 20641, 0, 'default', 1, 0, 0)",
+      );
+      legacy.execute('PRAGMA user_version = 4');
+      legacy.dispose();
+
+      final migratedDatabase = WakePlanDatabase(NativeDatabase(file));
+      final migratedRepository = WakePlanRepository(migratedDatabase);
+      try {
+        final plan = await migratedRepository.fetchWakePlan('v4-plan');
+        expect(plan, isNotNull);
+        expect(plan!.repeatRule.until, isNull);
+
+        final exceptions = await migratedRepository.fetchExceptionsForPlan(
+          'v4-plan',
+        );
+        expect(exceptions, hasLength(1));
+        expect(exceptions.single.type, WakePlanOccurrenceExceptionType.skipped);
+        expect(
+          exceptions.single.originalDay,
+          CalendarDay.fromDateTime(
+            DateTime.utc(1970).add(const Duration(days: 20641)),
+          ),
+        );
       } finally {
         await migratedDatabase.close();
         await directory.delete(recursive: true);
@@ -1219,6 +1281,88 @@ void main() {
       expect(conservativeCancellation.map((occurrence) => occurrence.id), [
         'bad-occ',
       ]);
+    });
+  });
+
+  group('occurrence exceptions', () {
+    test('round-trips repeat rule until', () async {
+      final plan = buildPlan(
+        repeatRule: RepeatRule.weekly({
+          Weekday.monday,
+          Weekday.tuesday,
+        }, until: tuesday),
+      );
+
+      await repository.saveWakePlan(plan);
+      final fetched = await repository.fetchWakePlan('plan-1');
+
+      expect(fetched!.repeatRule.until, tuesday);
+    });
+
+    test('saves, fetches, and deletes exceptions for a plan', () async {
+      await repository.saveWakePlan(buildPlan());
+      final skipped = WakePlanOccurrenceException(
+        wakePlanId: 'plan-1',
+        originalDay: monday,
+        type: WakePlanOccurrenceExceptionType.skipped,
+        createdAt: now,
+        updatedAt: now,
+      );
+      final moved = WakePlanOccurrenceException(
+        wakePlanId: 'plan-1',
+        originalDay: tuesday,
+        type: WakePlanOccurrenceExceptionType.moved,
+        movedToDay: saturday,
+        movedToTargetTime: targetTime,
+        createdAt: now,
+        updatedAt: now,
+      );
+
+      await repository.saveOccurrenceException(skipped);
+      await repository.saveOccurrenceException(moved);
+
+      final fetched = await repository.fetchExceptionsForPlan('plan-1');
+      expect(fetched, hasLength(2));
+      final fetchedMoved = fetched.singleWhere(
+        (exception) => exception.originalDay == tuesday,
+      );
+      expect(fetchedMoved.movedToDay, saturday);
+      expect(fetchedMoved.movedToTargetTime, targetTime);
+
+      await repository.deleteOccurrenceException(
+        wakePlanId: 'plan-1',
+        originalDay: monday,
+      );
+      final afterDelete = await repository.fetchExceptionsForPlan('plan-1');
+      expect(afterDelete.map((exception) => exception.originalDay), [tuesday]);
+    });
+
+    test('upserts an exception with the same original day', () async {
+      await repository.saveWakePlan(buildPlan());
+      await repository.saveOccurrenceException(
+        WakePlanOccurrenceException(
+          wakePlanId: 'plan-1',
+          originalDay: monday,
+          type: WakePlanOccurrenceExceptionType.skipped,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      await repository.saveOccurrenceException(
+        WakePlanOccurrenceException(
+          wakePlanId: 'plan-1',
+          originalDay: monday,
+          type: WakePlanOccurrenceExceptionType.moved,
+          movedToDay: saturday,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+
+      final fetched = await repository.fetchExceptionsForPlan('plan-1');
+      expect(fetched, hasLength(1));
+      expect(fetched.single.type, WakePlanOccurrenceExceptionType.moved);
+      expect(fetched.single.movedToDay, saturday);
     });
   });
 

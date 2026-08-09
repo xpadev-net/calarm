@@ -32,10 +32,11 @@ class RepeatRule {
       type: RepeatType.oneTime,
       oneTimeDate: date,
       weekdays: const {},
+      until: null,
     );
   }
 
-  factory RepeatRule.weekly(Set<Weekday> weekdays) {
+  factory RepeatRule.weekly(Set<Weekday> weekdays, {CalendarDay? until}) {
     if (weekdays.isEmpty) {
       throw ArgumentError.value(
         weekdays,
@@ -48,6 +49,7 @@ class RepeatRule {
       type: RepeatType.weekly,
       oneTimeDate: null,
       weekdays: Set.unmodifiable(weekdays),
+      until: until,
     );
   }
 
@@ -55,13 +57,24 @@ class RepeatRule {
     required this.type,
     required this.oneTimeDate,
     required this.weekdays,
+    required this.until,
   });
 
   final RepeatType type;
   final CalendarDay? oneTimeDate;
   final Set<Weekday> weekdays;
 
+  /// Exclusive: the first day no longer included by this rule. Used to
+  /// implement "delete this and following occurrences" for a repeating
+  /// series. Only meaningful for [RepeatType.weekly] — always null for
+  /// [RepeatType.oneTime].
+  final CalendarDay? until;
+
   bool includes(CalendarDay day) {
+    if (until != null && day.compareTo(until!) >= 0) {
+      return false;
+    }
+
     return switch (type) {
       RepeatType.oneTime => oneTimeDate == day,
       RepeatType.weekly => weekdays.contains(
@@ -70,11 +83,35 @@ class RepeatRule {
     };
   }
 
+  RepeatRule copyWith({CalendarDay? until}) {
+    return RepeatRule._(
+      type: type,
+      oneTimeDate: oneTimeDate,
+      weekdays: weekdays,
+      until: until ?? this.until,
+    );
+  }
+
+  /// Truncates this rule so it no longer includes [day] or any day after it.
+  RepeatRule truncatedBefore(CalendarDay day) {
+    if (type == RepeatType.oneTime) {
+      throw StateError('cannot truncate a one-time repeat rule');
+    }
+
+    return RepeatRule._(
+      type: type,
+      oneTimeDate: oneTimeDate,
+      weekdays: weekdays,
+      until: day,
+    );
+  }
+
   @override
   bool operator ==(Object other) {
     return other is RepeatRule &&
         type == other.type &&
         oneTimeDate == other.oneTimeDate &&
+        until == other.until &&
         _setEquals(weekdays, other.weekdays);
   }
 
@@ -82,14 +119,20 @@ class RepeatRule {
   int get hashCode {
     final orderedWeekdays = Weekday.values.where(weekdays.contains);
 
-    return Object.hash(type, oneTimeDate, Object.hashAll(orderedWeekdays));
+    return Object.hash(
+      type,
+      oneTimeDate,
+      until,
+      Object.hashAll(orderedWeekdays),
+    );
   }
 
   @override
   String toString() {
+    final suffix = until == null ? '' : ', until: $until';
     return switch (type) {
       RepeatType.oneTime => 'RepeatRule.oneTime($oneTimeDate)',
-      RepeatType.weekly => 'RepeatRule.weekly($weekdays)',
+      RepeatType.weekly => 'RepeatRule.weekly($weekdays$suffix)',
     };
   }
 }

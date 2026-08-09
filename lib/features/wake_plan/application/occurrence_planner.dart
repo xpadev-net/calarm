@@ -13,6 +13,7 @@ class OccurrencePlanner {
     required CalendarDay endExclusive,
     required DateTime now,
     Set<CalendarDay> holidays = const {},
+    Iterable<WakePlanOccurrenceException> exceptions = const [],
   }) {
     if (endExclusive.compareTo(startDay) < 0) {
       throw ArgumentError.value(
@@ -22,9 +23,14 @@ class OccurrencePlanner {
       );
     }
 
+    final exceptionsByOriginalDay = {
+      for (final exception in exceptions) exception.originalDay: exception,
+    };
+
     final wakeInstances = <WakeInstanceDraft>[];
     final previewOccurrences = <AlarmOccurrenceDraft>[];
     final schedulingCandidates = <AlarmOccurrenceDraft>[];
+    var windowHadException = false;
 
     for (
       var day = startDay;
@@ -32,6 +38,10 @@ class OccurrencePlanner {
       day = day.addDays(1)
     ) {
       if (!_occursOn(wakePlan, day, holidays)) {
+        continue;
+      }
+      if (exceptionsByOriginalDay.containsKey(day)) {
+        windowHadException = true;
         continue;
       }
 
@@ -50,12 +60,13 @@ class OccurrencePlanner {
         wakePlan.isEnabled &&
         !wakePlan.isDeleted &&
         wakePlan.status != WakePlanStatus.finished &&
-        wakePlan.skipNextDate == null) {
+        !windowHadException) {
       final nextDay = _nextWeeklyDay(
         wakePlan: wakePlan,
         startDay: endExclusive,
         now: now,
         holidays: holidays,
+        exceptionsByOriginalDay: exceptionsByOriginalDay,
       );
       if (nextDay != null) {
         final wakeInstance = _buildWakeInstance(wakePlan, nextDay);
@@ -68,6 +79,24 @@ class OccurrencePlanner {
       }
     }
 
+    for (final exception in exceptions) {
+      if (!exception.isMoved) {
+        continue;
+      }
+      final movedInstance = _buildWakeInstance(
+        wakePlan,
+        exception.movedToDay!,
+        overrideTargetTime: exception.movedToTargetTime,
+      );
+      wakeInstances.add(movedInstance);
+      previewOccurrences.addAll(movedInstance.occurrences);
+      schedulingCandidates.addAll(
+        movedInstance.occurrences.where((occurrence) {
+          return !occurrence.scheduledAt.toDateTime().isBefore(now);
+        }),
+      );
+    }
+
     return OccurrencePlan(
       wakeInstances: wakeInstances,
       previewOccurrences: previewOccurrences,
@@ -75,9 +104,19 @@ class OccurrencePlanner {
     );
   }
 
-  WakeInstanceDraft _buildWakeInstance(WakePlan wakePlan, CalendarDay day) {
-    final targetAt = DateMinute.fromDateTime(wakePlan.targetAt(day));
-    final startsAt = DateMinute.fromDateTime(wakePlan.startAt(day));
+  WakeInstanceDraft _buildWakeInstance(
+    WakePlan wakePlan,
+    CalendarDay day, {
+    TimeOfDayMinutes? overrideTargetTime,
+  }) {
+    final targetTime = overrideTargetTime ?? wakePlan.targetTime;
+    final targetAt = DateMinute.fromDateTime(day.at(targetTime));
+    final startsAt = DateMinute.fromDateTime(
+      targetStartAt(
+        targetAt: targetAt.toDateTime(),
+        startOffset: wakePlan.startOffset,
+      ),
+    );
     final intervalMinutes = wakePlan.interval.inMinutes;
     final occurrences = <AlarmOccurrenceDraft>[];
 
@@ -111,6 +150,8 @@ class OccurrencePlanner {
     required CalendarDay startDay,
     required DateTime now,
     required Set<CalendarDay> holidays,
+    required Map<CalendarDay, WakePlanOccurrenceException>
+    exceptionsByOriginalDay,
   }) {
     final lookaheadDays = wakePlan.skipHolidays
         ? _holidayAwareWeeklyLookaheadDays
@@ -118,6 +159,7 @@ class OccurrencePlanner {
     for (var offset = 0; offset <= lookaheadDays; offset += 1) {
       final day = startDay.addDays(offset);
       if (_occursOn(wakePlan, day, holidays) &&
+          !exceptionsByOriginalDay.containsKey(day) &&
           !wakePlan.targetAt(day).isBefore(now)) {
         return day;
       }

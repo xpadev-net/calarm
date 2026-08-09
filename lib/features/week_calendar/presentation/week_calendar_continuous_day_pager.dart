@@ -26,6 +26,7 @@ class WeekCalendarContinuousDayPager extends StatefulWidget {
     required this.now,
     required this.wakePlans,
     this.holidays = const {},
+    this.exceptionsByWakePlanId = const {},
     required this.onTargetTap,
     required this.onWakePlanTap,
     required this.hourHeight,
@@ -43,6 +44,7 @@ class WeekCalendarContinuousDayPager extends StatefulWidget {
   final DateTime now;
   final List<WakePlan> wakePlans;
   final Set<CalendarDay> holidays;
+  final Map<String, List<WakePlanOccurrenceException>> exceptionsByWakePlanId;
   final WeekCalendarTapCallback? onTargetTap;
   final WeekCalendarWakePlanTapCallback? onWakePlanTap;
   final double hourHeight;
@@ -437,6 +439,7 @@ class _ContinuousDayPagerState extends State<WeekCalendarContinuousDayPager> {
       week: week,
       wakePlans: widget.wakePlans,
       holidays: widget.holidays,
+      exceptionsByWakePlanId: widget.exceptionsByWakePlanId,
     );
     final snapIntervalMinutes = weekCalendarTapSnapIntervalMinutes(
       _displayHourHeight,

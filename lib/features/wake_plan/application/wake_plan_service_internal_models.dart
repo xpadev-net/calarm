@@ -59,10 +59,17 @@ class WakePlanOccurrenceBundle {
   const WakePlanOccurrenceBundle({
     required this.occurrences,
     required this.requests,
+    this.hasActiveExceptions = false,
   });
 
   final List<AlarmOccurrence> occurrences;
   final List<NativeAlarmScheduleRequest> requests;
+
+  /// Whether the plan has any per-occurrence exceptions (skipped or moved)
+  /// at all, regardless of whether they landed inside this bundle's window.
+  /// Used to tell "this plan legitimately has zero upcoming occurrences
+  /// because they're all skipped/moved" apart from "this plan is broken."
+  final bool hasActiveExceptions;
 }
 
 class WakePlanWholeInventoryPreparation {

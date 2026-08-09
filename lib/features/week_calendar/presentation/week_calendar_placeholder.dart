@@ -34,6 +34,17 @@ final weekCalendarWakePlansProvider = FutureProvider<List<WakePlan>>((
   return repository.fetchWakePlans(now: now);
 });
 
+final weekCalendarWakePlanExceptionsProvider =
+    FutureProvider<Map<String, List<WakePlanOccurrenceException>>>((ref) async {
+      final wakePlans = await ref.watch(weekCalendarWakePlansProvider.future);
+      final repository = await ref.watch(weekCalendarRepositoryProvider.future);
+      final result = <String, List<WakePlanOccurrenceException>>{};
+      for (final plan in wakePlans) {
+        result[plan.id] = await repository.fetchExceptionsForPlan(plan.id);
+      }
+      return result;
+    });
+
 class WeekCalendarPlaceholder extends ConsumerStatefulWidget {
   const WeekCalendarPlaceholder({
     super.key,
@@ -145,6 +156,7 @@ class _WeekCalendarPlaceholderState
     final wakePlans = ref.watch(weekCalendarWakePlansProvider);
     final defaults = ref.watch(wakePlanDefaultsProvider);
     final holidays = ref.watch(activeHolidaySetProvider);
+    final exceptions = ref.watch(weekCalendarWakePlanExceptionsProvider);
     _logProviderError('Wake plans', wakePlans);
     _logProviderError('Wake plan defaults', defaults);
     final currentWakePlans = wakePlans.hasValue
@@ -156,6 +168,9 @@ class _WeekCalendarPlaceholderState
     final currentHolidays = holidays.hasValue
         ? holidays.requireValue
         : const <CalendarDay>{};
+    final currentExceptions = exceptions.hasValue
+        ? exceptions.requireValue
+        : const <String, List<WakePlanOccurrenceException>>{};
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -167,6 +182,7 @@ class _WeekCalendarPlaceholderState
               now: _now,
               wakePlans: currentWakePlans,
               holidays: currentHolidays,
+              exceptionsByWakePlanId: currentExceptions,
               height: constraints.maxHeight,
               hourHeight: _hourHeight,
               visibleDays: widget.visibleDays,
@@ -202,6 +218,8 @@ class _WeekCalendarPlaceholderState
                   target: target,
                   defaults: currentDefaults,
                   existingWakePlans: currentWakePlans,
+                  existingExceptions:
+                      currentExceptions[target.wakePlan.id] ?? const [],
                 );
               },
             ),
@@ -397,6 +415,7 @@ class _WeekCalendarPlaceholderState
         return;
       }
       ref.invalidate(weekCalendarWakePlansProvider);
+      ref.invalidate(weekCalendarWakePlanExceptionsProvider);
       if (result.isSuccess) {
         setState(() {
           _draft = null;
@@ -425,6 +444,7 @@ class _WeekCalendarPlaceholderState
         return;
       }
       ref.invalidate(weekCalendarWakePlansProvider);
+      ref.invalidate(weekCalendarWakePlanExceptionsProvider);
       ref.invalidate(weekCalendarWakePlanServiceProvider);
       setState(() {
         _savingDraft = false;
@@ -475,6 +495,7 @@ class _WeekCalendarPlaceholderState
     required WeekCalendarWakePlanTapTarget target,
     required AppSettings defaults,
     required List<WakePlan> existingWakePlans,
+    required List<WakePlanOccurrenceException> existingExceptions,
   }) async {
     if (_sheetOpen) {
       return;
@@ -500,28 +521,67 @@ class _WeekCalendarPlaceholderState
             clock: clock,
             defaults: defaults,
             existingWakePlans: existingWakePlans,
+            existingExceptions: existingExceptions,
             onEdit: (plan) async {
               action = _WakePlanDetailAction.edit;
               final result = await service.editPlan(plan);
               ref.invalidate(weekCalendarWakePlansProvider);
+              ref.invalidate(weekCalendarWakePlanExceptionsProvider);
               return result;
             },
             onDelete: (id) async {
               action = _WakePlanDetailAction.delete;
               final result = await service.deletePlan(id);
               ref.invalidate(weekCalendarWakePlansProvider);
+              ref.invalidate(weekCalendarWakePlanExceptionsProvider);
               return result;
             },
-            onSkipNext: (plan) async {
-              action = _WakePlanDetailAction.skipNext;
-              final result = await service.skipNextOccurrence(plan);
+            onSkipOccurrence: (plan, day) async {
+              action = _WakePlanDetailAction.skipOccurrence;
+              final result = await service.skipOccurrence(
+                wakePlan: plan,
+                day: day,
+              );
               ref.invalidate(weekCalendarWakePlansProvider);
+              ref.invalidate(weekCalendarWakePlanExceptionsProvider);
               return result;
             },
-            onUndoSkipNext: (plan) async {
-              action = _WakePlanDetailAction.undoSkipNext;
-              final result = await service.undoSkipNextOccurrence(plan);
+            onUndoSkipOccurrence: (plan, day) async {
+              action = _WakePlanDetailAction.undoSkipOccurrence;
+              final result = await service.undoSkipOccurrence(
+                wakePlan: plan,
+                day: day,
+              );
               ref.invalidate(weekCalendarWakePlansProvider);
+              ref.invalidate(weekCalendarWakePlanExceptionsProvider);
+              return result;
+            },
+            onMoveOccurrence:
+                ({
+                  required wakePlan,
+                  required fromDay,
+                  required toDay,
+                  toTime,
+                }) async {
+                  action = _WakePlanDetailAction.moveOccurrence;
+                  final result = await service.moveOccurrence(
+                    wakePlan: wakePlan,
+                    fromDay: fromDay,
+                    toDay: toDay,
+                    toTime: toTime,
+                  );
+                  ref.invalidate(weekCalendarWakePlansProvider);
+                  ref.invalidate(weekCalendarWakePlanExceptionsProvider);
+                  return result;
+                },
+            onDeleteThisAndFollowing: (plan, day) async {
+              action = _WakePlanDetailAction.deleteThisAndFollowing;
+              final result = await service.deleteThisAndFollowing(
+                wakePlan: plan,
+                fromDay: day,
+              );
+              ref.invalidate(weekCalendarWakePlansProvider);
+              ref.invalidate(weekCalendarWakePlanExceptionsProvider);
               return result;
             },
             loadOccurrences: service.fetchOccurrencesForPlan,
@@ -587,22 +647,24 @@ String _detailResultMessage({
 }) {
   if (!result.isSuccess) {
     return result.warning?.message ??
-        switch (action) {
-          _WakePlanDetailAction.edit => 'Wake plan could not be updated.',
-          _WakePlanDetailAction.delete => 'Wake plan could not be deleted.',
-          _WakePlanDetailAction.skipNext => 'Wake plan could not be updated.',
-          _WakePlanDetailAction.undoSkipNext =>
-            'Wake plan could not be updated.',
-        };
+        (action == _WakePlanDetailAction.delete
+            ? 'Wake plan could not be deleted.'
+            : 'Wake plan could not be updated.');
   }
   if (result.status == WakePlanSchedulingStatus.deleted) {
     return 'Wake plan deleted.';
   }
-  if (action == _WakePlanDetailAction.skipNext) {
-    return 'Next wake target skipped.';
+  if (action == _WakePlanDetailAction.skipOccurrence) {
+    return 'Occurrence skipped.';
   }
-  if (action == _WakePlanDetailAction.undoSkipNext) {
-    return 'Next wake target restored.';
+  if (action == _WakePlanDetailAction.undoSkipOccurrence) {
+    return 'Occurrence restored.';
+  }
+  if (action == _WakePlanDetailAction.moveOccurrence) {
+    return 'Occurrence moved.';
+  }
+  if (action == _WakePlanDetailAction.deleteThisAndFollowing) {
+    return 'Future occurrences deleted.';
   }
   final nextFire = wakePlanResultNextFireLabel(result: result, now: now);
   if (nextFire == null) {
@@ -611,4 +673,11 @@ String _detailResultMessage({
   return 'Wake plan updated. Next alarm: $nextFire';
 }
 
-enum _WakePlanDetailAction { edit, delete, skipNext, undoSkipNext }
+enum _WakePlanDetailAction {
+  edit,
+  delete,
+  skipOccurrence,
+  undoSkipOccurrence,
+  moveOccurrence,
+  deleteThisAndFollowing,
+}

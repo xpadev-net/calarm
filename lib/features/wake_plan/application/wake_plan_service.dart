@@ -127,7 +127,10 @@ class WakePlanService {
           plan.status == WakePlanStatus.finished) {
         return const [];
       }
-      final canonicalIds = _canonicalFutureOccurrenceIds(plan: plan, now: now);
+      final canonicalIds = await _canonicalFutureOccurrenceIds(
+        plan: plan,
+        now: now,
+      );
       final occurrences = await _store.fetchOccurrencesForPlan(wakePlanId);
       return occurrences
           .where((occurrence) => canonicalIds.contains(occurrence.id))
@@ -181,7 +184,10 @@ class WakePlanService {
         warning: 'The wake plan is no longer available for scheduling.',
       );
     }
-    final canonicalIds = _canonicalFutureOccurrenceIds(plan: plan, now: now);
+    final canonicalIds = await _canonicalFutureOccurrenceIds(
+      plan: plan,
+      now: now,
+    );
     if (!canonicalIds.contains(occurrence.id) ||
         !occurrence.isUserToggleEligibleAt(now)) {
       return AlarmOccurrenceToggleResult.failure(
@@ -304,7 +310,7 @@ class WakePlanService {
       reservationGeneration: occurrence.reservationGeneration + 1,
       updatedAt: now,
     );
-    final requests = _buildRestorationRequests(
+    final requests = await _buildRestorationRequests(
       plan: plan,
       occurrences: [rearming],
       now: now,
@@ -1101,10 +1107,10 @@ class WakePlanService {
       if (!activePlanIds.contains(plan.id)) {
         continue;
       }
-      for (final occurrence in _buildOccurrenceBundle(
+      for (final occurrence in (await _buildOccurrenceBundle(
         plan: plan,
         now: now,
-      ).occurrences) {
+      )).occurrences) {
         desiredById[occurrence.id] = occurrence;
         (desiredPlanIdsById[occurrence.id] ??= {}).add(plan.id);
       }
@@ -1675,26 +1681,41 @@ class WakePlanService {
   }
 
   Future<WakePlanSchedulingResult> editPlan(WakePlan plan) async {
-    return _coordinator.run(
-      () => _editPlan(plan, skipNextDate: _preserveCurrentSkipDate),
-    );
+    return _coordinator.run(() => _editPlan(plan));
+  }
+
+  /// Drops any per-occurrence exception whose original day is no longer a
+  /// valid occurrence of [repeatRule] (e.g. its weekday was removed from the
+  /// series, or the series was truncated before that day via
+  /// [deleteThisAndFollowing]) — mirroring how an edited plan drops a
+  /// skip/move that no longer applies.
+  Future<void> _resolveEditedExceptions({
+    required String wakePlanId,
+    required RepeatRule repeatRule,
+  }) async {
+    final exceptions = await _store.fetchExceptionsForPlan(wakePlanId);
+    for (final exception in exceptions) {
+      if (!repeatRule.includes(exception.originalDay)) {
+        await _store.deleteOccurrenceException(
+          wakePlanId: wakePlanId,
+          originalDay: exception.originalDay,
+        );
+      }
+    }
   }
 
   Future<WakePlanSchedulingResult> _editPlan(
     WakePlan plan, {
-    required Object? skipNextDate,
+    Future<void> Function()? onBeforeRestore,
   }) async {
     final now = _clock();
     final previousPlan = await _store.fetchWakePlan(plan.id);
-    final pendingPlan = plan.copyWith(
-      updatedAt: now,
-      skipNextDate: _resolveEditedSkipDate(
-        requestedSkipNextDate: skipNextDate,
-        previousPlan: previousPlan,
-        repeatRule: plan.repeatRule,
-      ),
-    );
+    final pendingPlan = plan.copyWith(updatedAt: now);
     await _store.saveWakePlan(pendingPlan);
+    await _resolveEditedExceptions(
+      wakePlanId: pendingPlan.id,
+      repeatRule: pendingPlan.repeatRule,
+    );
 
     final cancelResult = await _cancelFutureReservedOccurrences(
       wakePlanId: pendingPlan.id,
@@ -1702,6 +1723,9 @@ class WakePlanService {
       usePlanCancel: false,
     );
     if (!cancelResult.isSuccess) {
+      if (previousPlan != null) {
+        await onBeforeRestore?.call();
+      }
       final restoration = previousPlan == null
           ? const WakePlanRestorationResult(
               scheduleResult: null,
@@ -1792,6 +1816,7 @@ class WakePlanService {
           ),
         );
       }
+      await onBeforeRestore?.call();
       final restoration = await _restoreCancelledOccurrences(
         plan: previousPlan,
         occurrences: cancelResult.successfullyCancelledOccurrences,
@@ -1955,20 +1980,221 @@ class WakePlanService {
     );
   }
 
-  Future<WakePlanSchedulingResult> skipNextOccurrence(WakePlan wakePlan) {
-    return _coordinator.run(() => _skipNextOccurrence(wakePlan));
+  /// Skips a single future occurrence of [wakePlan] falling on [day],
+  /// leaving the rest of the recurring series untouched. Equivalent to
+  /// Google Calendar's "delete this event only" for a recurring event.
+  Future<WakePlanSchedulingResult> skipOccurrence({
+    required WakePlan wakePlan,
+    required CalendarDay day,
+  }) {
+    return _coordinator.run(
+      () => _skipOccurrence(wakePlan: wakePlan, day: day),
+    );
   }
 
-  Future<WakePlanSchedulingResult> _skipNextOccurrence(
-    WakePlan wakePlan,
-  ) async {
+  Future<WakePlanSchedulingResult> _skipOccurrence({
+    required WakePlan wakePlan,
+    required CalendarDay day,
+  }) async {
     final currentPlan = await _store.fetchWakePlan(wakePlan.id);
     if (currentPlan == null) {
-      return Future.value(
-        _emptyResult(
-          wakePlanId: wakePlan.id,
-          status: WakePlanSchedulingStatus.scheduled,
-        ),
+      return _emptyResult(
+        wakePlanId: wakePlan.id,
+        status: WakePlanSchedulingStatus.scheduled,
+      );
+    }
+    if (currentPlan.repeatRule.type == RepeatType.oneTime) {
+      return _emptyResult(
+        wakePlanId: currentPlan.id,
+        status: WakePlanSchedulingStatus.scheduled,
+      );
+    }
+    if (!currentPlan.occursOnConsideringHolidays(day, _holidaysSnapshot())) {
+      return _emptyResult(
+        wakePlanId: currentPlan.id,
+        status: WakePlanSchedulingStatus.scheduled,
+      );
+    }
+
+    final now = _clock();
+    await _store.saveOccurrenceException(
+      WakePlanOccurrenceException(
+        wakePlanId: currentPlan.id,
+        originalDay: day,
+        type: WakePlanOccurrenceExceptionType.skipped,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    return _editPlan(
+      currentPlan,
+      // If the reschedule doesn't stick and the previous state has to be
+      // restored, the restoration must be computed against the plan's
+      // occurrences *without* this exception — otherwise it would look for
+      // a canonical occurrence on the now-excepted day and fail to find one.
+      onBeforeRestore: () => _store.deleteOccurrenceException(
+        wakePlanId: currentPlan.id,
+        originalDay: day,
+      ),
+    );
+  }
+
+  /// Clears any per-occurrence exception (skipped or moved) recorded for
+  /// [wakePlan] on [day], restoring its natural occurrence.
+  Future<WakePlanSchedulingResult> undoSkipOccurrence({
+    required WakePlan wakePlan,
+    required CalendarDay day,
+  }) {
+    return _coordinator.run(
+      () => _undoSkipOccurrence(wakePlan: wakePlan, day: day),
+    );
+  }
+
+  Future<WakePlanSchedulingResult> _undoSkipOccurrence({
+    required WakePlan wakePlan,
+    required CalendarDay day,
+  }) async {
+    final currentPlan = await _store.fetchWakePlan(wakePlan.id);
+    if (currentPlan == null) {
+      return _emptyResult(
+        wakePlanId: wakePlan.id,
+        status: WakePlanSchedulingStatus.scheduled,
+      );
+    }
+
+    await _store.deleteOccurrenceException(
+      wakePlanId: currentPlan.id,
+      originalDay: day,
+    );
+    return _editPlan(currentPlan);
+  }
+
+  /// Moves a single future occurrence of [wakePlan] from [fromDay] to
+  /// [toDay] (optionally also to a different [toTime]), leaving the rest of
+  /// the recurring series untouched.
+  Future<WakePlanSchedulingResult> moveOccurrence({
+    required WakePlan wakePlan,
+    required CalendarDay fromDay,
+    required CalendarDay toDay,
+    TimeOfDayMinutes? toTime,
+  }) {
+    return _coordinator.run(
+      () => _moveOccurrence(
+        wakePlan: wakePlan,
+        fromDay: fromDay,
+        toDay: toDay,
+        toTime: toTime,
+      ),
+    );
+  }
+
+  Future<WakePlanSchedulingResult> _moveOccurrence({
+    required WakePlan wakePlan,
+    required CalendarDay fromDay,
+    required CalendarDay toDay,
+    TimeOfDayMinutes? toTime,
+  }) async {
+    final currentPlan = await _store.fetchWakePlan(wakePlan.id);
+    if (currentPlan == null) {
+      return _emptyResult(
+        wakePlanId: wakePlan.id,
+        status: WakePlanSchedulingStatus.scheduled,
+      );
+    }
+    if (currentPlan.repeatRule.type == RepeatType.oneTime) {
+      return _emptyResult(
+        wakePlanId: currentPlan.id,
+        status: WakePlanSchedulingStatus.scheduled,
+      );
+    }
+    final holidays = _holidaysSnapshot();
+    if (!currentPlan.occursOnConsideringHolidays(fromDay, holidays)) {
+      return _emptyResult(
+        wakePlanId: currentPlan.id,
+        status: WakePlanSchedulingStatus.scheduled,
+      );
+    }
+
+    final exceptions = await _store.fetchExceptionsForPlan(currentPlan.id);
+    final exceptionsByOriginalDay = {
+      for (final exception in exceptions) exception.originalDay: exception,
+    };
+    // A skipped day can't also be moved (conflicting state) — but re-moving
+    // an already-moved occurrence is a legitimate update, not a conflict.
+    if (exceptionsByOriginalDay[fromDay]?.isSkipped ?? false) {
+      return _emptyResult(
+        wakePlanId: currentPlan.id,
+        status: WakePlanSchedulingStatus.scheduled,
+      );
+    }
+
+    final movedToDays = {
+      for (final exception in exceptions)
+        if (exception.isMoved && exception.originalDay != fromDay)
+          exception.movedToDay!,
+    };
+    final collidesWithNaturalOccurrence =
+        toDay != fromDay &&
+        currentPlan.occursOnConsideringHolidays(toDay, holidays) &&
+        !exceptionsByOriginalDay.containsKey(toDay);
+    final collidesWithMovedOccurrence =
+        toDay != fromDay && movedToDays.contains(toDay);
+    if (collidesWithNaturalOccurrence || collidesWithMovedOccurrence) {
+      throw ArgumentError.value(
+        toDay,
+        'toDay',
+        'already has an occurrence of this wake plan',
+      );
+    }
+
+    final now = _clock();
+    final previousException = exceptionsByOriginalDay[fromDay];
+    await _store.saveOccurrenceException(
+      WakePlanOccurrenceException(
+        wakePlanId: currentPlan.id,
+        originalDay: fromDay,
+        type: WakePlanOccurrenceExceptionType.moved,
+        movedToDay: toDay,
+        movedToTargetTime: toTime,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    return _editPlan(
+      currentPlan,
+      // Restore whatever exception state existed for this day before the
+      // move attempt, computed *before* any restoration reschedule runs —
+      // see the matching comment in [_skipOccurrence].
+      onBeforeRestore: () => previousException == null
+          ? _store.deleteOccurrenceException(
+              wakePlanId: currentPlan.id,
+              originalDay: fromDay,
+            )
+          : _store.saveOccurrenceException(previousException),
+    );
+  }
+
+  /// Truncates [wakePlan]'s repeat rule so it stops producing occurrences
+  /// from [fromDay] onward, leaving earlier occurrences untouched. Equivalent
+  /// to Google Calendar's "delete this and following events".
+  Future<WakePlanSchedulingResult> deleteThisAndFollowing({
+    required WakePlan wakePlan,
+    required CalendarDay fromDay,
+  }) {
+    return _coordinator.run(
+      () => _deleteThisAndFollowing(wakePlan: wakePlan, fromDay: fromDay),
+    );
+  }
+
+  Future<WakePlanSchedulingResult> _deleteThisAndFollowing({
+    required WakePlan wakePlan,
+    required CalendarDay fromDay,
+  }) async {
+    final currentPlan = await _store.fetchWakePlan(wakePlan.id);
+    if (currentPlan == null) {
+      return _emptyResult(
+        wakePlanId: wakePlan.id,
+        status: WakePlanSchedulingStatus.scheduled,
       );
     }
     if (currentPlan.repeatRule.type == RepeatType.oneTime) {
@@ -1978,43 +2204,10 @@ class WakePlanService {
       );
     }
 
-    final now = _clock();
-    final skipDate = nextWakePlanTargetDay(
-      plan: currentPlan,
-      now: now,
-      holidays: _holidaysSnapshot(),
-    );
-    if (skipDate == null) {
-      return _emptyResult(
-        wakePlanId: currentPlan.id,
-        status: WakePlanSchedulingStatus.scheduled,
-      );
-    }
-
     return _editPlan(
-      currentPlan.copyWith(skipNextDate: skipDate),
-      skipNextDate: skipDate,
-    );
-  }
-
-  Future<WakePlanSchedulingResult> undoSkipNextOccurrence(WakePlan wakePlan) {
-    return _coordinator.run(() => _undoSkipNextOccurrence(wakePlan));
-  }
-
-  Future<WakePlanSchedulingResult> _undoSkipNextOccurrence(
-    WakePlan wakePlan,
-  ) async {
-    final currentPlan = await _store.fetchWakePlan(wakePlan.id);
-    if (currentPlan == null) {
-      return _emptyResult(
-        wakePlanId: wakePlan.id,
-        status: WakePlanSchedulingStatus.scheduled,
-      );
-    }
-
-    return _editPlan(
-      currentPlan.copyWith(skipNextDate: null),
-      skipNextDate: null,
+      currentPlan.copyWith(
+        repeatRule: currentPlan.repeatRule.truncatedBefore(fromDay),
+      ),
     );
   }
 
@@ -2027,11 +2220,12 @@ class WakePlanService {
     List<AlarmOccurrence> retiredOccurrences = const [],
   }) async {
     final occurrenceBundle = _rebindRetiredReservationSlots(
-      bundle: _buildOccurrenceBundle(plan: plan, now: now),
+      bundle: await _buildOccurrenceBundle(plan: plan, now: now),
       retiredOccurrences: retiredOccurrences,
       existingOccurrences: existingOccurrences ?? const [],
     );
     if (_requiresFutureOccurrence(plan) &&
+        !occurrenceBundle.hasActiveExceptions &&
         occurrenceBundle.occurrences.isEmpty) {
       return _emptyScheduleFailureResult(
         wakePlanId: plan.id,
@@ -2235,7 +2429,7 @@ class WakePlanService {
     final existingById = {
       for (final occurrence in existingOccurrences) occurrence.id: occurrence,
     };
-    final desiredBundle = _buildOccurrenceBundle(plan: plan, now: now);
+    final desiredBundle = await _buildOccurrenceBundle(plan: plan, now: now);
     if (desiredBundle.occurrences.isEmpty) {
       if (pendingEnableReconciliation.hasUnresolved ||
           pendingDisableReconciliation.hasUnresolved) {
@@ -2248,7 +2442,7 @@ class WakePlanService {
           ]),
         );
       }
-      if (plan.skipNextDate != null) {
+      if (desiredBundle.hasActiveExceptions) {
         return _successfulReconciliationResult(
           plan: plan,
           occurrences: const [],
@@ -2420,11 +2614,12 @@ class WakePlanService {
             !occurrence.hasNativeReservation);
   }
 
-  Set<String> _canonicalFutureOccurrenceIds({
+  Future<Set<String>> _canonicalFutureOccurrenceIds({
     required WakePlan plan,
     required DateTime now,
-  }) {
-    return _buildOccurrenceBundle(plan: plan, now: now).occurrences
+  }) async {
+    final bundle = await _buildOccurrenceBundle(plan: plan, now: now);
+    return bundle.occurrences
         .where((occurrence) => occurrence.scheduledAt.toDateTime().isAfter(now))
         .map((occurrence) => occurrence.id)
         .toSet();
@@ -2735,7 +2930,6 @@ class WakePlanService {
     return plan.isEnabled &&
         !plan.isDeleted &&
         plan.status != WakePlanStatus.finished &&
-        plan.skipNextDate == null &&
         plan.repeatRule.type == RepeatType.weekly;
   }
 
@@ -2758,10 +2952,11 @@ class WakePlanService {
     );
   }
 
-  WakePlanOccurrenceBundle _buildOccurrenceBundle({
+  Future<WakePlanOccurrenceBundle> _buildOccurrenceBundle({
     required WakePlan plan,
     required DateTime now,
-  }) {
+  }) async {
+    final exceptions = await _store.fetchExceptionsForPlan(plan.id);
     final startDay = CalendarDay.fromDateTime(now);
     final occurrencePlan = _occurrencePlanner.plan(
       wakePlan: plan,
@@ -2772,6 +2967,7 @@ class WakePlanService {
       // search run when the only occurrence in the current horizon is due now.
       now: now.add(const Duration(microseconds: 1)),
       holidays: _holidaysSnapshot(),
+      exceptions: exceptions,
     );
     final createdOccurrences = <AlarmOccurrence>[];
     final requests = <NativeAlarmScheduleRequest>[];
@@ -2829,6 +3025,7 @@ class WakePlanService {
     return WakePlanOccurrenceBundle(
       occurrences: createdOccurrences,
       requests: requests,
+      hasActiveExceptions: exceptions.isNotEmpty,
     );
   }
 
@@ -2952,6 +3149,7 @@ class WakePlanService {
     return WakePlanOccurrenceBundle(
       occurrences: reboundOccurrences,
       requests: reboundRequests,
+      hasActiveExceptions: bundle.hasActiveExceptions,
     );
   }
 
@@ -3404,7 +3602,7 @@ class WakePlanService {
           ),
         )
         .toList(growable: false);
-    final restorationRequests = _buildRestorationRequests(
+    final restorationRequests = await _buildRestorationRequests(
       plan: plan,
       occurrences: restorableOccurrences,
       now: now,
@@ -3576,15 +3774,15 @@ class WakePlanService {
     return null;
   }
 
-  List<NativeAlarmScheduleRequest>? _buildRestorationRequests({
+  Future<List<NativeAlarmScheduleRequest>?> _buildRestorationRequests({
     required WakePlan plan,
     required List<AlarmOccurrence> occurrences,
     required DateTime now,
-  }) {
-    final canonicalRequests = _buildOccurrenceBundle(
+  }) async {
+    final canonicalRequests = (await _buildOccurrenceBundle(
       plan: plan,
       now: now,
-    ).requests;
+    )).requests;
     final canonicalById = {
       for (final request in canonicalRequests) request.occurrenceId: request,
     };
@@ -3665,22 +3863,6 @@ class WakePlanService {
   }
 }
 
-const Object _preserveCurrentSkipDate = Object();
-
-CalendarDay? _resolveEditedSkipDate({
-  required Object? requestedSkipNextDate,
-  required WakePlan? previousPlan,
-  required RepeatRule repeatRule,
-}) {
-  final skipNextDate = requestedSkipNextDate == _preserveCurrentSkipDate
-      ? previousPlan?.skipNextDate
-      : requestedSkipNextDate as CalendarDay?;
-  if (skipNextDate == null || !repeatRule.includes(skipNextDate)) {
-    return null;
-  }
-  return skipNextDate;
-}
-
 WakePlanSchedulingResult _emptyResult({
   required String wakePlanId,
   required WakePlanSchedulingStatus status,
@@ -3701,14 +3883,20 @@ CalendarDay? nextWakePlanTargetDay({
   required WakePlan plan,
   required DateTime now,
   Set<CalendarDay> holidays = const {},
+  Iterable<WakePlanOccurrenceException> exceptions = const [],
 }) {
+  final exceptionsByOriginalDay = {
+    for (final exception in exceptions) exception.originalDay: exception,
+  };
   final today = CalendarDay.fromDateTime(now);
   for (var offset = 0; offset <= 370; offset += 1) {
     final day = today.addDays(offset);
-    if (!plan.occursOn(day)) {
-      continue;
-    }
-    if (plan.skipHolidays && holidays.contains(day)) {
+    if (!occursOnConsideringExceptions(
+      wakePlan: plan,
+      day: day,
+      holidays: holidays,
+      exceptionsByOriginalDay: exceptionsByOriginalDay,
+    )) {
       continue;
     }
     if (plan.targetAt(day).isBefore(now)) {
