@@ -2170,6 +2170,17 @@ class WakePlanService {
         'already has an occurrence of this wake plan',
       );
     }
+    final until = currentPlan.repeatRule.until;
+    if (until != null && toDay.compareTo(until) >= 0) {
+      // A day at/after the series' truncation point would just be silently
+      // dropped again by _resolveEditedExceptions the moment this is saved —
+      // reject it up front instead of reporting a move that doesn't stick.
+      throw ArgumentError.value(
+        toDay,
+        'toDay',
+        'is at or after this series\' end date',
+      );
+    }
 
     final now = _clock();
     final previousException = exceptionsByOriginalDay[fromDay];

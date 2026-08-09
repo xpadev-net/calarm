@@ -7894,6 +7894,27 @@ void main() {
       );
     });
 
+    test('rejects moving onto or past the series truncation point', () async {
+      final plan = buildPlan(
+        repeatRule: RepeatRule.weekly({
+          Weekday.monday,
+          Weekday.tuesday,
+        }, until: tuesday.addDays(7)),
+      );
+      final store = _LoggingWakePlanServiceStore(currentPlan: plan);
+      final gateway = FakeNativeAlarmGateway();
+
+      expect(
+        () => service(store: store, gateway: gateway).moveOccurrence(
+          wakePlan: plan,
+          fromDay: monday,
+          toDay: tuesday.addDays(7),
+        ),
+        throwsArgumentError,
+      );
+      expect(store.exceptionsById, isEmpty);
+    });
+
     test('moving the same occurrence again updates the exception', () async {
       final plan = buildPlan(repeatRule: RepeatRule.weekly({Weekday.monday}));
       final store = _LoggingWakePlanServiceStore(currentPlan: plan);
